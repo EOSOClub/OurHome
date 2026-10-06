@@ -1,0 +1,50 @@
+# Our Home — the web app. Copy this folder to `docker/` (which is gitignored),
+# create the repo-root `.env` from `.env.example`, then from `docker/`:
+#
+#   ./deploy.sh --seed          # first run (or .\deploy.ps1 -Seed)
+#   ./deploy.sh                 # later deploys
+#
+# Plain compose needs the root .env passed explicitly:
+#   docker compose --env-file ../.env up -d --build
+#
+# Bring your own MongoDB: it must be a replica set (the app uses transactions).
+# Point SERVER_DATABASE_URL at it. The 15-minute reminder sweep runs inside the
+# app, so nothing else needs to run. See README.md in this folder.
+#
+# The container joins the Docker network DOCKER_NETWORK (default ourhome_net).
+# The deploy scripts create it if missing; with plain compose, create it once:
+#   docker network create ourhome_net
+# Put your Mongo container on the same network to reach it by container name.
+
+name: ourhome
+
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: docker/web/Dockerfile
+    container_name: ourhome_web
+    restart: unless-stopped
+    # The repo-root .env is shared with local dev (npm run dev). Values in
+    # `environment` override it, so the container gets the server's settings:
+    env_file:
+      - ../.env
+    environment:
+      NODE_ENV: production
+      # Server-only values, kept under other names in .env so dev never uses them.
+      DATABASE_URL: ${SERVER_DATABASE_URL:?set SERVER_DATABASE_URL in .env}
+      BETTER_AUTH_URL: ${PUBLIC_URL:?set PUBLIC_URL in .env}
+      SMTP_HOST: ${SERVER_SMTP_HOST:-}
+      TURNSTILE_SITE_KEY: ${SERVER_TURNSTILE_SITE_KEY:-}
+      TURNSTILE_SECRET_KEY: ${SERVER_TURNSTILE_SECRET_KEY:-}
+    ports:
+      # Localhost only: put a reverse proxy / tunnel (e.g. Cloudflare Tunnel,
+      # Caddy, nginx) in front for HTTPS. Drop "127.0.0.1:" to expose on the LAN.
+      - "127.0.0.1:${WEB_HOST_PORT:-3000}:3000"
+
+networks:
+  # A shared, pre-created network (not one compose makes per project), so other
+  # stacks such as MongoDB can join it too.
+  default:
+    name: ${DOCKER_NETWORK:-ourhome_net}
+    external: true

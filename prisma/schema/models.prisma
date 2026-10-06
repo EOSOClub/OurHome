@@ -1,0 +1,670 @@
+// Single source of truth for all models. The datasource block lives in
+// datasource.prisma (MongoDB).
+//
+// MONGODB NOTES:
+//   - Every id is `String @id @default(cuid()) @map("_id")` — cuid strings stored
+//     as the Mongo `_id`. Relation scalar fields stay plain String (no ObjectId).
+//   - Referential actions (onDelete) are emulated by Prisma's relation engine.
+//   - Interactive transactions (prisma.$transaction) require Mongo to run as a
+//     replica set — the docker/ stack provides a single-node RS.
+//
+// SCHEMA CONVENTIONS (carried over, all Mongo-friendly):
+//   - No Prisma `enum` -> use String columns, validated by Zod (see src/lib/validation).
+//   - No `Json` column type -> store JSON as String (text), parsed with Zod.
+//   - No scalar list types (e.g. String[]) -> use relations or delimited strings.
+//   - DateTime timestamps stored in UTC.
+
+generator client {
+  provider      = "prisma-client-js"
+  // "native" covers local dev (e.g. Windows); debian-openssl-3.0.x is the Linux
+  // query-engine for the node:20-slim image used in docker/web/Dockerfile.
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+// ---------------------------------------------------------------------------
+// Household & Auth (Better Auth core tables: User, Session, Account, Verification)
+// ---------------------------------------------------------------------------
+
+model Household {
+  id        String   @id @default(cuid()) @map("_id")
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members        User[]
+  categories     Category[]
+  tasks          Task[]
+  activity       ActivityEntry[]
+  shoppingLists  ShoppingList[]
+  inventoryItems InventoryItem[]
+  purchases      Purchase[]
+  notifications  Notification[]
+  events         EventLog[]
+  calendarEvents Event[]
+  bills          Bill[]
+  billPayments   BillPayment[]
+  nfcTags        NfcTag[]
+  integrations   HomeAssistantIntegration[]
+  requests       Request[]
+  bugReports     BugReport[]
+}
+
+model User {
+  id            String   @id @default(cuid()) @map("_id")
+  name          String
+  email         String   @unique
+  emailVerified Boolean  @default(false)
+  image         String?
+  // Login identifier (Better Auth username plugin). `username` is normalized to
+  // lowercase and unique; `displayUsername` preserves the original casing.
+  username        String? @unique
+  displayUsername String?
+  // Application fields. role: "head" | "manager" | "member" | "guest" (Zod).
+  role          String   @default("member")
+  // Set when an admin provisions an account with a temporary password; the app
+  // forces a password change on next sign-in, then clears this.
+  mustChangePassword Boolean @default(false)
+  // Audit: which user provisioned this member (plain id, no relation).
+  createdById   String?
+  householdId   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  household       Household?       @relation(fields: [householdId], references: [id], onDelete: SetNull)
+  sessions        Session[]
+  accounts        Account[]
+  assignedTasks   Task[]           @relation("TaskAssignee")
+  createdTasks    Task[]           @relation("TaskCreatedBy")
+  completions     TaskCompletion[]
+  activity        ActivityEntry[]
+  purchases       Purchase[]
+  notifications   Notification[]
+  createdEvents   Event[]          @relation("EventCreatedBy")
+  eventAttendance EventAttendee[]
+  assignedBills   Bill[]           @relation("BillAssignee")
+  billPayments    BillPayment[]
+  requests        Request[]        @relation("RequestRequester")
+  assignedRequests Request[]       @relation("RequestAssignee")
+  bugReports      BugReport[]
+
+  @@index([householdId])
+}
+
+model Session {
+  id        String   @id @default(cuid()) @map("_id")
+  expiresAt DateTime
+  token     String   @unique
+  ipAddress String?
+  userAgent String?
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Account {
+  id                    String    @id @default(cuid()) @map("_id")
+  accountId             String
+  providerId            String
+  userId                String
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Verification {
+  id         String   @id @default(cuid()) @map("_id")
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+}
+
+// ---------------------------------------------------------------------------
+// Shared lookup
+// ---------------------------------------------------------------------------
+
+model Category {
+  id          String   @id @default(cuid()) @map("_id")
+  householdId String
+  name        String
+  // Free-form domain hint: "task" | "shopping" | "inventory" | "general".
+  kind        String   @default("general")
+  color       String?
+  icon        String?
+  createdAt   DateTime @default(now())
+
+  household      Household       @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  tasks          Task[]
+  shoppingItems  ShoppingItem[]
+  inventoryItems InventoryItem[]
+
+  @@unique([householdId, name, kind])
+  @@index([householdId])
+}
+
+// ---------------------------------------------------------------------------
+// Tasks, chores & recurrence (implemented this milestone)
+// ---------------------------------------------------------------------------
+
+model Task {
+  id          String    @id @default(cuid()) @map("_id")
+  householdId String
+  title       String
+  notes       String?
+  // type: "one_time" | "recurring" | "maintenance" | "inventory"
+  type        String    @default("one_time")
+  // priority: "low" | "medium" | "high" | "urgent"
+  priority    String    @default("medium")
+  // status: "pending" | "in_progress" | "completed" | "archived"
+  status      String    @default("pending")
+  dueDate     DateTime?
+  completedAt DateTime?
+  // estimated effort to complete, in minutes
+  estimatedMinutes Int?
+  categoryId  String?
+  assigneeId  String?
+  createdById String?
+  recurrenceId String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  household   Household        @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  category    Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  assignee    User?            @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  createdBy   User?            @relation("TaskCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  recurrence  RecurrenceRule?  @relation(fields: [recurrenceId], references: [id], onDelete: SetNull)
+  completions TaskCompletion[]
+  subtasks    Subtask[]
+
+  @@index([householdId, status])
+  @@index([householdId, dueDate])
+  @@index([assigneeId])
+}
+
+model RecurrenceRule {
+  id        String   @id @default(cuid()) @map("_id")
+  // kind: "daily" | "weekly" | "monthly" | "interval" | "cron"
+  kind      String
+  interval  Int      @default(1)
+  // Delimited lists (kept as plain strings for portability). e.g. byWeekday="1,3,5" (0=Sun).
+  byWeekday String?
+  byMonthday String?
+  cron      String?
+  timezone  String   @default("UTC")
+  anchorDate DateTime @default(now())
+  // optional end date: no occurrences are generated after this instant
+  until     DateTime?
+  nextRunAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // One-to-many on the FK side (not 1:1): MongoDB cannot express a *sparse* unique
+  // index from Prisma, so a `@unique` recurrenceId would forbid more than one
+  // owner row to have NO recurrence (all-null collide). A rule is still used by at
+  // most one owner by construction (each is created with its bill/task/event).
+  task  Task[]
+  event Event[]
+  bill  Bill[]
+
+  @@index([nextRunAt])
+}
+
+model TaskCompletion {
+  id          String   @id @default(cuid()) @map("_id")
+  taskId      String
+  userId      String?
+  note        String?
+  completedAt DateTime @default(now())
+
+  task Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([taskId])
+  @@index([userId])
+}
+
+model Subtask {
+  id        String   @id @default(cuid()) @map("_id")
+  taskId    String
+  title     String
+  done      Boolean  @default(false)
+  // When the item was last checked; drives the per-item reset cadence below.
+  doneAt    DateTime?
+  // Auto-uncheck this item N days after it was checked (e.g. "dishes" daily
+  // inside a "clean kitchen" task that repeats every 3 days). Null = the item
+  // only resets when the parent recurring task advances.
+  resetIntervalDays Int?
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+}
+
+// ---------------------------------------------------------------------------
+// Activity feed (implemented this milestone — written by the service layer)
+// ---------------------------------------------------------------------------
+
+model ActivityEntry {
+  id          String   @id @default(cuid()) @map("_id")
+  householdId String
+  actorId     String?
+  // verb: "completed" | "created" | "updated" | "marked_low" | "replaced" | ...
+  verb        String
+  // subjectType: "task" | "shopping_item" | "inventory_item" | "automation" | ...
+  subjectType String
+  subjectId   String?
+  message     String
+  // Optional structured context as JSON text (validated by Zod when read).
+  metadata    String?
+  createdAt   DateTime @default(now())
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  actor     User?     @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([householdId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Household calendar / events
+// ---------------------------------------------------------------------------
+
+model Event {
+  id           String    @id @default(cuid()) @map("_id")
+  householdId  String
+  title        String
+  description  String?
+  location     String?
+  startAt      DateTime
+  endAt        DateTime?
+  allDay       Boolean   @default(false)
+  // source: "manual" | "email". Email events are auto-created from ingested bills.
+  source       String    @default("manual")
+  // For source="email": `sourceRef` is the bill's reference (link key) and `billId`
+  // is the plain id of the originating Bill, so the event tracks/cleans up with it.
+  sourceRef    String?
+  billId       String?
+  // Optional recurrence (reuses RecurrenceRule); anchorDate is the event start.
+  recurrenceId String?
+  createdById  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  household  Household       @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  recurrence RecurrenceRule? @relation(fields: [recurrenceId], references: [id], onDelete: SetNull)
+  createdBy  User?           @relation("EventCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  attendees  EventAttendee[]
+
+  @@index([householdId, startAt])
+  @@index([householdId, sourceRef])
+}
+
+model EventAttendee {
+  id        String   @id @default(cuid()) @map("_id")
+  eventId   String
+  userId    String
+  createdAt DateTime @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId])
+  @@index([eventId])
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Bills & expenses
+// ---------------------------------------------------------------------------
+
+model Bill {
+  id             String    @id @default(cuid()) @map("_id")
+  householdId    String
+  name           String
+  // `amount` is the total owed by the due date (the statement's "payment amount" /
+  // balance — what determines paid vs unpaid). `currentCharges` is this period's
+  // charges when a statement shows both (e.g. a utility when you're carrying a balance).
+  amount         Float
+  currentCharges Float?
+  currency       String?   @default("USD")
+  dueDate        DateTime?
+  // status: "unpaid" | "paid"
+  status         String    @default("unpaid")
+  category       String?
+  autoPay        Boolean   @default(false)
+  notes          String?
+  // source: "manual" | "email" | "import". The "email" value is set by the bill
+  // ingestion webhook (src/server/services/billIngestService.ts).
+  source         String    @default("manual")
+  // Email-ingestion linkage (source="email"). `reference` is the cross-document
+  // link key (invoice # > confirmation # > generated) shared with the matching
+  // BillPayment and the calendar Event; `sourceMessageId` is the email Message-ID
+  // used for idempotent re-ingestion. The rest preserve "various info" from the mail.
+  reference       String?
+  invoiceNo       String?
+  accountNo       String?
+  confirmationNo  String?
+  billerEmail     String?
+  sourceMessageId String?
+  // Optional recurrence for repeating bills (anchorDate is the due date).
+  recurrenceId   String?
+  assignedUserId String?
+  createdById    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  household  Household       @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  recurrence RecurrenceRule? @relation(fields: [recurrenceId], references: [id], onDelete: SetNull)
+  assignee   User?           @relation("BillAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  payments   BillPayment[]
+
+  @@index([householdId, dueDate])
+  @@index([householdId, reference])
+  @@index([householdId, sourceMessageId])
+}
+
+model BillPayment {
+  id           String   @id @default(cuid()) @map("_id")
+  householdId  String
+  billId       String?
+  amount       Float
+  // Card/convenience surcharge on top of `amount` (the amount applied to the
+  // bill's balance). Total charged = amount + fee. Null ⇒ 0 (backward compatible:
+  // no existing payment's `amount` includes a fee, so `amount` still == applied).
+  fee          Float?
+  paidByUserId String?
+  paidAt       DateTime @default(now())
+  notes        String?
+  source       String   @default("manual")
+  // Email-ingestion linkage (source="email"): `reference` ties this payment to its
+  // Bill, `sourceMessageId` dedupes the receipt email on re-ingestion.
+  reference       String?
+  confirmationNo  String?
+  sourceMessageId String?
+  createdAt    DateTime @default(now())
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  bill      Bill?     @relation(fields: [billId], references: [id], onDelete: SetNull)
+  paidBy    User?     @relation(fields: [paidByUserId], references: [id], onDelete: SetNull)
+
+  @@index([householdId])
+  @@index([billId])
+  @@index([householdId, sourceMessageId])
+}
+
+// ---------------------------------------------------------------------------
+// Shopping, inventory, notifications, and event-ingestion systems.
+// ---------------------------------------------------------------------------
+
+model ShoppingList {
+  id          String   @id @default(cuid()) @map("_id")
+  householdId String
+  name        String
+  // kind: "grocery" | "supplies" | "hardware" | "amazon" | "general"
+  kind        String   @default("grocery")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  household Household      @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  items     ShoppingItem[]
+
+  @@index([householdId])
+}
+
+model ShoppingItem {
+  id            String    @id @default(cuid()) @map("_id")
+  listId        String
+  categoryId    String?
+  name          String
+  quantity      Int       @default(1)
+  // priority: "low" | "medium" | "high"
+  priority      String    @default("medium")
+  notes         String?
+  // optional product link (e.g. an Amazon listing); ASIN is derived for display
+  url           String?
+  // best-effort Open Graph preview image fetched from `url` (may be stale/blank)
+  imageUrl      String?
+  estimatedPrice Float?
+  recurring     Boolean   @default(false)
+  purchased     Boolean   @default(false)
+  purchasedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  list     ShoppingList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  category Category?    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([listId])
+}
+
+// A household request. Visible to everyone in the household; only the
+// requester may edit or delete it (requestService).
+//   media:       "please get this movie / show"
+//   maintenance: "please fix this" — assigned to another member, who accepts it
+//                with a done-by date (`dueAt`, the deadline) and later marks it
+//                done. dueAt is the hook for deadline notifications.
+model Request {
+  id          String    @id @default(cuid()) @map("_id")
+  householdId String
+  requesterId String
+  // category: "media" | "maintenance" (REQUEST_CATEGORIES).
+  category    String    @default("media")
+  title       String
+  // --- media ---
+  // mediaType: "movie" | "tv" (MEDIA_TYPES) — required for category "media".
+  mediaType   String?
+  // movie: release year. tv: year of the first season, or of `season` when set.
+  year        Int?
+  // tv only: a specific season being requested; null means the whole show.
+  season      Int?
+  // --- maintenance ---
+  details     String?
+  // Who is asked to do it (never the requester).
+  assigneeId  String?
+  // status: "pending" (awaiting acceptance) | "accepted" | "completed"
+  // (MAINTENANCE_STATUSES). Null for media requests.
+  status      String?
+  // Done-by date the assignee committed to when accepting — the deadline.
+  dueAt       DateTime?
+  acceptedAt  DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  requester User      @relation("RequestRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  assignee  User?     @relation("RequestAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+
+  @@index([householdId])
+  @@index([assigneeId])
+}
+
+// A bug report filed from the website or the Android app. Stored first, then
+// the head is notified in-app and a copy is emailed to support
+// (bugReportService); a failed or unconfigured email never loses the report.
+model BugReport {
+  id          String   @id @default(cuid()) @map("_id")
+  householdId String
+  reporterId  String
+  title       String
+  description String
+  // source: "web" | "android" (BUG_REPORT_SOURCES)
+  source      String
+  // Where it happened: the web page path or the app screen.
+  context     String?
+  // App version (android) — helps match a report to a build.
+  appVersion  String?
+  userAgent   String?
+  // Support email delivery: "pending" | "emailed" | "email_failed" | "not_configured"
+  emailStatus String   @default("pending")
+  createdAt   DateTime @default(now())
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  reporter  User      @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+
+  @@index([householdId])
+}
+
+model InventoryItem {
+  id              String    @id @default(cuid()) @map("_id")
+  householdId     String
+  categoryId      String?
+  name            String
+  unit            String?
+  quantity        Float     @default(0)
+  lowThreshold    Float     @default(0)
+  isLow           Boolean   @default(false)
+  // Average days between replenishments, for predicted reorder timing.
+  reorderIntervalDays Int?
+  lastRestockedAt DateTime?
+  predictedDepletionAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  category  Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([householdId])
+}
+
+model Purchase {
+  id              String    @id @default(cuid()) @map("_id")
+  householdId     String
+  userId          String?
+  productName     String
+  url             String?
+  // source: "manual" | "amazon_url" | "csv" | "api"
+  source          String    @default("manual")
+  reorderIntervalDays Int?
+  estimatedPrice  Float?
+  notes           String?
+  lastPurchasedAt DateTime?
+  predictedDepletionAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  user      User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([householdId])
+}
+
+model Notification {
+  id          String    @id @default(cuid()) @map("_id")
+  householdId String
+  userId      String?
+  // type: "overdue" | "reminder" | "low_inventory" | "system"
+  type        String
+  title       String
+  body        String?
+  // channel: "in_app" | "push" | "home_assistant" | "discord" | "email"
+  channel     String    @default("in_app")
+  // What this notification is about, so the UI can deep-link and the generator
+  // can resolve/clear stale entries. subjectType: "task" | "inventory_item" | ...
+  subjectType String?
+  subjectId   String?
+  // Stable key for idempotent generation, e.g. "overdue:task:<id>". Lets the
+  // reminder generator upsert instead of creating duplicates on every run.
+  dedupeKey   String?
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  user      User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([householdId, dedupeKey])
+  @@index([householdId, userId])
+}
+
+model EventLog {
+  id          String   @id @default(cuid()) @map("_id")
+  householdId String?
+  // eventType: "nfc_scan" | "task_completion" | "automation" | "inventory_change" | ...
+  eventType   String
+  // source: "home_assistant" | "web" | "system" | "nfc"
+  source      String
+  // Full structured payload as JSON text (validated by Zod on ingestion).
+  payload     String
+  processedAt DateTime?
+  createdAt   DateTime @default(now())
+
+  household Household? @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@index([householdId, createdAt])
+  @@index([eventType])
+}
+
+model NfcTag {
+  id          String   @id @default(cuid()) @map("_id")
+  householdId String
+  // Stable identifier scanned by Home Assistant, e.g. "trash_can".
+  tagId       String
+  label       String
+  // represents: "location" | "action" | "consumable" | "maintenance_point" | "process"
+  represents  String   @default("action")
+  // Optional default action config as JSON text.
+  config      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@unique([householdId, tagId])
+  @@index([householdId])
+}
+
+model HomeAssistantIntegration {
+  id          String   @id @default(cuid()) @map("_id")
+  householdId String
+  name        String
+  baseUrl     String?
+  // Hashed API token for authenticating incoming webhook/event calls.
+  tokenHash   String
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@index([householdId])
+}
+
+// ---------------------------------------------------------------------------
+// Public contact form (pre-auth). Submitted from the login page by anonymous
+// visitors, so there is NO household/user relation. Persisted before we attempt
+// the confirmation + forward emails, so a message is never lost to a mail hiccup.
+// ---------------------------------------------------------------------------
+
+model ContactMessage {
+  id          String   @id @default(cuid()) @map("_id")
+  name        String
+  email       String
+  description String
+  // Captured for abuse tracing (Cloudflare real IP + UA). Best-effort.
+  ipAddress   String?
+  userAgent   String?
+  // status: "received" | "emailed" | "email_failed" (Zod/const, no Prisma enum)
+  status      String   @default("received")
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+}

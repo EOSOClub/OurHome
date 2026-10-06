@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+/* Class-based dark mode for Tailwind v4. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --radius: 0.7rem;
+
+  --background: hsl(0 0% 100%);
+  --foreground: hsl(222 47% 11%);
+  --card: hsl(0 0% 100%);
+  --card-foreground: hsl(222 47% 11%);
+  --muted: hsl(210 40% 96%);
+  --muted-foreground: hsl(215 16% 47%);
+  --primary: hsl(221 83% 53%);
+  --primary-foreground: hsl(210 40% 98%);
+  --accent: hsl(210 40% 94%);
+  --accent-foreground: hsl(222 47% 11%);
+  --destructive: hsl(0 72% 51%);
+  --destructive-foreground: hsl(210 40% 98%);
+  --success: hsl(142 71% 45%);
+  --warning: hsl(38 92% 50%);
+  --border: hsl(214 32% 91%);
+  --input: hsl(214 32% 91%);
+  --ring: hsl(221 83% 53%);
+}
+
+.dark {
+  --background: hsl(222 47% 7%);
+  --foreground: hsl(210 40% 96%);
+  --card: hsl(222 44% 10%);
+  --card-foreground: hsl(210 40% 96%);
+  --muted: hsl(217 33% 16%);
+  --muted-foreground: hsl(215 20% 65%);
+  --primary: hsl(217 91% 60%);
+  --primary-foreground: hsl(222 47% 11%);
+  --accent: hsl(217 33% 18%);
+  --accent-foreground: hsl(210 40% 96%);
+  --destructive: hsl(0 63% 50%);
+  --destructive-foreground: hsl(210 40% 98%);
+  --success: hsl(142 69% 48%);
+  --warning: hsl(38 92% 55%);
+  --border: hsl(217 33% 20%);
+  --input: hsl(217 33% 22%);
+  --ring: hsl(217 91% 60%);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+* {
+  border-color: var(--color-border);
+}
+
+body {
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}

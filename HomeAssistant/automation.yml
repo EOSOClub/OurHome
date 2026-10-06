@@ -1,0 +1,71 @@
+# LEGACY: scanning through Home Assistant. Scanning now happens in the Our Home
+# Android app; use display.yaml to show inventory in HA instead.
+alias: Inventory scan (any tag)
+description: >-
+  Single automation for every NFC inventory tag. Adding an item needs no app
+  config: add its tag here in two places — a `tag` trigger and the `name_by_tag`
+  map — then scan it. The first scan of an unknown tag auto-creates the item
+  (named from name_by_tag), seeds its quantity from the scanned number, and binds
+  the tag in the app. Later scans resolve via that binding and the name is
+  ignored. NOTE: a `tag` trigger only fires for the ids it lists, so each new tag
+  must be added to `triggers` below.
+triggers:
+  - trigger: tag
+    tag_id: <TAG_ID_1> # Paper Towels
+  - trigger: tag
+    tag_id: <TAG_ID_2> # Toilet Paper
+conditions: []
+actions:
+  - data:
+      title: "{{ item_name }}"
+      message: How many? Use a negative number to remove.
+      data:
+        actions:
+          - action: INV_REPLY
+            title: Enter amount
+            behavior: textInput
+            textInputButtonTitle: Apply
+            textInputPlaceholder: "-1, 2, 0.5"
+    action: "{{ notify_service }}"
+  - wait_for_trigger:
+      - event_type: mobile_app_notification_action
+        event_data:
+          action: INV_REPLY
+        trigger: event
+    timeout: "00:02:00"
+    continue_on_timeout: false
+  - data:
+      tag_id: "{{ trigger.event.data.tag_id }}"
+      amount: "{{ wait.trigger.event.data.reply_text | float }}"
+      actor: "{{ actor }}"
+      name: "{{ item_name }}"
+    action: rest_command.inventory_scan
+mode: parallel
+max: 10
+variables:
+  # Per-tag friendly name. The HA tag registry name isn't reachable from a
+  # template, so map it here. The app uses this only on the first scan of an
+  # unknown tag (to name + create the item); it's ignored once the tag is bound.
+  name_by_tag:
+    <TAG_ID_1>: Paper Towels
+    <TAG_ID_2>: Toilet Paper
+  # Falls back to 'Inventory' for a tag that's triggered but missing from
+  # the map (still works — the app would just create/title it generically).
+  item_name: "{{ name_by_tag.get(trigger.event.data.tag_id, 'Inventory') }}"
+  notify_by_device:
+    <PHONE_DEVICE_ID>: notify.mobile_app_your_phone
+  actor_by_device:
+    <PHONE_DEVICE_ID>: your_username
+  notify_service: |-
+    {{ notify_by_device.get(trigger.event.data.device_id,
+       'notify.mobile_app_<SCANNER_PHONE>') }}
+  actor: "{{ actor_by_device.get(trigger.event.data.device_id, '') }}"
+
+#  rest_command:
+#    inventory_scan:
+#      url: "http://APP_HOST:3000/api/webhooks/nfc"
+#      method: POST
+#      headers:
+#        Authorization: "Bearer YOUR_TOKEN"
+#        Content-Type: "application/json"
+#        payload: '{"tagId": "{{ tag_id }}", "amount": {{ amount }}, "actor": "{{ actor }}", "name": "{{ name }}"}'

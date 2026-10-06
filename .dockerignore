@@ -1,0 +1,29 @@
+# Build context for the web image (context = repo root). Keep it lean and never
+# bake secrets into the image.
+node_modules
+.next
+out
+build
+.git
+.idea
+*.tsbuildinfo
+next-env.d.ts
+
+# local DBs / leftovers
+prisma/*.db
+prisma/*.db-journal
+
+# secrets — never copy into the image
+.env
+.env.*
+!.env.example
+
+# deployment folders (compose files, secrets, retired services) — not app source.
+# The web Dockerfile still needs docker/web/entrypoint.sh, so that stays in.
+docker/*
+!docker/web
+docker.example
+
+# docs / unrelated
+docs
+HomeAssistant

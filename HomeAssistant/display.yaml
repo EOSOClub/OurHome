@@ -1,0 +1,45 @@
+# Home Assistant — display-only inventory (scanning now happens in the
+# "Our Home" Android app; see docs/home-assistant.md → "Display-only mode").
+#
+# HA polls a read-only feed and shows the numbers. Nothing here changes stock,
+# and nothing needs editing when you add a new tag or item.
+#
+# 1. Create a token in the site: Settings → Home Assistant connection.
+# 2. secrets.yaml:
+#      ourhome_auth: "Bearer <your token>"
+# 3. Add the block below to configuration.yaml and restart HA.
+#    Use the LAN address (http://<app-host>:3000) instead of the public URL if
+#    you prefer to keep this traffic inside the house.
+
+rest:
+  - resource: https://home.example.com/api/integrations/inventory
+    headers:
+      Authorization: !secret ourhome_auth
+    scan_interval: 300 # seconds
+    sensor:
+      # Count of low items; every item is in the attributes for dashboards.
+      - name: "Inventory low items"
+        unique_id: ourhome_inventory_low_items
+        icon: mdi:package-variant
+        value_template: "{{ value_json.data.lowCount }}"
+        json_attributes_path: "$.data"
+        json_attributes:
+          - items
+          - count
+      # Optional: one sensor per item you want on its own. The key is the item
+      # name lowercased with spaces → underscores ("Paper towels" → paper_towels).
+      - name: "Paper towels"
+        unique_id: ourhome_inventory_paper_towels
+        icon: mdi:paper-roll
+        unit_of_measurement: rolls
+        value_template: "{{ value_json.data.items_by_slug.paper_towels.quantity }}"
+
+# Dashboard card (Lovelace → Add card → Manual) that lists every item and
+# needs no changes as items are added:
+#
+# type: markdown
+# title: Inventory
+# content: >-
+#   {% for i in state_attr('sensor.inventory_low_items', 'items') or [] %}
+#   {{ '⚠️' if i.is_low else '•' }} **{{ i.name }}** — {{ i.quantity }} {{ i.unit or '' }}
+#   {% endfor %}

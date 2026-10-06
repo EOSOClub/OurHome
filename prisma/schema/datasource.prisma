@@ -1,0 +1,11 @@
+// MongoDB datasource. MongoDB requires a replica set for transactions, which the
+// app uses; the docker stack (docker.example/) runs a single-node replica set (rs0).
+//
+// DATABASE_URL examples:
+//   in Docker network : mongodb://mongo:27017/household?replicaSet=rs0
+//   from host / Compass: mongodb://localhost:27018/household?directConnection=true
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}

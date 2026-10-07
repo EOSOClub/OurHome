@@ -2,9 +2,9 @@
 
 # 🏡 OurHomeWeb
 
-**A self-hosted, mobile-first command centre for running a household.**
+**A self-hosted, mobile-first command center for running a household.**
 
-Chores, shopping, inventory, bills, a shared calendar and household requests,<br>
+Chores, shopping, inventory, bills, a shared calendar, and household requests, <br>
 with roles for every member of the home.
 
 [![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)](https://nextjs.org)
@@ -30,7 +30,7 @@ with roles for every member of the home.
 <td width="50%" valign="top">
 
 ### ✅ Tasks & chores
-Recurring chores, one-off tasks and step-by-step checklists, assigned to the people who do them.
+Recurring chores, one-off tasks, and step-by-step checklists, assigned to the people who do them.
 
 ### 🛒 Shopping lists
 A shared list the whole household can add to and tick off.
@@ -91,7 +91,8 @@ flowchart LR
     Browser["🌐 Browser"] --> Proxy
     Android["📱 OurHomeApp"] --> Proxy
     HA["🏠 Home Assistant"] -. read-only feed .-> Proxy
-    Proxy["🔒 Reverse proxy / tunnel<br/>(HTTPS)"] --> Web["⚡ OurHomeWeb<br/>Next.js on 127.0.0.1:3000"]
+    Browser -. "home network (HTTP)" .-> Web
+    Proxy["🔒 Reverse proxy / tunnel<br/>(HTTPS, optional)"] --> Web["⚡ OurHomeWeb<br/>Next.js on :3000"]
     Web --> DB[("🍃 MongoDB<br/>replica set")]
 ```
 
@@ -103,20 +104,20 @@ Deployment lives in a `docker/` folder that is **gitignored**, so your real conf
 git clone https://github.com/EOSOClub/OurHome.git OurHomeWeb
 cd OurHomeWeb
 cp -r docker.example docker
-cp .env.example .env                   # then edit .env
+cp .env.example .env                   # database URL + two secrets
 cd docker
-./deploy.sh --seed                     # or: docker compose --env-file ../.env up -d --build
+./deploy.sh                            # or: docker compose --env-file ../.env up -d --build
 ```
 
-`deploy.sh` (or `deploy.ps1` on Windows) builds and starts the app, waits until it responds, and with `--seed` creates the household and first users from the `SEED_*` values in `.env`.
+`deploy.sh` (or `deploy.ps1` on Windows) builds and starts the app, waits until it responds, and prints its address.
 
-Then sign in at `PUBLIC_URL` with `SEED_ADMIN_USERNAME` / `SEED_ADMIN_PASSWORD`.
+Then open `http://<server-ip>:3000` from any device on your network. On a fresh install the **setup page** asks for the household name and an admin username and password, then lets you add everyone else (username, password, optional email). No accounts live in `.env`.
 
 > [!IMPORTANT]
 > Docker runs **only the web app**. It needs a MongoDB **replica set**: set it up first with **[OurHomeServices](https://github.com/EOSOClub/OurHomeServices)** (or bring your own) and point `SERVER_DATABASE_URL` at it. The reminder sweep runs inside the app.
 
 > [!NOTE]
-> The web container listens on `127.0.0.1:3000` only. Put a reverse proxy or tunnel (Cloudflare Tunnel, Caddy, nginx…) in front for HTTPS.
+> The web container serves plain HTTP on port 3000 to your home network. For access from outside, put a tunnel or reverse proxy (Cloudflare Tunnel, Caddy, nginx…) in front for HTTPS and set `PUBLIC_URL`. Never forward the port on your router.
 
 📖 Full walkthrough and every setting: [`docker.example/README.md`](./docker.example/README.md)
 
@@ -133,8 +134,9 @@ All configuration lives in one `.env` in the repo root, used by both local dev a
 | Setting | What it's for |
 | --- | --- |
 | `APP_NAME` | Name shown in the browser, sign-in page and emails (default "Our Home") |
-| `PUBLIC_URL`, `BETTER_AUTH_TRUSTED_ORIGINS` | Your public URL (server) |
 | `SERVER_DATABASE_URL` | Your MongoDB replica set, as the container reaches it |
+| `PUBLIC_URL` | Optional `https://` address from outside, for email links (server) |
+| `WEB_HOST_PORT`, `WEB_BIND` | Port, and whether the home network can reach it (server) |
 | `BETTER_AUTH_URL`, `DATABASE_URL` | Local dev URL and database |
 | `BETTER_AUTH_SECRET` | Session signing secret |
 | `CRON_SECRET` | Optional: trigger a reminder sweep via `/api/cron/reminders` |
@@ -142,7 +144,6 @@ All configuration lives in one `.env` in the repo root, used by both local dev a
 | `SERVER_TURNSTILE_*` | Optional contact-form CAPTCHA (server only) |
 | `SERVER_PAPERLESS_URL`, `SERVER_PAPERLESS_TOKEN`, `PAPERLESS_PUBLIC_URL` | Optional bill import from Paperless-ngx (server only, [setup](./docs/paperless-import.md)) |
 | `SERVER_FIREBASE_SERVICE_ACCOUNT` | Optional instant alerts for the Android app (server only, [setup](./docs/push-notifications.md)) |
-| `SEED_*` | First-run household and users |
 
 </details>
 
@@ -153,8 +154,7 @@ npm install
 cp .env.example .env              # set DATABASE_URL to a MongoDB replica set
 npm run db:generate
 npm run db:push
-npm run db:seed
-npm run dev                       # http://localhost:3000
+npm run dev                       # http://localhost:3000, setup on first visit
 ```
 
 | Script | Purpose |
@@ -162,7 +162,7 @@ npm run dev                       # http://localhost:3000
 | `npm run dev` / `build` / `start` | Next.js dev / production build / serve |
 | `npm run db:generate` | Generate the Prisma client |
 | `npm run db:push` | Apply the schema to Mongo (no SQL migrations on Mongo) |
-| `npm run db:seed` | Seed the household, users, categories, sample chores |
+| `npm run db:reset` | Wipe the database (setup runs again on next visit) |
 | `npm run test` | Vitest |
 | `npm run typecheck` | `tsc --noEmit` |
 
@@ -188,6 +188,7 @@ Home Assistant can show inventory on a dashboard from a read-only feed (`/api/in
 
 ```
 src/
+  app/setup/…             First-run setup (admin, then household members)
   app/(auth)/…            Sign-in, forgot/reset password
   app/(app)/…             Dashboard, tasks, shopping, inventory, bills, calendar,
                           requests, members, settings, notifications, profile
@@ -198,7 +199,7 @@ src/
   lib/                    Zod schemas, enums, DTOs, permissions, helpers
   components/             UI primitives + feature components
 prisma/                   Schema (models + mongodb datasource)
-scripts/                  seed.ts
+scripts/                  paperless-preview.ts
 docker.example/           Deployment template (copy to docker/, which is gitignored)
 HomeAssistant/            Example Home Assistant config
 docs/                     Runbooks

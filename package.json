@@ -15,7 +15,6 @@
     "db:push": "prisma db push",
     "db:reset": "prisma db push --force-reset",
     "db:studio": "prisma studio",
-    "db:seed": "tsx scripts/seed.ts",
     "paperless:preview": "tsx scripts/paperless-preview.ts",
     "prebuild": "prisma generate"
   },

@@ -305,3 +305,15 @@ export interface NotificationDTO {
   read: boolean;
   createdAt: string;
 }
+
+/** How the site may be reached (Settings → Security, and the post-setup prompt). */
+export interface AccessSettingsDTO {
+  /** Sign-in over plain HTTP on the home network is allowed. */
+  allowHttp: boolean;
+  /** The Head of House has made a choice (the prompt stops appearing). */
+  reviewed: boolean;
+  /** The https:// public address, when PUBLIC_URL is set. */
+  publicUrl: string | null;
+  /** How the viewer is connected right now. */
+  connection: 'https' | 'localhost' | 'http';
+}

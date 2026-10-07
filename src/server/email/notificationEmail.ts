@@ -38,7 +38,8 @@ const SUBJECT_PATH: Record<string, string> = {
  */
 export function buildReminderEmail(
   candidate: ReminderEmailInput,
-  baseUrl: string | null = process.env.BETTER_AUTH_URL ?? null,
+  // `||`: compose passes an empty BETTER_AUTH_URL when PUBLIC_URL isn't set.
+  baseUrl: string | null = process.env.BETTER_AUTH_URL || null,
 ): ReminderEmailContent {
   const prefix = SUBJECT_PREFIX[candidate.type] ?? 'Notification';
   const lines = [candidate.title];

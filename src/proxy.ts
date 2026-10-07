@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { getSessionCookie } from 'better-auth/cookies';
+import { isHttpsRequest } from '@/server/security/network';
 
 // Next.js 16 renamed `middleware` -> `proxy` (nodejs runtime). This file does two
 // things on every page request:
@@ -20,6 +21,8 @@ import { getSessionCookie } from 'better-auth/cookies';
 //      Report-Only header if a violation ever needs investigating.
 
 const PUBLIC_PATHS = [
+  // First-run setup. The page itself sends visitors away once setup is done.
+  '/setup',
   '/login',
   '/forgot-password',
   '/reset-password',
@@ -33,9 +36,9 @@ const PUBLIC_PATHS = [
 // back to default-src 'self' and be blocked). connect-src: the widget's XHR.
 const TURNSTILE_ORIGIN = 'https://challenges.cloudflare.com';
 
-function buildCsp(nonce: string): string {
+function buildCsp(nonce: string, https: boolean): string {
   const isDev = process.env.NODE_ENV === 'development';
-  return [
+  const directives = [
     `default-src 'self'`,
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' ${TURNSTILE_ORIGIN}${isDev ? " 'unsafe-eval'" : ''}`,
     `style-src 'self' 'unsafe-inline'`,
@@ -47,8 +50,11 @@ function buildCsp(nonce: string): string {
     `base-uri 'self'`,
     `form-action 'self'`,
     `frame-ancestors 'none'`,
-    `upgrade-insecure-requests`,
-  ].join('; ');
+  ];
+  // Only over HTTPS: on plain-HTTP home-network access it would rewrite every
+  // script and stylesheet to an https:// URL nothing is listening on.
+  if (https) directives.push(`upgrade-insecure-requests`);
+  return directives.join('; ');
 }
 
 function generateNonce(): string {
@@ -74,7 +80,7 @@ export function proxy(request: NextRequest) {
   }
 
   const nonce = generateNonce();
-  const csp = buildCsp(nonce);
+  const csp = buildCsp(nonce, isHttpsRequest(request.headers, request.url));
   const headerName =
     process.env.CSP_REPORT_ONLY === 'true'
       ? 'Content-Security-Policy-Report-Only'

@@ -28,6 +28,11 @@ generator client {
 model Household {
   id        String   @id @default(cuid()) @map("_id")
   name      String
+  // Sign-in over plain HTTP on the home network. null = allowed (households
+  // created before this field existed); false = HTTPS only, plus http://localhost.
+  allowHttp        Boolean?
+  // When the Head of House answered the post-setup access prompt; null = not yet.
+  accessReviewedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

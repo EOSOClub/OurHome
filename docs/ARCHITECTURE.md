@@ -74,7 +74,10 @@ and resets status to `pending` — all in one transaction.
 Better Auth with the Prisma adapter (provider matched to the active datasource),
 email/password, HTTP-only signed cookies, 7-day sessions with a short cookie
 cache. `role` (`head` > `manager` > `member` > `guest`) and `householdId` are
-application-managed fields assigned by the seed/admin. Guarding is two-tier:
+application-managed fields assigned by first-run setup or the admin. Cookies
+carry no Secure flag so sign-in works over plain HTTP on the home network; the
+auth route adds it on HTTPS responses, and a home-network origin is trusted only
+for same-origin requests (`src/server/security/network.ts`). Guarding is two-tier:
 
 - **`src/proxy.ts`** (Next 16's renamed middleware) — optimistic cookie check to
   redirect unauthenticated page requests to `/login`. It does **not** guard
@@ -207,6 +210,7 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
   reliable.
 - **Rate limiter is in-memory** (single instance). Swap for Redis/Upstash when
   running multiple instances behind a load balancer.
-- **No public sign-up flow.** Accounts are provisioned by the seed/admin for a
-  two-member household; the UI exposes sign-in only.
+- **No public sign-up flow.** On an empty database `/setup` creates the
+  household and its Head of House (home-network requests only, and only while no
+  account exists); after that, accounts are added by the admin from Members.
 ```

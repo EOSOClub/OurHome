@@ -1,4 +1,6 @@
+import { headers } from 'next/headers';
 import { requireUser } from '@/server/auth/session';
+import { getAccessSettings } from '@/server/services/accessService';
 import { can } from '@/lib/permissions';
 import {
   itemToDTO,
@@ -26,7 +28,7 @@ export default async function SettingsPage() {
   }
 
   const householdId = user.householdId!;
-  const [integrations, tags, items, categories, contactMessages] =
+  const [integrations, tags, items, categories, contactMessages, access] =
     await Promise.all([
       listIntegrations(householdId),
       listNfcTags(householdId),
@@ -34,10 +36,15 @@ export default async function SettingsPage() {
       listCategories(householdId),
       // Not household-scoped; gated by the settings:manage check above.
       listContactMessages(),
+      // Security is the Head of House's alone (household:manage).
+      can(user.role, 'household:manage')
+        ? getAccessSettings(householdId, await headers())
+        : null,
     ]);
 
   return (
     <SettingsView
+      initialAccess={access}
       initialIntegrations={integrations}
       initialTags={tags}
       initialCategories={categories}

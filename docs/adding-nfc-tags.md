@@ -82,7 +82,7 @@ Gather these before you start. Most come from two HA screens and one app screen.
 | **Tag id** | HA → Developer Tools → Events, listen to `tag_scanned`, scan the tag | `cb1a7141-4cac-4b26-aa1d-4262bd962b87` |
 | **Scanner `device_id`** *(only for per-phone notifications)* | same `tag_scanned` event | `<PHONE_DEVICE_ID>` |
 | **Phone notify service** *(per-phone notifications)* | HA → Developer Tools → Actions, search `notify.mobile_app` | `notify.mobile_app_pixel_7` |
-| **Webhook token** | App → Settings → Home Assistant connection (or the seeded dev token) | `dev-ha-token-change-me` |
+| **Webhook token** | App → Settings → Home Assistant connection | `kq3V…` (43 characters) |
 | **App webhook URL** | The app host's LAN IP + `:3000/api/webhooks/nfc` | `http://APP_HOST:3000/api/webhooks/nfc` |
 
 > The token and webhook URL are **shared across all tags** — they come from the

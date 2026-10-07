@@ -1,8 +1,11 @@
 import Link from 'next/link';
+import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { Home, Settings, Users, UserRound } from 'lucide-react';
 import { requireUser } from '@/server/auth/session';
 import { prisma } from '@/server/db/prisma';
+import { getAccessSettings } from '@/server/services/accessService';
+import { AccessPrompt } from '@/components/settings/access-settings';
 import { can } from '@/lib/permissions';
 import { AppNav } from '@/components/app-nav';
 import { KeyboardShortcuts } from '@/components/keyboard-shortcuts';
@@ -31,6 +34,12 @@ export default async function AppLayout({
     });
     if (fresh?.mustChangePassword) redirect('/change-password');
   }
+
+  // Until the Head of House chooses how the site may be reached, ask them on
+  // every page (first shown right after setup).
+  const access = can(user.role, 'household:manage')
+    ? await getAccessSettings(user.householdId!, await headers())
+    : null;
 
   return (
     <div className="flex min-h-dvh flex-col">
@@ -121,6 +130,7 @@ export default async function AppLayout({
 
       <AppNav variant="bottom" />
       <KeyboardShortcuts />
+      {access && !access.reviewed ? <AccessPrompt settings={access} /> : null}
     </div>
   );
 }

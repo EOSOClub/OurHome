@@ -3,6 +3,18 @@ import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { getServerSession } from '@/server/auth/session';
 import { APP_NAME } from '@/server/config';
+import { needsSetup } from '@/server/services/setupService';
+import { isRefusedPlainHttp } from '@/server/services/accessService';
+import { Lock } from 'lucide-react';
+import { buttonVariants } from '@/components/ui/button';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { cn } from '@/lib/utils';
 import { ContactDialog } from '@/components/contact/contact-dialog';
 import { LoginForm } from './login-form';
 
@@ -26,6 +38,44 @@ export default async function LoginPage({
   // not that it's valid. A stale cookie there caused an infinite redirect loop
   // (proxy bounced /login -> /dashboard, then requireUser() bounced it back).
   // Validating the real session here breaks that cycle.
+  // A fresh install has no one to sign in as: send the first visitor to setup.
+  if (await needsSetup()) redirect('/setup');
+
+  // "HTTPS only": don't offer a form whose password would cross the network
+  // unencrypted (the auth API refuses it anyway).
+  const requestHeaders = await headers();
+  if (await isRefusedPlainHttp(requestHeaders)) {
+    const httpsUrl = process.env.BETTER_AUTH_URL?.startsWith('https://')
+      ? process.env.BETTER_AUTH_URL
+      : null;
+    return (
+      <main className="flex min-h-dvh items-center justify-center p-4">
+        <Card className="w-full max-w-sm">
+          <CardHeader className="items-center text-center">
+            <div className="mb-2 flex size-11 items-center justify-center rounded-xl bg-primary/15 text-primary">
+              <Lock className="size-6" />
+            </div>
+            <CardTitle className="text-xl">HTTPS only</CardTitle>
+            <CardDescription>
+              {APP_NAME} doesn’t accept sign-in over an unencrypted connection.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            {httpsUrl ? (
+              <a href={httpsUrl} className={cn(buttonVariants(), 'w-full')}>
+                Open the secure address
+              </a>
+            ) : null}
+            <p className="text-muted-foreground">
+              On the server itself, <code>http://localhost</code> still works. Your
+              Head of House can change this under Settings → Security.
+            </p>
+          </CardContent>
+        </Card>
+      </main>
+    );
+  }
+
   const session = await getServerSession();
   if (session?.user) {
     const { redirect: redirectTo } = await searchParams;
@@ -35,7 +85,7 @@ export default async function LoginPage({
   // Nonce (from the CSP in src/proxy.ts) lets the Turnstile script load under our
   // strict script-src; the site key is passed to the client as a prop so it never
   // needs the NEXT_PUBLIC_ env convention.
-  const nonce = (await headers()).get('x-nonce') ?? undefined;
+  const nonce = requestHeaders.get('x-nonce') ?? undefined;
   const turnstileSiteKey = process.env.TURNSTILE_SITE_KEY;
 
   return (

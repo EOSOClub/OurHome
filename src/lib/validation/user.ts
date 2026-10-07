@@ -3,7 +3,7 @@ import { USER_ROLES } from '@/lib/enums';
 
 // Mirrors the Better Auth username plugin defaults (3–30 chars). Letters,
 // numbers, and . _ - so display names like "jane.d" work.
-const usernameSchema = z
+export const usernameSchema = z
   .string()
   .trim()
   .min(3)
@@ -11,9 +11,9 @@ const usernameSchema = z
   .regex(/^[a-zA-Z0-9._-]+$/, 'Use letters, numbers, and . _ - only.');
 
 // Better Auth's emailAndPassword minimum is 8.
-const passwordSchema = z.string().min(8).max(128);
+export const passwordSchema = z.string().min(8).max(128);
 
-const nameSchema = z.string().trim().min(1).max(80);
+export const nameSchema = z.string().trim().min(1).max(80);
 
 // Members may be created with a username only; email is optional and used for
 // password recovery. When omitted the service synthesizes a local placeholder.
@@ -54,6 +54,10 @@ export type MemberIdInput = z.infer<typeof memberIdSchema>;
 // Rename the household (requires household:manage).
 export const renameHouseholdSchema = z.object({ name: nameSchema });
 export type RenameHouseholdInput = z.infer<typeof renameHouseholdSchema>;
+
+// Allow or refuse sign-in over plain HTTP (requires household:manage).
+export const accessSettingsSchema = z.object({ allowHttp: z.boolean() });
+export type AccessSettingsInput = z.infer<typeof accessSettingsSchema>;
 
 // Self-service profile edits (the signed-in user editing their own account).
 export const updateProfileSchema = z

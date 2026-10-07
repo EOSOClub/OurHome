@@ -1,8 +1,9 @@
 # Our Home — the web app. Copy this folder to `docker/` (which is gitignored),
 # create the repo-root `.env` from `.env.example`, then from `docker/`:
 #
-#   ./deploy.sh --seed          # first run (or .\deploy.ps1 -Seed)
-#   ./deploy.sh                 # later deploys
+#   ./deploy.sh                 # or .\deploy.ps1
+#
+# Then open http://<server-ip>:3000 and the setup page creates the accounts.
 #
 # Plain compose needs the root .env passed explicitly:
 #   docker compose --env-file ../.env up -d --build
@@ -33,7 +34,8 @@ services:
       NODE_ENV: production
       # Server-only values, kept under other names in .env so dev never uses them.
       DATABASE_URL: ${SERVER_DATABASE_URL:?set SERVER_DATABASE_URL in .env}
-      BETTER_AUTH_URL: ${PUBLIC_URL:?set PUBLIC_URL in .env}
+      # Empty when there's no public URL: auth then uses each request's address.
+      BETTER_AUTH_URL: ${PUBLIC_URL:-}
       SMTP_HOST: ${SERVER_SMTP_HOST:-}
       TURNSTILE_SITE_KEY: ${SERVER_TURNSTILE_SITE_KEY:-}
       TURNSTILE_SECRET_KEY: ${SERVER_TURNSTILE_SECRET_KEY:-}
@@ -41,9 +43,11 @@ services:
       PAPERLESS_URL: ${SERVER_PAPERLESS_URL:-}
       PAPERLESS_TOKEN: ${SERVER_PAPERLESS_TOKEN:-}
     ports:
-      # Localhost only: put a reverse proxy / tunnel (e.g. Cloudflare Tunnel,
-      # Caddy, nginx) in front for HTTPS. Drop "127.0.0.1:" to expose on the LAN.
-      - "127.0.0.1:${WEB_HOST_PORT:-3000}:3000"
+      # Open to your home network by default (plain HTTP). For access from
+      # outside, put a tunnel / reverse proxy (Cloudflare Tunnel, Caddy, nginx)
+      # in front for HTTPS; never forward this port on your router.
+      # WEB_BIND=127.0.0.1 limits it to this machine.
+      - "${WEB_BIND:-0.0.0.0}:${WEB_HOST_PORT:-3000}:3000"
 
 networks:
   # A shared, pre-created network (not one compose makes per project), so other

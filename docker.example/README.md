@@ -14,10 +14,13 @@ git clone https://github.com/EOSOClub/OurHome.git
 cd OurHome
 cp -r docker.example docker
 cp .env.example .env
-nano .env                   # fill in every value (see step 1 below)
+nano .env                   # database URL + two secrets (see step 1 below)
 cd docker
-./deploy.sh --seed          # --seed only on an empty database
+./deploy.sh
 ```
+
+Then open `http://<server-ip>:3000` from any device on your network and follow
+the setup page (see [step 3](#3-first-run-setup)).
 
 ### Updating
 
@@ -38,7 +41,7 @@ added.
 ## What runs
 
 Just the web app (`web`). On start it applies the database schema
-(`prisma db push`) and serves on `127.0.0.1:3000`. It also runs the reminder
+(`prisma db push`) and serves plain HTTP on port 3000 to your home network. It also runs the reminder
 sweep every 15 minutes, so overdue / low-stock / bill-due notifications stay
 current without anything else running.
 
@@ -64,32 +67,65 @@ file loads `../.env` into the container and swaps in the server-only values:
 `SERVER_TURNSTILE_*` become `TURNSTILE_*`. At minimum:
 
 - `SERVER_DATABASE_URL` — your MongoDB replica set.
-- `DOCKER_NETWORK` — the network your MongoDB container is on (if it is one).
-- `PUBLIC_URL` and `BETTER_AUTH_TRUSTED_ORIGINS` — your public URL.
 - `BETTER_AUTH_SECRET` and `CRON_SECRET`
   — random hex: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
-- `SEED_*` — the household name and first users.
+- `DOCKER_NETWORK` — the network your MongoDB container is on (if it is one).
+
+No accounts go in `.env`; the setup page creates them.
 
 ## 2. Start it
 
 ```bash
 cd docker
-./deploy.sh --seed        # Linux/macOS (bash)
-.\deploy.ps1 -Seed        # Windows PowerShell
+./deploy.sh               # Linux/macOS (bash)
+.\deploy.ps1              # Windows PowerShell
 ```
 
 The script checks Docker, creates the `DOCKER_NETWORK` network if needed,
-builds and starts the app, waits for it to respond, and (with `--seed`) creates
-the household and users. Run it again without `--seed` to redeploy after
-updates. Plain compose works too, but must be pointed at the root `.env` (and
-the network must already exist): `docker compose --env-file ../.env up -d --build`.
+builds and starts the app, waits for it to respond, and prints the addresses to
+open it at. Run it again to redeploy after updates. Plain compose works too, but
+must be pointed at the root `.env` (and the network must already exist):
+`docker compose --env-file ../.env up -d --build`.
 
-## 3. Put HTTPS in front
+## 3. First-run setup
 
-`web` only listens on `127.0.0.1`. Use a reverse proxy or tunnel on the same
-host (Cloudflare Tunnel, Caddy, nginx, …) pointing at `http://127.0.0.1:3000`,
-and make sure the public URL matches `PUBLIC_URL`. Session cookies are
-HTTPS-only.
+On an empty database every page leads to **setup**. Open the site from the
+server itself (`http://localhost:3000`) or any device on the same network
+(`http://<server-ip>:3000`), then:
+
+1. **Create the admin.** Pick the household name and the admin's username and
+   password (email optional, for password recovery). The admin becomes the
+   Head of House and is signed in straight away.
+2. **Add the household.** A username and a starting password for each person,
+   plus an optional email and a role. They choose their own password on first
+   sign-in. You can skip this step and use **Members** later.
+
+After you click **Finish**, the app asks once how the site may be reached:
+**Home network and HTTPS**, or **HTTPS only**. "Decide later" asks again next
+time. You can change it any time under **Settings → Security** (Head of House
+only). HTTPS only refuses sign-in over plain HTTP from every other device, and
+signs everyone else out once. Home Assistant and other token-based connections
+keep working over HTTP.
+
+> [!TIP]
+> **Locked out under HTTPS only?** `http://localhost:3000` on the server itself
+> always works (from another machine: `ssh -L 3000:localhost:3000 <server>`,
+> then open `http://localhost:3000`). Sign in and switch it back under
+> Settings → Security.
+
+Setup only answers while no account exists, and only to devices on the home
+network: a request that arrives through a tunnel or reverse proxy from the
+internet is refused, so finish setup before (or without) exposing the site.
+
+## 4. Optional: HTTPS from outside
+
+The app works over plain HTTP on your home network. To reach it from anywhere,
+put a tunnel or reverse proxy in front (Cloudflare Tunnel, Caddy, nginx, …)
+pointing at `http://<server>:3000`, and set `PUBLIC_URL` to its `https://`
+address (used for links in emails). Never forward port 3000 on your router.
+Over HTTPS the session cookie is marked Secure; on the home network it can't
+be, since browsers drop Secure cookies on plain HTTP. Set `WEB_BIND=127.0.0.1`
+to stop serving the home network directly and use only the tunnel.
 
 ## Optional
 
@@ -101,7 +137,7 @@ HTTPS-only.
 - **Home Assistant display** — create a token on the site (Settings → Home
   Assistant connection), then see `../HomeAssistant/display.yaml`.
 - **Trigger a reminder sweep now** —
-  `curl -X POST -H "Authorization: Bearer $CRON_SECRET" http://127.0.0.1:3000/api/cron/reminders`
+  `curl -X POST -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/reminders`
 
 ## Backups
 

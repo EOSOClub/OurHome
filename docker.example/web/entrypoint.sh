@@ -8,6 +8,6 @@ echo "[entrypoint] prisma db push..."
 npx prisma db push --skip-generate
 
 # Run whatever command was given (default CMD is `npm run start`). This lets
-# one-off commands work too, e.g. `docker compose run --rm web npm run db:seed`.
+# one-off commands work too, e.g. `docker compose run --rm web sh`.
 echo "[entrypoint] exec: $*"
 exec "$@"

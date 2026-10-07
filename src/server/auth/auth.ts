@@ -5,26 +5,44 @@ import { nextCookies } from 'better-auth/next-js';
 import { activeProvider, prisma } from '@/server/db/prisma';
 import { sendEmail } from '@/server/email/mailer';
 import { APP_NAME } from '@/server/config';
+import { isLocalHostname } from '@/server/security/network';
 
 const ONE_WEEK = 60 * 60 * 24 * 7;
 const ONE_DAY = 60 * 60 * 24;
 
+/**
+ * The app is reached at its public URL (BETTER_AUTH_URL, trusted automatically,
+ * plus BETTER_AUTH_TRUSTED_ORIGINS) and also by IP or hostname on the home
+ * network, which no config can list ahead of time. A home-network origin is
+ * trusted only when it is the very host the request was sent to, i.e. a
+ * same-origin request, so another site still can't forge a sign-in.
+ */
+function sameOriginOnHomeNetwork(request?: Request): string[] {
+  const origin = request?.headers.get('origin');
+  const host = request?.headers.get('host');
+  if (!origin || !host) return [];
+  try {
+    const url = new URL(origin);
+    return url.host === host && isLocalHostname(url.hostname) ? [url.origin] : [];
+  } catch {
+    return [];
+  }
+}
+
 export const auth = betterAuth({
   appName: APP_NAME,
-  // The app is reached over HTTPS at a single public origin (e.g. behind a
-  // Cloudflare Tunnel). Better Auth's CSRF guard already trusts BETTER_AUTH_URL
-  // plus the comma-separated BETTER_AUTH_TRUSTED_ORIGINS env var, so the
-  // deployment sets both to its public URL — no origin reflection needed.
+  // No baseURL: Better Auth uses BETTER_AUTH_URL when set (the public URL, for
+  // links in emails) and otherwise the address each request came in on.
+  trustedOrigins: sameOriginOnHomeNetwork,
   database: prismaAdapter(prisma, {
     // The app runs on MongoDB (see src/server/db/prisma.ts).
     provider: activeProvider(),
   }),
   emailAndPassword: {
     enabled: true,
-    // Two-member household — accounts are provisioned by the seed/admin, not by
-    // public self-registration. The UI exposes sign-in only, and now that the
-    // app is internet-reachable the sign-up endpoint is closed at the API too
-    // (the seed creates users directly via Prisma, see scripts/seed.ts).
+    // Accounts are provisioned by the first-run setup and the Head of House, not
+    // by public self-registration, so the sign-up endpoint is closed at the API
+    // too (both create users directly via Prisma, see setupService/userService).
     disableSignUp: true,
     // Members sign in by username, but their real email backs password recovery.
     resetPasswordTokenExpiresIn: 60 * 60, // 1 hour
@@ -58,9 +76,11 @@ If you didn't request this, you can safely ignore this email.`,
     enabled: true,
   },
   advanced: {
-    // Force the Secure cookie flag + `__Secure-` prefix. Access is HTTPS-only via
-    // the Cloudflare Tunnel, so cookies must never be sent over plain HTTP.
-    useSecureCookies: true,
+    // One cookie name for both ways in: browsers drop Secure cookies on plain
+    // HTTP, which would make LAN sign-in impossible. The auth route adds the
+    // Secure flag back on HTTPS responses (app/api/auth/[...all]/route.ts), and
+    // HSTS keeps browsers off plain HTTP at the public URL.
+    useSecureCookies: false,
     // Behind Cloudflare, the only trustworthy client IP is CF-Connecting-IP.
     // Without this, Better Auth keys rate limiting + session IP off the
     // client-spoofable X-Forwarded-For, and an unresolved IP collapses every
@@ -72,7 +92,7 @@ If you didn't request this, you can safely ignore this email.`,
   user: {
     additionalFields: {
       // Application-managed fields. `input: false` keeps them out of the public
-      // sign-up payload; they are assigned by the seed/admin via Prisma.
+      // sign-up payload; they are assigned by setup/the admin via Prisma.
       role: {
         type: 'string',
         required: false,

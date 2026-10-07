@@ -10,7 +10,10 @@
 # script verifies it exists but never creates or edits it, and passes it to
 # compose with --env-file.
 #
-# Usage:  ./deploy.sh [--no-build] [--timeout SECONDS] [--seed] [--help]
+# Usage:  ./deploy.sh [--no-build] [--timeout SECONDS] [--help]
+#
+# There is no seed step: on a fresh database, open the printed address and the
+# setup page creates the admin and the household's accounts.
 #
 # The PowerShell twin is deploy.ps1.
 
@@ -28,7 +31,6 @@ ENV_FILE=../.env   # the repo-root .env, shared with local dev
 # ---------------------------------------------------------------------------
 NO_BUILD=0
 TIMEOUT=180
-DO_SEED=0
 
 usage() {
   cat <<EOF
@@ -42,8 +44,6 @@ ${BOLD}Usage:${RESET}
 ${BOLD}Options:${RESET}
   --no-build         Skip rebuilding the image; just (re)start the app.
   --timeout SECONDS  How long to wait for health checks (default: ${TIMEOUT}).
-  --seed             After the app is up, run the one-time DB seed
-                     (docker compose run --rm web npm run db:seed).
   -h, --help         Show this help and exit.
 
 ${BOLD}Environment:${RESET}
@@ -170,7 +170,6 @@ check_web() {
 while [ $# -gt 0 ]; do
   case "$1" in
     --no-build)     NO_BUILD=1 ;;
-    --seed)         DO_SEED=1 ;;
     --timeout)      shift; TIMEOUT=${1:-} ;;
     --timeout=*)    TIMEOUT=${1#*=} ;;
     -h|--help)      usage; exit 0 ;;
@@ -179,7 +178,6 @@ while [ $# -gt 0 ]; do
   shift
 done
 case "$TIMEOUT" in ''|*[!0-9]*) printf 'error: --timeout must be a positive integer\n' >&2; exit 2 ;; esac
-[ "$DO_SEED" = 1 ] && STEP_TOTAL=5
 
 # ===========================================================================
 banner
@@ -214,7 +212,11 @@ fi
 
 # Resolve ports / URL from .env (fall back to compose defaults).
 WEB_PORT=$(env_get WEB_HOST_PORT || true);   WEB_PORT=${WEB_PORT:-3000}
-AUTH_URL=$(env_get PUBLIC_URL || true);       AUTH_URL=${AUTH_URL:-http://localhost:$WEB_PORT}
+AUTH_URL=$(env_get PUBLIC_URL || true)
+WEB_BIND=$(env_get WEB_BIND || true);         WEB_BIND=${WEB_BIND:-0.0.0.0}
+# This machine's address on the home network, for the "open it here" hint.
+LAN_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+[ -n "$LAN_IP" ] || LAN_IP=$(ipconfig getifaddr en0 2>/dev/null || true)
 WEB_URL_LOCAL="http://127.0.0.1:$WEB_PORT/"
 if command -v curl >/dev/null 2>&1; then HAVE_CURL=1; else HAVE_CURL=0; fi
 
@@ -258,18 +260,13 @@ print_row() {  # $1 label  $2 container
 print_row "web"            "$C_WEB"
 
 printf '\n  %s%s✓ web app is up%s\n' "$GREEN" "$BOLD" "$RESET"
-printf '    %-18s %s\n' "Web app:"   "$AUTH_URL"
-printf '    %-18s %s\n' "Local URL:" "$WEB_URL_LOCAL"
-
-# --- Optional seed --------------------------------------------------------
-if [ "$DO_SEED" = 1 ]; then
-  printf '\n'
-  step "Seed database"
-  "${DC[@]}" run --rm web npm run db:seed || fail "Database seed failed."
-  ok "Seed complete"
+printf '    %-18s %s\n' "On this machine:" "http://localhost:$WEB_PORT/"
+if [ "$WEB_BIND" != 127.0.0.1 ] && [ -n "$LAN_IP" ]; then
+  printf '    %-18s %s\n' "On your network:" "http://$LAN_IP:$WEB_PORT/"
 fi
+[ -n "$AUTH_URL" ] && printf '    %-18s %s\n' "Public URL:" "$AUTH_URL"
 
 # --- Next steps -----------------------------------------------------------
-printf '\n  %sNext steps (one-time, if not done yet):%s\n' "$BOLD" "$RESET"
-[ "$DO_SEED" = 1 ] || printf '    • Seed users:    %s run --rm web npm run db:seed\n' "$DC_STR"
+printf '\n  %sFirst run?%s Open one of the addresses above. The setup page creates\n' "$BOLD" "$RESET"
+printf '  the admin account, then the rest of the household.\n'
 printf '    • Follow logs:   %s logs -f web\n\n' "$DC_STR"

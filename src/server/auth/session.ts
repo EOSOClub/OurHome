@@ -2,6 +2,7 @@ import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { cache } from 'react';
 import { auth } from '@/server/auth/auth';
+import { isRefusedPlainHttp } from '@/server/services/accessService';
 
 export type AuthUser = {
   id: string;
@@ -12,9 +13,15 @@ export type AuthUser = {
   mustChangePassword: boolean;
 };
 
-/** Reads the current session from cookies. Cached per request. */
+/**
+ * Reads the current session from cookies. Cached per request. Under "HTTPS
+ * only" (accessService) a plain-HTTP request from another device has no
+ * session, so pages fall back to the login screen and the API answers 401.
+ */
 export const getServerSession = cache(async () => {
-  return auth.api.getSession({ headers: await headers() });
+  const h = await headers();
+  if (await isRefusedPlainHttp(h)) return null;
+  return auth.api.getSession({ headers: h });
 });
 
 /**

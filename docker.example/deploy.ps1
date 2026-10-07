@@ -12,6 +12,9 @@
   script verifies it exists but never creates or edits it, and passes it to
   compose with --env-file.
 
+  There is no seed step: on a fresh database, open the printed address and the
+  setup page creates the admin and the household's accounts.
+
   The bash twin is deploy.sh.
 
 .PARAMETER NoBuild
@@ -19,9 +22,6 @@
 
 .PARAMETER Timeout
   Seconds to wait for health checks (default 180).
-
-.PARAMETER Seed
-  After the app is up, run the one-time DB seed.
 
 .EXAMPLE
   .\deploy.ps1
@@ -33,7 +33,6 @@
 param(
   [switch]$NoBuild,
   [int]$Timeout = 180,
-  [switch]$Seed,
   [switch]$Help
 )
 
@@ -111,12 +110,11 @@ $($script:Bold)Our Home - Docker deploy (web app)$($script:Reset)
 Builds and starts the web app, then waits until it responds.
 
 $($script:Bold)Usage:$($script:Reset)
-  .\deploy.ps1 [-NoBuild] [-Timeout <seconds>] [-Seed] [-Help]
+  .\deploy.ps1 [-NoBuild] [-Timeout <seconds>] [-Help]
 
 $($script:Bold)Options:$($script:Reset)
   -NoBuild           Skip rebuilding the image; just (re)start the app.
   -Timeout <sec>     How long to wait for health checks (default: 180).
-  -Seed              After the app is up, run the one-time DB seed.
   -Help              Show this help and exit.
 
 The settings file .env (repo root) must already exist.
@@ -220,7 +218,6 @@ function Write-Row {
 # ===========================================================================
 if ($Help) { Show-Help; exit 0 }
 if ($Timeout -le 0) { Write-Host 'error: -Timeout must be a positive integer'; exit 2 }
-if ($Seed) { $script:StepTotal = 5 }
 
 Show-Banner
 
@@ -263,7 +260,15 @@ if (Select-String -Path $script:EnvFile -Pattern 'replace-with|change-me' -Quiet
 
 # Resolve ports / URL from .env (fall back to compose defaults).
 $webPort = Get-EnvValue 'WEB_HOST_PORT';   if (-not $webPort) { $webPort = '3000' }
-$authUrl = Get-EnvValue 'PUBLIC_URL';      if (-not $authUrl) { $authUrl = "http://localhost:$webPort" }
+$authUrl = Get-EnvValue 'PUBLIC_URL'
+$webBind = Get-EnvValue 'WEB_BIND';        if (-not $webBind) { $webBind = '0.0.0.0' }
+# This machine's address on the home network, for the "open it here" hint.
+$lanIp = $null
+try {
+  $lanIp = Get-NetIPConfiguration -ErrorAction Stop |
+    Where-Object { $_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq 'Up' } |
+    ForEach-Object { $_.IPv4Address.IPAddress } | Select-Object -First 1
+} catch {}
 $script:WebUrlLocal = "http://127.0.0.1:$webPort/"
 
 # Shared Docker network (compose declares it external). Create it if missing.
@@ -300,18 +305,13 @@ Write-Step 'Summary'
 Write-Row 'web' $script:CWeb
 
 Write-Host ("`n  {0}{1}{2} web app is up{3}" -f $script:Green, $script:Bold, [char]0x2713, $script:Reset)
-Write-Host ("    {0,-18} {1}" -f 'Web app:',   $authUrl)
-Write-Host ("    {0,-18} {1}" -f 'Local URL:', $script:WebUrlLocal)
-
-# --- Optional seed --------------------------------------------------------
-if ($Seed) {
-  Write-Step 'Seed database'
-  Invoke-Compose run --rm web npm run db:seed
-  if ($LASTEXITCODE -ne 0) { Stop-Deploy 'Database seed failed.' }
-  Write-Ok 'Seed complete'
+Write-Host ("    {0,-18} {1}" -f 'On this machine:', "http://localhost:$webPort/")
+if ($webBind -ne '127.0.0.1' -and $lanIp) {
+  Write-Host ("    {0,-18} {1}" -f 'On your network:', "http://${lanIp}:$webPort/")
 }
+if ($authUrl) { Write-Host ("    {0,-18} {1}" -f 'Public URL:', $authUrl) }
 
 # --- Next steps -----------------------------------------------------------
-Write-Host ("`n  {0}Next steps (one-time, if not done yet):{1}" -f $script:Bold, $script:Reset)
-if (-not $Seed) { Write-Host ("    - Seed users:    {0} run --rm web npm run db:seed" -f $script:ComposeStr) }
+Write-Host ("`n  {0}First run?{1} Open one of the addresses above. The setup page creates" -f $script:Bold, $script:Reset)
+Write-Host '  the admin account, then the rest of the household.'
 Write-Host ("    - Follow logs:   {0} logs -f web`n" -f $script:ComposeStr)

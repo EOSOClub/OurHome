@@ -14,8 +14,8 @@ export default function NoHouseholdPage() {
         <CardHeader>
           <CardTitle>No household yet</CardTitle>
           <CardDescription>
-            Your account isn’t linked to a household. Ask an admin to add you, or
-            run the seed script to set one up.
+            Your account isn’t linked to a household. Ask your Head of House to
+            add you from the Members page.
           </CardDescription>
         </CardHeader>
         <CardContent>

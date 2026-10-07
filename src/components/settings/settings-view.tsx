@@ -4,6 +4,7 @@ import { useState, useSyncExternalStore } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Copy, KeyRound, Loader2, Plus, Tag, Trash2 } from 'lucide-react';
 import type {
+  AccessSettingsDTO,
   CategoryAdminDTO,
   ContactMessageDTO,
   IntegrationDTO,
@@ -15,6 +16,7 @@ import {
   type NfcRepresents,
 } from '@/lib/enums';
 import { apiFetch } from '@/lib/api';
+import { AccessCard } from '@/components/settings/access-settings';
 import { CategoriesCard } from '@/components/settings/categories-card';
 import { ContactMessagesCard } from '@/components/settings/contact-messages-card';
 import { PaperlessCard } from '@/components/settings/paperless-card';
@@ -75,12 +77,15 @@ function CopyButton({
 }
 
 export function SettingsView({
+  initialAccess,
   initialIntegrations,
   initialTags,
   initialCategories,
   initialContactMessages,
   items,
 }: {
+  /** null unless the viewer is the Head of House. */
+  initialAccess: AccessSettingsDTO | null;
   initialIntegrations: IntegrationDTO[];
   initialTags: NfcTagDTO[];
   initialCategories: CategoryAdminDTO[];
@@ -95,6 +100,7 @@ export function SettingsView({
           Manage categories, connect Home Assistant, and map NFC tags.
         </p>
       </div>
+      {initialAccess ? <AccessCard initialSettings={initialAccess} /> : null}
       <CategoriesCard initialCategories={initialCategories} />
       <PaperlessCard />
       <HomeAssistantCard initialIntegrations={initialIntegrations} />

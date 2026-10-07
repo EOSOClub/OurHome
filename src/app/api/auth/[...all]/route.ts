@@ -2,8 +2,20 @@ import { toNextJsHandler } from 'better-auth/next-js';
 import { auth } from '@/server/auth/auth';
 import { isHttpsRequest } from '@/server/security/network';
 import { HTTPS_REQUIRED_MESSAGE, isRefusedPlainHttp } from '@/server/services/accessService';
+import { needsSetup, setupRequiredMessage } from '@/server/services/setupService';
 
 const handlers = toNextJsHandler(auth);
+
+/**
+ * Refuse with a message a client can show as-is (Better Auth's own error shape,
+ * which the Android app's sign-in screen displays). A session lookup instead
+ * gets the normal "signed out" answer, so a client shows its sign-in screen
+ * rather than a connection error, and the reason appears when the user signs in.
+ */
+function refuse(req: Request, code: string, message: string, status: number): Response {
+  if (new URL(req.url).pathname.endsWith('/get-session')) return Response.json(null);
+  return Response.json({ code, message }, { status });
+}
 
 /**
  * Auth cookies are issued without the Secure flag so sign-in works over plain
@@ -12,13 +24,15 @@ const handlers = toNextJsHandler(auth);
  */
 function withSecureCookies(handler: (req: Request) => Promise<Response>) {
   return async (req: Request): Promise<Response> => {
+    // A fresh install has no accounts yet: say so, instead of "invalid
+    // username or password", and point at setup.
+    if (await needsSetup()) {
+      return refuse(req, 'SETUP_REQUIRED', setupRequiredMessage(req.headers, req.url), 503);
+    }
     // Under "HTTPS only", nothing auth-related happens over plain HTTP from
     // another device: no sign-in, no session (see accessService).
     if (await isRefusedPlainHttp(req.headers, req.url)) {
-      return Response.json(
-        { code: 'HTTPS_REQUIRED', message: HTTPS_REQUIRED_MESSAGE },
-        { status: 403 },
-      );
+      return refuse(req, 'HTTPS_REQUIRED', HTTPS_REQUIRED_MESSAGE, 403);
     }
     const res = await handler(req);
     const cookies = res.headers.getSetCookie();

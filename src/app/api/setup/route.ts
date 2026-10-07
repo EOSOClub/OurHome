@@ -3,8 +3,24 @@ import { z, ZodError } from 'zod';
 import { clientIp, fail, ok, rateLimit } from '@/server/api/http';
 import { isFromLocalNetwork } from '@/server/security/network';
 import { ConflictError } from '@/server/services/errors';
-import { completeSetup } from '@/server/services/setupService';
+import {
+  completeSetup,
+  needsSetup,
+  setupRequiredMessage,
+} from '@/server/services/setupService';
 import { setupSchema } from '@/lib/validation/setup';
+
+/**
+ * Whether this server still needs first-run setup, so a client (the Android
+ * app, a script) can tell "not set up yet" apart from "can't connect".
+ */
+export async function GET(req: NextRequest): Promise<Response> {
+  const setupRequired = await needsSetup();
+  return ok({
+    setupRequired,
+    message: setupRequired ? setupRequiredMessage(req.headers, req.url) : null,
+  });
+}
 
 /**
  * First-run setup: creates the household and its Head of House. Public (there

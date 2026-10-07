@@ -2,6 +2,7 @@ import { prisma } from '@/server/db/prisma';
 import { auth } from '@/server/auth/auth';
 import { logActivity } from '@/server/services/activityService';
 import { ConflictError } from '@/server/services/errors';
+import { isHttpsRequest } from '@/server/security/network';
 import type { SetupInput } from '@/lib/validation/setup';
 
 // First-run setup replaces the old seed script: the first visitor to a fresh
@@ -27,6 +28,21 @@ export async function needsSetup(): Promise<boolean> {
   if (setupDone) return false;
   setupDone = (await prisma.user.count()) > 0;
   return !setupDone;
+}
+
+/**
+ * What a client trying to sign in to a fresh install is told: where to finish
+ * setup, using the address it reached us at, and to try again after.
+ */
+export function setupRequiredMessage(headers: Headers, url?: string): string {
+  const host = headers.get('host');
+  const address = host
+    ? `${isHttpsRequest(headers, url) ? 'https' : 'http'}://${host}`
+    : 'this server’s address';
+  return (
+    `This server hasn’t been set up yet. Open ${address} in a web browser on ` +
+    'your home network, create the admin account, then try again.'
+  );
 }
 
 // Setup requests run one at a time, so two people racing the setup page can't

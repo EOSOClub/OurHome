@@ -30,24 +30,13 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files: the real .env holds every secret. Only the template is public.
+# (Also covers backups like .env.bak.)
 .env*
 !.env.example
 
-# prisma — leftover local sqlite db from the pre-MongoDB setup
-/prisma/*.db
-/prisma/*.db-journal
-
-# Private deployment: real compose, .env secrets, deploy scripts, retired
-# services. The public template is docker.example/ (copy it to docker/).
+# Your deployment copy of docker.example/ (cp -r docker.example docker).
 /docker/
-
-# Retired / never-public folders, in case they reappear
-/stacks/
-/proton-parser/
-__pycache__/
-*.py[cod]
-.pytest_cache/
 
 # IDE + local AI-assistant notes
 /.idea/

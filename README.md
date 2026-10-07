@@ -1,58 +1,123 @@
-# Our Home
+<div align="center">
 
-A self-hosted, mobile-first household operations platform: tasks and chores
-(with recurrence and checklists), shopping lists, inventory with restock
-forecasting and NFC tags, bills and payments, a calendar, household requests
-(movies/TV and maintenance with deadlines), in-app notifications and reminders,
-bug reports, and role-based access for every member of the household.
+# 🏡 OurHomeWeb
 
-There's a companion Android app — **[OurHomeApp](https://github.com/EOSOClub/OurHomeApp)** —
-that talks to this site's API (NFC tag scanning, notifications, everything above).
+**A self-hosted, mobile-first command centre for running a household.**
 
-See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for the design and
-[`docs/`](./docs) for runbooks (permissions, NFC tags, Home Assistant).
+Chores, shopping, inventory, bills, a shared calendar and household requests,<br>
+with roles for every member of the home.
 
-## Stack
+[![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)](https://nextjs.org)
+[![React](https://img.shields.io/badge/React-19-149ECA?style=for-the-badge&logo=react&logoColor=white)](https://react.dev)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind-v4-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
+<br>
+[![Prisma](https://img.shields.io/badge/Prisma-6-2D3748?style=for-the-badge&logo=prisma&logoColor=white)](https://www.prisma.io)
+[![MongoDB](https://img.shields.io/badge/MongoDB-replica%20set-47A248?style=for-the-badge&logo=mongodb&logoColor=white)](https://www.mongodb.com)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)](./docker.example)
+[![Self-hosted](https://img.shields.io/badge/self--hosted-yes-7C3AED?style=for-the-badge&logo=homeassistant&logoColor=white)](#-deploy-with-docker)
 
-- **Next.js 16** (App Router) + **React 19** + **TypeScript**
-- **TailwindCSS v4** + shadcn-style UI components
-- **Prisma 6** on **MongoDB** (single-node replica set)
-- **Better Auth** (username/password, HTTP-only cookies, roles)
-- **TanStack Query**, **Zod**, **Vitest**
-- **Docker Compose** for deployment ([`docker.example/`](./docker.example))
+[Features](#-features) · [Deploy](#-deploy-with-docker) · [Configuration](#configuration) · [Development](#-local-development) · [Architecture](./docs/ARCHITECTURE.md) · [📱 Android app](https://github.com/EOSOClub/OurHomeApp)
 
-## Deploy with Docker
+</div>
 
-Deployment lives in a `docker/` folder that is **gitignored** — your real
-config and secrets never enter the repo. Start from the public template:
+---
+
+## ✨ Features
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### ✅ Tasks & chores
+Recurring chores, one-off tasks and step-by-step checklists, assigned to the people who do them.
+
+### 🛒 Shopping lists
+A shared list the whole household can add to and tick off.
+
+### 📦 Inventory
+Track what's in the house, forecast when it runs out, and link items to **NFC tags** for one-tap updates.
+
+### 💸 Bills & payments
+Keep upcoming bills and what's been paid in one place.
+
+</td>
+<td width="50%" valign="top">
+
+### 📅 Calendar
+One household calendar for everything with a date on it.
+
+### 🎬 Requests
+Movie/TV and maintenance requests, with deadlines.
+
+### 🔔 Notifications & reminders
+In-app notifications plus a reminder sweep that runs inside the app.
+
+### 🛡️ Roles & permissions
+Role-based access for every member, plus built-in bug reports.
+
+</td>
+</tr>
+</table>
+
+> [!TIP]
+> **Prefer your phone?** The companion Android app, **[OurHomeApp](https://github.com/EOSOClub/OurHomeApp)**, uses this site's API and adds NFC tag scanning and phone notifications.
+
+## 🧱 Stack
+
+| Layer | Tech |
+| --- | --- |
+| **Framework** | Next.js 16 (App Router), React 19, TypeScript |
+| **UI** | Tailwind CSS v4, shadcn-style components |
+| **Data** | Prisma 6 on MongoDB (single-node replica set) |
+| **Auth** | Better Auth: username/password, HTTP-only cookies, roles |
+| **Client & validation** | TanStack Query, Zod |
+| **Testing** | Vitest |
+| **Deploy** | Docker Compose ([`docker.example/`](./docker.example)) |
+
+```mermaid
+flowchart LR
+    Browser["🌐 Browser"] --> Proxy
+    Android["📱 OurHomeApp"] --> Proxy
+    HA["🏠 Home Assistant"] -. read-only feed .-> Proxy
+    Proxy["🔒 Reverse proxy / tunnel<br/>(HTTPS)"] --> Web["⚡ OurHomeWeb<br/>Next.js on 127.0.0.1:3000"]
+    Web --> DB[("🍃 MongoDB<br/>replica set")]
+```
+
+## 🐳 Deploy with Docker
+
+Deployment lives in a `docker/` folder that is **gitignored**, so your real config and secrets never enter the repo. Start from the public template:
 
 ```bash
-git clone https://github.com/EOSOClub/OurHome.git
-cd OurHome
+git clone https://github.com/EOSOClub/OurHome.git OurHomeWeb
+cd OurHomeWeb
 cp -r docker.example docker
 cp .env.example .env                   # then edit .env
 cd docker
 ./deploy.sh --seed                     # or: docker compose --env-file ../.env up -d --build
 ```
 
-Docker runs **only the web app**. Bring your own MongoDB **replica set** and
-point `SERVER_DATABASE_URL` at it. The reminder sweep runs inside the app.
-`deploy.sh` (or `deploy.ps1` on Windows) builds and starts the app, waits until
-it responds, and with `--seed` creates the household and first users from the
-`SEED_*` values in `.env`.
+`deploy.sh` (or `deploy.ps1` on Windows) builds and starts the app, waits until it responds, and with `--seed` creates the household and first users from the `SEED_*` values in `.env`.
 
-Then sign in at `PUBLIC_URL` with `SEED_ADMIN_USERNAME` /
-`SEED_ADMIN_PASSWORD`. The web container listens on `127.0.0.1:3000` only — put
-a reverse proxy or tunnel (Cloudflare Tunnel, Caddy, nginx…) in front for HTTPS.
+Then sign in at `PUBLIC_URL` with `SEED_ADMIN_USERNAME` / `SEED_ADMIN_PASSWORD`.
 
-Full walkthrough and every setting: [`docker.example/README.md`](./docker.example/README.md).
+> [!IMPORTANT]
+> Docker runs **only the web app**. Bring your own MongoDB **replica set** and point `SERVER_DATABASE_URL` at it. The reminder sweep runs inside the app.
 
-## Configuration
+> [!NOTE]
+> The web container listens on `127.0.0.1:3000` only. Put a reverse proxy or tunnel (Cloudflare Tunnel, Caddy, nginx…) in front for HTTPS.
 
-All configuration lives in one `.env` in the repo root, used by both local dev
-and the Docker deploy. Every setting is documented in
-[`.env.example`](./.env.example). The compose file loads it into the container
-and swaps in the server-only values (`PUBLIC_URL`, `SERVER_*`). The essentials:
+📖 Full walkthrough and every setting: [`docker.example/README.md`](./docker.example/README.md)
+
+<a id="configuration"></a>
+
+## ⚙️ Configuration
+
+All configuration lives in one `.env` in the repo root, used by both local dev and the Docker deploy. Every setting is documented in [`.env.example`](./.env.example). The compose file loads it into the container and swaps in the server-only values (`PUBLIC_URL`, `SERVER_*`).
+
+<details>
+<summary><b>The essentials</b> (click to expand)</summary>
+<br>
 
 | Setting | What it's for |
 | --- | --- |
@@ -66,7 +131,9 @@ and swaps in the server-only values (`PUBLIC_URL`, `SERVER_*`). The essentials:
 | `SERVER_TURNSTILE_*` | Optional contact-form CAPTCHA (server only) |
 | `SEED_*` | First-run household and users |
 
-## Local development
+</details>
+
+## 💻 Local development
 
 ```bash
 npm install
@@ -86,15 +153,23 @@ npm run dev                       # http://localhost:3000
 | `npm run test` | Vitest |
 | `npm run typecheck` | `tsc --noEmit` |
 
-## Home Assistant
+## 🏠 Home Assistant
 
-Home Assistant can show inventory on a dashboard from a read-only feed
-(`/api/integrations/inventory`) — see
-[`HomeAssistant/display.yaml`](./HomeAssistant/display.yaml) and
-[`docs/home-assistant.md`](./docs/home-assistant.md). NFC scanning itself now
-happens in the Android app.
+Home Assistant can show inventory on a dashboard from a read-only feed (`/api/integrations/inventory`). See [`HomeAssistant/display.yaml`](./HomeAssistant/display.yaml) and [`docs/home-assistant.md`](./docs/home-assistant.md).
 
-## Project layout
+> [!NOTE]
+> NFC scanning itself now happens in the [Android app](https://github.com/EOSOClub/OurHomeApp).
+
+## 📚 Docs
+
+| Doc | What's in it |
+| --- | --- |
+| [Architecture](./docs/ARCHITECTURE.md) | How the app is designed |
+| [Permissions](./docs/permissions.md) | Roles and what each can do |
+| [Adding NFC tags](./docs/adding-nfc-tags.md) | Setting up tags for inventory items |
+| [Home Assistant](./docs/home-assistant.md) | Dashboard integration |
+
+## 🗂️ Project layout
 
 ```
 src/
@@ -113,3 +188,9 @@ docker.example/           Deployment template (copy to docker/, which is gitigno
 HomeAssistant/            Example Home Assistant config
 docs/                     Runbooks
 ```
+
+---
+
+<div align="center">
+<sub>🏡 Built for one household, shared for yours. · Companion app: <a href="https://github.com/EOSOClub/OurHomeApp">OurHomeApp</a></sub>
+</div>

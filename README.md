@@ -51,7 +51,7 @@ One household calendar for everything with a date on it.
 Movie/TV and maintenance requests, with deadlines.
 
 ### 🔔 Notifications & reminders
-In-app notifications plus a reminder sweep that runs inside the app.
+In-app notifications plus a reminder sweep that runs inside the app, and optional **instant phone alerts** through Firebase.
 
 ### 🛡️ Roles & permissions
 Role-based access for every member, plus built-in bug reports.
@@ -129,6 +129,7 @@ All configuration lives in one `.env` in the repo root, used by both local dev a
 | `CRON_SECRET` | Optional: trigger a reminder sweep via `/api/cron/reminders` |
 | `SERVER_SMTP_HOST`, `SMTP_*`, `CONTACT_FORWARD_TO`, `BUG_REPORT_EMAIL` | Optional email (server only) |
 | `SERVER_TURNSTILE_*` | Optional contact-form CAPTCHA (server only) |
+| `SERVER_FIREBASE_SERVICE_ACCOUNT` | Optional instant alerts for the Android app (server only, [setup](./docs/push-notifications.md)) |
 | `SEED_*` | First-run household and users |
 
 </details>
@@ -168,6 +169,7 @@ Home Assistant can show inventory on a dashboard from a read-only feed (`/api/in
 | [Permissions](./docs/permissions.md) | Roles and what each can do |
 | [Adding NFC tags](./docs/adding-nfc-tags.md) | Setting up tags for inventory items |
 | [Home Assistant](./docs/home-assistant.md) | Dashboard integration |
+| [Instant phone alerts](./docs/push-notifications.md) | Firebase setup for the Android app |
 
 ## 🗂️ Project layout
 

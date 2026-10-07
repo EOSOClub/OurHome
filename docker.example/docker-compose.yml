@@ -37,6 +37,7 @@ services:
       SMTP_HOST: ${SERVER_SMTP_HOST:-}
       TURNSTILE_SITE_KEY: ${SERVER_TURNSTILE_SITE_KEY:-}
       TURNSTILE_SECRET_KEY: ${SERVER_TURNSTILE_SECRET_KEY:-}
+      FIREBASE_SERVICE_ACCOUNT: ${SERVER_FIREBASE_SERVICE_ACCOUNT:-}
     ports:
       # Localhost only: put a reverse proxy / tunnel (e.g. Cloudflare Tunnel,
       # Caddy, nginx) in front for HTTPS. Drop "127.0.0.1:" to expose on the LAN.

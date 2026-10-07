@@ -1,6 +1,7 @@
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/server/db/prisma';
 import { logActivity } from '@/server/services/activityService';
+import { pushSync } from '@/server/services/pushService';
 import {
   ConflictError,
   ForbiddenError,
@@ -66,6 +67,28 @@ function describe(r: {
   const kind = MEDIA_TYPE_LABELS[r.mediaType as MediaType]?.toLowerCase() ?? 'item';
   const name = r.year ? `“${r.title} (${r.year})”` : `“${r.title}”`;
   return r.season ? `season ${r.season} of the ${kind} ${name}` : `the ${kind} ${name}`;
+}
+
+/**
+ * Wakes the phones of everyone a request change can matter to: the requester,
+ * the handler (assignee, or the head for media), and anyone in `also` (e.g. an
+ * assignee it was just taken from). Each phone works out for itself whether to
+ * alert, so waking an extra one costs nothing but a quiet re-check, and it
+ * clears notifications that went stale on other devices.
+ */
+function pushRequestChange(
+  householdId: string,
+  r: { category: string; requesterId: string; assigneeId: string | null },
+  also: (string | null)[] = [],
+) {
+  pushSync(
+    householdId,
+    {
+      userIds: [r.requesterId, r.assigneeId, ...also],
+      permission: r.category === 'media' ? 'requests:manage_media' : undefined,
+    },
+    'request',
+  );
 }
 
 /** The household member a maintenance request is assigned to; never the requester. */
@@ -137,6 +160,7 @@ export async function createRequest(
     subjectId: request.id,
     message,
   });
+  pushRequestChange(householdId, request);
 
   return request;
 }
@@ -222,6 +246,8 @@ export async function updateRequest(
     subjectId: request.id,
     message: `updated their request ${describe(request)}`,
   });
+  // `existing.assigneeId`: a reassigned request leaves the old assignee's list.
+  pushRequestChange(householdId, request, [existing.assigneeId]);
 
   return request;
 }
@@ -270,6 +296,7 @@ export async function acceptRequest(
     subjectId: request.id,
     message,
   });
+  pushRequestChange(householdId, request);
 
   return request;
 }
@@ -302,6 +329,7 @@ export async function completeRequest(
         ? `made ${describe(request)} available`
         : `finished ${describe(request)}`,
   });
+  pushRequestChange(householdId, request);
 
   return request;
 }
@@ -322,4 +350,5 @@ export async function deleteRequest(
     subjectId: id,
     message: `withdrew their request ${describe(existing)}`,
   });
+  pushRequestChange(householdId, existing);
 }

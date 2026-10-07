@@ -1,5 +1,6 @@
 import { prisma } from '@/server/db/prisma';
 import { isEmailConfigured, sendEmail } from '@/server/email/mailer';
+import { pushSync } from '@/server/services/pushService';
 import { can } from '@/lib/permissions';
 import type { SubmitBugReportInput } from '@/lib/validation/bugReport';
 
@@ -58,6 +59,7 @@ export async function submitBugReport(
         readAt: null,
       })),
     });
+    pushSync(householdId, { userIds: recipients.map((r) => r.id) }, 'bug_report');
   }
 
   await emailSupport(report.id, reporter, input, meta);

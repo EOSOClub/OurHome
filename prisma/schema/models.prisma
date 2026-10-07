@@ -47,6 +47,7 @@ model Household {
   integrations   HomeAssistantIntegration[]
   requests       Request[]
   bugReports     BugReport[]
+  pushDevices    PushDevice[]
 }
 
 model User {
@@ -86,6 +87,7 @@ model User {
   requests        Request[]        @relation("RequestRequester")
   assignedRequests Request[]       @relation("RequestAssignee")
   bugReports      BugReport[]
+  pushDevices     PushDevice[]
 
   @@index([householdId])
 }
@@ -593,6 +595,28 @@ model Notification {
 
   @@unique([householdId, dedupeKey])
   @@index([householdId, userId])
+}
+
+// A phone that receives Firebase Cloud Messaging pushes for a signed-in user
+// (pushService). Registered by the Android app after sign-in. The token is the
+// FCM registration token: unique per app install, so a phone that signs in as
+// someone else moves to that user. Rows are pruned when FCM reports the token
+// dead, and removed on sign-out.
+model PushDevice {
+  id          String   @id @default(cuid()) @map("_id")
+  householdId String
+  userId      String
+  token       String   @unique
+  // platform: "android"
+  platform    String   @default("android")
+  createdAt   DateTime @default(now())
+  // Bumped on every registration, so stale installs are easy to spot.
+  updatedAt   DateTime @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model EventLog {

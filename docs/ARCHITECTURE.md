@@ -119,8 +119,10 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
   production server sweeps every household every 15 minutes in-process
   (`src/instrumentation.ts` → `reminderSweep`). The same sweep can be triggered
   via `/api/cron/reminders` (guarded by `CRON_SECRET`), and it also runs
-  opportunistically when the notifications page is opened. Only the `in_app` channel is dispatched today; push / Home
-  Assistant / Discord / email channels are reserved seams.
+  opportunistically when the notifications page is opened. Only the `in_app` channel is dispatched today; Home
+  Assistant / Discord channels are reserved seams. (Generated reminders are
+  also emailed when created; phone push currently covers requests and bug
+  reports only, see *Instant push*.)
 - **Shopping & grocery.** `shoppingService` owns lists (create, rename, delete)
   and items (add, check-off, edit, delete, and a "clear bought" that deletes
   one-off items but un-checks recurring consumables). Marking an item purchased
@@ -145,8 +147,10 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
     acceptance (pending media for the head; pending maintenance assigned to
     them). The same poll sends maintenance deadline reminders from `dueAt`:
     the assignee is told the day before, on the day, and daily while overdue;
-    the requester once when it goes overdue. No push service yet, and no
-    in-app (bell) equivalent — `reminderService` would be the place for one.
+    the requester once when it goes overdue. Every request change also sends
+    an instant push (see *Instant push* below), so the hourly poll is now the
+    fallback. No in-app (bell) equivalent — `reminderService` would be the
+    place for one.
   - `/api/household/members` gives any member an id+name list for the
     assignee picker (the full `/api/members` stays behind `members:manage`).
 - **Bug reports.** "Report a bug" in the web header and the app's ⋮ menu →
@@ -155,9 +159,25 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
   then emails `BUG_REPORT_EMAIL` (unset = no email) via the SMTP
   mailer. Email outcome is recorded in `BugReport.emailStatus`
   (`emailed` / `email_failed` / `not_configured`) and logged; it never fails
-  the submit. The Android app's hourly poll alerts the head once per new report.
+  the submit. The Android app alerts the head once per new report (instant
+  push, with the hourly poll as fallback).
   Notifications with a `userId` are visible only to that user; rows without one
   are household-wide (`notificationService.visibleTo`).
+- **Instant push (Android app).** Firebase Cloud Messaging, off until
+  `FIREBASE_SERVICE_ACCOUNT` is set (`SERVER_FIREBASE_SERVICE_ACCOUNT` in
+  `.env`; setup in `docs/push-notifications.md`). The app registers its FCM
+  token after sign-in (`POST /api/push/devices`, stored as `PushDevice`) and
+  removes it on sign-out (`POST /api/push/devices/delete`).
+  `pushService.pushSync` sends a **content-free**, data-only message
+  (`{ type: "sync", reason }`) that makes the phone run its normal check right
+  away, so request text, names and amounts never pass through Google and the
+  app's lock-screen rules cover every alert. Fire-and-forget: a failed push
+  never fails the action; the phone catches up hourly. Sent on every request
+  create/update/accept/complete/delete (to the requester, the handler, and
+  for a reassignment the previous assignee) and on each new bug report (to
+  `bugs:manage` holders). `server/push/fcm.ts` calls the FCM HTTP v1 API
+  directly (signed JWT → OAuth token) rather than `firebase-admin`, which needs
+  Node 22+. Tokens FCM reports as dead are deleted.
 - **Permissions.** Role-based (`head`/`manager`/`member`/`guest`) via
   `src/lib/permissions.ts`; routes enforce `requirePermission`, and the guest
   task-completion scope (own assignments only) is enforced in

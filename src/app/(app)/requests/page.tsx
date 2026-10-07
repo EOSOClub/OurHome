@@ -2,10 +2,12 @@ import { requireUser } from '@/server/auth/session';
 import { prisma } from '@/server/db/prisma';
 import { can } from '@/lib/permissions';
 import { listRequests, requestToDTO } from '@/server/services/requestService';
+import { getUserAccess } from '@/server/services/permissionService';
 import { RequestsView } from '@/components/requests/requests-view';
 
 export default async function RequestsPage() {
   const user = await requireUser();
+  const access = await getUserAccess(user);
   const householdId = user.householdId!;
 
   const [requests, members] = await Promise.all([
@@ -23,7 +25,7 @@ export default async function RequestsPage() {
       initialRequests={requests.map(requestToDTO)}
       currentUserId={user.id}
       members={members}
-      canWrite={can(user.role, 'requests:write')}
+      canSubmit={access.requests.create}
       canManageMedia={can(user.role, 'requests:manage_media')}
     />
   );

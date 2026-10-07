@@ -1,7 +1,16 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { z, ZodError } from 'zod';
 import { getServerSession, type AuthUser } from '@/server/auth/session';
-import { can, type Permission } from '@/lib/permissions';
+import {
+  ACCESS_PAGE_LABELS,
+  can,
+  canModify,
+  hasAnyAccess,
+  type AccessMatrix,
+  type AccessPage,
+  type Permission,
+} from '@/lib/permissions';
+import { getUserAccess } from '@/server/services/permissionService';
 import { isUserRole, type UserRole } from '@/lib/enums';
 import {
   ConflictError,
@@ -65,6 +74,65 @@ export function requirePermission(
 ): void {
   if (!can(ctx.user.role, permission)) {
     throw new ForbiddenError(`Missing permission: ${permission}`);
+  }
+}
+
+// Page access is loaded from the database once per request and reused by
+// every check in that request.
+const accessCache = new WeakMap<AuthedContext, Promise<AccessMatrix>>();
+
+/** The caller's effective page-access grid. */
+export function getAccess(ctx: AuthedContext): Promise<AccessMatrix> {
+  let access = accessCache.get(ctx);
+  if (!access) {
+    access = getUserAccess(ctx.user);
+    accessCache.set(ctx, access);
+  }
+  return access;
+}
+
+/** Require the caller may add records on `page`. */
+export async function requireCreate(
+  ctx: AuthedContext,
+  page: AccessPage,
+): Promise<void> {
+  const access = await getAccess(ctx);
+  if (!access[page].create) {
+    throw new ForbiddenError(`You can't add to ${ACCESS_PAGE_LABELS[page]}.`);
+  }
+}
+
+/**
+ * Require the caller may edit or delete a record on `page` created by
+ * `ownerId` (resolve it with recordOwner.* first — that also 404s a record
+ * outside the household).
+ */
+export async function requireModify(
+  ctx: AuthedContext,
+  page: AccessPage,
+  kind: 'edit' | 'delete',
+  ownerId: string | null,
+): Promise<void> {
+  const access = await getAccess(ctx);
+  if (!canModify(access[page], kind, ownerId, ctx.user.id)) {
+    const whose = ownerId === ctx.user.id ? 'your' : "other people's";
+    throw new ForbiddenError(
+      `You can't ${kind} ${whose} items on ${ACCESS_PAGE_LABELS[page]}.`,
+    );
+  }
+}
+
+/**
+ * Require any access at all on `page`. Used for everyday actions that aren't
+ * add/edit/delete: ticking off a shopping item, adjusting stock, an NFC scan.
+ */
+export async function requireAnyAccess(
+  ctx: AuthedContext,
+  page: AccessPage,
+): Promise<void> {
+  const access = await getAccess(ctx);
+  if (!hasAnyAccess(access[page])) {
+    throw new ForbiddenError(`You don't have access to ${ACCESS_PAGE_LABELS[page]}.`);
   }
 }
 

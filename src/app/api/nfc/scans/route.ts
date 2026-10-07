@@ -1,4 +1,4 @@
-import { ok, parseBody, parseQuery, requirePermission, withAuth } from '@/server/api/http';
+import { ok, parseBody, parseQuery, requireAnyAccess, withAuth } from '@/server/api/http';
 import { ingestNfcScan, listRecentScans } from '@/server/services/eventService';
 import { nfcAppScanSchema, nfcScansQuerySchema } from '@/lib/validation/nfc';
 
@@ -12,7 +12,7 @@ export const GET = withAuth(async (ctx) => {
 // the signed-in user (source "nfc"). An unknown tag 404s — the app sets it up
 // first via /api/nfc/setup.
 export const POST = withAuth(async (ctx) => {
-  requirePermission(ctx, 'inventory:write');
+  await requireAnyAccess(ctx, 'inventory');
   const input = await parseBody(ctx.req, nfcAppScanSchema);
   const item = await ingestNfcScan(ctx.user.householdId!, input, {
     actorId: ctx.user.id,

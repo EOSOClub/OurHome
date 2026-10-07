@@ -14,6 +14,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import type { TaskDTO } from '@/lib/types';
+import { canModify, type PageAccess } from '@/lib/permissions';
 import { TASK_TYPE_LABELS, type TaskType } from '@/lib/enums';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
@@ -48,7 +49,8 @@ function formatEffort(minutes: number): string {
 
 export function TaskCard({
   task,
-  canWrite,
+  access,
+  userId,
   onComplete,
   onDelete,
   onEdit,
@@ -61,7 +63,9 @@ export function TaskCard({
   deleting,
 }: {
   task: TaskDTO;
-  canWrite: boolean;
+  /** The viewer's Tasks access; own = tasks they created. */
+  access: PageAccess;
+  userId: string;
   onComplete: (id: string) => void;
   onDelete: (id: string) => void;
   onEdit: (task: TaskDTO) => void;
@@ -77,6 +81,8 @@ export function TaskCard({
   deleting: boolean;
 }) {
   const done = task.status === 'completed';
+  const canEdit = canModify(access, 'edit', task.createdById, userId);
+  const canDelete = canModify(access, 'delete', task.createdById, userId);
   const [expanded, setExpanded] = useState(false);
   const [subtaskDraft, setSubtaskDraft] = useState('');
 
@@ -128,28 +134,28 @@ export function TaskCard({
               <Badge variant={priorityVariant(task.priority)}>
                 {task.priority}
               </Badge>
-              {canWrite ? (
-                <>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-8 text-muted-foreground hover:text-foreground"
-                    onClick={() => onEdit(task)}
-                    aria-label="Edit task"
-                  >
-                    <Pencil />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-8 text-muted-foreground hover:text-destructive"
-                    onClick={() => onDelete(task.id)}
-                    disabled={deleting}
-                    aria-label="Delete task"
-                  >
-                    {deleting ? <Loader2 className="animate-spin" /> : <Trash2 />}
-                  </Button>
-                </>
+              {canEdit ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 text-muted-foreground hover:text-foreground"
+                  onClick={() => onEdit(task)}
+                  aria-label="Edit task"
+                >
+                  <Pencil />
+                </Button>
+              ) : null}
+              {canDelete ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 text-muted-foreground hover:text-destructive"
+                  onClick={() => onDelete(task.id)}
+                  disabled={deleting}
+                  aria-label="Delete task"
+                >
+                  {deleting ? <Loader2 className="animate-spin" /> : <Trash2 />}
+                </Button>
               ) : null}
             </div>
           </div>
@@ -214,7 +220,7 @@ export function TaskCard({
               <SubtaskRow
                 key={s.id}
                 subtask={s}
-                canWrite={canWrite}
+                canWrite={canEdit}
                 isFirst={i === 0}
                 isLast={i === task.subtasks.length - 1}
                 onToggle={onToggleSubtask}
@@ -223,7 +229,7 @@ export function TaskCard({
                 onMove={(id, dir) => onMoveSubtask(task, id, dir)}
               />
             ))}
-            {canWrite ? (
+            {canEdit ? (
               <div className="flex gap-2">
                 <Input
                   value={subtaskDraft}

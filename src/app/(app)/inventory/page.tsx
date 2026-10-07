@@ -1,5 +1,5 @@
 import { requireUser } from '@/server/auth/session';
-import { can } from '@/lib/permissions';
+import { getUserAccess } from '@/server/services/permissionService';
 import {
   itemToDTO,
   listInventoryCategories,
@@ -9,6 +9,7 @@ import { InventoryView } from '@/components/inventory/inventory-view';
 
 export default async function InventoryPage() {
   const user = await requireUser();
+  const access = await getUserAccess(user);
   const householdId = user.householdId!;
 
   const [items, categories] = await Promise.all([
@@ -20,7 +21,9 @@ export default async function InventoryPage() {
     <InventoryView
       initialItems={items.map(itemToDTO)}
       categories={categories}
-      canWrite={can(user.role, 'inventory:write')}
+      access={access.inventory}
+      userId={user.id}
+      canAddToShopping={access.shopping.create}
     />
   );
 }

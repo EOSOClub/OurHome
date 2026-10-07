@@ -1,4 +1,4 @@
-import { ok, parseBody, requirePermission, withAuth } from '@/server/api/http';
+import { ok, parseBody, requireCreate, withAuth } from '@/server/api/http';
 import {
   createShoppingList,
   listShoppingLists,
@@ -12,7 +12,7 @@ export const GET = withAuth(async ({ user }) => {
 });
 
 export const POST = withAuth(async (ctx) => {
-  requirePermission(ctx, 'shopping:write');
+  await requireCreate(ctx, 'shopping');
   const input = await parseBody(ctx.req, createShoppingListSchema);
   const list = await createShoppingList(ctx.user.householdId!, ctx.user.id, input);
   return ok(listToDTO(list), { status: 201 });

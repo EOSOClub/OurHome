@@ -19,6 +19,7 @@ import {
   Users,
 } from 'lucide-react';
 import type { EventOccurrenceDTO, MemberDTO } from '@/lib/types';
+import { canModify, type PageAccess } from '@/lib/permissions';
 import { apiFetch, ApiError } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -95,13 +96,18 @@ export function CalendarView({
   initialMonth,
   initialOccurrences,
   members,
-  canWrite,
+  access,
+  userId,
 }: {
   initialMonth: YearMonth;
   initialOccurrences: EventOccurrenceDTO[];
   members: MemberDTO[];
-  canWrite: boolean;
+  /** The viewer's Calendar access (Members → Permissions). */
+  access: PageAccess;
+  userId: string;
 }) {
+  // Clicking a day / "New event" creates, so it follows the Add permission.
+  const canWrite = access.create;
   const queryClient = useQueryClient();
   const router = useRouter();
   const pathname = usePathname();
@@ -584,7 +590,8 @@ export function CalendarView({
           occurrence={editing}
           defaultDate={creatingDate}
           members={members}
-          canWrite={canWrite}
+          access={access}
+          userId={userId}
           onClose={closeDialogs}
           onSaved={onSaved}
         />
@@ -649,17 +656,25 @@ function EventDialog({
   occurrence,
   defaultDate,
   members,
-  canWrite,
+  access,
+  userId,
   onClose,
   onSaved,
 }: {
   occurrence: EventOccurrenceDTO | null;
   defaultDate: string | null;
   members: MemberDTO[];
-  canWrite: boolean;
+  access: PageAccess;
+  userId: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
+  // A new event needs Add; an existing one is edited/deleted by own vs others'.
+  const canWrite = occurrence
+    ? canModify(access, 'edit', occurrence.createdById, userId)
+    : access.create;
+  const canDelete =
+    !!occurrence && canModify(access, 'delete', occurrence.createdById, userId);
   const editingDisabled = !canWrite;
   const baseStart = occurrence ? new Date(occurrence.baseStart) : null;
   const baseEnd = occurrence?.baseEnd ? new Date(occurrence.baseEnd) : null;
@@ -804,7 +819,7 @@ function EventDialog({
       }
       footer={
         <>
-          {occurrence && canWrite ? (
+          {canDelete ? (
             <Button
               variant="ghost"
               className="mr-auto text-destructive hover:text-destructive"

@@ -4,6 +4,7 @@
 //
 // Roles (highest first): head > manager > member > guest. See src/lib/enums.ts.
 
+import { z } from 'zod';
 import { ROLE_RANK, isUserRole, type UserRole } from '@/lib/enums';
 
 export const PERMISSIONS = [
@@ -13,19 +14,15 @@ export const PERMISSIONS = [
   'members:manage',
   // Home Assistant connections, NFC tags, integrations.
   'settings:manage',
-  // Create/edit/delete and assign work across the shared feature modules.
-  // tasks:write (create/edit/delete tasks and their checklists) is head-only;
-  // everyone else works tasks through tasks:complete. See docs/permissions.md.
-  'tasks:write',
-  'shopping:write',
-  'inventory:write',
-  'calendar:write',
-  'bills:write',
+  // Add/edit/delete on the feature pages (tasks, calendar, shopping, inventory,
+  // bills) is NOT a role permission: it is the per-page access grid below
+  // (resolveAccess), which the head edits per role and per member.
   // Mark a task done. Guests may only complete tasks assigned to them — that
   // narrower scope is enforced in taskService.completeTask, not here.
   'tasks:complete',
-  // Make requests (e.g. movies/TV). Everyone may; editing or deleting is
-  // limited to the requester's own requests in requestService.
+  // Work with requests: edit/delete your own (requestService), accept and
+  // finish ones assigned to you. Everyone. *Submitting* a new request is the
+  // Requests "Add" switch in the page-access grid below.
   'requests:write',
   // Accept media (movie/TV) requests and mark them available. Head-only; the
   // app sends the "waiting for you" reminders to whoever holds this.
@@ -38,13 +35,8 @@ export const PERMISSIONS = [
 
 export type Permission = (typeof PERMISSIONS)[number];
 
-// Shared module writes for manager/member. tasks:write is deliberately absent:
-// only the head creates, edits or deletes tasks.
+// Everyday abilities shared by manager and member.
 const WRITE_MODULES: Permission[] = [
-  'shopping:write',
-  'inventory:write',
-  'calendar:write',
-  'bills:write',
   'tasks:complete',
   'requests:write',
   'bugs:report',
@@ -91,4 +83,218 @@ export function canAssignRole(actorRole: string, targetRole: string): boolean {
   if (actorRole === 'manager')
     return targetRole === 'member' || targetRole === 'guest';
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// Page access: what someone may add, edit and delete on each feature page.
+//
+// Resolution (resolveAccess): the head always has everything. Everyone else
+// starts from the built-in default for their role, then the household's edited
+// role defaults (Household.roleAccess), then their own per-member overrides
+// (User.accessOverrides). "Own" means a record they created (createdById);
+// records with no creator (imported bills, email events) count as others'.
+// ---------------------------------------------------------------------------
+
+export const ACCESS_PAGES = [
+  'tasks',
+  'calendar',
+  'shopping',
+  'inventory',
+  'bills',
+  'requests',
+] as const;
+export type AccessPage = (typeof ACCESS_PAGES)[number];
+
+export const ACCESS_PAGE_LABELS: Record<AccessPage, string> = {
+  tasks: 'Tasks',
+  calendar: 'Calendar',
+  shopping: 'Shopping',
+  inventory: 'Inventory',
+  bills: 'Bills',
+  requests: 'Requests',
+};
+
+export const ACCESS_ACTIONS = [
+  'create',
+  'editOwn',
+  'deleteOwn',
+  'editOthers',
+  'deleteOthers',
+] as const;
+export type AccessAction = (typeof ACCESS_ACTIONS)[number];
+
+export const ACCESS_ACTION_LABELS: Record<AccessAction, string> = {
+  create: 'Add',
+  editOwn: 'Edit own',
+  deleteOwn: 'Delete own',
+  editOthers: "Edit others'",
+  deleteOthers: "Delete others'",
+};
+
+/**
+ * The switches that mean something on each page. Requests only has "Add"
+ * (submit): editing/deleting stays limited to the requester and accepting to
+ * the assignee (requestService), whatever the grid says.
+ */
+export const PAGE_ACTIONS: Record<AccessPage, readonly AccessAction[]> = {
+  tasks: ACCESS_ACTIONS,
+  calendar: ACCESS_ACTIONS,
+  shopping: ACCESS_ACTIONS,
+  inventory: ACCESS_ACTIONS,
+  bills: ACCESS_ACTIONS,
+  requests: ['create'],
+};
+
+export type PageAccess = Record<AccessAction, boolean>;
+export type AccessMatrix = Record<AccessPage, PageAccess>;
+/** Sparse: only the cells that differ from the layer below. */
+export type AccessOverrides = Partial<Record<AccessPage, Partial<PageAccess>>>;
+
+/** Roles whose access the head can edit (the head itself is always full). */
+export const EDITABLE_ROLES = ['manager', 'member', 'guest'] as const;
+export type EditableRole = (typeof EDITABLE_ROLES)[number];
+export type RoleAccessOverrides = Partial<Record<EditableRole, AccessOverrides>>;
+
+const ALL: PageAccess = {
+  create: true,
+  editOwn: true,
+  deleteOwn: true,
+  editOthers: true,
+  deleteOthers: true,
+};
+const NONE: PageAccess = {
+  create: false,
+  editOwn: false,
+  deleteOwn: false,
+  editOthers: false,
+  deleteOthers: false,
+};
+
+function matrix(fill: (page: AccessPage) => PageAccess): AccessMatrix {
+  return Object.fromEntries(
+    ACCESS_PAGES.map((p) => [p, { ...fill(p) }]),
+  ) as AccessMatrix;
+}
+
+const SUBMIT_ONLY: PageAccess = { ...NONE, create: true };
+
+/**
+ * Out-of-the-box defaults, matching how the app behaved before the grid
+ * existed: tasks are head-only, managers and members can change anything on
+ * the other pages, guests change nothing, and everyone may submit requests.
+ */
+export const BUILTIN_ROLE_ACCESS: Record<EditableRole, AccessMatrix> = {
+  manager: matrix((p) => (p === 'tasks' ? NONE : p === 'requests' ? SUBMIT_ONLY : ALL)),
+  member: matrix((p) => (p === 'tasks' ? NONE : p === 'requests' ? SUBMIT_ONLY : ALL)),
+  guest: matrix((p) => (p === 'requests' ? SUBMIT_ONLY : NONE)),
+};
+
+export const FULL_ACCESS: AccessMatrix = matrix(() => ALL);
+export const NO_ACCESS: AccessMatrix = matrix(() => NONE);
+
+function applyOverrides(
+  base: AccessMatrix,
+  overrides: AccessOverrides | null | undefined,
+): AccessMatrix {
+  if (!overrides) return base;
+  return matrix((p) => ({ ...base[p], ...overrides[p] }));
+}
+
+/** A role's default grid: built-in, then the household's edits. */
+export function roleDefaultAccess(
+  role: EditableRole,
+  roleOverrides: RoleAccessOverrides | null | undefined,
+): AccessMatrix {
+  return applyOverrides(BUILTIN_ROLE_ACCESS[role], roleOverrides?.[role]);
+}
+
+/** Someone's effective grid. Unknown roles get nothing. */
+export function resolveAccess(
+  role: string,
+  roleOverrides: RoleAccessOverrides | null | undefined,
+  memberOverrides: AccessOverrides | null | undefined,
+): AccessMatrix {
+  if (role === 'head') return FULL_ACCESS;
+  if (!(EDITABLE_ROLES as readonly string[]).includes(role)) return NO_ACCESS;
+  return applyOverrides(
+    roleDefaultAccess(role as EditableRole, roleOverrides),
+    memberOverrides,
+  );
+}
+
+/**
+ * Whether `access` lets `userId` edit or delete a record created by `ownerId`.
+ * A null owner (no creator recorded) is always someone else's.
+ */
+export function canModify(
+  access: PageAccess,
+  kind: 'edit' | 'delete',
+  ownerId: string | null | undefined,
+  userId: string,
+): boolean {
+  const own = !!ownerId && ownerId === userId;
+  if (kind === 'edit') return own ? access.editOwn : access.editOthers;
+  return own ? access.deleteOwn : access.deleteOthers;
+}
+
+/** True when the page grants anything at all (used for check-off style actions). */
+export function hasAnyAccess(access: PageAccess): boolean {
+  return ACCESS_ACTIONS.some((a) => access[a]);
+}
+
+/**
+ * The cells of `next` that differ from `base` — what gets stored, so later
+ * changes to the layer below still flow through to untouched cells.
+ */
+export function diffAccess(
+  base: AccessMatrix,
+  next: AccessMatrix,
+): AccessOverrides {
+  const out: AccessOverrides = {};
+  for (const p of ACCESS_PAGES) {
+    for (const a of PAGE_ACTIONS[p]) {
+      if (next[p][a] !== base[p][a]) (out[p] ??= {})[a] = next[p][a];
+    }
+  }
+  return out;
+}
+
+const pageAccessSchema = z
+  .object(
+    Object.fromEntries(ACCESS_ACTIONS.map((a) => [a, z.boolean()])) as Record<
+      AccessAction,
+      z.ZodBoolean
+    >,
+  )
+  .partial();
+
+export const accessOverridesSchema = z
+  .object(
+    Object.fromEntries(ACCESS_PAGES.map((p) => [p, pageAccessSchema])) as Record<
+      AccessPage,
+      typeof pageAccessSchema
+    >,
+  )
+  .partial();
+
+export const roleAccessOverridesSchema = z
+  .object({
+    manager: accessOverridesSchema,
+    member: accessOverridesSchema,
+    guest: accessOverridesSchema,
+  })
+  .partial();
+
+/** Parse a stored JSON column; anything unreadable is treated as no overrides. */
+export function parseStoredJson<T>(
+  raw: string | null | undefined,
+  schema: z.ZodType<T>,
+): T | null {
+  if (!raw) return null;
+  try {
+    const parsed = schema.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
 }

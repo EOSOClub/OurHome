@@ -1,10 +1,12 @@
-import { ok, parseBody, requirePermission, withAuth } from '@/server/api/http';
+import { ok, parseBody, requireModify, withAuth } from '@/server/api/http';
 import { deleteBill } from '@/server/services/billService';
+import { recordOwner } from '@/server/services/permissionService';
 import { billIdSchema } from '@/lib/validation/bills';
 
 export const POST = withAuth(async (ctx) => {
-  requirePermission(ctx, 'bills:write');
+  const householdId = ctx.user.householdId!;
   const { id } = await parseBody(ctx.req, billIdSchema);
-  await deleteBill(ctx.user.householdId!, ctx.user.id, id);
+  await requireModify(ctx, 'bills', 'delete', await recordOwner.bill(householdId, id));
+  await deleteBill(householdId, ctx.user.id, id);
   return ok({ id });
 });

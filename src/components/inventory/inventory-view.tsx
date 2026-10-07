@@ -9,6 +9,7 @@ import type {
   ShoppingItemDTO,
   ShoppingListDTO,
 } from '@/lib/types';
+import type { PageAccess } from '@/lib/permissions';
 import { apiFetch } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -59,11 +60,17 @@ interface ItemGroup {
 export function InventoryView({
   initialItems,
   categories: initialCategories,
-  canWrite,
+  access,
+  userId,
+  canAddToShopping,
 }: {
   initialItems: InventoryItemDTO[];
   categories: CategoryDTO[];
-  canWrite: boolean;
+  /** The viewer's Inventory access (Members → Permissions). */
+  access: PageAccess;
+  userId: string;
+  /** Viewer may add to shopping lists (Shopping "Add"). */
+  canAddToShopping: boolean;
 }) {
   const queryClient = useQueryClient();
   const [busyItemId, setBusyItemId] = useState<string | null>(null);
@@ -315,7 +322,7 @@ export function InventoryView({
         </p>
       </div>
 
-      {canWrite ? (
+      {access.create ? (
         <QuickAddItem
           categories={categories}
           submitting={addItem.isPending}
@@ -323,9 +330,12 @@ export function InventoryView({
         />
       ) : null}
 
-      {canWrite ? (
+      {/* Categories: adding needs Add; removing one (no creator) needs Delete others'. */}
+      {access.create || access.deleteOthers ? (
         <CategoryManager
           categories={categories}
+          canAdd={access.create}
+          canDelete={access.deleteOthers}
           submitting={addCategory.isPending}
           deletingId={
             deleteCategory.isPending
@@ -342,7 +352,7 @@ export function InventoryView({
           icon={Boxes}
           title="No inventory yet"
           description={
-            canWrite
+            access.create
               ? 'Add items above, then adjust quantities here or by scanning an NFC tag.'
               : 'Nothing is being tracked yet.'
           }
@@ -399,7 +409,9 @@ export function InventoryView({
                           item={item}
                           categories={categories}
                           busy={busyItemId === item.id}
-                          canWrite={canWrite}
+                          access={access}
+                          userId={userId}
+                          canAddToShopping={canAddToShopping}
                           onAdjust={(delta) =>
                             adjust.mutate({ itemId: item.id, delta })
                           }
@@ -502,12 +514,16 @@ export function InventoryView({
 
 function CategoryManager({
   categories,
+  canAdd,
+  canDelete,
   submitting,
   deletingId,
   onAdd,
   onDelete,
 }: {
   categories: CategoryDTO[];
+  canAdd: boolean;
+  canDelete: boolean;
   submitting: boolean;
   deletingId: string | null;
   onAdd: (payload: AddCategoryPayload) => void;
@@ -554,6 +570,7 @@ function CategoryManager({
                     style={{ backgroundColor: c.color ?? 'transparent' }}
                   />
                   {c.name}
+                  {canDelete ? (
                   <button
                     type="button"
                     onClick={() => onDelete(c)}
@@ -567,6 +584,7 @@ function CategoryManager({
                       <X className="size-3.5" />
                     )}
                   </button>
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -574,6 +592,7 @@ function CategoryManager({
             <p className="text-xs text-muted-foreground">No categories yet.</p>
           )}
 
+          {canAdd ? (
           <form onSubmit={handleSubmit} className="flex items-end gap-2">
             <div className="flex-1 space-y-1.5">
               <Label htmlFor="new-category-name">New category</Label>
@@ -604,6 +623,7 @@ function CategoryManager({
               {submitting ? <Loader2 className="animate-spin" /> : <Plus />}
             </Button>
           </form>
+          ) : null}
         </div>
       ) : null}
     </div>

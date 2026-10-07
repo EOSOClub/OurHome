@@ -59,6 +59,7 @@ function occurrence(e: EventWithRelations, start: Date): EventOccurrenceDTO {
   const end = durationMs != null ? new Date(start.getTime() + durationMs) : null;
   return {
     eventId: e.id,
+    createdById: e.createdById,
     title: e.title,
     description: e.description,
     location: e.location,

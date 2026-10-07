@@ -33,6 +33,9 @@ model Household {
   allowHttp        Boolean?
   // When the Head of House answered the post-setup access prompt; null = not yet.
   accessReviewedAt DateTime?
+  // The head's edits to each role's page-access grid, as JSON text
+  // (RoleAccessOverrides in src/lib/permissions.ts). null = built-in defaults.
+  roleAccess       String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -71,6 +74,9 @@ model User {
   // Set when an admin provisions an account with a temporary password; the app
   // forces a password change on next sign-in, then clears this.
   mustChangePassword Boolean @default(false)
+  // Per-member page-access overrides on top of the role's grid, as JSON text
+  // (AccessOverrides in src/lib/permissions.ts). null = role defaults only.
+  accessOverrides String?
   // Audit: which user provisioned this member (plain id, no relation).
   createdById   String?
   householdId   String?
@@ -414,6 +420,9 @@ model BillPayment {
   reference       String?
   confirmationNo  String?
   sourceMessageId String?
+  // Who recorded it (plain user id) — may differ from paidByUserId. Decides
+  // "own" vs "others'" for page access; null for imported payments.
+  createdById  String?
   createdAt    DateTime @default(now())
 
   household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
@@ -435,6 +444,8 @@ model ShoppingList {
   name        String
   // kind: "grocery" | "supplies" | "hardware" | "amazon" | "general"
   kind        String   @default("grocery")
+  // Plain user id (no relation): decides "own" vs "others'" for page access.
+  createdById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -461,6 +472,8 @@ model ShoppingItem {
   recurring     Boolean   @default(false)
   purchased     Boolean   @default(false)
   purchasedAt   DateTime?
+  // Plain user id (no relation): decides "own" vs "others'" for page access.
+  createdById   String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -551,6 +564,8 @@ model InventoryItem {
   reorderIntervalDays Int?
   lastRestockedAt DateTime?
   predictedDepletionAt DateTime?
+  // Plain user id (no relation): decides "own" vs "others'" for page access.
+  createdById     String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 

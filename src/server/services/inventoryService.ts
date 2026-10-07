@@ -58,6 +58,7 @@ export function itemToDTO(item: InventoryItemWithRelations): InventoryItemDTO {
     reorderIntervalDays: item.reorderIntervalDays,
     lastRestockedAt: item.lastRestockedAt?.toISOString() ?? null,
     predictedDepletionAt: item.predictedDepletionAt?.toISOString() ?? null,
+    createdById: item.createdById,
     category: item.category
       ? { id: item.category.id, name: item.category.name, color: item.category.color }
       : null,
@@ -176,6 +177,7 @@ export async function createInventoryItem(
         null,
       ),
       categoryId: input.categoryId ?? null,
+      createdById: userId,
     },
     include: itemInclude,
   });

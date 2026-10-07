@@ -1,6 +1,6 @@
 import { requireUser } from '@/server/auth/session';
 import { prisma } from '@/server/db/prisma';
-import { can } from '@/lib/permissions';
+import { getUserAccess } from '@/server/services/permissionService';
 import { listOccurrences } from '@/server/services/calendarService';
 import { CalendarView } from '@/components/calendar/calendar-view';
 
@@ -10,6 +10,7 @@ export default async function CalendarPage({
   searchParams: Promise<{ ym?: string | string[]; d?: string | string[] }>;
 }) {
   const user = await requireUser();
+  const access = await getUserAccess(user);
   const householdId = user.householdId!;
 
   // Restore the visible month from ?ym=YYYY-MM, falling back to the month of
@@ -46,7 +47,8 @@ export default async function CalendarPage({
       initialMonth={{ year, month }}
       initialOccurrences={occurrences}
       members={members}
-      canWrite={can(user.role, 'calendar:write')}
+      access={access.calendar}
+      userId={user.id}
     />
   );
 }

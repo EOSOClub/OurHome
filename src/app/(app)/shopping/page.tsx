@@ -1,6 +1,6 @@
 import { requireUser } from '@/server/auth/session';
 import { prisma } from '@/server/db/prisma';
-import { can } from '@/lib/permissions';
+import { getUserAccess } from '@/server/services/permissionService';
 import {
   listShoppingLists,
   listToDTO,
@@ -9,6 +9,7 @@ import { ShoppingView } from '@/components/shopping/shopping-view';
 
 export default async function ShoppingPage() {
   const user = await requireUser();
+  const access = await getUserAccess(user);
   const householdId = user.householdId!;
 
   const [lists, categories] = await Promise.all([
@@ -24,7 +25,8 @@ export default async function ShoppingPage() {
     <ShoppingView
       initialLists={lists.map(listToDTO)}
       categories={categories}
-      canWrite={can(user.role, 'shopping:write')}
+      access={access.shopping}
+      userId={user.id}
     />
   );
 }

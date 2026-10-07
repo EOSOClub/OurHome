@@ -59,6 +59,7 @@ function paymentToDTO(p: PaymentWithRelations): BillPaymentDTO {
     source: p.source,
     confirmationNo: p.confirmationNo,
     paidBy: p.paidBy ? { id: p.paidBy.id, name: p.paidBy.name } : null,
+    createdById: p.createdById,
   };
 }
 
@@ -118,6 +119,7 @@ export function billToDTO(
         }
       : null,
     assignee: b.assignee ? { id: b.assignee.id, name: b.assignee.name } : null,
+    createdById: b.createdById,
     paidTotal: stats.paidTotal,
     paymentCount: stats.paymentCount,
   };
@@ -377,6 +379,7 @@ export async function markBillPaid(
         amount,
         fee: input.fee ?? null,
         paidByUserId: userId,
+        createdById: userId,
         paidAt: input.paidAt ?? new Date(),
         notes: input.note ?? null,
         source: 'manual',

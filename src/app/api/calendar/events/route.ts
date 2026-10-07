@@ -2,7 +2,7 @@ import {
   ok,
   parseBody,
   parseQuery,
-  requirePermission,
+  requireCreate,
   withAuth,
 } from '@/server/api/http';
 import { createEvent, listOccurrences } from '@/server/services/calendarService';
@@ -18,7 +18,7 @@ export const GET = withAuth(async (ctx) => {
 });
 
 export const POST = withAuth(async (ctx) => {
-  requirePermission(ctx, 'calendar:write');
+  await requireCreate(ctx, 'calendar');
   const input = await parseBody(ctx.req, createEventSchema);
   const event = await createEvent(ctx.user.householdId!, ctx.user.id, input);
   return ok(event, { status: 201 });

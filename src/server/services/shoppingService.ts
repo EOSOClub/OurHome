@@ -49,6 +49,7 @@ export function itemToDTO(item: ShoppingItemWithRelations): ShoppingItemDTO {
     recurring: item.recurring,
     purchased: item.purchased,
     purchasedAt: item.purchasedAt?.toISOString() ?? null,
+    createdById: item.createdById,
     category: item.category
       ? { id: item.category.id, name: item.category.name, color: item.category.color }
       : null,
@@ -61,6 +62,7 @@ export function listToDTO(list: ShoppingListWithItems): ShoppingListDTO {
     id: list.id,
     name: list.name,
     kind: list.kind,
+    createdById: list.createdById,
     items: list.items.map(itemToDTO),
     openCount: list.items.length - purchasedCount,
     purchasedCount,
@@ -83,7 +85,7 @@ export async function createShoppingList(
   input: CreateShoppingListInput,
 ): Promise<ShoppingListWithItems> {
   const list = await prisma.shoppingList.create({
-    data: { householdId, name: input.name, kind: input.kind },
+    data: { householdId, name: input.name, kind: input.kind, createdById: userId },
     include: listInclude,
   });
 
@@ -176,6 +178,7 @@ export async function addShoppingItem(
       estimatedPrice: input.estimatedPrice ?? null,
       recurring: input.recurring,
       categoryId: input.categoryId ?? null,
+      createdById: userId,
     },
     include: itemInclude,
   });
@@ -310,20 +313,23 @@ export async function deleteShoppingItem(
 /**
  * Clear purchased items from a list. Non-recurring items are deleted; recurring
  * consumables (e.g. paper towels) are un-checked so they stay on the list for
- * the next shopping trip.
+ * the next shopping trip. `mayDelete` decides, per item creator, which
+ * non-recurring items the caller may remove; the others are left untouched.
  */
 export async function clearPurchased(
   householdId: string,
   userId: string,
   listId: string,
+  mayDelete: (createdById: string | null) => boolean = () => true,
 ): Promise<ShoppingListWithItems> {
   const list = await assertListInHousehold(listId, householdId);
 
   return prisma.$transaction(async (tx) => {
-    const purchased = await tx.shoppingItem.findMany({
+    const all = await tx.shoppingItem.findMany({
       where: { listId, purchased: true },
-      select: { id: true, recurring: true },
+      select: { id: true, recurring: true, createdById: true },
     });
+    const purchased = all.filter((i) => i.recurring || mayDelete(i.createdById));
 
     const toDelete = purchased.filter((i) => !i.recurring).map((i) => i.id);
     const toReset = purchased.filter((i) => i.recurring).map((i) => i.id);

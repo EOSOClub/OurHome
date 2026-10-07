@@ -1,19 +1,36 @@
-import { ok, parseBody, requirePermission, withAuth } from '@/server/api/http';
+import {
+  ok,
+  parseBody,
+  requireModify,
+  requirePermission,
+  withAuth,
+} from '@/server/api/http';
 import { updateSubtask, taskToDTO } from '@/server/services/taskService';
+import { recordOwner } from '@/server/services/permissionService';
 import { updateSubtaskSchema } from '@/lib/validation/task';
 
 export const POST = withAuth(async (ctx) => {
+  const householdId = ctx.user.householdId!;
   const input = await parseBody(ctx.req, updateSubtaskSchema);
   // Checking an item off is part of completing a task, so a bare done-toggle
   // only needs tasks:complete (guests included — the service scopes them to
-  // their own assignments). Anything else edits the checklist: tasks:write.
+  // their own assignments). Anything else edits the task's checklist.
   const doneToggleOnly =
     input.done !== undefined &&
     input.title === undefined &&
     input.position === undefined &&
     input.resetIntervalDays === undefined;
-  requirePermission(ctx, doneToggleOnly ? 'tasks:complete' : 'tasks:write');
-  const task = await updateSubtask(ctx.user.householdId!, input, {
+  if (doneToggleOnly) {
+    requirePermission(ctx, 'tasks:complete');
+  } else {
+    await requireModify(
+      ctx,
+      'tasks',
+      'edit',
+      await recordOwner.subtask(householdId, input.subtaskId),
+    );
+  }
+  const task = await updateSubtask(householdId, input, {
     id: ctx.user.id,
     role: ctx.user.role,
   });

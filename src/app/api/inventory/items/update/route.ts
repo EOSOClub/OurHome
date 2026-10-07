@@ -1,10 +1,17 @@
-import { ok, parseBody, requirePermission, withAuth } from '@/server/api/http';
+import { ok, parseBody, requireModify, withAuth } from '@/server/api/http';
 import { itemToDTO, updateInventoryItem } from '@/server/services/inventoryService';
+import { recordOwner } from '@/server/services/permissionService';
 import { updateInventoryItemSchema } from '@/lib/validation/inventory';
 
 export const POST = withAuth(async (ctx) => {
-  requirePermission(ctx, 'inventory:write');
+  const householdId = ctx.user.householdId!;
   const input = await parseBody(ctx.req, updateInventoryItemSchema);
-  const item = await updateInventoryItem(ctx.user.householdId!, ctx.user.id, input);
+  await requireModify(
+    ctx,
+    'inventory',
+    'edit',
+    await recordOwner.inventoryItem(householdId, input.itemId),
+  );
+  const item = await updateInventoryItem(householdId, ctx.user.id, input);
   return ok(itemToDTO(item));
 });

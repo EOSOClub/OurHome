@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Check, ExternalLink, Loader2, Pencil, Repeat, Trash2 } from 'lucide-react';
 import type { CategoryDTO, ShoppingItemDTO } from '@/lib/types';
+import { canModify, hasAnyAccess, type PageAccess } from '@/lib/permissions';
 import { SHOPPING_PRIORITIES, SHOPPING_PRIORITY_LABELS } from '@/lib/enums';
 import { isAmazonUrl, parseAmazonLink } from '@/lib/amazon';
 import { cn } from '@/lib/utils';
@@ -71,7 +72,8 @@ function priorityVariant(priority: string): 'secondary' | 'destructive' | 'warni
 export function ShoppingItemRow({
   item,
   categories,
-  canWrite,
+  access,
+  userId,
   onToggle,
   onDelete,
   onUpdate,
@@ -79,7 +81,9 @@ export function ShoppingItemRow({
 }: {
   item: ShoppingItemDTO;
   categories: CategoryDTO[];
-  canWrite: boolean;
+  /** The viewer's Shopping access; own = items they added. */
+  access: PageAccess;
+  userId: string;
   onToggle: (item: ShoppingItemDTO) => void;
   onDelete: (item: ShoppingItemDTO) => void;
   onUpdate: (payload: UpdateItemPayload) => Promise<unknown>;
@@ -87,6 +91,10 @@ export function ShoppingItemRow({
 }) {
   const [editing, setEditing] = useState(false);
   const { purchased } = item;
+  // Ticking off isn't an edit: any Shopping access will do (matches the API).
+  const canToggle = hasAnyAccess(access);
+  const canEdit = canModify(access, 'edit', item.createdById, userId);
+  const canDelete = canModify(access, 'delete', item.createdById, userId);
 
   if (editing) {
     return (
@@ -109,7 +117,7 @@ export function ShoppingItemRow({
         size="icon"
         className="size-9 shrink-0 rounded-full"
         onClick={() => onToggle(item)}
-        disabled={busy || !canWrite}
+        disabled={busy || !canToggle}
         aria-label={purchased ? 'Mark not bought' : 'Mark bought'}
         aria-pressed={purchased}
       >
@@ -169,29 +177,29 @@ export function ShoppingItemRow({
         {!purchased ? (
           <Badge variant={priorityVariant(item.priority)}>{item.priority}</Badge>
         ) : null}
-        {canWrite ? (
-          <>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-9 text-muted-foreground hover:text-foreground"
-              onClick={() => setEditing(true)}
-              disabled={busy}
-              aria-label="Edit item"
-            >
-              <Pencil />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-9 text-muted-foreground hover:text-destructive"
-              onClick={() => onDelete(item)}
-              disabled={busy}
-              aria-label="Remove item"
-            >
-              <Trash2 />
-            </Button>
-          </>
+        {canEdit ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-9 text-muted-foreground hover:text-foreground"
+            onClick={() => setEditing(true)}
+            disabled={busy}
+            aria-label="Edit item"
+          >
+            <Pencil />
+          </Button>
+        ) : null}
+        {canDelete ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-9 text-muted-foreground hover:text-destructive"
+            onClick={() => onDelete(item)}
+            disabled={busy}
+            aria-label="Remove item"
+          >
+            <Trash2 />
+          </Button>
         ) : null}
       </div>
     </div>

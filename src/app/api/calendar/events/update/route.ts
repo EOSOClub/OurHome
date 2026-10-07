@@ -1,10 +1,12 @@
-import { ok, parseBody, requirePermission, withAuth } from '@/server/api/http';
+import { ok, parseBody, requireModify, withAuth } from '@/server/api/http';
 import { updateEvent } from '@/server/services/calendarService';
+import { recordOwner } from '@/server/services/permissionService';
 import { updateEventSchema } from '@/lib/validation/calendar';
 
 export const POST = withAuth(async (ctx) => {
-  requirePermission(ctx, 'calendar:write');
+  const householdId = ctx.user.householdId!;
   const input = await parseBody(ctx.req, updateEventSchema);
-  const event = await updateEvent(ctx.user.householdId!, ctx.user.id, input);
+  await requireModify(ctx, 'calendar', 'edit', await recordOwner.event(householdId, input.id));
+  const event = await updateEvent(householdId, ctx.user.id, input);
   return ok(event);
 });

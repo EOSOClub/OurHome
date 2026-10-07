@@ -1,4 +1,4 @@
-import { ok, parseBody, requirePermission, withAuth } from '@/server/api/http';
+import { ok, parseBody, requireCreate, withAuth } from '@/server/api/http';
 import {
   createRequest,
   listRequests,
@@ -12,7 +12,8 @@ export const GET = withAuth(async ({ user }) => {
 });
 
 export const POST = withAuth(async (ctx) => {
-  requirePermission(ctx, 'requests:write');
+  // Submitting is the Requests "Add" switch (Members → Permissions).
+  await requireCreate(ctx, 'requests');
   const input = await parseBody(ctx.req, createRequestSchema);
   const request = await createRequest(ctx.user.householdId!, ctx.user.id, input);
   return ok(requestToDTO(request), { status: 201 });

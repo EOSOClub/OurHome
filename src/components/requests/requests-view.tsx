@@ -80,13 +80,14 @@ export function RequestsView({
   initialRequests,
   currentUserId,
   members,
-  canWrite,
+  canSubmit,
   canManageMedia,
 }: {
   initialRequests: RequestDTO[];
   currentUserId: string;
   members: MemberDTO[];
-  canWrite: boolean;
+  /** May submit new requests (Requests "Add" in Members → Permissions). */
+  canSubmit: boolean;
   /** Head: accepts media requests and marks them available. */
   canManageMedia: boolean;
 }) {
@@ -179,7 +180,7 @@ export function RequestsView({
         </p>
       </div>
 
-      {canWrite ? (
+      {canSubmit ? (
         <Card>
           <CardHeader>
             <CardTitle>New request</CardTitle>

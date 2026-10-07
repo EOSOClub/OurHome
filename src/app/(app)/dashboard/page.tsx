@@ -30,17 +30,24 @@ import {
   isOverdue,
 } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import type { AccessPage } from '@/lib/permissions';
+import { getUserAccess } from '@/server/services/permissionService';
 
-const quickActions = [
-  { href: '/tasks', label: 'New task', icon: ListTodo },
-  { href: '/shopping', label: 'Add item', icon: ShoppingCart },
-  { href: '/bills', label: 'Log payment', icon: Receipt },
-  { href: '/calendar', label: 'New event', icon: CalendarDays },
+// Each shows only to people who may add on that page (Members → Permissions).
+const quickActions: { href: string; label: string; icon: typeof ListTodo; page: AccessPage }[] = [
+  { href: '/tasks', label: 'New task', icon: ListTodo, page: 'tasks' },
+  { href: '/shopping', label: 'Add item', icon: ShoppingCart, page: 'shopping' },
+  { href: '/bills', label: 'Log payment', icon: Receipt, page: 'bills' },
+  { href: '/calendar', label: 'New event', icon: CalendarDays, page: 'calendar' },
 ];
 
 export default async function DashboardPage() {
   const user = await requireUser();
-  const data = await getDashboard(user.householdId!);
+  const [data, access] = await Promise.all([
+    getDashboard(user.householdId!),
+    getUserAccess(user),
+  ]);
+  const actions = quickActions.filter((a) => access[a.page].create);
 
   return (
     <div className="space-y-6">
@@ -52,7 +59,7 @@ export default async function DashboardPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {quickActions.map(({ href, label, icon: Icon }) => (
+          {actions.map(({ href, label, icon: Icon }) => (
             <Link
               key={label}
               href={href}

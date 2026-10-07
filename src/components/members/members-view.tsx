@@ -34,6 +34,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { toast } from '@/components/ui/toast';
+import { PermissionsCard } from '@/components/members/permissions-card';
 
 const MEMBERS_KEY = ['members'];
 
@@ -134,6 +135,13 @@ export function MembersView({
           <MemberRow key={m.id} member={m} currentUser={currentUser} />
         ))}
       </ul>
+
+      {/* Page permissions are the head's call (household:manage). */}
+      {canRename ? (
+        <PermissionsCard
+          membersVersion={members.map((m) => `${m.id}:${m.role}`).join(',')}
+        />
+      ) : null}
 
       {renaming ? (
         <RenameHouseholdDialog

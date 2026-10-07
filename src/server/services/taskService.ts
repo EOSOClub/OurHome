@@ -52,6 +52,7 @@ function subtaskToDTO(s: TaskWithRelations['subtasks'][number]): SubtaskDTO {
 export function taskToDTO(task: TaskWithRelations): TaskDTO {
   return {
     id: task.id,
+    createdById: task.createdById,
     title: task.title,
     notes: task.notes,
     type: task.type,

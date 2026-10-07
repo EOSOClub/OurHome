@@ -1,4 +1,4 @@
-import { ok, parseBody, requirePermission, withAuth } from '@/server/api/http';
+import { ok, parseBody, requireCreate, withAuth } from '@/server/api/http';
 import {
   createInventoryItem,
   itemToDTO,
@@ -12,7 +12,7 @@ export const GET = withAuth(async (ctx) => {
 });
 
 export const POST = withAuth(async (ctx) => {
-  requirePermission(ctx, 'inventory:write');
+  await requireCreate(ctx, 'inventory');
   const input = await parseBody(ctx.req, createInventoryItemSchema);
   const item = await createInventoryItem(ctx.user.householdId!, ctx.user.id, input);
   return ok(itemToDTO(item), { status: 201 });

@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import { requireUser } from '@/server/auth/session';
 import { prisma } from '@/server/db/prisma';
-import { can } from '@/lib/permissions';
+import { getUserAccess } from '@/server/services/permissionService';
 import { getBillDetail } from '@/server/services/billService';
 import { NotFoundError } from '@/server/services/errors';
 import { BillDetailView } from '@/components/bills/bill-detail-view';
@@ -14,6 +14,7 @@ export default async function BillDetailPage({
 }) {
   const { id } = await params;
   const user = await requireUser();
+  const access = await getUserAccess(user);
   const householdId = user.householdId!;
 
   let bill;
@@ -34,7 +35,9 @@ export default async function BillDetailPage({
     <BillDetailView
       bill={bill}
       members={members}
-      canWrite={can(user.role, 'bills:write')}
+      access={access.bills}
+      userId={user.id}
+      canAddToCalendar={access.calendar.create}
     />
   );
 }

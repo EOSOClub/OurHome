@@ -17,6 +17,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import type { BillDTO, MemberDTO } from '@/lib/types';
+import { canModify, type PageAccess } from '@/lib/permissions';
 import { BILL_STATUS_LABELS, type BillStatus } from '@/lib/enums';
 import { formatDueDate, formatMoney, isDueWithinDays, isOverdue } from '@/lib/format';
 import { apiFetch, ApiError } from '@/lib/api';
@@ -102,12 +103,15 @@ const sum = (bills: BillDTO[], f: (b: BillDTO) => number) =>
 export function BillsView({
   initialBills,
   members,
-  canWrite,
+  access,
+  userId,
   paidThisMonth,
 }: {
   initialBills: BillDTO[];
   members: MemberDTO[];
-  canWrite: boolean;
+  /** The viewer's Bills access (Members → Permissions). */
+  access: PageAccess;
+  userId: string;
   paidThisMonth: number;
 }) {
   const queryClient = useQueryClient();
@@ -161,7 +165,7 @@ export function BillsView({
             {unpaid.length} unpaid · {formatMoney(totalDue)} outstanding
           </p>
         </div>
-        {canWrite ? (
+        {access.create ? (
           <Button onClick={() => setEditing('new')}>
             <Plus /> New bill
           </Button>
@@ -231,13 +235,13 @@ export function BillsView({
             <>
               {shownOverdue.length > 0 ? (
                 <Section title="Overdue" count={shownOverdue.length}>
-                  <BillList bills={shownOverdue} canWrite={canWrite} />
+                  <BillList bills={shownOverdue} access={access} userId={userId} />
                 </Section>
               ) : null}
 
               <Section title="Upcoming" count={shownUpcoming.length}>
                 {shownUpcoming.length > 0 ? (
-                  <BillList bills={shownUpcoming} canWrite={canWrite} />
+                  <BillList bills={shownUpcoming} access={access} userId={userId} />
                 ) : (
                   <p className="px-1 text-sm text-muted-foreground">
                     Nothing due — you&apos;re all caught up.
@@ -264,7 +268,8 @@ export function BillsView({
                         bills={
                           showAllPaid ? shownPaid : shownPaid.slice(0, PAID_PREVIEW)
                         }
-                        canWrite={canWrite}
+                        access={access}
+                        userId={userId}
                       />
                       {!showAllPaid && shownPaid.length > PAID_PREVIEW ? (
                         <Button
@@ -315,18 +320,36 @@ function Section({
   );
 }
 
-function BillList({ bills, canWrite }: { bills: BillDTO[]; canWrite: boolean }) {
+function BillList({
+  bills,
+  access,
+  userId,
+}: {
+  bills: BillDTO[];
+  access: PageAccess;
+  userId: string;
+}) {
   return (
     <ul className="space-y-2">
       {bills.map((bill) => (
-        <BillRow key={bill.id} bill={bill} canWrite={canWrite} />
+        <BillRow key={bill.id} bill={bill} access={access} userId={userId} />
       ))}
     </ul>
   );
 }
 
-function BillRow({ bill, canWrite }: { bill: BillDTO; canWrite: boolean }) {
+function BillRow({
+  bill,
+  access,
+  userId,
+}: {
+  bill: BillDTO;
+  access: PageAccess;
+  userId: string;
+}) {
   const router = useRouter();
+  // Paying and duplicating add records (Add); deleting follows own vs others'.
+  const canDelete = canModify(access, 'delete', bill.createdById, userId);
   const queryClient = useQueryClient();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [paying, setPaying] = useState(false);
@@ -420,34 +443,38 @@ function BillRow({ bill, canWrite }: { bill: BillDTO; canWrite: boolean }) {
       </span>
       <Badge variant={statusVariant}>{statusLabel}</Badge>
 
-      {canWrite ? (
+      {access.create || canDelete ? (
         <div className="relative z-10 flex items-center gap-1">
-          {bill.status === 'unpaid' ? (
+          {access.create && bill.status === 'unpaid' ? (
             <Button variant="outline" size="sm" onClick={() => setPaying(true)}>
               <CheckCircle2 />
               Mark paid
             </Button>
           ) : null}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-9 text-muted-foreground"
-            aria-label={`Duplicate ${bill.name}`}
-            disabled={duplicate.isPending}
-            onClick={() => duplicate.mutate()}
-          >
-            {duplicate.isPending ? <Loader2 className="animate-spin" /> : <Copy />}
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-9 text-muted-foreground hover:text-destructive"
-            aria-label={`Delete ${bill.name}`}
-            disabled={remove.isPending}
-            onClick={() => setConfirmDelete(true)}
-          >
-            {remove.isPending ? <Loader2 className="animate-spin" /> : <Trash2 />}
-          </Button>
+          {access.create ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-9 text-muted-foreground"
+              aria-label={`Duplicate ${bill.name}`}
+              disabled={duplicate.isPending}
+              onClick={() => duplicate.mutate()}
+            >
+              {duplicate.isPending ? <Loader2 className="animate-spin" /> : <Copy />}
+            </Button>
+          ) : null}
+          {canDelete ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-9 text-muted-foreground hover:text-destructive"
+              aria-label={`Delete ${bill.name}`}
+              disabled={remove.isPending}
+              onClick={() => setConfirmDelete(true)}
+            >
+              {remove.isPending ? <Loader2 className="animate-spin" /> : <Trash2 />}
+            </Button>
+          ) : null}
         </div>
       ) : null}
 

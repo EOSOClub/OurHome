@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2, Pencil, Plus, ShoppingCart, Trash2 } from 'lucide-react';
 import type { CategoryDTO, ShoppingItemDTO, ShoppingListDTO } from '@/lib/types';
+import { canModify, type PageAccess } from '@/lib/permissions';
 import {
   SHOPPING_LIST_KINDS,
   SHOPPING_LIST_KIND_LABELS,
@@ -50,11 +51,14 @@ function plural(n: number): string {
 export function ShoppingView({
   initialLists,
   categories,
-  canWrite,
+  access,
+  userId,
 }: {
   initialLists: ShoppingListDTO[];
   categories: CategoryDTO[];
-  canWrite: boolean;
+  /** The viewer's Shopping access (Members → Permissions). */
+  access: PageAccess;
+  userId: string;
 }) {
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -306,7 +310,7 @@ export function ShoppingView({
               : 'Create a list to get started.'}
           </p>
         </div>
-        {canWrite && !showNewList ? (
+        {access.create && !showNewList ? (
           <Button variant="outline" onClick={() => setShowNewList(true)}>
             <Plus /> New list
           </Button>
@@ -341,26 +345,30 @@ export function ShoppingView({
               ) : null}
             </button>
           ))}
-          {canWrite && selected ? (
+          {selected ? (
             <div className="flex items-center">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-8 text-muted-foreground hover:text-foreground"
-                onClick={() => setRenamingList(true)}
-                aria-label={`Rename ${selected.name}`}
-              >
-                <Pencil />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-8 text-muted-foreground hover:text-destructive"
-                onClick={() => setConfirmDeleteList(true)}
-                aria-label={`Delete ${selected.name}`}
-              >
-                <Trash2 />
-              </Button>
+              {canModify(access, 'edit', selected.createdById, userId) ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 text-muted-foreground hover:text-foreground"
+                  onClick={() => setRenamingList(true)}
+                  aria-label={`Rename ${selected.name}`}
+                >
+                  <Pencil />
+                </Button>
+              ) : null}
+              {canModify(access, 'delete', selected.createdById, userId) ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 text-muted-foreground hover:text-destructive"
+                  onClick={() => setConfirmDeleteList(true)}
+                  aria-label={`Delete ${selected.name}`}
+                >
+                  <Trash2 />
+                </Button>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -370,7 +378,8 @@ export function ShoppingView({
         <ListPanel
           list={selected}
           categories={categories}
-          canWrite={canWrite}
+          access={access}
+          userId={userId}
           adding={addItem.isPending}
           busyItemId={busyItemId}
           onAdd={(payload) =>
@@ -465,7 +474,8 @@ function groupByCategory(items: ShoppingItemDTO[]): ItemGroup[] {
 function ListPanel({
   list,
   categories,
-  canWrite,
+  access,
+  userId,
   adding,
   busyItemId,
   onAdd,
@@ -476,7 +486,8 @@ function ListPanel({
 }: {
   list: ShoppingListDTO;
   categories: CategoryDTO[];
-  canWrite: boolean;
+  access: PageAccess;
+  userId: string;
   adding: boolean;
   busyItemId: string | null;
   onAdd: (payload: Omit<AddItemPayload, 'listId'>) => Promise<unknown>;
@@ -494,7 +505,7 @@ function ListPanel({
 
   return (
     <div className="space-y-4">
-      {canWrite ? (
+      {access.create ? (
         <QuickAddItem categories={categories} submitting={adding} onAdd={onAdd} />
       ) : null}
 
@@ -503,7 +514,7 @@ function ListPanel({
           icon={ShoppingCart}
           title="This list is empty"
           description={
-            canWrite ? 'Add your first item above.' : 'Nothing to buy right now.'
+            access.create ? 'Add your first item above.' : 'Nothing to buy right now.'
           }
         />
       ) : null}
@@ -523,7 +534,8 @@ function ListPanel({
                     <ShoppingItemRow
                       item={item}
                       categories={categories}
-                      canWrite={canWrite}
+                      access={access}
+                      userId={userId}
                       onToggle={onToggle}
                       onDelete={onDelete}
                       onUpdate={onUpdate}
@@ -543,7 +555,8 @@ function ListPanel({
             <h2 className="text-sm font-medium text-muted-foreground">
               In cart ({purchased.length})
             </h2>
-            {canWrite ? (
+            {/* Clearing removes only the bought items the viewer may delete. */}
+            {access.deleteOwn || access.deleteOthers ? (
               <Button variant="ghost" size="sm" onClick={onClear}>
                 Clear bought
               </Button>
@@ -555,7 +568,8 @@ function ListPanel({
                 <ShoppingItemRow
                   item={item}
                   categories={categories}
-                  canWrite={canWrite}
+                  access={access}
+                  userId={userId}
                   onToggle={onToggle}
                   onDelete={onDelete}
                   onUpdate={onUpdate}

@@ -5,17 +5,17 @@ Role-based access lives in [`src/lib/permissions.ts`](../src/lib/permissions.ts)
 handler. The web UI and the Android app only *hide* controls a role can't use;
 the server is the authority.
 
-## Current matrix
+## Role permissions
+
+Fixed per role; not editable in the UI.
 
 | Permission | head | manager | member | guest |
 | --- | :-: | :-: | :-: | :-: |
-| `household:manage` (rename household, transfer headship) | ✓ | | | |
+| `household:manage` (rename household, transfer headship, **edit page permissions**) | ✓ | | | |
 | `members:manage` | ✓ | ✓¹ | | |
 | `settings:manage` (HA tokens, NFC tags, categories) | ✓ | ✓ | | |
-| `tasks:write` (create / edit / delete tasks + checklists) | ✓ | | | |
 | `tasks:complete` (complete tasks, tick checklist items) | ✓ | ✓ | ✓ | ✓² |
-| `shopping:write`, `inventory:write`, `bills:write`, `calendar:write` | ✓ | ✓ | ✓ | |
-| `requests:write` (make requests; edit/delete **own** only³) | ✓ | ✓ | ✓ | ✓ |
+| `requests:write` (edit/delete **own** requests³, accept/finish assigned ones; *submitting* is the Requests grid switch) | ✓ | ✓ | ✓ | ✓ |
 | `requests:manage_media` (accept movie/TV requests, mark available; gets the app's media reminders) | ✓ | | | |
 | `bugs:report` (file a bug report) | ✓ | ✓ | ✓ | ✓ |
 | `bugs:manage` (receive bug reports: bell + phone alert) | ✓ | | | |
@@ -26,7 +26,71 @@ the server is the authority.
   edit or delete another person's request. For maintenance requests, only the
   **assignee** can accept (set the done-by date) and mark done.
 
+## Page access (editable by the head)
+
+Add / edit / delete on **Tasks, Calendar, Shopping, Inventory and Bills**, and
+submitting **Requests**, is a per-page grid the Head of House edits on **Members → Permissions**. Each page
+has five switches:
+
+| Switch | Allows |
+| --- | --- |
+| Add | create records on the page |
+| Edit own / Delete own | change / remove records **you created** |
+| Edit others' / Delete others' | change / remove records **someone else created**, or that have no creator (imported bills, email calendar events, inventory categories) |
+
+**Resolution** (`resolveAccess` in `src/lib/permissions.ts`):
+
+1. The head always has everything.
+2. Otherwise start from the built-in default for the role
+   (`BUILTIN_ROLE_ACCESS`): tasks head-only; manager and member get every
+   switch on the other pages; guests get nothing; every role may submit
+   requests.
+3. Apply the household's edits to that role (`Household.roleAccess`).
+4. Apply the member's own overrides (`User.accessOverrides`).
+
+Steps 3 and 4 store only the cells that differ from the layer below
+(`diffAccess`), so changing a role default still reaches every member who
+didn't override that particular switch. Overrides survive a role change.
+
+"Own" is `createdById` on `Task`, `Event`, `ShoppingList`, `ShoppingItem`,
+`InventoryItem`, `Bill` and `BillPayment` (for payments: who **recorded** it,
+not who paid).
+
+**How each action maps:**
+
+- Requests has only **Add** (= submit a request; `PAGE_ACTIONS`). Editing or
+  deleting stays requester-only and accepting stays assignee-only, so someone
+  with submitting switched off can still manage what they already asked for.
+
+- Checklist items (add, rename, reorder, remove) edit their task. Ticking one
+  off is `tasks:complete`.
+- Recording a bill payment and duplicating a bill need Bills **Add**.
+- Ticking a shopping item bought, adjusting stock (+/−), NFC scans and NFC
+  tag binding need **any** switch on that page. Creating an item during NFC
+  setup needs Inventory **Add**; "add to shopping list" needs Shopping **Add**.
+- "Clear bought" removes only the bought items you may delete; recurring
+  items are just un-checked.
+- Deleting a shopping list deletes all its items, whoever added them.
+
+**Enforcement:** route handlers call `requireCreate`, `requireModify` (with the
+owner from `recordOwner.*`) or `requireAnyAccess` from `src/server/api/http.ts`.
+The grid is read from the database on each request, not from the session
+cookie, so changes apply immediately. Pages pass `access` + `userId` to the
+views, which only hide controls.
+
+**API:** `GET /api/permissions/me` returns the caller's grid (for the Android
+app). The head's editor uses `GET /api/permissions`,
+`POST /api/permissions/role` and `POST /api/permissions/member`
+(`access: null` resets a member to the role default).
+
 ## Changelog
+
+- **2026-10-07** — Replaced `tasks:write`, `shopping:write`, `inventory:write`,
+  `calendar:write` and `bills:write` with the editable page-access grid above
+  (role defaults + per-member overrides, own vs others'). Defaults match the
+  previous behaviour.
+- **2026-10-07** — Requests row in the grid: the head can switch off
+  submitting requests per role or member (on for everyone by default).
 
 - **2026-10-05** — `tasks:write` made **head-only**. Previously manager and
   member could also create/edit/delete tasks. Everyone keeps `tasks:complete`.
@@ -37,19 +101,9 @@ the server is the authority.
 
 ## Follow-ups (planned — not done yet)
 
-Permissions are going to be expanded. Open questions to settle then:
-
-- [ ] Should managers regain `tasks:write`, or get a narrower "edit tasks
-      assigned to me" scope?
-- [ ] Head-only edit/delete for the other modules (shopping, inventory, bills,
-      calendar)? Today any member can edit or delete there.
-- [ ] Split create vs. edit vs. delete into separate permissions (e.g. members
-      may add shopping items but not delete bills).
-- [ ] Per-record ownership (creator/assignee may edit their own records).
-- [ ] Guest scope beyond completing assigned tasks (e.g. shopping check-off).
 - [ ] Requests: should the head be able to edit/remove anyone's request (e.g.
       to clean up duplicates or mark fulfilled)? Today only the requester can.
-- [ ] Keep the Android app's mirror of this matrix
-      (OurHomeApp repo: `app/src/main/java/com/eosoclub/ourhome/data/Permissions.kt`)
-      in sync — or expose permissions from the API (e.g. in `get-session`) so
-      clients don't duplicate the matrix.
+- [ ] Keep the Android app's `defaultAccess` (OurHomeApp repo,
+      `data/Permissions.kt`) in sync with `BUILTIN_ROLE_ACCESS` — it's what the
+      app shows before `/api/permissions/me` loads. The app reads the real grid
+      from that endpoint and uses `createdById` for own vs others'.

@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import type { CategoryDTO, InventoryItemDTO } from '@/lib/types';
+import { canModify, hasAnyAccess, type PageAccess } from '@/lib/permissions';
 import type { UpdateItemPayload } from '@/components/inventory/inventory-view';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
@@ -24,7 +25,9 @@ export function InventoryRow({
   item,
   categories,
   busy,
-  canWrite,
+  access,
+  userId,
+  canAddToShopping,
   onAdjust,
   onUpdate,
   onDelete,
@@ -35,7 +38,11 @@ export function InventoryRow({
   item: InventoryItemDTO;
   categories: CategoryDTO[];
   busy: boolean;
-  canWrite: boolean;
+  /** The viewer's Inventory access; own = items they added. */
+  access: PageAccess;
+  userId: string;
+  /** Viewer may add to shopping lists (Shopping "Add"). */
+  canAddToShopping: boolean;
   onAdjust: (delta: number) => void;
   onUpdate: (payload: UpdateItemPayload) => void;
   onDelete: () => void;
@@ -45,6 +52,10 @@ export function InventoryRow({
 }) {
   const [editing, setEditing] = useState(false);
   const [amount, setAmount] = useState('');
+  // Using up / restocking isn't an edit: any Inventory access will do.
+  const canAdjust = hasAnyAccess(access);
+  const canEdit = canModify(access, 'edit', item.createdById, userId);
+  const canDelete = canModify(access, 'delete', item.createdById, userId);
 
   function applyAmount(sign: 1 | -1) {
     const value = Number.parseFloat(amount);
@@ -72,7 +83,7 @@ export function InventoryRow({
 
   return (
     <div className="flex flex-wrap items-center gap-3 py-2.5">
-      {canWrite ? (
+      {canAdjust ? (
         <div className="flex shrink-0 items-center gap-1">
           <Button
             variant="outline"
@@ -118,10 +129,9 @@ export function InventoryRow({
         </p>
       </div>
 
-      {canWrite ? (
-        <>
-          {/* Amount adjuster: inline on desktop; wraps onto its own full-width
-              row on mobile (order-last + w-full) with 44px touch targets. */}
+      {/* Amount adjuster: inline on desktop; wraps onto its own full-width
+          row on mobile (order-last + w-full) with 44px touch targets. */}
+      {canAdjust ? (
           <div className="order-last flex w-full items-center justify-end gap-1 sm:order-none sm:w-auto">
             <Input
               aria-label={`Adjust ${item.name} by amount`}
@@ -154,8 +164,9 @@ export function InventoryRow({
               <Plus />
             </Button>
           </div>
+      ) : null}
           <div className="flex shrink-0 items-center gap-1">
-            {item.isLow ? (
+            {item.isLow && canAddToShopping ? (
               <Button
                 variant="ghost"
                 size="icon"
@@ -182,29 +193,31 @@ export function InventoryRow({
                 )}
               </Button>
             ) : null}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-9 text-muted-foreground hover:text-foreground"
-              onClick={() => setEditing(true)}
-              disabled={busy}
-              aria-label="Edit item"
-            >
-              <Pencil />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-9 text-muted-foreground hover:text-destructive"
-              onClick={onDelete}
-              disabled={busy}
-              aria-label="Remove item"
-            >
-              <Trash2 />
-            </Button>
+            {canEdit ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-9 text-muted-foreground hover:text-foreground"
+                onClick={() => setEditing(true)}
+                disabled={busy}
+                aria-label="Edit item"
+              >
+                <Pencil />
+              </Button>
+            ) : null}
+            {canDelete ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-9 text-muted-foreground hover:text-destructive"
+                onClick={onDelete}
+                disabled={busy}
+                aria-label="Remove item"
+              >
+                <Trash2 />
+              </Button>
+            ) : null}
           </div>
-        </>
-      ) : null}
     </div>
   );
 }

@@ -1,6 +1,8 @@
 // Plain serializable shapes shared between the API responses and the client.
 // (Dates are ISO strings, matching JSON serialization.)
 
+import type { AccessMatrix, EditableRole } from '@/lib/permissions';
+
 export interface CategoryDTO {
   id: string;
   name: string;
@@ -63,6 +65,8 @@ export interface TaskCompletionDTO {
 
 export interface TaskDTO {
   id: string;
+  /** Who created it (user id); null = nobody recorded. Drives own vs others' access. */
+  createdById: string | null;
   title: string;
   notes: string | null;
   type: string;
@@ -80,6 +84,8 @@ export interface TaskDTO {
 
 export interface ShoppingItemDTO {
   id: string;
+  /** Who created it (user id); null = nobody recorded. Drives own vs others' access. */
+  createdById: string | null;
   listId: string;
   name: string;
   quantity: number;
@@ -105,6 +111,8 @@ export interface LinkPreviewDTO {
 
 export interface ShoppingListDTO {
   id: string;
+  /** Who created it (user id); null = nobody recorded. Drives own vs others' access. */
+  createdById: string | null;
   name: string;
   kind: string;
   items: ShoppingItemDTO[];
@@ -114,6 +122,8 @@ export interface ShoppingListDTO {
 
 export interface InventoryItemDTO {
   id: string;
+  /** Who created it (user id); null = nobody recorded. Drives own vs others' access. */
+  createdById: string | null;
   name: string;
   unit: string | null;
   quantity: number;
@@ -173,6 +183,8 @@ export interface IntegrationDTO {
 // baseStart/baseEnd describe the underlying event so the edit form can prefill.
 export interface EventOccurrenceDTO {
   eventId: string;
+  /** Who created it (user id); null = nobody recorded. Drives own vs others' access. */
+  createdById: string | null;
   title: string;
   description: string | null;
   location: string | null;
@@ -188,6 +200,8 @@ export interface EventOccurrenceDTO {
 
 export interface BillDTO {
   id: string;
+  /** Who created it (user id); null = nobody recorded. Drives own vs others' access. */
+  createdById: string | null;
   name: string;
   amount: number;
   currentCharges: number | null;
@@ -211,6 +225,8 @@ export interface BillDTO {
 
 export interface BillPaymentDTO {
   id: string;
+  /** Who created it (user id); null = nobody recorded. Drives own vs others' access. */
+  createdById: string | null;
   billId: string | null;
   // Portion applied to the bill's balance; `fee` is any card surcharge on top.
   amount: number;
@@ -316,4 +332,26 @@ export interface AccessSettingsDTO {
   publicUrl: string | null;
   /** How the viewer is connected right now. */
   connection: 'https' | 'localhost' | 'http';
+}
+
+/** The head's page-permissions editor (Members → Permissions). */
+export interface AccessSettingsMatrixDTO {
+  /** Each editable role's default grid (built-in plus the head's edits). */
+  roles: Record<EditableRole, AccessMatrix>;
+  /** Everyone except the head, with their effective grid. */
+  members: {
+    id: string;
+    name: string;
+    role: string;
+    access: AccessMatrix;
+    /** Has per-member overrides on top of the role default. */
+    customized: boolean;
+  }[];
+}
+
+/** The signed-in user's own page access (GET /api/permissions/me). */
+export interface MyAccessDTO {
+  userId: string;
+  role: string;
+  access: AccessMatrix;
 }

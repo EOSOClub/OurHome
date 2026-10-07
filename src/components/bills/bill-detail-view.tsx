@@ -17,6 +17,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import type { BillDTO, BillDetailDTO, BillPaymentDTO, MemberDTO } from '@/lib/types';
+import { canModify, type PageAccess } from '@/lib/permissions';
 import { BILL_STATUS_LABELS, type BillStatus } from '@/lib/enums';
 import { formatDate, formatDueDate, formatMoney, isOverdue, safeHref } from '@/lib/format';
 import { apiFetch } from '@/lib/api';
@@ -48,12 +49,21 @@ function sourceLabel(source: string): string {
 export function BillDetailView({
   bill,
   members,
-  canWrite,
+  access,
+  userId,
+  canAddToCalendar,
 }: {
   bill: BillDetailDTO;
   members: MemberDTO[];
-  canWrite: boolean;
+  /** The viewer's Bills access (Members → Permissions). */
+  access: PageAccess;
+  userId: string;
+  /** Viewer may add calendar events (Calendar "Add"). */
+  canAddToCalendar: boolean;
 }) {
+  // Paying and duplicating add records (Add); edit/delete follow own vs others'.
+  const canEdit = canModify(access, 'edit', bill.createdById, userId);
+  const canDelete = canModify(access, 'delete', bill.createdById, userId);
   const router = useRouter();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
@@ -198,24 +208,30 @@ export function BillDetailView({
             </div>
           </div>
 
-          {canWrite ? (
+          {access.create || canEdit || canDelete || canAddToCalendar ? (
             <div className="flex flex-wrap gap-2">
-              <Button onClick={() => setPaying(true)}>
-                <CheckCircle2 />
-                {bill.remaining > 0 ? 'Record payment' : 'Add payment'}
-              </Button>
-              <Button variant="outline" onClick={() => setEditing(true)}>
-                <Pencil /> Edit
-              </Button>
-              <Button
-                variant="outline"
-                disabled={duplicate.isPending}
-                onClick={() => duplicate.mutate()}
-              >
-                {duplicate.isPending ? <Loader2 className="animate-spin" /> : <Copy />}
-                Duplicate
-              </Button>
-              {bill.dueDate ? (
+              {access.create ? (
+                <Button onClick={() => setPaying(true)}>
+                  <CheckCircle2 />
+                  {bill.remaining > 0 ? 'Record payment' : 'Add payment'}
+                </Button>
+              ) : null}
+              {canEdit ? (
+                <Button variant="outline" onClick={() => setEditing(true)}>
+                  <Pencil /> Edit
+                </Button>
+              ) : null}
+              {access.create ? (
+                <Button
+                  variant="outline"
+                  disabled={duplicate.isPending}
+                  onClick={() => duplicate.mutate()}
+                >
+                  {duplicate.isPending ? <Loader2 className="animate-spin" /> : <Copy />}
+                  Duplicate
+                </Button>
+              ) : null}
+              {bill.dueDate && canAddToCalendar ? (
                 addedToCalendar ? (
                   <Link href="/calendar" className={buttonVariants({ variant: 'outline' })}>
                     <CalendarPlus /> Open calendar
@@ -235,15 +251,17 @@ export function BillDetailView({
                   </Button>
                 )
               ) : null}
-              <Button
-                variant="ghost"
-                className="text-muted-foreground hover:text-destructive"
-                disabled={remove.isPending}
-                onClick={() => setConfirmDelete(true)}
-              >
-                {remove.isPending ? <Loader2 className="animate-spin" /> : <Trash2 />}
-                Delete
-              </Button>
+              {canDelete ? (
+                <Button
+                  variant="ghost"
+                  className="text-muted-foreground hover:text-destructive"
+                  disabled={remove.isPending}
+                  onClick={() => setConfirmDelete(true)}
+                >
+                  {remove.isPending ? <Loader2 className="animate-spin" /> : <Trash2 />}
+                  Delete
+                </Button>
+              ) : null}
             </div>
           ) : null}
         </CardContent>
@@ -310,7 +328,8 @@ export function BillDetailView({
                   key={p.id}
                   bill={bill}
                   payment={p}
-                  canWrite={canWrite}
+                  access={access}
+                  userId={userId}
                   onChanged={refresh}
                 />
               ))}
@@ -378,14 +397,19 @@ function Detail({
 function PaymentRow({
   bill,
   payment,
-  canWrite,
+  access,
+  userId,
   onChanged,
 }: {
   bill: BillDetailDTO;
   payment: BillPaymentDTO;
-  canWrite: boolean;
+  access: PageAccess;
+  userId: string;
   onChanged: () => void;
 }) {
+  // Own = payments the viewer recorded (not who paid).
+  const canEdit = canModify(access, 'edit', payment.createdById, userId);
+  const canDelete = canModify(access, 'delete', payment.createdById, userId);
   const currency = bill.currency;
   const [confirm, setConfirm] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -422,28 +446,28 @@ function PaymentRow({
         >
           {payment.source === 'manual' ? 'Manual' : 'Auto'}
         </Badge>
-        {canWrite ? (
-          <>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8 text-muted-foreground"
-              aria-label="Edit payment"
-              onClick={() => setEditing(true)}
-            >
-              <Pencil />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8 text-muted-foreground hover:text-destructive"
-              aria-label="Remove payment"
-              disabled={remove.isPending}
-              onClick={() => setConfirm(true)}
-            >
-              {remove.isPending ? <Loader2 className="animate-spin" /> : <Trash2 />}
-            </Button>
-          </>
+        {canEdit ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 text-muted-foreground"
+            aria-label="Edit payment"
+            onClick={() => setEditing(true)}
+          >
+            <Pencil />
+          </Button>
+        ) : null}
+        {canDelete ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 text-muted-foreground hover:text-destructive"
+            aria-label="Remove payment"
+            disabled={remove.isPending}
+            onClick={() => setConfirm(true)}
+          >
+            {remove.isPending ? <Loader2 className="animate-spin" /> : <Trash2 />}
+          </Button>
         ) : null}
       </div>
       {editing ? (

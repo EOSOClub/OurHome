@@ -21,6 +21,7 @@ import { Select } from '@/components/ui/select';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
 import { TaskCard } from '@/components/tasks/task-card';
+import type { PageAccess } from '@/lib/permissions';
 import {
   CreateTaskForm,
   type TaskFormPayload,
@@ -60,12 +61,15 @@ export function TasksView({
   initialTasks,
   categories,
   members,
-  canWrite,
+  access,
+  userId,
 }: {
   initialTasks: TaskDTO[];
   categories: CategoryDTO[];
   members: MemberDTO[];
-  canWrite: boolean;
+  /** The viewer's Tasks access (Members → Permissions). */
+  access: PageAccess;
+  userId: string;
 }) {
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -332,7 +336,8 @@ export function TasksView({
   const completed = visible.filter((t) => t.status === 'completed');
 
   const cardHandlers = {
-    canWrite,
+    access,
+    userId,
     onComplete: (id: string) => completeMutation.mutate(id),
     onDelete: (id: string) =>
       setConfirmDelete(tasks.find((t) => t.id === id) ?? null),
@@ -369,7 +374,7 @@ export function TasksView({
             {active.length} active · {completed.length} completed
           </p>
         </div>
-        {canWrite && !showForm && !editing ? (
+        {access.create && !showForm && !editing ? (
           <Button onClick={() => setShowForm(true)}>
             <Plus /> New task
           </Button>

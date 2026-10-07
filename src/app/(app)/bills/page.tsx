@@ -1,11 +1,12 @@
 import { requireUser } from '@/server/auth/session';
 import { prisma } from '@/server/db/prisma';
-import { can } from '@/lib/permissions';
+import { getUserAccess } from '@/server/services/permissionService';
 import { listBills } from '@/server/services/billService';
 import { BillsView } from '@/components/bills/bills-view';
 
 export default async function BillsPage() {
   const user = await requireUser();
+  const access = await getUserAccess(user);
   const householdId = user.householdId!;
 
   const startOfMonth = new Date();
@@ -29,7 +30,8 @@ export default async function BillsPage() {
     <BillsView
       initialBills={bills}
       members={members}
-      canWrite={can(user.role, 'bills:write')}
+      access={access.bills}
+      userId={user.id}
       paidThisMonth={paidAgg._sum.amount ?? 0}
     />
   );

@@ -2,7 +2,7 @@ import {
   ok,
   parseBody,
   parseQuery,
-  requirePermission,
+  requireCreate,
   withAuth,
 } from '@/server/api/http';
 import { createTask, listTasks, taskToDTO } from '@/server/services/taskService';
@@ -15,7 +15,7 @@ export const GET = withAuth(async (ctx) => {
 });
 
 export const POST = withAuth(async (ctx) => {
-  requirePermission(ctx, 'tasks:write');
+  await requireCreate(ctx, 'tasks');
   const input = await parseBody(ctx.req, createTaskSchema);
   const task = await createTask(ctx.user.householdId!, ctx.user.id, input);
   return ok(taskToDTO(task), { status: 201 });

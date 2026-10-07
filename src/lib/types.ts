@@ -229,9 +229,37 @@ export interface BillDetailDTO extends BillDTO {
   accountNo: string | null;
   confirmationNo: string | null;
   billerEmail: string | null;
+  /** The original document (Paperless), for "Open in Paperless". */
+  sourceUrl: string | null;
   feeTotal: number;
   remaining: number;
   payments: BillPaymentDTO[];
+}
+
+// Paperless bill import status (paperlessSync), for the Settings card.
+export interface PaperlessSkippedDTO {
+  id: number;
+  title: string;
+  reason: string;
+  /** Link to the document in Paperless, when PAPERLESS_PUBLIC_URL is set. */
+  url: string | null;
+}
+
+export interface PaperlessSyncResultDTO {
+  checked: number;
+  /** Count per importer outcome: created / updated / linked / duplicate / skipped. */
+  imported: Partial<Record<'created' | 'updated' | 'linked' | 'duplicate' | 'skipped', number>>;
+  /** Recent skipped documents, newest first (kept across runs). */
+  skipped: PaperlessSkippedDTO[];
+}
+
+export interface PaperlessStatusDTO {
+  configured: boolean;
+  /** When the import was switched on; nothing older is imported. */
+  since: string | null;
+  lastRunAt: string | null;
+  lastError: string | null;
+  lastResult: PaperlessSyncResultDTO | null;
 }
 
 // A stored contact-form submission (global, not household-scoped).

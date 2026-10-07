@@ -390,9 +390,9 @@ function BillRow({ bill, canWrite }: { bill: BillDTO; canWrite: boolean }) {
           {bill.recurrence ? (
             <Repeat className="size-3.5 shrink-0 text-muted-foreground" />
           ) : null}
-          {bill.source === 'email' ? (
+          {bill.source === 'email' || bill.source === 'paperless' ? (
             <Badge variant="secondary" className="text-[10px]">
-              Email
+              {bill.source === 'paperless' ? 'Paperless' : 'Email'}
             </Badge>
           ) : null}
           {bill.autoPay ? (

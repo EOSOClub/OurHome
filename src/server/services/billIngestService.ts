@@ -9,13 +9,14 @@ import {
 } from '@/server/services/recurrenceService';
 import type { BillIngestInput } from '@/lib/validation/billIngest';
 
-// Ingests a single financial document from an external bill importer (one email =
-// one document) into the household DB as a Bill / BillPayment / linked calendar
-// Event. This is the only writer for source="email" records; it owns dedup and
-// the cross-document linking the parser's `reference` enables.
+// Ingests a single financial document from an external bill importer (one email
+// or Paperless document = one document) into the household DB as a Bill /
+// BillPayment / linked calendar Event. This is the only writer for
+// source="email" and source="paperless" records; it owns dedup and the
+// cross-document linking the parser's `reference` enables.
 //
-// Idempotent: re-posting the same email is a no-op (bills update in place, keyed
-// on the email Message-ID; payments are deduped on it). A receipt that shares a
+// Idempotent: re-posting the same document is a no-op (bills update in place,
+// keyed on `messageId`; payments are deduped on it). A receipt that shares a
 // real invoice/confirmation number with a bill attaches to that bill instead of
 // creating a duplicate.
 
@@ -33,6 +34,24 @@ export interface IngestResult {
   billId?: string;
   paymentId?: string;
   eventId?: string;
+  /** Why a document was skipped, for the importer's status report. */
+  reason?: string;
+}
+
+export interface IngestOptions {
+  /** Stored as the bill/payment/event `source`. */
+  source?: 'email' | 'paperless';
+  /**
+   * A receipt matching no bill normally becomes a new, already-paid bill. The
+   * Paperless import turns this off: there, only documents tagged as bill
+   * payments come in, and one with no bill to pay is reported, not invented.
+   */
+  createUnmatchedReceipts?: boolean;
+}
+
+/** "from email" / "from Paperless", for activity messages and notes. */
+function fromLabel(source: IngestOptions['source']): string {
+  return source === 'paperless' ? 'Paperless' : 'email';
 }
 
 const NAME_MAX = 160;
@@ -98,6 +117,7 @@ async function syncBillEvent(
   tx: Tx,
   householdId: string,
   bill: { id: string; name: string; reference: string | null; dueDate: Date | null; amount: number; currency: string | null },
+  source: string = 'email',
 ): Promise<string | undefined> {
   if (!bill.dueDate) return undefined;
   const title = `Bill due: ${bill.name}`.slice(0, 200);
@@ -120,7 +140,7 @@ async function syncBillEvent(
       description,
       startAt: bill.dueDate,
       allDay: true,
-      source: 'email',
+      source,
       sourceRef: bill.reference,
       billId: bill.id,
     },
@@ -132,33 +152,40 @@ async function syncBillEvent(
 export async function ingestFinancialDoc(
   householdId: string,
   doc: BillIngestInput,
+  options: IngestOptions = {},
 ): Promise<IngestResult> {
   const reference = resolveReference(doc);
+  const opts: Required<IngestOptions> = {
+    source: options.source ?? 'email',
+    createUnmatchedReceipts: options.createUnmatchedReceipts ?? true,
+  };
 
   // Statements are "your statement is available" pointers with no amount — nothing
   // actionable to record as a bill or payment.
   if (doc.kind === 'statement') {
-    return { status: 'skipped', kind: doc.kind, reference };
+    return { status: 'skipped', kind: doc.kind, reference, reason: 'statement' };
   }
 
   if (doc.kind === 'bill') {
-    return ingestBill(householdId, doc, reference);
+    return ingestBill(householdId, doc, reference, opts);
   }
-  return ingestReceipt(householdId, doc, reference);
+  return ingestReceipt(householdId, doc, reference, opts);
 }
 
 async function ingestBill(
   householdId: string,
   doc: BillIngestInput,
   reference: string,
+  opts: Required<IngestOptions>,
 ): Promise<IngestResult> {
   const name = billName(doc);
+  const from = fromLabel(opts.source);
   // What's owed by the due date is the total/balance. When a statement carries both
   // a balance (`totalDue`) and this period's charges (`amount`, e.g. a utility), the
   // balance is the headline amount and the current charges are kept as detail.
   const amount = doc.totalDue ?? doc.amount ?? 0;
   const currentCharges = doc.totalDue != null ? doc.amount ?? null : null;
-  const notes = doc.subject ? `From email: ${doc.subject}` : null;
+  const notes = doc.subject ? `From ${from}: ${doc.subject}` : null;
 
   return prisma.$transaction(async (tx) => {
     // Same email re-sent, or a bill+receipt sharing a real invoice/confirmation.
@@ -173,7 +200,7 @@ async function ingestBill(
     const data = {
       reference,
       sourceMessageId: doc.messageId,
-      source: 'email',
+      source: opts.source,
       name,
       amount,
       currentCharges,
@@ -183,23 +210,25 @@ async function ingestBill(
       accountNo: doc.accountNo ?? null,
       confirmationNo: doc.confirmationNo ?? null,
       billerEmail: doc.billerEmail ?? null,
+      billerKey: doc.billerKey ?? null,
+      sourceUrl: doc.sourceUrl ?? null,
       notes,
     };
 
     if (existing) {
       const bill = await tx.bill.update({ where: { id: existing.id }, data, select: billSel });
-      const eventId = await syncBillEvent(tx, householdId, bill);
+      const eventId = await syncBillEvent(tx, householdId, bill, opts.source);
       await logActivity(
-        { householdId, actorId: null, verb: 'updated', subjectType: 'bill', subjectId: bill.id, message: `updated bill “${bill.name}” from email` },
+        { householdId, actorId: null, verb: 'updated', subjectType: 'bill', subjectId: bill.id, message: `updated bill “${bill.name}” from ${from}` },
         tx,
       );
       return { status: 'updated' as const, kind: 'bill' as const, reference, billId: bill.id, eventId };
     }
 
     const bill = await tx.bill.create({ data: { householdId, status: 'unpaid', ...data }, select: billSel });
-    const eventId = await syncBillEvent(tx, householdId, bill);
+    const eventId = await syncBillEvent(tx, householdId, bill, opts.source);
     await logActivity(
-      { householdId, actorId: null, verb: 'created', subjectType: 'bill', subjectId: bill.id, message: `added bill “${bill.name}” from email`, metadata: { amount, reference } },
+      { householdId, actorId: null, verb: 'created', subjectType: 'bill', subjectId: bill.id, message: `added bill “${bill.name}” from ${from}`, metadata: { amount, reference } },
       tx,
     );
     return { status: 'created' as const, kind: 'bill' as const, reference, billId: bill.id, eventId };
@@ -219,10 +248,13 @@ async function ingestReceipt(
   householdId: string,
   doc: BillIngestInput,
   reference: string,
+  opts: Required<IngestOptions>,
 ): Promise<IngestResult> {
   const amount = doc.amount ?? 0;
   const paidAt = doc.paidDate ?? doc.emailDate ?? new Date();
   const name = billName(doc);
+  const from = fromLabel(opts.source);
+  const notes = doc.subject ? `From ${from}: ${doc.subject}` : null;
 
   return prisma.$transaction(async (tx) => {
     // A receipt email is one payment; never apply it twice.
@@ -242,6 +274,8 @@ async function ingestReceipt(
     //      whose amount matches within a card-fee band. This is the "the next
     //      receipt from a biller pays that biller's bill" case, where the receipt
     //      shares no reference/account and its amount differs only by the fee.
+    //      The biller is `billerKey` when the importer has one (Paperless
+    //      correspondent), else the sender's email.
     let match = await tx.bill.findFirst({
       where: { householdId, reference },
       include: { recurrence: true },
@@ -256,12 +290,17 @@ async function ingestReceipt(
         orderBy: { createdAt: 'desc' }, // most recently issued open bill
       });
     }
-    if (!match && doc.billerEmail) {
+    const biller: Prisma.BillWhereInput | null = doc.billerKey
+      ? { billerKey: doc.billerKey }
+      : doc.billerEmail
+        ? { billerEmail: doc.billerEmail }
+        : null;
+    if (!match && biller) {
       // Newest-first so a receipt clears the most recently issued open bill; the
       // amount-band filter guards against linking an unrelated bill from the same
       // biller (a wildly different amount falls through to "create a paid bill").
       const candidates = await tx.bill.findMany({
-        where: { householdId, billerEmail: doc.billerEmail, status: 'unpaid' },
+        where: { householdId, ...biller, status: 'unpaid' },
         include: { recurrence: true },
         orderBy: { createdAt: 'desc' },
         take: 10,
@@ -305,11 +344,11 @@ async function ingestReceipt(
           amount: applied,
           fee: fee > 0 ? fee : null,
           paidAt,
-          source: 'email',
+          source: opts.source,
           reference,
           confirmationNo: doc.confirmationNo ?? null,
           sourceMessageId: doc.messageId,
-          notes: doc.subject ? `From email: ${doc.subject}` : null,
+          notes,
         },
         select: { id: true },
       });
@@ -332,7 +371,7 @@ async function ingestReceipt(
           data: { status: 'unpaid', dueDate: next ?? match.dueDate },
           select: billSel,
         });
-        await syncBillEvent(tx, householdId, rolled);
+        await syncBillEvent(tx, householdId, rolled, opts.source);
       } else if (fullyPaid) {
         await tx.bill.update({ where: { id: match.id }, data: { status: 'paid' } });
       } else {
@@ -346,12 +385,16 @@ async function ingestReceipt(
           verb: fullyPaid ? 'completed' : 'updated',
           subjectType: 'bill',
           subjectId: match.id,
-          message: `recorded ${fullyPaid ? 'payment' : 'partial payment'} for “${match.name}” from email`,
+          message: `recorded ${fullyPaid ? 'payment' : 'partial payment'} for “${match.name}” from ${from}`,
           metadata: { applied, fee, paidTotal, balance: match.amount },
         },
         tx,
       );
       return { status: 'linked' as const, kind: 'receipt' as const, reference, billId: match.id, paymentId: payment.id };
+    }
+
+    if (!opts.createUnmatchedReceipts) {
+      return { status: 'skipped' as const, kind: 'receipt' as const, reference, reason: 'no matching unpaid bill' };
     }
 
     // No matching bill: record the bill as already paid, plus its payment, so the
@@ -364,7 +407,7 @@ async function ingestReceipt(
       data: {
         householdId,
         status: 'paid',
-        source: 'email',
+        source: opts.source,
         name,
         amount: base,
         currency: doc.currency ?? 'USD',
@@ -375,7 +418,9 @@ async function ingestReceipt(
         accountNo: doc.accountNo ?? null,
         confirmationNo: doc.confirmationNo ?? null,
         billerEmail: doc.billerEmail ?? null,
-        notes: doc.subject ? `From email: ${doc.subject}` : null,
+        billerKey: doc.billerKey ?? null,
+        sourceUrl: doc.sourceUrl ?? null,
+        notes,
       },
       select: { id: true, name: true },
     });
@@ -386,16 +431,16 @@ async function ingestReceipt(
         amount: base,
         fee,
         paidAt,
-        source: 'email',
+        source: opts.source,
         reference,
         confirmationNo: doc.confirmationNo ?? null,
         sourceMessageId: doc.messageId,
-        notes: doc.subject ? `From email: ${doc.subject}` : null,
+        notes,
       },
       select: { id: true },
     });
     await logActivity(
-      { householdId, actorId: null, verb: 'created', subjectType: 'bill', subjectId: bill.id, message: `recorded paid bill “${bill.name}” from email`, metadata: { amount: base, fee, reference } },
+      { householdId, actorId: null, verb: 'created', subjectType: 'bill', subjectId: bill.id, message: `recorded paid bill “${bill.name}” from ${from}`, metadata: { amount: base, fee, reference } },
       tx,
     );
     return { status: 'created' as const, kind: 'receipt' as const, reference, billId: bill.id, paymentId: payment.id };

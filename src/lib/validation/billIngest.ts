@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
-// Contract for a single parsed financial document handed to billIngestService
-// (no caller yet; the Paperless import will use it). Field names are camelCase.
+// Contract for a single parsed financial document handed to billIngestService.
+// The Paperless import (paperless/mapping.ts) builds these. Field names are camelCase.
 //
 // Everything except kind/messageId is optional because the parser omits fields it
 // couldn't extract (the document model has no schema to satisfy). `reference` is
@@ -28,6 +28,19 @@ export const billIngestSchema = z.object({
   invoiceNo: z.string().trim().max(120).optional().nullable(),
   confirmationNo: z.string().trim().max(120).optional().nullable(),
   accountNo: z.string().trim().max(120).optional().nullable(),
+  // Stable sender key for matching a payment to its bill when no reference or
+  // account number links them (Paperless: "paperless-correspondent:<id>").
+  billerKey: z.string().trim().max(200).optional().nullable(),
+  // Link back to the original document, e.g. the Paperless details page.
+  // http(s) only: it is rendered as a link, and z.url() alone allows javascript:.
+  sourceUrl: z
+    .string()
+    .trim()
+    .url()
+    .max(500)
+    .refine((u) => /^https?:$/.test(new URL(u).protocol), 'Must be an http(s) URL.')
+    .optional()
+    .nullable(),
   confidence: z.number().min(0).max(1).optional().nullable(),
 });
 export type BillIngestInput = z.infer<typeof billIngestSchema>;

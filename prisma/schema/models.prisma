@@ -48,6 +48,7 @@ model Household {
   requests       Request[]
   bugReports     BugReport[]
   pushDevices    PushDevice[]
+  paperlessSync  PaperlessSync?
 }
 
 model User {
@@ -354,8 +355,8 @@ model Bill {
   category       String?
   autoPay        Boolean   @default(false)
   notes          String?
-  // source: "manual" | "email" | "import". The "email" value is set by the bill
-  // ingestion webhook (src/server/services/billIngestService.ts).
+  // source: "manual" | "email" | "paperless" | "import". "email" / "paperless"
+  // are written by billIngestService (paperless via paperlessSync).
   source         String    @default("manual")
   // Email-ingestion linkage (source="email"). `reference` is the cross-document
   // link key (invoice # > confirmation # > generated) shared with the matching
@@ -367,6 +368,12 @@ model Bill {
   confirmationNo  String?
   billerEmail     String?
   sourceMessageId String?
+  // Who sent it, as a stable key a later payment can match on when it shares no
+  // reference or account number. Paperless: "paperless-correspondent:<id>"
+  // (Paperless has no sender email). Email bills match on billerEmail instead.
+  billerKey       String?
+  // Link to the original document (Paperless), shown as "Open in Paperless".
+  sourceUrl       String?
   // Optional recurrence for repeating bills (anchorDate is the due date).
   recurrenceId   String?
   assignedUserId String?
@@ -595,6 +602,25 @@ model Notification {
 
   @@unique([householdId, dedupeKey])
   @@index([householdId, userId])
+}
+
+// Progress of the Paperless-ngx bill import (paperlessSync), one per household.
+// `cursor` is a Paperless `modified` time: every document modified up to it
+// has been looked at. It starts at the moment the import was first switched
+// on, so documents already in Paperless are never imported in bulk.
+model PaperlessSync {
+  id          String    @id @default(cuid()) @map("_id")
+  householdId String    @unique
+  cursor      DateTime
+  lastRunAt   DateTime?
+  // Outcome of the last run as JSON text: counts plus the documents skipped
+  // and why (PaperlessSyncResult in paperlessSync.ts).
+  lastResult  String?
+  lastError   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
 }
 
 // A phone that receives Firebase Cloud Messaging pushes for a signed-in user

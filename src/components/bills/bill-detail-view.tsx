@@ -10,6 +10,7 @@ import {
   CalendarPlus,
   CheckCircle2,
   Copy,
+  ExternalLink,
   Loader2,
   Pencil,
   Repeat,
@@ -17,7 +18,7 @@ import {
 } from 'lucide-react';
 import type { BillDTO, BillDetailDTO, BillPaymentDTO, MemberDTO } from '@/lib/types';
 import { BILL_STATUS_LABELS, type BillStatus } from '@/lib/enums';
-import { formatDate, formatDueDate, formatMoney, isOverdue } from '@/lib/format';
+import { formatDate, formatDueDate, formatMoney, isOverdue, safeHref } from '@/lib/format';
 import { apiFetch } from '@/lib/api';
 import { toast } from '@/components/ui/toast';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -37,9 +38,11 @@ const dateValue = (d: Date) =>
 function sourceLabel(source: string): string {
   return source === 'email'
     ? 'Email (auto)'
-    : source === 'import'
-      ? 'Import'
-      : 'Manual';
+    : source === 'paperless'
+      ? 'Paperless (auto)'
+      : source === 'import'
+        ? 'Import'
+        : 'Manual';
 }
 
 export function BillDetailView({
@@ -268,6 +271,16 @@ export function BillDetailView({
             <Detail label="Reference" value={bill.reference} />
             <Detail label="Biller email" value={bill.billerEmail} />
           </dl>
+          {safeHref(bill.sourceUrl) ? (
+            <a
+              href={safeHref(bill.sourceUrl)}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-4 inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+            >
+              <ExternalLink className="size-4" /> Open in Paperless
+            </a>
+          ) : null}
           {bill.notes ? (
             <div className="mt-4">
               <dt className="text-xs uppercase tracking-wide text-muted-foreground">
@@ -404,10 +417,10 @@ function PaymentRow({
       </div>
       <div className="flex shrink-0 items-center gap-2">
         <Badge
-          variant={payment.source === 'email' ? 'secondary' : 'outline'}
+          variant={payment.source === 'manual' ? 'outline' : 'secondary'}
           className="text-[10px]"
         >
-          {payment.source === 'email' ? 'Auto' : 'Manual'}
+          {payment.source === 'manual' ? 'Manual' : 'Auto'}
         </Badge>
         {canWrite ? (
           <>

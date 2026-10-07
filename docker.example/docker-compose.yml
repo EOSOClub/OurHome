@@ -38,6 +38,8 @@ services:
       TURNSTILE_SITE_KEY: ${SERVER_TURNSTILE_SITE_KEY:-}
       TURNSTILE_SECRET_KEY: ${SERVER_TURNSTILE_SECRET_KEY:-}
       FIREBASE_SERVICE_ACCOUNT: ${SERVER_FIREBASE_SERVICE_ACCOUNT:-}
+      PAPERLESS_URL: ${SERVER_PAPERLESS_URL:-}
+      PAPERLESS_TOKEN: ${SERVER_PAPERLESS_TOKEN:-}
     ports:
       # Localhost only: put a reverse proxy / tunnel (e.g. Cloudflare Tunnel,
       # Caddy, nginx) in front for HTTPS. Drop "127.0.0.1:" to expose on the LAN.

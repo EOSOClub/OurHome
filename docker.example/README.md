@@ -43,8 +43,11 @@ sweep every 15 minutes, so overdue / low-stock / bill-due notifications stay
 current without anything else running.
 
 **You provide MongoDB.** It must be a **replica set**, because the app uses
-transactions. A single-node replica set is fine. Run it however you like (its
-own Docker stack, a managed service, …) and point `SERVER_DATABASE_URL` at it.
+transactions. A single-node replica set is fine. The ready-made stack in
+[OurHomeServices](https://github.com/EOSOClub/OurHomeServices/tree/main/mongo)
+matches every default here (network `ourhome_net`, host `mongo`, user and
+database `household`). Or run it however you like (a managed service, …) and
+point `SERVER_DATABASE_URL` at it.
 
 The web container joins the Docker network named by `DOCKER_NETWORK` (default
 `ourhome_net`; the deploy scripts create it if missing). If MongoDB runs as a

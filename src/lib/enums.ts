@@ -239,9 +239,9 @@ export const BILL_STATUS_LABELS: Record<BillStatus, string> = {
   paid: 'Paid',
 };
 
-// How a bill/payment entered the system. "email" is written by the bill
-// ingestion webhook (src/server/services/billIngestService.ts).
-export const BILL_SOURCES = ['manual', 'email', 'import'] as const;
+// How a bill/payment entered the system. "email" and "paperless" are written by
+// src/server/services/billIngestService.ts ("paperless" via paperlessSync).
+export const BILL_SOURCES = ['manual', 'email', 'paperless', 'import'] as const;
 export type BillSource = (typeof BILL_SOURCES)[number];
 
 // Delivery channels. Only "in_app" is dispatched today; the rest are reserved

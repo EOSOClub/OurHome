@@ -17,6 +17,7 @@ import {
 import { apiFetch } from '@/lib/api';
 import { CategoriesCard } from '@/components/settings/categories-card';
 import { ContactMessagesCard } from '@/components/settings/contact-messages-card';
+import { PaperlessCard } from '@/components/settings/paperless-card';
 import { Button, type ButtonProps } from '@/components/ui/button';
 import {
   Card,
@@ -95,6 +96,7 @@ export function SettingsView({
         </p>
       </div>
       <CategoriesCard initialCategories={initialCategories} />
+      <PaperlessCard />
       <HomeAssistantCard initialIntegrations={initialIntegrations} />
       <NfcTagsCard initialTags={initialTags} items={items} />
       <ContactMessagesCard initialMessages={initialContactMessages} />

@@ -180,6 +180,7 @@ export async function getBillDetail(
     accountNo: bill.accountNo,
     confirmationNo: bill.confirmationNo,
     billerEmail: bill.billerEmail,
+    sourceUrl: bill.sourceUrl,
     feeTotal,
     remaining: Math.max(0, bill.amount - paidTotal),
     payments: payments.map(paymentToDTO),

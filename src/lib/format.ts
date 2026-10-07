@@ -1,6 +1,11 @@
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Format a monetary amount in the bill's currency (falls back to USD). */
+/** `url` if it is http(s), else undefined: safe to put in an href. */
+export function safeHref(url: string | null | undefined): string | undefined {
+  return url && /^https?:\/\//i.test(url) ? url : undefined;
+}
+
 export function formatMoney(
   amount: number,
   currency?: string | null,

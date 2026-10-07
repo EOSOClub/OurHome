@@ -17,7 +17,7 @@ with roles for every member of the home.
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)](./docker.example)
 [![Self-hosted](https://img.shields.io/badge/self--hosted-yes-7C3AED?style=for-the-badge&logo=homeassistant&logoColor=white)](#-deploy-with-docker)
 
-[Features](#-features) · [Deploy](#-deploy-with-docker) · [Configuration](#configuration) · [Development](#-local-development) · [Architecture](./docs/ARCHITECTURE.md) · [📱 Android app](https://github.com/EOSOClub/OurHomeApp)
+[Features](#-features) · [Requirements](#-requirements) · [Deploy](#-deploy-with-docker) · [Configuration](#configuration) · [Development](#-local-development) · [Architecture](./docs/ARCHITECTURE.md) · [📱 Android app](https://github.com/EOSOClub/OurHomeApp)
 
 </div>
 
@@ -39,7 +39,7 @@ A shared list the whole household can add to and tick off.
 Track what's in the house, forecast when it runs out, and link items to **NFC tags** for one-tap updates.
 
 ### 💸 Bills & payments
-Keep upcoming bills and what's been paid in one place.
+Keep upcoming bills and what's been paid in one place. Bills and payments are **imported from Paperless-ngx** (email and phone photos), with payments matched to their bill automatically.
 
 </td>
 <td width="50%" valign="top">
@@ -59,6 +59,17 @@ Role-based access for every member, plus built-in bug reports.
 </td>
 </tr>
 </table>
+
+## 🧩 Requirements
+
+| Needs | For | Where |
+| --- | --- | --- |
+| **MongoDB replica set** | Everything (required) | [OurHomeServices → mongo](https://github.com/EOSOClub/OurHomeServices/tree/main/mongo) |
+| **Paperless-ngx** | Bills: collecting and archiving bill emails and photos | [OurHomeServices → paperless](https://github.com/EOSOClub/OurHomeServices/tree/main/paperless) |
+| **Proton Mail Bridge** | Bills by email, if your mail is Proton | [OurHomeServices → proton-bridge](https://github.com/EOSOClub/OurHomeServices/tree/main/proton-bridge) |
+
+> [!NOTE]
+> Documents tagged `bill` / `bill-payment` in Paperless become bills and payments automatically. Setup: [docs/paperless-import.md](./docs/paperless-import.md).
 
 > [!TIP]
 > **Prefer your phone?** The companion Android app, **[OurHomeApp](https://github.com/EOSOClub/OurHomeApp)**, uses this site's API and adds NFC tag scanning and phone notifications.
@@ -102,7 +113,7 @@ cd docker
 Then sign in at `PUBLIC_URL` with `SEED_ADMIN_USERNAME` / `SEED_ADMIN_PASSWORD`.
 
 > [!IMPORTANT]
-> Docker runs **only the web app**. Bring your own MongoDB **replica set** and point `SERVER_DATABASE_URL` at it. The reminder sweep runs inside the app.
+> Docker runs **only the web app**. It needs a MongoDB **replica set**: set it up first with **[OurHomeServices](https://github.com/EOSOClub/OurHomeServices)** (or bring your own) and point `SERVER_DATABASE_URL` at it. The reminder sweep runs inside the app.
 
 > [!NOTE]
 > The web container listens on `127.0.0.1:3000` only. Put a reverse proxy or tunnel (Cloudflare Tunnel, Caddy, nginx…) in front for HTTPS.
@@ -129,6 +140,7 @@ All configuration lives in one `.env` in the repo root, used by both local dev a
 | `CRON_SECRET` | Optional: trigger a reminder sweep via `/api/cron/reminders` |
 | `SERVER_SMTP_HOST`, `SMTP_*`, `CONTACT_FORWARD_TO`, `BUG_REPORT_EMAIL` | Optional email (server only) |
 | `SERVER_TURNSTILE_*` | Optional contact-form CAPTCHA (server only) |
+| `SERVER_PAPERLESS_URL`, `SERVER_PAPERLESS_TOKEN`, `PAPERLESS_PUBLIC_URL` | Optional bill import from Paperless-ngx (server only, [setup](./docs/paperless-import.md)) |
 | `SERVER_FIREBASE_SERVICE_ACCOUNT` | Optional instant alerts for the Android app (server only, [setup](./docs/push-notifications.md)) |
 | `SEED_*` | First-run household and users |
 
@@ -170,6 +182,7 @@ Home Assistant can show inventory on a dashboard from a read-only feed (`/api/in
 | [Adding NFC tags](./docs/adding-nfc-tags.md) | Setting up tags for inventory items |
 | [Home Assistant](./docs/home-assistant.md) | Dashboard integration |
 | [Instant phone alerts](./docs/push-notifications.md) | Firebase setup for the Android app |
+| [Paperless bill import](./docs/paperless-import.md) | Bills and payments from Paperless-ngx |
 
 ## 🗂️ Project layout
 

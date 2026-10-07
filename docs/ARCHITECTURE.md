@@ -95,9 +95,24 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
 
 - **Bills.** `billService` owns bills, payments (partial payments, card fees),
   and recurrence; `billIngestService` turns a parsed bill document into
-  bills/payments, matching by account/reference number. It has no caller right
-  now (the email parser and its webhook were removed). **Planned:** a Paperless-ngx
-  import that feeds it.
+  bills/payments, matching by reference, account number, then biller
+  (`billerKey` / `billerEmail`) + amount within a card-fee band.
+  - *Paperless import* (`paperlessSync`, `server/paperless/`): each reminder
+    sweep (and Settings → *Check now*) lists Paperless documents tagged
+    `bill` / `bill-payment` modified since `PaperlessSync.cursor` and older
+    than a 10-minute settle window, maps custom fields (Amount, Due date,
+    Account number, Invoice number) to the ingest input
+    (`mapping.ts`, pure + tested), and ingests with `source: "paperless"` and
+    `createUnmatchedReceipts: false` (an unmatched payment is reported, not
+    made into a paid bill). Dedup key `paperless:<doc id>`; bills re-import in
+    place, payments once. The first run only records the start time, so
+    existing documents are never bulk-imported. Read-only, API v9, token auth;
+    off until `PAPERLESS_URL` + `PAPERLESS_TOKEN` are set. Status + recently
+    skipped documents are on the Settings card. Dry run:
+    `npm run paperless:preview`. Runbook: `docs/paperless-import.md`.
+  - Paperless, the Proton Bridge it reads mail through, and MongoDB are
+    separate stacks in
+    [OurHomeServices](https://github.com/EOSOClub/OurHomeServices).
 - **Event ingestion / Home Assistant / NFC.** Two scan paths share
   `eventService.ingestNfcScan` (EventLog `nfc_scan` / `nfc_register`):
   - *Android app (preferred):* reads the tag itself (HA tag id from the NDEF URL,

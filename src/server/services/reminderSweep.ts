@@ -1,11 +1,19 @@
 import { prisma } from '@/server/db/prisma';
 import { generateReminders } from '@/server/services/reminderService';
 import { resetDueSubtasks } from '@/server/services/taskService';
+import { runPaperlessSync } from '@/server/services/paperlessSync';
 
 // One reminder sweep over every household. Runs every 15 minutes inside the
 // production server (startReminderSchedule, from src/instrumentation.ts) and on
 // demand via POST /api/cron/reminders.
 export async function runReminderSweep(): Promise<{ households: number }> {
+  // Import new bills from Paperless first, so this sweep's bill-due reminders
+  // already include them. Off unless configured; a Paperless problem is
+  // logged (and shown in Settings) but never stops the reminders.
+  await runPaperlessSync().catch((err) => {
+    console.warn('[paperless] import failed; retrying next sweep:', err instanceof Error ? err.message : err);
+  });
+
   const households = await prisma.household.findMany({ select: { id: true } });
   for (const { id } of households) {
     // Flip recurring checklist items back first so an item that just became

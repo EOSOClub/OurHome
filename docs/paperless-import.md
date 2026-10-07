@@ -57,7 +57,10 @@ Paperless.
    (Date) and, ideally, **Account number** (Text). Different names are fine; see
    the `paperless.field` overrides in `settings.example.yml`.
 3. **Tagging:** have your mail rules (or a workflow) assign `bill` to bills and
-   `bill-payment` to payment confirmations, or tag them by hand.
+   `bill-payment` to payment confirmations, or tag them by hand. If your billers
+   send both from the same address into the same folder, a workflow can't tell
+   them apart (workflows filter on sender, tags and folders, not on content);
+   use content matching instead, below.
 4. **A read-only user for Our Home:** *Users & Groups → Add user*, e.g.
    `ourhome`, with only these **view** permissions: *Document*, *Tag*,
    *Correspondent*, *Custom field*. It also needs to see the documents
@@ -66,6 +69,32 @@ Paperless.
    *Assign view permissions*.
 5. **Token:** sign in as that user, go to *My Profile → API Auth Token*, and
    generate one.
+
+#### Optional: tag bills automatically by content
+
+Instead of *Matching: None*, give each tag the matching algorithm **Regular
+expression** (case-insensitive) with a pattern that names your billers and
+looks for payment wording. Keep the two patterns mutually exclusive: a document
+tagged both is skipped ("tagged as both bill and bill payment"). For example,
+with your billers in place of `biller one|biller two`:
+
+| Tag | Pattern |
+| --- | --- |
+| `bill-payment` | `(?s)\A(?=.*\b(biller one\|biller two)\b).*(payment (was \|has been )?(\w+ )?(processed\|posted\|confirm\|received)\|thank you for your payment)` |
+| `bill` | `(?s)\A(?=.*\b(biller one\|biller two)\b)(?!.*(payment (was \|has been )?(\w+ )?(processed\|posted\|confirm\|received)\|thank you for your payment)).*(due\|statement\|invoice\|bill)` |
+
+(`\|` is only the Markdown table escape; the patterns use a plain `|`.)
+
+- Paperless limits a pattern to **256 characters**, so keep the biller list short
+  (`(?s)` and `.` are shorter than `[\s\S]`; the case-insensitive checkbox
+  replaces `(?i)`).
+- Bills often say "schedule your payment *to be* processed", which is why the
+  payment wording only allows "was" / "has been" before the verb.
+- Matching only runs when a document is consumed. To check a pattern first,
+  test it against your existing documents in a Paperless shell
+  (`documents.matching.matches()`) before saving it.
+- Reminders and second notices still read as bills; remove the `bill` tag if one
+  duplicates a bill you already have.
 
 ### 2. In Our Home's `settings.yml` and `.env`
 

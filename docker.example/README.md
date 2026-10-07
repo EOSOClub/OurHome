@@ -140,6 +140,15 @@ Setup only answers while no account exists, and only to devices on the home
 network: a request that arrives through a tunnel or reverse proxy from the
 internet is refused, so finish setup before (or without) exposing the site.
 
+> [!NOTE]
+> **Bound to `127.0.0.1`** (`docker.bind`, e.g. because a tunnel on the same
+> machine is the only way in)? Then no other device can open the port, and setup
+> through the tunnel is refused. Run setup on the server itself, or through an
+> SSH tunnel from any PC on the network:
+> `ssh -L 3000:localhost:3000 <user>@<server>`, then open `http://localhost:3000`
+> (use your `docker.port` if it isn't 3000). The same applies after a database
+> wipe: setup appears again and has to be finished this way.
+
 ## 4. Optional: HTTPS from outside
 
 The app works over plain HTTP on your home network. To reach it from anywhere,
@@ -149,7 +158,7 @@ pointing at `http://<server>:3000`, and set `better_auth.url` to its
 router. Over HTTPS the session cookie is marked Secure; on the home network it
 can't be, since browsers drop Secure cookies on plain HTTP. Set
 `docker.bind: 127.0.0.1` to stop serving the home network directly and use only
-the tunnel.
+the tunnel (finish first-run setup before that, or see the note in step 3).
 
 ## Optional
 

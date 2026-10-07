@@ -55,7 +55,7 @@ Paperless.
    *Owner* to **none**, so every user and token can see them.
 2. **Custom fields:** make sure **Amount** (Monetary) exists, plus **Due date**
    (Date) and, ideally, **Account number** (Text). Different names are fine; see
-   the overrides in `.env.example`.
+   the `paperless.field` overrides in `settings.example.yml`.
 3. **Tagging:** have your mail rules (or a workflow) assign `bill` to bills and
    `bill-payment` to payment confirmations, or tag them by hand.
 4. **A read-only user for Our Home:** *Users & Groups → Add user*, e.g.
@@ -67,13 +67,26 @@ Paperless.
 5. **Token:** sign in as that user, go to *My Profile → API Auth Token*, and
    generate one.
 
-### 2. In Our Home's `.env`
+### 2. In Our Home's `settings.yml` and `.env`
+
+The address goes in `settings.yml`:
+
+```yaml
+paperless:
+  url: http://paperless:8000                    # container name + internal port, over ourhome_net
+  public_url: https://paperless.example.com     # optional, for "Open in Paperless" links
+```
+
+The token is a secret, so it goes in `.env`:
 
 ```env
-SERVER_PAPERLESS_URL=http://paperless:8000      # container name + internal port, over ourhome_net
-SERVER_PAPERLESS_TOKEN=<the token>
-PAPERLESS_PUBLIC_URL=https://paperless.example.com   # optional, for "Open in Paperless" links
+PAPERLESS_TOKEN=<the token>
+DEV_PAPERLESS_TOKEN=
 ```
+
+Then restart the web app (`./deploy.sh --no-build`). The empty
+`DEV_PAPERLESS_TOKEN` (and the `dev:` section) keep the import off for
+`npm run dev`.
 
 Paperless and the web container must share a Docker network (`ourhome_net` in
 OurHomeServices). Redeploy.
@@ -108,7 +121,7 @@ are imported.
 
 | Settings shows | Fix |
 | --- | --- |
-| *Not set up* | `SERVER_PAPERLESS_URL` or `SERVER_PAPERLESS_TOKEN` isn't reaching the container. Check `docker/docker-compose.yml` passes both. |
+| *Not set up* | `paperless.url` (settings.yml) or `PAPERLESS_TOKEN` (.env) is empty, or the app wasn't restarted since. The container log shows a `[settings] …` line on start. |
 | *Can't reach Paperless at …* | Wrong URL, or the containers aren't on the same network. Test from the web container: `docker compose exec web node -e "fetch('http://paperless:8000/api/').then(r=>console.log(r.status))"` should print a status (401 is fine), not an error. |
 | *Paperless rejected the API token* | Regenerate the token, or the user lacks the view permissions above. |
 | *Neither tag … exists* / *Custom field "Amount" doesn't exist* | Create it, or it has an owner and is hidden from the import user. Set its owner to none. |

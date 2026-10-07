@@ -104,20 +104,21 @@ Deployment lives in a `docker/` folder that is **gitignored**, so your real conf
 git clone https://github.com/EOSOClub/OurHome.git OurHomeWeb
 cd OurHomeWeb
 cp -r docker.example docker
-cp .env.example .env                   # database URL + two secrets
+cp settings.example.yml settings.yml   # names, port, optional integrations
+cp .env.example .env                   # secrets: database URL + two keys
 cd docker
-./deploy.sh                            # or: docker compose --env-file ../.env up -d --build
+./deploy.sh                            # or: docker compose up -d --build (default names/port)
 ```
 
 `deploy.sh` (or `deploy.ps1` on Windows) builds and starts the app, waits until it responds, and prints its address.
 
-Then open `http://<server-ip>:3000` from any device on your network. On a fresh install the **setup page** asks for the household name and an admin username and password, then lets you add everyone else (username, password, optional email). No accounts live in `.env`.
+Then open `http://<server-ip>:3000` from any device on your network. On a fresh install the **setup page** asks for the household name and an admin username and password, then lets you add everyone else (username, password, optional email). No accounts live in either file.
 
 > [!IMPORTANT]
-> Docker runs **only the web app**. It needs a MongoDB **replica set**: set it up first with **[OurHomeServices](https://github.com/EOSOClub/OurHomeServices)** (or bring your own) and point `SERVER_DATABASE_URL` at it. The reminder sweep runs inside the app.
+> Docker runs **only the web app**. It needs a MongoDB **replica set**: set it up first with **[OurHomeServices](https://github.com/EOSOClub/OurHomeServices)** (or bring your own) and point `DATABASE_URL` in `.env` at it. The reminder sweep runs inside the app.
 
 > [!NOTE]
-> The web container serves plain HTTP on port 3000 to your home network. For access from outside, put a tunnel or reverse proxy (Cloudflare Tunnel, Caddy, nginx…) in front for HTTPS and set `PUBLIC_URL`. Never forward the port on your router.
+> The web container serves plain HTTP on port 3000 to your home network. For access from outside, put a tunnel or reverse proxy (Cloudflare Tunnel, Caddy, nginx…) in front for HTTPS and set `better_auth.url`. Never forward the port on your router.
 
 📖 Full walkthrough and every setting: [`docker.example/README.md`](./docker.example/README.md)
 
@@ -125,25 +126,29 @@ Then open `http://<server-ip>:3000` from any device on your network. On a fresh 
 
 ## ⚙️ Configuration
 
-All configuration lives in one `.env` in the repo root, used by both local dev and the Docker deploy. Every setting is documented in [`.env.example`](./.env.example). The compose file loads it into the container and swaps in the server-only values (`PUBLIC_URL`, `SERVER_*`).
+Configuration lives in two gitignored files in the repo root, used by both local dev and the Docker deploy; nothing in `docker/` is ever edited:
+
+- **`settings.yml`** — everything that isn't secret ([`settings.example.yml`](./settings.example.yml)). Its `dev:` section overrides values for `npm run dev`.
+- **`.env`** — secrets only: passwords, keys, tokens and the database URL ([`.env.example`](./.env.example)). A `DEV_` entry (e.g. `DEV_DATABASE_URL`) replaces its name for `npm run dev`.
+
+The app reads both at startup; in Docker, compose passes `.env` in as environment variables and hands `settings.yml` over read-only. Moving from an old all-in-one `.env`: `npm run settings:migrate`.
 
 <details>
 <summary><b>The essentials</b> (click to expand)</summary>
 <br>
 
-| Setting | What it's for |
-| --- | --- |
-| `APP_NAME` | Name shown in the browser, sign-in page and emails (default "Our Home") |
-| `SERVER_DATABASE_URL` | Your MongoDB replica set, as the container reaches it |
-| `PUBLIC_URL` | Optional `https://` address from outside, for email links (server) |
-| `WEB_HOST_PORT`, `WEB_BIND` | Port, and whether the home network can reach it (server) |
-| `BETTER_AUTH_URL`, `DATABASE_URL` | Local dev URL and database |
-| `BETTER_AUTH_SECRET` | Session signing secret |
-| `CRON_SECRET` | Optional: trigger a reminder sweep via `/api/cron/reminders` |
-| `SERVER_SMTP_HOST`, `SMTP_*`, `CONTACT_FORWARD_TO`, `BUG_REPORT_EMAIL` | Optional email (server only) |
-| `SERVER_TURNSTILE_*` | Optional contact-form CAPTCHA (server only) |
-| `SERVER_PAPERLESS_URL`, `SERVER_PAPERLESS_TOKEN`, `PAPERLESS_PUBLIC_URL` | Optional bill import from Paperless-ngx (server only, [setup](./docs/paperless-import.md)) |
-| `SERVER_FIREBASE_SERVICE_ACCOUNT` | Optional instant alerts for the Android app (server only, [setup](./docs/push-notifications.md)) |
+| Setting | Where | What it's for |
+| --- | --- | --- |
+| `DATABASE_URL`, `DEV_DATABASE_URL` | `.env` | Your MongoDB replica set: as the container reaches it, and from your PC |
+| `BETTER_AUTH_SECRET` | `.env` | Session signing secret |
+| `CRON_SECRET` | `.env` | Optional: trigger a reminder sweep via `/api/cron/reminders` |
+| `app.name` | `settings.yml` | Name shown in the browser, sign-in page and emails (default "Our Home") |
+| `better_auth.url` | `settings.yml` | Optional `https://` address from outside, for email links |
+| `docker.port`, `docker.bind`, `docker.network`, `docker.project`, `docker.container` | `settings.yml` | Port, who can reach it, and the Docker names |
+| `smtp.*`, `contact.forward_to`, `bug_report.email` + `SMTP_PASS` | both | Optional email |
+| `turnstile.site_key` + `TURNSTILE_SECRET_KEY` | both | Optional contact-form CAPTCHA |
+| `paperless.*` + `PAPERLESS_TOKEN` | both | Optional bill import from Paperless-ngx ([setup](./docs/paperless-import.md)) |
+| `FIREBASE_SERVICE_ACCOUNT` | `.env` | Optional instant alerts for the Android app ([setup](./docs/push-notifications.md)) |
 
 </details>
 
@@ -151,7 +156,8 @@ All configuration lives in one `.env` in the repo root, used by both local dev a
 
 ```bash
 npm install
-cp .env.example .env              # set DATABASE_URL to a MongoDB replica set
+cp settings.example.yml settings.yml
+cp .env.example .env              # set DEV_DATABASE_URL to a MongoDB replica set
 npm run db:generate
 npm run db:push
 npm run dev                       # http://localhost:3000, setup on first visit
@@ -163,6 +169,7 @@ npm run dev                       # http://localhost:3000, setup on first visit
 | `npm run db:generate` | Generate the Prisma client |
 | `npm run db:push` | Apply the schema to Mongo (no SQL migrations on Mongo) |
 | `npm run db:reset` | Wipe the database (setup runs again on next visit) |
+| `npm run settings:migrate` | Split an old all-in-one `.env` into `settings.yml` + a secrets-only `.env` (once) |
 | `npm run test` | Vitest |
 | `npm run typecheck` | `tsc --noEmit` |
 

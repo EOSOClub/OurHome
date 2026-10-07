@@ -4,11 +4,13 @@
 # instead of the bare `docker compose up -d` that returns before it is ready.
 #
 # This compose file runs the web app only. MongoDB (a replica set) runs on its
-# own, reached via SERVER_DATABASE_URL. Reminders run inside the web app.
+# own, reached via DATABASE_URL in .env. Reminders run inside the web app.
 #
-# Settings live in the single repo-root .env (shared with local dev). This
-# script verifies it exists but never creates or edits it, and passes it to
-# compose with --env-file.
+# Settings live in the repo-root settings.yml and secrets in the repo-root .env
+# (both shared with local dev). This script never edits them. Compose passes
+# .env to the container; the app reads settings.yml inside it; this
+# script reads its `docker:` section (with a pinned yq container, so nothing
+# needs installing) into .compose.env, which compose uses for names and ports.
 #
 # Usage:  ./deploy.sh [--no-build] [--timeout SECONDS] [--help]
 #
@@ -24,7 +26,12 @@ set -uo pipefail
 # ---------------------------------------------------------------------------
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 cd "$SCRIPT_DIR"
-ENV_FILE=../.env   # the repo-root .env, shared with local dev
+SETTINGS=../settings.yml   # the repo-root settings, shared with local dev
+SECRETS=../.env            # the repo-root secrets; compose passes them to the app
+ENV_FILE=.compose.env      # generated from SETTINGS on every run; don't edit
+YQ_IMAGE=mikefarah/yq:4.44.3
+# settings.yml `docker:` section -> DOCKER_* for compose, plus the public URL.
+YQ_EXPR='(.docker // {} | to_entries | .[] | "DOCKER_" + (.key | upcase) + "=" + ((.value // "") | tostring)), ("PUBLIC_URL=" + ((.better_auth.url // "") | tostring))'
 
 # ---------------------------------------------------------------------------
 # Options
@@ -49,7 +56,7 @@ ${BOLD}Options:${RESET}
 ${BOLD}Environment:${RESET}
   NO_COLOR           Set to disable coloured output.
 
-The settings file .env (repo root) must already exist.
+settings.yml and .env (repo root) must already exist.
 EOF
 }
 
@@ -131,7 +138,7 @@ wait_until() {
 }
 
 # ---------------------------------------------------------------------------
-# .env reader (handles CRLF, surrounding quotes)
+# .compose.env reader (handles CRLF, surrounding quotes)
 # ---------------------------------------------------------------------------
 env_get() {  # $1 key  [$2 file]
   local key=$1 file=${2:-$ENV_FILE} line val
@@ -148,7 +155,7 @@ env_get() {  # $1 key  [$2 file]
 }
 
 # ---------------------------------------------------------------------------
-# Container names (from docker-compose.yml) + checks
+# Container checks (the name comes from settings.yml, read in preflight)
 # ---------------------------------------------------------------------------
 C_WEB=ourhome_web
 
@@ -202,18 +209,29 @@ DC_STR="${DC[*]}"
 ok "Compose available (${DC_STR})"
 
 [ -f docker-compose.yml ] || fail "docker-compose.yml not found in $SCRIPT_DIR."
-[ -f "$ENV_FILE" ] || fail "Missing .env in the repo root — copy .env.example to .env and fill it in."
-ok "Settings file present (../.env)"
+[ -f "$SETTINGS" ] || fail "Missing settings.yml in the repo root — copy settings.example.yml to settings.yml and fill it in."
+ok "Settings file present (../settings.yml)"
+[ -f "$SECRETS" ] || fail "Missing .env in the repo root — copy .env.example to .env and fill in the secrets."
+ok "Secrets file present (../.env)"
 
 # Soft placeholder warnings (do not block).
-if grep -qE 'replace-with|change-me' "$ENV_FILE" 2>/dev/null; then
-  warn ".env still contains placeholder values (replace-with… / change-me)."
-fi
+for f in "$SETTINGS" "$SECRETS"; do
+  if grep -qE 'replace-with|change-me' "$f" 2>/dev/null; then
+    warn "${f#../} still contains placeholder values (replace-with… / change-me)."
+  fi
+done
 
-# Resolve ports / URL from .env (fall back to compose defaults).
-WEB_PORT=$(env_get WEB_HOST_PORT || true);   WEB_PORT=${WEB_PORT:-3000}
+# Read the docker: section for compose (names, network, port, bind).
+info "reading settings.yml (${YQ_IMAGE})…"
+docker run --rm -i "$YQ_IMAGE" "$YQ_EXPR" < "$SETTINGS" > "$ENV_FILE" \
+  || fail "Could not read settings.yml — check it is valid YAML."
+ok "Compose values read ($(grep -c . "$ENV_FILE") from settings.yml)"
+
+# Resolve ports / URL / names (fall back to compose defaults).
+WEB_PORT=$(env_get DOCKER_PORT || true);     WEB_PORT=${WEB_PORT:-3000}
 AUTH_URL=$(env_get PUBLIC_URL || true)
-WEB_BIND=$(env_get WEB_BIND || true);         WEB_BIND=${WEB_BIND:-0.0.0.0}
+WEB_BIND=$(env_get DOCKER_BIND || true);     WEB_BIND=${WEB_BIND:-0.0.0.0}
+C_WEB=$(env_get DOCKER_CONTAINER || true);   C_WEB=${C_WEB:-ourhome_web}
 # This machine's address on the home network, for the "open it here" hint.
 LAN_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 [ -n "$LAN_IP" ] || LAN_IP=$(ipconfig getifaddr en0 2>/dev/null || true)
@@ -221,7 +239,7 @@ WEB_URL_LOCAL="http://127.0.0.1:$WEB_PORT/"
 if command -v curl >/dev/null 2>&1; then HAVE_CURL=1; else HAVE_CURL=0; fi
 
 # Shared Docker network (compose declares it external). Create it if missing.
-NET=$(env_get DOCKER_NETWORK || true); NET=${NET:-ourhome_net}
+NET=$(env_get DOCKER_NETWORK || true);       NET=${NET:-ourhome_net}
 if docker network inspect "$NET" >/dev/null 2>&1; then
   ok "Docker network present ($NET)"
 else

@@ -4,13 +4,14 @@
 
 .DESCRIPTION
   This compose file runs the web app only. MongoDB (a replica set) runs on its
-  own, reached via SERVER_DATABASE_URL. Reminders run inside the web app. This
-  script waits until the app responds, instead of the bare `docker compose up -d`
-  that returns before it is ready.
+  own, reached via DATABASE_URL in .env. Reminders run inside the web app. This script waits until the app responds, instead of the bare
+  `docker compose up -d` that returns before it is ready.
 
-  Settings live in the single repo-root .env (shared with local dev). This
-  script verifies it exists but never creates or edits it, and passes it to
-  compose with --env-file.
+  Settings live in the repo-root settings.yml and secrets in the repo-root
+  .env (both shared with local dev). This script never edits them. Compose
+  passes .env to the container; the app reads settings.yml inside it; this
+  script reads its `docker:` section (with a pinned yq container, so nothing
+  needs installing) into .compose.env, which compose uses for names and ports.
 
   On a fresh database, open the printed address: the setup page creates the
   admin and the household's accounts.
@@ -42,7 +43,12 @@ $ErrorActionPreference = 'Stop'
 # Run from this script's directory (= docker\) so all compose paths resolve.
 # ---------------------------------------------------------------------------
 Set-Location -LiteralPath $PSScriptRoot
-$script:EnvFile = '..\.env'   # the repo-root .env, shared with local dev
+$script:Settings = '..\settings.yml'  # the repo-root settings, shared with local dev
+$script:Secrets  = '..\.env'          # the repo-root secrets; compose passes them to the app
+$script:EnvFile  = '.compose.env'     # generated from Settings on every run; don't edit
+$script:YqImage  = 'mikefarah/yq:4.44.3'
+# settings.yml `docker:` section -> DOCKER_* for compose, plus the public URL.
+$script:YqExpr   = '(.docker // {} | to_entries | .[] | "DOCKER_" + (.key | upcase) + "=" + ((.value // "") | tostring)), ("PUBLIC_URL=" + ((.better_auth.url // "") | tostring))'
 
 # Best-effort UTF-8 so the box-drawing / check glyphs render.
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
@@ -69,7 +75,7 @@ if ($enableColor) {
 }
 
 # ---------------------------------------------------------------------------
-# Container names (from docker-compose.yml).
+# Container name (from settings.yml, read in preflight).
 # ---------------------------------------------------------------------------
 $script:CWeb = 'ourhome_web'
 
@@ -117,7 +123,7 @@ $($script:Bold)Options:$($script:Reset)
   -Timeout <sec>     How long to wait for health checks (default: 180).
   -Help              Show this help and exit.
 
-The settings file .env (repo root) must already exist.
+settings.yml and .env (repo root) must already exist.
 "@
 }
 
@@ -248,20 +254,37 @@ if (-not (Test-Path -LiteralPath 'docker-compose.yml')) {
   Stop-Deploy "docker-compose.yml not found in $PSScriptRoot."
 }
 
-if (-not (Test-Path -LiteralPath $script:EnvFile)) {
-  Stop-Deploy 'Missing .env in the repo root - copy .env.example to .env and fill it in.'
+if (-not (Test-Path -LiteralPath $script:Settings)) {
+  Stop-Deploy 'Missing settings.yml in the repo root - copy settings.example.yml to settings.yml and fill it in.'
 }
-Write-Ok 'Settings file present (..\.env)'
+Write-Ok 'Settings file present (..\settings.yml)'
+if (-not (Test-Path -LiteralPath $script:Secrets)) {
+  Stop-Deploy 'Missing .env in the repo root - copy .env.example to .env and fill in the secrets.'
+}
+Write-Ok 'Secrets file present (..\.env)'
 
 # Soft placeholder warnings (do not block).
-if (Select-String -Path $script:EnvFile -Pattern 'replace-with|change-me' -Quiet) {
-  Write-Warn '.env still contains placeholder values (replace-with... / change-me).'
+foreach ($f in @($script:Settings, $script:Secrets)) {
+  if (Select-String -Path $f -Pattern 'replace-with|change-me' -Quiet) {
+    Write-Warn ("{0} still contains placeholder values (replace-with... / change-me)." -f (Split-Path -Leaf $f))
+  }
 }
 
-# Resolve ports / URL from .env (fall back to compose defaults).
-$webPort = Get-EnvValue 'WEB_HOST_PORT';   if (-not $webPort) { $webPort = '3000' }
+# Read the docker: section for compose (names, network, port, bind). The file
+# is mounted rather than piped, so PowerShell's console encoding can't mangle it.
+Write-Note "reading settings.yml ($($script:YqImage))..."
+$repoRoot = (Resolve-Path -LiteralPath '..').Path
+$composeVars = & docker run --rm -v "${repoRoot}:/w:ro" $script:YqImage $script:YqExpr /w/settings.yml
+if ($LASTEXITCODE -ne 0) { Stop-Deploy 'Could not read settings.yml - check it is valid YAML.' }
+# UTF-8 without a BOM: compose would read a BOM as part of the first name.
+[IO.File]::WriteAllLines((Join-Path $PSScriptRoot $script:EnvFile), [string[]]@($composeVars), (New-Object System.Text.UTF8Encoding $false))
+Write-Ok "Compose values read ($(@($composeVars).Count) from settings.yml)"
+
+# Resolve ports / URL / names (fall back to compose defaults).
+$webPort = Get-EnvValue 'DOCKER_PORT';     if (-not $webPort) { $webPort = '3000' }
 $authUrl = Get-EnvValue 'PUBLIC_URL'
-$webBind = Get-EnvValue 'WEB_BIND';        if (-not $webBind) { $webBind = '0.0.0.0' }
+$webBind = Get-EnvValue 'DOCKER_BIND';     if (-not $webBind) { $webBind = '0.0.0.0' }
+$cWeb    = Get-EnvValue 'DOCKER_CONTAINER'; if ($cWeb) { $script:CWeb = $cWeb }
 # This machine's address on the home network, for the "open it here" hint.
 $lanIp = $null
 try {

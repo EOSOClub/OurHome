@@ -75,9 +75,9 @@ export function PaperlessCard() {
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : !status.configured ? (
           <p className="text-sm text-muted-foreground">
-            Not set up. Set <code>SERVER_PAPERLESS_URL</code> and{' '}
-            <code>SERVER_PAPERLESS_TOKEN</code> in the server&apos;s <code>.env</code> and
-            redeploy. See <code>docs/paperless-import.md</code>.
+            Not set up. Set <code>paperless.url</code> in the server&apos;s{' '}
+            <code>settings.yml</code> and <code>PAPERLESS_TOKEN</code> in its{' '}
+            <code>.env</code>, then restart. See <code>docs/paperless-import.md</code>.
           </p>
         ) : (
           <>

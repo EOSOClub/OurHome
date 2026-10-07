@@ -1,5 +1,18 @@
-import 'dotenv/config';
-import { previewPaperless } from '@/server/services/paperlessSync';
+import { existsSync, readFileSync } from 'node:fs';
+import { parseEnv } from 'node:util';
+import { loadSettings, readSettings, resolveSecrets, secretsFile } from '@/server/settings';
+
+// Before anything reads the environment. On your PC the dev overrides turn the
+// Paperless import off, so take the Paperless address (settings.yml) and token
+// (.env) from the server values while keeping the dev database.
+loadSettings();
+if (process.env.NODE_ENV !== 'production') {
+  const file = secretsFile();
+  const secrets = existsSync(file) ? resolveSecrets(parseEnv(readFileSync(file, 'utf8')), 'server') : {};
+  process.env.PAPERLESS_URL = readSettings('server').PAPERLESS_URL ?? '';
+  process.env.PAPERLESS_TOKEN = secrets.PAPERLESS_TOKEN ?? '';
+}
+const { previewPaperless } = await import('@/server/services/paperlessSync');
 
 // Read-only dry run of the Paperless bill import: shows which tags and fields
 // were found, and what would happen to each bill / bill-payment document
@@ -12,10 +25,6 @@ import { previewPaperless } from '@/server/services/paperlessSync';
 //   docker compose exec web npm run paperless:preview
 
 const days = Number(process.argv[2] ?? 30);
-
-// Local dev keeps the server's values under SERVER_* (see .env.example).
-process.env.PAPERLESS_URL ||= process.env.SERVER_PAPERLESS_URL;
-process.env.PAPERLESS_TOKEN ||= process.env.SERVER_PAPERLESS_TOKEN;
 
 const money = (n: number | null | undefined, cur: string | null | undefined) =>
   n == null ? '—' : `${cur ?? ''}${n.toFixed(2)}`;

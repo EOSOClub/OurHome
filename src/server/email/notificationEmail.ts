@@ -33,12 +33,12 @@ const SUBJECT_PATH: Record<string, string> = {
 
 /**
  * Build the subject/body for a reminder email. `baseUrl` defaults to the
- * site's public URL (BETTER_AUTH_URL, PUBLIC_URL on the server);
+ * site's public URL (BETTER_AUTH_URL, `better_auth.url` in settings.yml);
  * pass `null` — or leave the env unset — to omit the link.
  */
 export function buildReminderEmail(
   candidate: ReminderEmailInput,
-  // `||`: compose passes an empty BETTER_AUTH_URL when PUBLIC_URL isn't set.
+  // `||`: an empty `better_auth.url` arrives as an empty string.
   baseUrl: string | null = process.env.BETTER_AUTH_URL || null,
 ): ReminderEmailContent {
   const prefix = SUBJECT_PREFIX[candidate.type] ?? 'Notification';

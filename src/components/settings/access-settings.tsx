@@ -68,7 +68,7 @@ function AccessChoice({
       ))}
       {!value && !settings.publicUrl ? (
         <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
-          No https:// address is set up yet (<code>PUBLIC_URL</code>), so other
+          No https:// address is set up yet (<code>better_auth.url</code> in settings.yml), so other
           devices won’t be able to sign in at all. Only http://localhost on the
           server will work.
         </p>

@@ -19,7 +19,7 @@ export interface ServiceAccount {
 
 /**
  * Reads the service-account key from FIREBASE_SERVICE_ACCOUNT: the JSON file's
- * contents, either as-is or base64-encoded (easier to keep on one .env line).
+ * contents, either as-is or base64-encoded (easier to keep on one settings.yml line).
  * Unset or empty → null (push off). Malformed → logged, then null.
  */
 export function parseServiceAccount(raw: string | undefined): ServiceAccount | null {

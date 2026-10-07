@@ -1,0 +1,97 @@
+# Our Home: settings, for local dev and the Docker deploy alike. Copy to
+# settings.yml (gitignored) and fill it in.
+#
+# No secrets in here: passwords, keys, tokens and the database URL live in .env
+# (template: .env.example). Everything else you might change is below.
+#
+#   - The app reads both files when it starts. In Docker they're handed to the
+#     container; nothing in docker/ ever needs editing.
+#   - The `dev:` section at the bottom overrides values for `npm run dev`.
+#
+# There are no accounts in here either: on first start, open the site by the
+# server's address (http://<server-ip>:3000) and the setup page creates them.
+
+app:
+  # Name shown in the browser tab, sign-in page and emails.
+  name: Our Home
+
+better_auth:
+  # Optional. The https:// address the site is reached at from outside (a
+  # tunnel or reverse proxy), used for links in emails. Empty = home network only.
+  url:
+  # Extra origins allowed to sign in. Usually empty: the address above and any
+  # home-network address (IP or hostname) are already allowed.
+  trusted_origins: []
+
+# --- Email (SMTP), optional --------------------------------------------------
+# Any SMTP provider (e.g. Proton Mail SMTP submission on port 587). Empty host =
+# email off: messages are logged instead of sent. The password is SMTP_PASS in .env.
+smtp:
+  host:
+  port: 587
+  user:
+  from:
+contact:
+  # Where contact-form messages are forwarded. Empty = stored but not forwarded.
+  forward_to:
+bug_report:
+  # Where bug reports are emailed. Empty = stored + in-app notification only.
+  email:
+
+# --- Contact form CAPTCHA (Cloudflare Turnstile), optional -------------------
+# The public site key; the secret key is TURNSTILE_SECRET_KEY in .env.
+turnstile:
+  site_key:
+
+# --- Paperless-ngx bill import, optional --------------------------------------
+# Documents tagged "bill" / "bill-payment" in Paperless become bills and
+# payments, checked every 15 minutes. Setup: docs/paperless-import.md
+paperless:
+  # How the web container reaches Paperless (shared Docker network). The token
+  # of a read-only Paperless user is PAPERLESS_TOKEN in .env. Either empty =
+  # import off.
+  url:
+  # Address you open Paperless at in a browser, for "Open in Paperless" links.
+  public_url:
+  # Only if your Paperless uses other names (defaults shown):
+  # bill_tag: bill
+  # payment_tag: bill-payment
+  # pending_tags: [paperless-gpt]
+  # field:
+  #   amount: Amount
+  #   due_date: Due date
+  #   account: Account number
+  #   invoice: Invoice number
+
+# --- Security header tuning, optional ----------------------------------------
+csp:
+  # true = Content-Security-Policy in report-only mode (debugging only).
+  report_only: false
+
+# --- Docker (read by docker/deploy.sh and deploy.ps1) ------------------------
+docker:
+  # Compose project and container name, e.g. if you run more than one install.
+  project: ourhome
+  container: ourhome_web
+  # Docker network the web container joins (created by the deploy scripts if
+  # missing). Put your MongoDB container on it to reach it by name.
+  network: ourhome_net
+  # Port the site is served on.
+  port: 3000
+  # 0.0.0.0 = every device on your network can open the site; 127.0.0.1 = only
+  # this machine (and a tunnel/proxy running on it).
+  bind: 0.0.0.0
+
+# --- Local development (npm run dev, npm run db:*) ---------------------------
+# Merged over everything above when not running in production. (Dev secrets,
+# like the local database URL, are the DEV_ entries in .env.)
+dev:
+  better_auth:
+    url: http://localhost:3000
+  # Server-only integrations stay off in dev.
+  smtp:
+    host:
+  turnstile:
+    site_key:
+  paperless:
+    url:

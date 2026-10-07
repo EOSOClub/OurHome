@@ -13,7 +13,7 @@ export interface PaperlessConfig {
   publicUrl: string | null;
 }
 
-/** From PAPERLESS_URL / PAPERLESS_TOKEN (compose maps SERVER_PAPERLESS_*). Unset → import off. */
+/** From `paperless.url` (settings.yml) and PAPERLESS_TOKEN (.env). Unset → import off. */
 export function paperlessConfig(): PaperlessConfig | null {
   const url = process.env.PAPERLESS_URL?.trim().replace(/\/+$/, '');
   const token = process.env.PAPERLESS_TOKEN?.trim();

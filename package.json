@@ -16,6 +16,7 @@
     "db:reset": "prisma db push --force-reset",
     "db:studio": "prisma studio",
     "paperless:preview": "tsx scripts/paperless-preview.ts",
+    "settings:migrate": "tsx scripts/env-to-settings.ts",
     "prebuild": "prisma generate"
   },
   "dependencies": {
@@ -30,6 +31,7 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "tailwind-merge": "^3.6.0",
+    "yaml": "^2.9.1",
     "zod": "^4.4.3",
     "zustand": "^5.0.14"
   },

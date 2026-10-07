@@ -182,8 +182,8 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
   Notifications with a `userId` are visible only to that user; rows without one
   are household-wide (`notificationService.visibleTo`).
 - **Instant push (Android app).** Firebase Cloud Messaging, off until
-  `FIREBASE_SERVICE_ACCOUNT` is set (`SERVER_FIREBASE_SERVICE_ACCOUNT` in
-  `.env`; setup in `docs/push-notifications.md`). The app registers its FCM
+  `FIREBASE_SERVICE_ACCOUNT` is set (in `.env`; setup in
+  `docs/push-notifications.md`). The app registers its FCM
   token after sign-in (`POST /api/push/devices`, stored as `PushDevice`) and
   removes it on sign-out (`POST /api/push/devices/delete`).
   `pushService.pushSync` sends a **content-free**, data-only message

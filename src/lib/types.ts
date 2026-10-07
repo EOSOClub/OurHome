@@ -241,7 +241,7 @@ export interface PaperlessSkippedDTO {
   id: number;
   title: string;
   reason: string;
-  /** Link to the document in Paperless, when PAPERLESS_PUBLIC_URL is set. */
+  /** Link to the document in Paperless, when `paperless.public_url` is set. */
   url: string | null;
 }
 
@@ -312,7 +312,7 @@ export interface AccessSettingsDTO {
   allowHttp: boolean;
   /** The Head of House has made a choice (the prompt stops appearing). */
   reviewed: boolean;
-  /** The https:// public address, when PUBLIC_URL is set. */
+  /** The https:// public address, when `better_auth.url` is set. */
   publicUrl: string | null;
   /** How the viewer is connected right now. */
   connection: 'https' | 'localhost' | 'http';

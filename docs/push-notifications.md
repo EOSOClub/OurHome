@@ -44,7 +44,7 @@ file, the app still builds and works, just without instant alerts.
 1. In Firebase: **Project settings → Service accounts → Generate new private
    key**. This downloads a JSON file. **Treat it like a password**: it can send
    messages to every install of your app.
-2. Encode it onto one line and put it in the repo-root `.env`:
+2. Encode it onto one line and put it in the repo-root `.env` (it's a secret):
 
    ```bash
    base64 -w0 service-account.json
@@ -55,17 +55,13 @@ file, the app still builds and works, just without instant alerts.
    ```
 
    ```env
-   SERVER_FIREBASE_SERVICE_ACCOUNT=ewogICJ0eXBlIjogInNlcnZpY2VfYWNjb3VudCIs...
+   FIREBASE_SERVICE_ACCOUNT=ewogICJ0eXBlIjogInNlcnZpY2VfYWNjb3VudCIs...
+   DEV_FIREBASE_SERVICE_ACCOUNT=
    ```
 
-3. Check your `docker/docker-compose.yml` passes it through (the template in
-   `docker.example/` does):
+   The empty `DEV_FIREBASE_SERVICE_ACCOUNT` keeps it off for `npm run dev`.
 
-   ```yaml
-   FIREBASE_SERVICE_ACCOUNT: ${SERVER_FIREBASE_SERVICE_ACCOUNT:-}
-   ```
-
-4. Redeploy. The new `PushDevice` collection is created on start.
+3. Redeploy. The new `PushDevice` collection is created on start.
 
 ## 4. Check it works
 

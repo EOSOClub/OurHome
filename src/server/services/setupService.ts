@@ -5,8 +5,8 @@ import { ConflictError } from '@/server/services/errors';
 import { isHttpsRequest } from '@/server/security/network';
 import type { SetupInput } from '@/lib/validation/setup';
 
-// First-run setup replaces the old seed script: the first visitor to a fresh
-// install creates the household and its Head of House, then adds members from
+// First-run setup: the first visitor to a fresh install creates the household
+// and its Head of House, then adds members from
 // the second setup step (which reuses the regular Members API).
 
 /** Starter categories, so the task, shopping and inventory pickers aren't empty. */

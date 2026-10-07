@@ -12,8 +12,8 @@
 #
 # Usage:  ./deploy.sh [--no-build] [--timeout SECONDS] [--help]
 #
-# There is no seed step: on a fresh database, open the printed address and the
-# setup page creates the admin and the household's accounts.
+# On a fresh database, open the printed address: the setup page creates the
+# admin and the household's accounts.
 #
 # The PowerShell twin is deploy.ps1.
 

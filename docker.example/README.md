@@ -35,7 +35,7 @@ click, and text answers pre-filled with the current value to keep or edit (Tab
 completes file paths). Everything wraps to the window's width. It needs nothing
 installed beyond bash, also works over SSH, and leaves your terminal as it
 was. Run with `OURHOME_PLAIN=1` for plain typed prompts; without a keyboard
-(cron, `-y`) it never asks anything.
+(cron) it never asks anything.
 
 ### Later runs and options
 
@@ -51,7 +51,7 @@ with your current values as the defaults (Enter keeps each one).
 | `-s`, `--setup` | `-Setup` | Go straight to the settings walkthrough. |
 | `-o`, `--only SECTION` | `-Only SECTION` | Only that section of the walkthrough, then save. |
 | `--from SECTION` | `-From SECTION` | The walkthrough from that section to the end. |
-| `-y`, `--yes` | `-Yes` | Don't ask; just deploy (for scripts and cron). |
+| `-y`, `--yes` | `-Yes` | Skip the settings question and check for updates: the web app's code (and `settings.yml`/`.env`) against the last deploy, the Android app's code and settings against the APK on offer. Nothing new: says so and stops. Otherwise lists what's new and asks before updating each part (only the app → like `-a`). Without a keyboard (cron) it updates whatever changed. `-n` skips the check. |
 | `-a`, `--app` | `-App` | Only update the Android app: rebuild it if its code or settings changed, else say there's nothing new. With `-n`, rebuild anyway. |
 | `--no-build` | `-NoBuild` | Just restart (enough after a settings change). |
 | `--timeout S` | `-Timeout S` | Seconds to wait for the app to respond (default 180). |

@@ -50,9 +50,15 @@ with your current values as the defaults (Enter keeps each one).
 The app is built **from GitHub**: `docker.repo` and `docker.branch` in
 `settings.yml` (default: this repo, `main`). Docker fetches the branch itself on
 every build and only rebuilds when it has new commits, so a deploy always runs
-the pushed code and the server doesn't need to `git pull` for it. Run your own
-fork by changing `docker.repo`. `-l` builds from the local checkout instead
-(e.g. to try unpushed changes).
+the pushed code and the server doesn't need to `git pull` for it. `-l` builds
+from the local checkout instead (e.g. to try unpushed changes).
+
+> [!WARNING]
+> **Forks are unsupported.** The walkthrough can build from your own fork
+> (`docker.repo` / `android.repo`, behind a "your own fork? (unsupported)"
+> question), but changed code is at your own risk, and problems with it can't be
+> supported. Leave both on the official repos unless you forked and changed
+> something.
 
 ### What the walkthrough can run for you
 
@@ -88,7 +94,7 @@ signed-in members. Phones install updates over the old version.
 - A home-network-only site (`http://192.168.…`) works: the app allows plain
   HTTP for exactly that address and nothing else.
 - `android.repo` can also be the path of a local OurHomeApp checkout, to build
-  unpushed changes.
+  unpushed changes (a fork in all but name: unsupported, as above).
 
 ### Windows
 
@@ -224,13 +230,22 @@ internet is refused, so finish setup before (or without) exposing the site.
 ## 4. Optional: HTTPS from outside
 
 The app works over plain HTTP on your home network. To reach it from anywhere,
-put a tunnel or reverse proxy in front (Cloudflare Tunnel, Caddy, nginx, …)
-pointing at `http://<server>:3000`, and set `better_auth.url` to its
-`https://` address (used for links in emails). Never forward port 3000 on your
-router. Over HTTPS the session cookie is marked Secure; on the home network it
-can't be, since browsers drop Secure cookies on plain HTTP. Set
-`docker.bind: 127.0.0.1` to stop serving the home network directly and use only
-the tunnel (finish first-run setup before that, or see the note in step 3).
+we suggest a **[Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/create-remote-tunnel/)**:
+it's free, gives you HTTPS, and only connects outward from your server, so no
+port on your router is ever opened. Point it at `http://<server>:3000` and set
+`better_auth.url` to its `https://` address (used for links in emails). A
+reverse proxy (Caddy, nginx, …) works too, but needs a port forwarded and its
+own certificates and upkeep. Either way, never forward port 3000 itself.
+
+Over HTTPS the session cookie is marked Secure; on the home network it can't
+be, since browsers drop Secure cookies on plain HTTP.
+
+**On a server without a screen, keep the port open to your home network** for
+first-run setup (`docker.bind: 0.0.0.0`, the walkthrough's default): setup only
+works from the home network. When setup finishes, the site asks how it may be
+reached; **HTTPS only** then refuses plain-HTTP sign-in from every other device.
+To also stop serving the home network directly, set `docker.bind: 127.0.0.1`
+afterwards (`./deploy.sh -s`), as long as the tunnel runs on the same machine.
 
 ## Optional
 

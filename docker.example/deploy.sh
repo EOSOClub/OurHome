@@ -966,6 +966,24 @@ setup_mail() {
   sput services.mail_folder "$v"
 }
 
+# ask_fork REPO_KEY BRANCH_KEY DEFAULT_REPO "what" "what the repo may be" —
+# where something is built from. Hidden behind a question so nobody changes it
+# by accident: only someone who forked the project and changed it needs this,
+# and forks are unsupported.
+ask_fork() {
+  local v def=n
+  if [ "$(sget "$1")" != "$3" ] || [ "$(sget "$2")" != main ]; then def=y; fi
+  hint "Source of $4: $(sget "$1") ($(sget "$2"))."
+  if ! ask_yn "Build $4 from your own fork instead? (unsupported)" "$def"; then
+    sput "$1" "$3"; sput "$2" main
+    return 0
+  fi
+  warn "Forks are at your own risk: the project can't support changed code."
+  hint "Repo: $5."
+  ask v "Repo" "$(sget "$1")"; sput "$1" "${v:-$3}"
+  ask v "Branch" "$(sget "$2")"; sput "$2" "${v:-main}"
+}
+
 # Newest google-services.json in the usual download spots.
 find_google_services() {
   local f best= dir
@@ -1017,10 +1035,8 @@ setup_android() {
     say "Built as com.eosoclub.ourhome, without instant alerts (set those up in" \
         "step 7 to get them)."
   fi
-  hint "Where the app is built from: a GitHub repo (change only for your own fork),"
-  hint "or the path of a local checkout to build it as it is on disk."
-  ask v "App repo" "$(sget android.repo)"; sput android.repo "${v:-$APP_REPO_DEFAULT}"
-  ask v "Branch" "$(sget android.branch)"; sput android.branch "${v:-main}"
+  ask_fork android.repo android.branch "$APP_REPO_DEFAULT" "the app" \
+    "a GitHub repo, or the path of a local checkout (built as it is on disk)"
 }
 
 setup_wizard() {
@@ -1073,9 +1089,13 @@ setup_wizard() {
 
   section "4/10  Web address"
   say "At home the site works at http://<this-server>:<port> with no setup. To use" \
-      "it from anywhere, put a tunnel or reverse proxy in front for HTTPS" \
-      "(Cloudflare Tunnel, Caddy, nginx…) and enter its address; links in emails" \
-      "use it. Leave blank for home network only. Never forward the port on your router."
+      "it from anywhere, we suggest a Cloudflare Tunnel: free, HTTPS included, and" \
+      "it only connects outward, so no router port is ever opened. (A reverse proxy" \
+      "such as Caddy works too, but needs a port forwarded and its own upkeep.)" \
+      "Point the tunnel at http://<this-server>:<port> and enter its https://" \
+      "address here; links in emails use it. Blank = home network only." \
+      "Never forward the site's port on your router."
+  link "https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/create-remote-tunnel/"
   example "https://home.example.com"
   while true; do
     ask v "Public address" "$(sget better_auth.url)"
@@ -1188,16 +1208,17 @@ setup_wizard() {
   hint "Port the site is served on."
   while true; do ask v "Port" "$(sget docker.port)"; case "$v" in ''|*[!0-9]*) warn "A number, e.g. 3000." ;; *) break ;; esac; done
   sput docker.port "$v"
-  say "Who can open it directly: every device on your home network, or only this" \
-      "machine (when a tunnel/proxy here is the only way in; finish the site's" \
-      "first-run setup page before choosing that)."
+  say "Who can open the port directly: every device on your home network, or only" \
+      "this machine. Choose yes for now, especially on a server without a screen:" \
+      "the first-run setup page only works from your home network. After setup the" \
+      "site asks how it may be reached, and \"HTTPS only\" closes plain-HTTP sign-in" \
+      "to everything but your tunnel. Choosing no here later locks the port to this" \
+      "machine too (for when a tunnel running here is the only way in)."
   def=y; [ "$(sget docker.bind)" = 127.0.0.1 ] && def=n
   if ask_yn "Open to your home network?" "$def"; then sput docker.bind 0.0.0.0; else sput docker.bind 127.0.0.1; fi
   hint "Docker network the app joins (created if missing). Put MongoDB on it to reach it by name."
   ask v "Network" "$(sget docker.network)"; sput docker.network "${v:-ourhome_net}"
-  hint "Where the app is built from. Change only to run your own fork."
-  ask v "GitHub repo" "$(sget docker.repo)"; sput docker.repo "${v:-$DEFAULT_REPO}"
-  ask v "Branch" "$(sget docker.branch)"; sput docker.branch "${v:-main}"
+  ask_fork docker.repo docker.branch "$DEFAULT_REPO" "the website" "a GitHub repo"
   if ask_yn "Change the project/container names? (only for a second install)" n; then
     ask v "Compose project" "$(sget docker.project)"; sput docker.project "${v:-ourhome}"
     ask v "Container name" "$(sget docker.container)"; sput docker.container "${v:-ourhome_web}"

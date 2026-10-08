@@ -42,6 +42,7 @@ with your current values as the defaults (Enter keeps each one).
 | `-b`, `--branch NAME` | `-Branch NAME` | Build another branch this time. |
 | `-s`, `--setup` | `-Setup` | Go straight to the settings walkthrough. |
 | `-y`, `--yes` | `-Yes` | Don't ask; just deploy (for scripts and cron). |
+| `-a`, `--app` | `-App` | Only update the Android app: rebuild it if its code or settings changed, else say there's nothing new. With `-n`, rebuild anyway. |
 | `--no-build` | `-NoBuild` | Just restart (enough after a settings change). |
 | `--timeout S` | `-Timeout S` | Seconds to wait for the app to respond (default 180). |
 

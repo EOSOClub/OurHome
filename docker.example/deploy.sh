@@ -60,6 +60,7 @@ NO_CACHE=0
 LOCAL=0
 BRANCH=        # empty = settings.yml docker.branch, else main
 SETUP=ask      # ask | yes (-s) | no (-y)
+APP_ONLY=0     # -a: only rebuild the Android app, if it changed
 TIMEOUT=180
 
 usage() {
@@ -78,6 +79,9 @@ ${BOLD}Options:${RESET}
   -b, --branch NAME    Git branch to build (default: docker.branch, else main).
   -s, --setup          Go straight to the settings walkthrough.
   -y, --yes            Don't ask about settings; just deploy (for scripts).
+  -a, --app            Only update the Android app: rebuild it if its code or
+                       settings changed, else say there's nothing new and stop.
+                       Add -n to rebuild it anyway.
       --no-build       Skip rebuilding the image; just (re)start the app.
       --timeout SECONDS
                        How long to wait for health checks (default: ${TIMEOUT}).
@@ -658,8 +662,11 @@ android_server_url() {
 }
 
 # Builds android/out/ourhome.apk (+ ourhome.json, what the site shows) when the
-# app's code or its settings changed since the last build, or with -n.
+# app's code or its settings changed since the last build, or with -n. Sets
+# ANDROID_RESULT: uptodate, built, or failed.
+ANDROID_RESULT=""
 android_build() {
+  ANDROID_RESULT=failed
   local repo branch sha appid url cfg tmp fp old pw vcode vname apk src out="$ANDROID_DIR/out"
   repo=$(env_get ANDROID_REPO || true); repo=${repo:-$APP_REPO_DEFAULT}
   branch=$(env_get ANDROID_BRANCH || true); branch=${branch:-main}
@@ -687,7 +694,9 @@ android_build() {
   fp=$(printf '%s|%s|%s|%s' "$sha" "$url" "$appid" "$([ -f "$cfg/google-services.json" ] && sha256_of "$cfg/google-services.json")" | { sha256sum 2>/dev/null || shasum -a 256; } | awk '{print $1}')
   old=$(sed -n 's/.*"fingerprint": *"\([^"]*\)".*/\1/p' "$out/ourhome.json" 2>/dev/null)
   if [ "$NO_CACHE" = 0 ] && [ "$fp" = "$old" ] && [ -s "$out/ourhome.apk" ]; then
-    rm -rf "$cfg"; ok "Android app up to date (${sha:0:7}, $url)"; return 0
+    rm -rf "$cfg"; ANDROID_RESULT=uptodate
+    ok "Android app up to date: $(sed -n 's/.*"versionName": *"\([^"]*\)".*/\1/p' "$out/ourhome.json"), built $(sed -n 's/.*"builtAt": *"\([^"]*\)".*/\1/p' "$out/ourhome.json") (${url:-server asked at sign-in})"
+    return 0
   fi
 
   android_keystore
@@ -729,6 +738,7 @@ android_build() {
 EOF
   mv -f "$out/ourhome.json.new" "$out/ourhome.json"
   rm -rf "$cfg" "$tmp"
+  ANDROID_RESULT=built
   ok "Android app $vname built ($(( $(wc -c < "$out/ourhome.apk") / 1048576 )) MB), on the site under Profile"
 }
 
@@ -1307,6 +1317,7 @@ while [ $# -gt 0 ]; do
     --branch=*)     BRANCH=${1#*=} ;;
     -s|--setup)     SETUP=yes ;;
     -y|--yes)       SETUP=no ;;
+    -a|--app)       APP_ONLY=1 ;;
     --no-build)     NO_BUILD=1 ;;
     --timeout)      shift; TIMEOUT=${1:-} ;;
     --timeout=*)    TIMEOUT=${1#*=} ;;
@@ -1358,10 +1369,12 @@ if [ ! -f "$SECRETS" ]; then
   FIRST_RUN=1
 fi
 
-if [ "$FIRST_RUN" = 1 ] || [ "$SETUP" = yes ]; then
+if [ "$FIRST_RUN" = 1 ] && [ "$APP_ONLY" = 1 ]; then
+  fail "Nothing is set up yet: run ./deploy.sh first (without -a)."
+elif [ "$FIRST_RUN" = 1 ] || [ "$SETUP" = yes ]; then
   [ "$CAN_ASK" = 1 ] || fail "Settings need answers; run ./deploy.sh in a terminal (or fill in ../settings.yml and ../.env by hand)."
   setup_wizard
-elif [ "$SETUP" = ask ] && [ "$CAN_ASK" = 1 ]; then
+elif [ "$SETUP" = ask ] && [ "$CAN_ASK" = 1 ] && [ "$APP_ONLY" = 0 ]; then
   ok "Settings present (../settings.yml, ../.env)"
   if ask_yn "Change settings before deploying?" n; then setup_wizard; fi
 else
@@ -1394,6 +1407,26 @@ fi
 LAN_IP=$(lan_ip)
 WEB_URL_LOCAL="http://127.0.0.1:$WEB_PORT/"
 if command -v curl >/dev/null 2>&1; then HAVE_CURL=1; else HAVE_CURL=0; fi
+
+# --- App only (-a): the Android app and nothing else -----------------------
+# Rebuilds it when its code (the app repo's branch) or its settings changed;
+# otherwise says so and stops. The site and the service stacks aren't touched;
+# the running site serves the new APK straight away (android/out is mounted).
+if [ "$APP_ONLY" = 1 ]; then
+  [ "$ANDROID_BUILD" = true ] || fail "The Android app isn't built here (android.build is off); turn it on with ./deploy.sh -s."
+  docker buildx version >/dev/null 2>&1 || fail "Docker Buildx is missing (it ships with Docker Desktop and docker-buildx-plugin)."
+  mkdir -p "$ANDROID_DIR/out" 2>/dev/null || true
+  step "Android app"
+  android_build || fail "The Android app wasn't built (see above); the current one stays on offer."
+  if [ "$ANDROID_RESULT" = uptodate ]; then
+    printf '\n  %sNo app updates.%s The app on offer already has the latest code and settings.\n' "$BOLD" "$RESET"
+    printf '  (Add -n to rebuild it anyway.)\n\n'
+  else
+    printf '\n  %s%s✓ New app version ready.%s Members get it from Profile → Android app on the\n' "$GREEN" "$BOLD" "$RESET"
+    printf '  site; it installs over the old version.\n\n'
+  fi
+  exit 0
+fi
 
 # What to build: GitHub (repo#branch, which BuildKit fetches itself, checking
 # for new commits every build) or this checkout. Compose reads BUILD_CONTEXT

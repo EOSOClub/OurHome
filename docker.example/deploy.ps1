@@ -28,6 +28,9 @@
 .PARAMETER Yes
   Don't ask about settings; just deploy (-y).
 
+.PARAMETER App
+  Only update the Android app: rebuild it if it changed, else stop (-a).
+
 .PARAMETER NoBuild
   Skip rebuilding the image; just (re)start the app (--no-build).
 
@@ -44,6 +47,7 @@ param(
   [Alias('b')][string]$Branch = '',
   [Alias('s')][switch]$Setup,
   [Alias('y')][switch]$Yes,
+  [Alias('a')][switch]$App,
   [switch]$NoBuild,
   [int]$Timeout = 0,
   [Alias('h')][switch]$Help,
@@ -58,6 +62,7 @@ if ($Local)   { $bashArgs += '-l' }
 if ($Branch)  { $bashArgs += @('-b', $Branch) }
 if ($Setup)   { $bashArgs += '-s' }
 if ($Yes)     { $bashArgs += '-y' }
+if ($App)     { $bashArgs += '-a' }
 if ($NoBuild) { $bashArgs += '--no-build' }
 if ($Timeout -gt 0) { $bashArgs += @('--timeout', "$Timeout") }
 if ($Help)    { $bashArgs += '-h' }

@@ -7,6 +7,7 @@ import {
   type MappingContext,
   type PaperlessDocument,
 } from '@/server/paperless/mapping';
+import { paperlessNames } from '@/server/paperless/names';
 import { ingestFinancialDoc } from '@/server/services/billIngestService';
 import type { PaperlessStatusDTO, PaperlessSyncResultDTO } from '@/lib/types';
 
@@ -31,21 +32,7 @@ const SETTLE_MS = 10 * 60 * 1000;
 /** How many skipped documents the status report remembers. */
 const MAX_SKIPPED = 25;
 
-/** Names in Paperless, overridable for setups that use other names. */
-const names = {
-  billTag: () => process.env.PAPERLESS_BILL_TAG?.trim() || 'bill',
-  paymentTag: () => process.env.PAPERLESS_PAYMENT_TAG?.trim() || 'bill-payment',
-  // Comma-separated; a document carrying any of these is not ready yet.
-  pendingTags: () =>
-    (process.env.PAPERLESS_PENDING_TAGS ?? 'paperless-gpt')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean),
-  amountField: () => process.env.PAPERLESS_FIELD_AMOUNT?.trim() || 'Amount',
-  dueDateField: () => process.env.PAPERLESS_FIELD_DUE_DATE?.trim() || 'Due date',
-  accountField: () => process.env.PAPERLESS_FIELD_ACCOUNT?.trim() || 'Account number',
-  invoiceField: () => process.env.PAPERLESS_FIELD_INVOICE?.trim() || 'Invoice number',
-};
+const names = paperlessNames;
 
 export function isPaperlessConfigured(): boolean {
   return paperlessConfig() !== null;

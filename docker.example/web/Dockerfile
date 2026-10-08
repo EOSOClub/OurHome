@@ -34,7 +34,9 @@ RUN apt-get update \
 # app dir so `prisma db push` and `next start` can write caches; if the app is
 # ever compromised the process is not root inside the container.
 COPY --from=build --chown=node:node /app ./
-COPY docker/web/entrypoint.sh /usr/local/bin/entrypoint.sh
+# From the template folder, which every source has (a GitHub build has no
+# docker/; that copy is gitignored).
+COPY docker.example/web/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 USER node
 EXPOSE 3000

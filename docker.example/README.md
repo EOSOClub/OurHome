@@ -14,31 +14,101 @@ can reach (see [What runs](#what-runs)).
 git clone https://github.com/EOSOClub/OurHome.git
 cd OurHome
 cp -r docker.example docker
-cp settings.example.yml settings.yml
-cp .env.example .env
-nano .env                   # database URL + two secrets (see step 1 below)
 cd docker
-./deploy.sh
+./deploy.sh                 # Windows: .\deploy.ps1
 ```
+
+The first run creates `settings.yml` and `.env` from their templates and walks
+you through every setting: what each one is for, an example of what the value
+looks like, and links to the outside accounts (Firebase, Cloudflare Turnstile,
+your mail provider). It can also run MongoDB, Paperless-ngx and the Proton Bridge
+for you and build the Android app (see below), so with nothing else installed
+you only need Docker. Optional parts can be skipped and set up later with
+`./deploy.sh -s`; the sign-in keys and every service password are generated.
 
 Then open `http://<server-ip>:3000` from any device on your network and follow
 the setup page (see [step 3](#3-first-run-setup)).
 
+### Later runs and options
+
+Each later run asks once **"Change settings before deploying?"** Answer no (the
+default) and it deploys straight away; yes walks through the settings again,
+with your current values as the defaults (Enter keeps each one).
+
+| Option | PowerShell | What it does |
+| --- | --- | --- |
+| `-n`, `--no-cache` | `-NoCache` | Rebuild every layer and re-pull the base image. |
+| `-l`, `--local` | `-Local` | Build from this checkout instead of GitHub. |
+| `-b`, `--branch NAME` | `-Branch NAME` | Build another branch this time. |
+| `-s`, `--setup` | `-Setup` | Go straight to the settings walkthrough. |
+| `-y`, `--yes` | `-Yes` | Don't ask; just deploy (for scripts and cron). |
+| `--no-build` | `-NoBuild` | Just restart (enough after a settings change). |
+| `--timeout S` | `-Timeout S` | Seconds to wait for the app to respond (default 180). |
+
+### Where the image is built from
+
+The app is built **from GitHub**: `docker.repo` and `docker.branch` in
+`settings.yml` (default: this repo, `main`). Docker fetches the branch itself on
+every build and only rebuilds when it has new commits, so a deploy always runs
+the pushed code and the server doesn't need to `git pull` for it. Run your own
+fork by changing `docker.repo`. `-l` builds from the local checkout instead
+(e.g. to try unpushed changes).
+
+### What the walkthrough can run for you
+
+Answer **no** to "Already have …?" and the deploy runs that piece too, from the
+[OurHomeServices](https://github.com/EOSOClub/OurHomeServices) stacks (fetched
+into `services.path`, default `../OurHomeServices`). Each stack gets its own
+`.env` of generated passwords and joins the same Docker network, so everything
+reaches everything else by name:
+
+| Piece | What you do | What the deploy does |
+| --- | --- | --- |
+| **MongoDB** | Nothing | Starts a single-node replica set, creates the app user, writes `DATABASE_URL` |
+| **Paperless-ngx** | Pick its port and address | Starts it (with OCR and email-to-PDF), then the [Paperless setup](../docs/paperless-import.md) with its admin login |
+| **Proton Mail Bridge** | Log in once (Proton password + 2FA) in the Bridge's own prompt; paid Proton plan | Builds and starts it, reads its mail login, and gives Paperless a mail account on your bills folder |
+| **Other mail (IMAP)** | Server, username, app password | Gives Paperless a mail account on your bills folder |
+| **Billers** | Their names | A Paperless correspondent each, plus bill / payment tagging by content |
+
+Paperless's admin password is in `<services.path>/paperless/.env`.
+
+### The Android app
+
+Answer yes to **"Build the Android app here?"** and every deploy builds the app
+(only when its code or your settings changed), with this server's address and
+your Firebase app id built in, and offers it under **Profile → Android app** to
+signed-in members. Phones install updates over the old version.
+
+- The build runs in Docker ([`android/Dockerfile`](android/Dockerfile)); the
+  first one downloads the Android tools (about 3 GB) and takes ~10 minutes.
+- It's signed with this install's own key, made on the first build:
+  **`android/release.jks` and `android/keystore.env` (repo root). Back both up.**
+  Android only installs an update over an APK signed with the same key; without
+  them, everyone has to uninstall, reinstall and sign in again.
+- A home-network-only site (`http://192.168.…`) works: the app allows plain
+  HTTP for exactly that address and nothing else.
+- `android.repo` can also be the path of a local OurHomeApp checkout, to build
+  unpushed changes.
+
+### Windows
+
+`deploy.ps1` runs `deploy.sh` through Git Bash (from
+[Git for Windows](https://git-scm.com/download/win)) or WSL, with the same
+options in PowerShell form (`-Setup`, `-NoCache`, `-Branch dev`, …).
+
 ### Updating
 
-`git pull` updates the code and this template, but not your `docker/` copy.
-Since nothing in `docker/` is hand-edited, refresh it from the template:
+`./deploy.sh` already builds the latest commit. `git pull` is only needed for
+changes to the deploy scripts and templates themselves; since nothing in
+`docker/` is hand-edited, refresh it from the template after a pull:
 
 ```bash
 cd OurHome
 git pull
 cp -r docker.example/. docker/
 cd docker
-./deploy.sh
+./deploy.sh -s              # new settings show up in the walkthrough
 ```
-
-Compare `settings.example.yml` and `.env.example` with your files after a
-pull, in case new settings were added.
 
 ### Moving from an all-in-one `.env`
 
@@ -74,7 +144,8 @@ Any other service the app should reach by name goes on that network too.
 
 ## 1. Fill in `.env` and `settings.yml`
 
-Secrets go in `.env` ([`.env.example`](../.env.example)); everything else in
+The deploy script's walkthrough does this for you. By hand: secrets go in
+`.env` ([`.env.example`](../.env.example)); everything else in
 `settings.yml` ([`settings.example.yml`](../settings.example.yml)). At minimum:
 
 - `.env`: `DATABASE_URL` — your MongoDB replica set.
@@ -104,11 +175,12 @@ cd docker
 .\deploy.ps1              # Windows PowerShell
 ```
 
-The script checks Docker, reads the `docker:` section of `settings.yml`,
-creates the network if needed, builds and starts the app, waits for it to
-respond, and prints the addresses to open it at. Run it again to redeploy after
-updates. Plain `docker compose up -d --build` works too, with the default names
-and port (and the network must already exist).
+The script checks Docker, offers the settings walkthrough, reads the `docker:`
+section of `settings.yml`, checks the branch exists, creates the network if
+needed, builds and starts the app, waits for it to respond, and prints the
+addresses to open it at. Run it again to redeploy after updates. Plain
+`docker compose up -d --build` works too, building `main` from GitHub with the
+default names and port (and the network must already exist).
 
 ## 3. First-run setup
 
@@ -168,6 +240,12 @@ the tunnel (finish first-run setup before that, or see the note in step 3).
   emailed.
 - **Contact-form CAPTCHA** — `turnstile.site_key` in `settings.yml` and
   `TURNSTILE_SECRET_KEY` in `.env` (Cloudflare Turnstile).
+- **Paperless-ngx bill import** — the walkthrough can set Paperless up for you
+  (tags, fields, a read-only user and token, starter workflows and dashboard
+  views) with an admin login used once. See [bill import](../docs/paperless-import.md).
+- **Instant phone alerts** — a free Firebase project of your own; the
+  walkthrough (`./deploy.sh -s`) asks for your app id, links each Firebase page
+  and takes the server key. See [push notifications](../docs/push-notifications.md).
 - **Home Assistant display** — create a token on the site (Settings → Home
   Assistant connection), then see `../HomeAssistant/display.yaml`.
 - **Trigger a reminder sweep now** — with `CRON_SECRET` from `.env`:
@@ -177,4 +255,7 @@ the tunnel (finish first-run setup before that, or see the note in step 3).
 
 All data is in your MongoDB (the `household` database), so back that up, e.g.
 with `mongodump`. The web container keeps no state. Keep copies of
-`settings.yml` and `.env` somewhere safe too (`.env` holds your secrets).
+`settings.yml` and `.env` somewhere safe too (`.env` holds your secrets), and,
+if the deploy builds the Android app, `android/release.jks` + `keystore.env`.
+Stacks run for you keep their data and `.env` in their own folders under
+`services.path`; see each stack's README in OurHomeServices for its backups.

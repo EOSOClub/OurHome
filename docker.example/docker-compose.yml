@@ -4,12 +4,14 @@
 #
 #   ./deploy.sh                 # or .\deploy.ps1
 #
-# Then open http://<server-ip>:3000 and the setup page creates the accounts.
+# The first run walks through the settings. Then open http://<server-ip>:3000
+# and the setup page creates the accounts.
 #
 # Nothing here is edited by hand. Settings live in ../settings.yml (read by the
 # app inside the container) and secrets in ../.env (passed in as environment
 # variables). The deploy scripts pass settings.yml's `docker:` section
-# (project, container, network, port, bind) to this file as DOCKER_*.
+# (project, container, network, port, bind) to this file as DOCKER_*, and the
+# source to build as BUILD_CONTEXT.
 # Plain `docker compose up -d --build` also works and uses the defaults below.
 #
 # Bring your own MongoDB: it must be a replica set (the app uses transactions).
@@ -21,8 +23,13 @@ name: ${DOCKER_PROJECT:-ourhome}
 services:
   web:
     build:
-      context: ..
-      dockerfile: docker/web/Dockerfile
+      # GitHub repo#branch (BuildKit fetches it and checks for new commits on
+      # every build), or `..` for this checkout (deploy -l). The deploy scripts
+      # set it from settings.yml docker.repo / docker.branch.
+      context: ${BUILD_CONTEXT:-https://github.com/EOSOClub/OurHome.git#main}
+      # Relative to the source being built, so the image recipe always matches
+      # the code it builds.
+      dockerfile: docker.example/web/Dockerfile
     container_name: ${DOCKER_CONTAINER:-ourhome_web}
     restart: unless-stopped
     # Secrets (passwords, keys, the database URL) as environment variables.
@@ -31,6 +38,7 @@ services:
     environment:
       NODE_ENV: production
       SETTINGS_FILE: /app/settings.yml
+      APP_DOWNLOAD_DIR: /app/downloads
     volumes:
       # The settings file, read-only. Not baked into the image, so it never
       # ends up in an image layer, and a change only needs a restart.
@@ -41,6 +49,15 @@ services:
         bind:
           # Fail clearly if it's missing, rather than mounting an empty folder.
           create_host_path: false
+      # The Android app the deploy builds (android/out: ourhome.apk +
+      # ourhome.json), offered to signed-in members on the Profile page.
+      # Empty when the app isn't built here; then the page shows nothing.
+      - type: bind
+        source: ../android/out
+        target: /app/downloads
+        read_only: true
+        bind:
+          create_host_path: true
     ports:
       # Open to your home network by default (plain HTTP). For access from
       # outside, put a tunnel / reverse proxy (Cloudflare Tunnel, Caddy, nginx)

@@ -17,7 +17,7 @@
 generator client {
   provider      = "prisma-client-js"
   // "native" covers local dev (e.g. Windows); debian-openssl-3.0.x is the Linux
-  // query-engine for the node:20-slim image used in docker/web/Dockerfile.
+  // query-engine for the node:20-slim image used in docker.example/web/Dockerfile.
   binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 

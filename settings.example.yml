@@ -63,10 +63,45 @@ paperless:
   #   account: Account number
   #   invoice: Invoice number
 
+# --- Instant phone alerts (Firebase), optional --------------------------------
+# The key is FIREBASE_SERVICE_ACCOUNT in .env. Setup: docker/deploy.sh -s, or
+# docs/push-notifications.md
+firebase:
+  # The Android app id registered in your Firebase project, com.<name>.ourhome.
+  # The server doesn't use it; it's kept so the setup can remind you what the
+  # app's own settings.yml (app.id) must say.
+  android_app_id:
+
 # --- Security header tuning, optional ----------------------------------------
 csp:
   # true = Content-Security-Policy in report-only mode (debugging only).
   report_only: false
+
+# --- Service stacks the deploy runs for you (docker/deploy.sh) ----------------
+# Set by the deploy walkthrough (./deploy.sh -s); the app itself ignores these.
+# The stacks come from github.com/EOSOClub/OurHomeServices, each with its own
+# .env of generated secrets, all on the docker.network network.
+services:
+  # Folder for the stacks (relative = from this repo's root).
+  path: ../OurHomeServices
+  # managed = run here; own = you run it (DATABASE_URL in .env points at it).
+  mongo:
+  # managed / own / off
+  paperless: off
+  # Where bills arrive by email for Paperless: bridge (Proton Bridge run
+  # here), imap (any mail server), or off. mail_folder = the folder it reads.
+  mail: off
+  mail_folder:
+
+# --- Android app built by the deploy (docker/deploy.sh) ----------------------
+# true = each deploy builds the app (when it or these settings changed), signs
+# it with this install's key (android/, back it up) and offers it to
+# signed-in members on the Profile page.
+android:
+  build: false
+  # A GitHub repo, or the path of a local checkout.
+  repo: https://github.com/EOSOClub/OurHomeApp.git
+  branch: main
 
 # --- Docker (read by docker/deploy.sh and deploy.ps1) ------------------------
 docker:
@@ -81,6 +116,11 @@ docker:
   # 0.0.0.0 = every device on your network can open the site; 127.0.0.1 = only
   # this machine (and a tunnel/proxy running on it).
   bind: 0.0.0.0
+  # Where the image is built from: a GitHub repo and branch (a deploy always
+  # runs the pushed code). Change only to run your own fork. `deploy.sh -b X`
+  # builds another branch once; `-l` builds from this checkout instead.
+  repo: https://github.com/EOSOClub/OurHome.git
+  branch: main
 
 # --- Local development (npm run dev, npm run db:*) ---------------------------
 # Merged over everything above when not running in production. (Dev secrets,

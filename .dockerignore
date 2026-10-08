@@ -20,10 +20,11 @@ settings.yml
 docker/.compose.env
 
 # deployment folders (compose files, secrets, retired services) — not app source.
-# The web Dockerfile still needs docker/web/entrypoint.sh, so that stays in.
-docker/*
-!docker/web
-docker.example
+# The web Dockerfile still needs docker.example/web/entrypoint.sh (the template
+# copy, which a GitHub build has too), so that stays in.
+docker
+docker.example/*
+!docker.example/web
 
 # docs / unrelated
 docs

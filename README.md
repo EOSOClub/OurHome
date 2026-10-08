@@ -104,13 +104,11 @@ Deployment lives in a `docker/` folder that is **gitignored**, so your real conf
 git clone https://github.com/EOSOClub/OurHome.git OurHomeWeb
 cd OurHomeWeb
 cp -r docker.example docker
-cp settings.example.yml settings.yml   # names, port, optional integrations
-cp .env.example .env                   # secrets: database URL + two keys
 cd docker
-./deploy.sh                            # or: docker compose up -d --build (default names/port)
+./deploy.sh                            # Windows: .\deploy.ps1
 ```
 
-`deploy.sh` (or `deploy.ps1` on Windows) builds and starts the app, waits until it responds, and prints its address.
+The first run walks you through every setting (what it's for, what the value looks like, links to set up Firebase, Turnstile and email) and writes `settings.yml` and `.env` for you. Then `deploy.sh` (or `deploy.ps1`) builds the app **from GitHub**, starts it, waits until it responds, and prints its address. Later runs ask once whether to change settings; `-s` jumps to the walkthrough, `-n` rebuilds from scratch, `-b` picks a branch, `-l` builds the local checkout.
 
 Then open `http://<server-ip>:3000` from any device on your network. On a fresh install the **setup page** asks for the household name and an admin username and password, then lets you add everyone else (username, password, optional email). No accounts live in either file.
 

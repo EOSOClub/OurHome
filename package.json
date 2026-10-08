@@ -16,6 +16,7 @@
     "db:reset": "prisma db push --force-reset",
     "db:studio": "prisma studio",
     "paperless:preview": "tsx scripts/paperless-preview.ts",
+    "paperless:setup": "tsx scripts/paperless-setup.ts",
     "settings:migrate": "tsx scripts/env-to-settings.ts",
     "prebuild": "prisma generate"
   },

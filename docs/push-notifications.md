@@ -13,33 +13,59 @@ server, and the app's lock-screen rules apply exactly as before. The hourly
 check stays on as a fallback.
 
 You need both halves: a key on the **server**, and a config file in the **app
-build**. Either one alone does nothing.
+build**. Either one alone does nothing. Each household uses its own Firebase
+project; it's free (Cloud Messaging has no cost or message limit).
 
-## 1. Create the Firebase project
+> [!TIP]
+> **The easy way:** run `./deploy.sh -s` (or `.\deploy.ps1 -Setup`) in
+> `docker/` and answer yes to instant alerts. It asks for your app id, links
+> each Firebase page below, waits while you create things, takes the key file's
+> path, checks it, and prints what to put in the app. The steps below are the
+> same thing by hand.
+
+## 1. Pick your app id
+
+Android apps are identified by an id like `com.<name>.ourhome`. Choose your own
+`<name>` (lowercase letters and digits, e.g. your family name). Firebase and
+the app you build must use the same id. No source folders are renamed: the
+app's code stays in `com.eosoclub.ourhome`; only the installed id changes.
+
+## 2. Create the Firebase project
 
 1. Open the [Firebase console](https://console.firebase.google.com) and
    **Create a project** (any name; Google Analytics is not needed, so turn it off).
 2. In the project, **Add app → Android**:
-   - **Package name:** `com.eosoclub.ourhome` (must match exactly)
+   - **Package name:** your app id, e.g. `com.smithfamily.ourhome` (must match exactly)
    - Nickname optional; skip the SHA-1.
 3. **Download `google-services.json`.** Skip the remaining SDK steps; the app
    already has them.
 
-## 2. App: add `google-services.json`
+## 3. App: set the id and add `google-services.json`
 
-Put the file in the app module folder of the OurHomeApp repo:
+In the OurHomeApp repo, set the id in its `settings.yml` (template:
+`settings.example.yml`):
+
+```yaml
+app:
+  id: com.smithfamily.ourhome
+```
+
+and put the file in the app module folder:
 
 ```
 OurHomeApp/
+  settings.yml
   OurHomeApp/
     google-services.json   ← here
     build.gradle.kts
 ```
 
-It's gitignored. Rebuild and reinstall (`./gradlew installDebug`). Without the
-file, the app still builds and works, just without instant alerts.
+Both are gitignored. Rebuild and reinstall (`./gradlew installDebug`). If the
+app was installed under a different id, uninstall that one first (it's a
+separate app to Android; you sign in once more). Without `google-services.json`
+the app still builds and works, just without instant alerts.
 
-## 3. Server: add the service-account key
+## 4. Server: add the service-account key
 
 1. In Firebase: **Project settings → Service accounts → Generate new private
    key**. This downloads a JSON file. **Treat it like a password**: it can send
@@ -63,7 +89,7 @@ file, the app still builds and works, just without instant alerts.
 
 3. Redeploy. The new `PushDevice` collection is created on start.
 
-## 4. Check it works
+## 5. Check it works
 
 1. Open the app and sign in (or just open it if you're already signed in): it
    registers the phone with the server.
@@ -81,6 +107,7 @@ file, the app still builds and works, just without instant alerts.
 | `FIREBASE_SERVICE_ACCOUNT is not valid JSON…` | The value is cut off or wrongly encoded. Re-encode the whole file. |
 | `token exchange failed (400/401)` | The key was deleted or revoked in Firebase. Generate a new one. |
 | `0/1 device(s) reached` + `FCM send failed (403)` | The key is from a different Firebase project than the app's `google-services.json`. |
+| App build fails: `No matching client found for package name` | The app's `app.id` isn't the package name registered in that `google-services.json`. |
 | `dead token(s) removed` | Normal: an install was uninstalled or its data cleared. |
 
 ## Behaviour notes

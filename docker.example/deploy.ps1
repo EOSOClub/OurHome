@@ -1,340 +1,101 @@
 <#
 .SYNOPSIS
-  Build and start the Our Home web app and verify it responds.
+  Our Home deploy on Windows: runs deploy.sh (the one installer) through Git
+  Bash, or WSL when Git Bash isn't installed.
 
 .DESCRIPTION
-  This compose file runs the web app only. MongoDB (a replica set) runs on its
-  own, reached via DATABASE_URL in .env. Reminders run inside the web app. This script waits until the app responds, instead of the bare
-  `docker compose up -d` that returns before it is ready.
+  deploy.sh does everything: the settings walkthrough, the service stacks
+  (MongoDB, Paperless-ngx, Proton Bridge), the web app build and start, and
+  the Paperless setup. This wrapper only finds a bash and hands over, mapping
+  the PowerShell-style options below to deploy.sh's flags. Any other
+  arguments are passed through as they are (e.g. .\deploy.ps1 --timeout 300).
 
-  Settings live in the repo-root settings.yml and secrets in the repo-root
-  .env (both shared with local dev). This script never edits them. Compose
-  passes .env to the container; the app reads settings.yml inside it; this
-  script reads its `docker:` section (with a pinned yq container, so nothing
-  needs installing) into .compose.env, which compose uses for names and ports.
+  Git Bash comes with Git for Windows (https://git-scm.com/download/win);
+  Docker Desktop must be running either way.
 
-  On a fresh database, open the printed address: the setup page creates the
-  admin and the household's accounts.
+.PARAMETER NoCache
+  Rebuild every layer and re-pull the base image (-n).
 
-  The bash twin is deploy.sh.
+.PARAMETER Local
+  Build from this checkout instead of GitHub (-l).
+
+.PARAMETER Branch
+  Git branch to build (-b).
+
+.PARAMETER Setup
+  Go straight to the settings walkthrough (-s).
+
+.PARAMETER Yes
+  Don't ask about settings; just deploy (-y).
 
 .PARAMETER NoBuild
-  Skip rebuilding the image; just (re)start the app.
+  Skip rebuilding the image; just (re)start the app (--no-build).
 
 .PARAMETER Timeout
-  Seconds to wait for health checks (default 180).
+  Seconds to wait for health checks (--timeout).
 
 .EXAMPLE
-  .\deploy.ps1
-
-.EXAMPLE
-  .\deploy.ps1 -NoBuild -Timeout 240
+  .\deploy.ps1 -Setup
 #>
 [CmdletBinding()]
 param(
+  [Alias('n')][switch]$NoCache,
+  [Alias('l')][switch]$Local,
+  [Alias('b')][string]$Branch = '',
+  [Alias('s')][switch]$Setup,
+  [Alias('y')][switch]$Yes,
   [switch]$NoBuild,
-  [int]$Timeout = 180,
-  [switch]$Help
+  [int]$Timeout = 0,
+  [Alias('h')][switch]$Help,
+  [Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest = @()
 )
 
 $ErrorActionPreference = 'Stop'
 
-# ---------------------------------------------------------------------------
-# Run from this script's directory (= docker\) so all compose paths resolve.
-# ---------------------------------------------------------------------------
-Set-Location -LiteralPath $PSScriptRoot
-$script:Settings = '..\settings.yml'  # the repo-root settings, shared with local dev
-$script:Secrets  = '..\.env'          # the repo-root secrets; compose passes them to the app
-$script:EnvFile  = '.compose.env'     # generated from Settings on every run; don't edit
-$script:YqImage  = 'mikefarah/yq:4.44.3'
-# settings.yml `docker:` section -> DOCKER_* for compose, plus the public URL.
-$script:YqExpr   = '(.docker // {} | to_entries | .[] | "DOCKER_" + (.key | upcase) + "=" + ((.value // "") | tostring)), ("PUBLIC_URL=" + ((.better_auth.url // "") | tostring))'
+$bashArgs = @()
+if ($NoCache) { $bashArgs += '-n' }
+if ($Local)   { $bashArgs += '-l' }
+if ($Branch)  { $bashArgs += @('-b', $Branch) }
+if ($Setup)   { $bashArgs += '-s' }
+if ($Yes)     { $bashArgs += '-y' }
+if ($NoBuild) { $bashArgs += '--no-build' }
+if ($Timeout -gt 0) { $bashArgs += @('--timeout', "$Timeout") }
+if ($Help)    { $bashArgs += '-h' }
+$bashArgs += $Rest
 
-# Best-effort UTF-8 so the box-drawing / check glyphs render.
-try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
-
-# ---------------------------------------------------------------------------
-# Colour setup — ANSI, disabled when NO_COLOR is set, output is redirected, or
-# the host is a legacy console that won't render virtual-terminal sequences.
-# ---------------------------------------------------------------------------
-$script:IsTty = -not [Console]::IsOutputRedirected
-$enableColor = $true
-if ($env:NO_COLOR) { $enableColor = $false }
-elseif (-not $script:IsTty) { $enableColor = $false }
-elseif (-not ($env:WT_SESSION -or ($env:TERM_PROGRAM -eq 'vscode') -or ($PSVersionTable.PSVersion.Major -ge 6))) { $enableColor = $false }
-
-if ($enableColor) {
-  $e = [char]27
-  $script:Reset = "$e[0m"; $script:Bold = "$e[1m"; $script:Dim = "$e[2m"
-  $script:Red = "$e[31m"; $script:Green = "$e[32m"; $script:Yellow = "$e[33m"
-  $script:Blue = "$e[34m"; $script:Magenta = "$e[35m"; $script:Cyan = "$e[36m"
-} else {
-  $script:Reset = ''; $script:Bold = ''; $script:Dim = ''
-  $script:Red = ''; $script:Green = ''; $script:Yellow = ''
-  $script:Blue = ''; $script:Magenta = ''; $script:Cyan = ''
+# Git Bash: the usual install folders, or next to git.exe on PATH.
+function Find-GitBash {
+  $candidates = @(
+    (Join-Path $env:ProgramFiles 'Git\bin\bash.exe'),
+    (Join-Path ${env:ProgramFiles(x86)} 'Git\bin\bash.exe'),
+    (Join-Path $env:LOCALAPPDATA 'Programs\Git\bin\bash.exe')
+  )
+  $git = Get-Command git.exe -ErrorAction SilentlyContinue
+  if ($git) { $candidates += (Join-Path (Split-Path (Split-Path $git.Source)) 'bin\bash.exe') }
+  foreach ($c in $candidates) { if ($c -and (Test-Path -LiteralPath $c)) { return $c } }
+  return $null
 }
 
-# ---------------------------------------------------------------------------
-# Container name (from settings.yml, read in preflight).
-# ---------------------------------------------------------------------------
-$script:CWeb = 'ourhome_web'
-
-$script:ComposeV1  = $false
-$script:ComposeStr = 'docker compose'
-$script:StepN = 0
-$script:StepTotal = 4
-$script:SpinFrames = '-\|/'
-$script:SpinI = 0
-
-# ---------------------------------------------------------------------------
-# Output helpers
-# ---------------------------------------------------------------------------
-function Write-Ok   { param($m) Write-Host ("  {0}{1}{2} {3}" -f $script:Green,  [char]0x2713, $script:Reset, $m) }
-function Write-Warn { param($m) Write-Host ("  {0}!{1} {2}"   -f $script:Yellow, $script:Reset, $m) }
-function Write-Note { param($m) Write-Host ("  {0}.{1} {2}"   -f $script:Cyan,   $script:Reset, $m) }
-function Write-Err  { param($m) Write-Host ("  {0}{1}{2} {3}" -f $script:Red,    [char]0x2717, $script:Reset, $m) }
-
-function Stop-Deploy {
-  param($m)
-  Write-Err $m
-  Write-Host ("`n{0}Deploy aborted.{1}  Inspect logs with: {2}{3} logs -f{1}" -f `
-    ($script:Red + $script:Bold), $script:Reset, $script:Bold, $script:ComposeStr)
-  exit 1
+$script = Join-Path $PSScriptRoot 'deploy.sh'
+$gitBash = Find-GitBash
+if ($gitBash) {
+  & $gitBash $script @bashArgs
+  exit $LASTEXITCODE
 }
 
-function Write-Step {
-  param($m)
-  $script:StepN++
-  Write-Host ("`n{0}[{1}/{2}]{3} {4}{5}{6}" -f `
-    $script:Dim, $script:StepN, $script:StepTotal, $script:Reset, $script:Bold, $m, $script:Reset)
-}
-
-function Show-Help {
-  Write-Host @"
-$($script:Bold)Our Home - Docker deploy (web app)$($script:Reset)
-
-Builds and starts the web app, then waits until it responds.
-
-$($script:Bold)Usage:$($script:Reset)
-  .\deploy.ps1 [-NoBuild] [-Timeout <seconds>] [-Help]
-
-$($script:Bold)Options:$($script:Reset)
-  -NoBuild           Skip rebuilding the image; just (re)start the app.
-  -Timeout <sec>     How long to wait for health checks (default: 180).
-  -Help              Show this help and exit.
-
-settings.yml and .env (repo root) must already exist.
-"@
-}
-
-function Show-Banner {
-  Write-Host ($script:Magenta + $script:Bold)
-  Write-Host '  ╔══════════════════════════════════════════════════╗'
-  Write-Host '  ║            O U R   H O M E   ·   deploy           ║'
-  Write-Host '  ╚══════════════════════════════════════════════════╝'
-  Write-Host $script:Reset -NoNewline
-  Write-Host ("  {0}web app{1}" -f $script:Dim, $script:Reset)
-}
-
-# ---------------------------------------------------------------------------
-# Spinner / wait helpers
-# ---------------------------------------------------------------------------
-function Update-Spinner {
-  param($Label, $Elapsed)
-  if (-not $script:IsTty) { return }
-  $f = $script:SpinFrames[$script:SpinI % $script:SpinFrames.Length]
-  $script:SpinI++
-  Write-Host ("`r  {0}{1}{2} waiting for {3}... {4}s " -f $script:Cyan, $f, $script:Reset, $Label, $Elapsed) -NoNewline
-}
-
-function Clear-SpinnerLine {
-  if ($script:IsTty) { Write-Host ("`r" + (' ' * 64) + "`r") -NoNewline }
-}
-
-function Wait-ForCondition {
-  param([string]$Label, [int]$TimeoutSec, [scriptblock]$Check)
-  $start = Get-Date
-  if (-not $script:IsTty) { Write-Note "waiting for $Label..." }
-  while ($true) {
-    if (& $Check) { Clear-SpinnerLine; Write-Ok $Label; return $true }
-    $elapsed = [int]((Get-Date) - $start).TotalSeconds
-    if ($elapsed -ge $TimeoutSec) {
-      Clear-SpinnerLine; Write-Err "$Label (timed out after ${TimeoutSec}s)"; return $false
-    }
-    Update-Spinner $Label $elapsed
-    Start-Sleep -Milliseconds 500
+# WSL: needs a distribution and Docker Desktop's WSL integration turned on.
+$wsl = Get-Command wsl.exe -ErrorAction SilentlyContinue
+if ($wsl) {
+  & wsl.exe -e true *> $null
+  if ($LASTEXITCODE -eq 0) {
+    $wslPath = (& wsl.exe -e wslpath -a ($script -replace '\\', '/')).Trim()
+    & wsl.exe -e bash $wslPath @bashArgs
+    exit $LASTEXITCODE
   }
 }
 
-# ---------------------------------------------------------------------------
-# Docker / compose helpers
-# ---------------------------------------------------------------------------
-function Invoke-Compose {
-  param([Parameter(ValueFromRemainingArguments = $true)][string[]]$CArgs)
-  if ($script:ComposeV1) { & docker-compose --env-file $script:EnvFile @CArgs } else { & docker compose --env-file $script:EnvFile @CArgs }
-}
-
-function Get-ContainerStatus {
-  param($Name)
-  $v = (& docker inspect -f '{{.State.Status}}' $Name 2>$null)
-  if ($null -eq $v) { return '' }
-  return ($v | Select-Object -First 1).ToString().Trim()
-}
-
-function Get-ContainerHealth {
-  param($Name)
-  $v = (& docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}-{{end}}' $Name 2>$null)
-  if ($null -eq $v) { return '-' }
-  return ($v | Select-Object -First 1).ToString().Trim()
-}
-
-function Test-WebUp {
-  try {
-    Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 -Uri $script:WebUrlLocal | Out-Null
-    return $true
-  } catch [System.Net.WebException] {
-    # An HTTP response (even 4xx/5xx) means the server is up; only connection
-    # failures mean it is not listening yet.
-    if ($_.Exception.Response) { return $true }
-    return $false
-  } catch {
-    return $false
-  }
-}
-
-function Get-EnvValue {
-  param($Key, $File = $script:EnvFile)
-  if (-not (Test-Path -LiteralPath $File)) { return $null }
-  $pattern = '^\s*{0}=' -f [regex]::Escape($Key)
-  $match = Get-Content -LiteralPath $File | Where-Object { $_ -match $pattern } | Select-Object -Last 1
-  if (-not $match) { return $null }
-  $v = $match -replace $pattern, ''
-  return $v.Trim().Trim('"').Trim("'")
-}
-
-function Write-Row {
-  param($Label, $Container)
-  $st = Get-ContainerStatus $Container; if (-not $st) { $st = 'absent' }
-  $h  = Get-ContainerHealth $Container; if (-not $h) { $h = '-' }
-  $color = switch ($st) { 'running' { $script:Green } 'exited' { $script:Dim } default { $script:Yellow } }
-  $hs = if ($h -eq '-') { '' } else { "($h)" }
-  Write-Host ("    {0,-24} {1}{2,-10}{3} {4}" -f $Label, $color, $st, $script:Reset, $hs)
-}
-
-# ===========================================================================
-if ($Help) { Show-Help; exit 0 }
-if ($Timeout -le 0) { Write-Host 'error: -Timeout must be a positive integer'; exit 2 }
-
-Show-Banner
-
-# --- [1/4] Preflight ------------------------------------------------------
-Write-Step 'Preflight checks'
-
-if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
-  Stop-Deploy 'Docker is not installed or not on PATH.'
-}
-$dockerVersion = (& docker --version 2>$null | Select-Object -First 1)
-Write-Ok "docker found ($dockerVersion)"
-
-& docker info *> $null
-if ($LASTEXITCODE -ne 0) { Stop-Deploy 'Docker daemon is not reachable. Is Docker Desktop running?' }
-Write-Ok 'Docker daemon is running'
-
-& docker compose version *> $null
-if ($LASTEXITCODE -eq 0) {
-  $script:ComposeV1 = $false; $script:ComposeStr = 'docker compose'
-} elseif (Get-Command docker-compose -ErrorAction SilentlyContinue) {
-  $script:ComposeV1 = $true; $script:ComposeStr = 'docker-compose'
-} else {
-  Stop-Deploy "Docker Compose v2 not found (need 'docker compose')."
-}
-Write-Ok "Compose available ($($script:ComposeStr))"
-
-if (-not (Test-Path -LiteralPath 'docker-compose.yml')) {
-  Stop-Deploy "docker-compose.yml not found in $PSScriptRoot."
-}
-
-if (-not (Test-Path -LiteralPath $script:Settings)) {
-  Stop-Deploy 'Missing settings.yml in the repo root - copy settings.example.yml to settings.yml and fill it in.'
-}
-Write-Ok 'Settings file present (..\settings.yml)'
-if (-not (Test-Path -LiteralPath $script:Secrets)) {
-  Stop-Deploy 'Missing .env in the repo root - copy .env.example to .env and fill in the secrets.'
-}
-Write-Ok 'Secrets file present (..\.env)'
-
-# Soft placeholder warnings (do not block).
-foreach ($f in @($script:Settings, $script:Secrets)) {
-  if (Select-String -Path $f -Pattern 'replace-with|change-me' -Quiet) {
-    Write-Warn ("{0} still contains placeholder values (replace-with... / change-me)." -f (Split-Path -Leaf $f))
-  }
-}
-
-# Read the docker: section for compose (names, network, port, bind). The file
-# is mounted rather than piped, so PowerShell's console encoding can't mangle it.
-Write-Note "reading settings.yml ($($script:YqImage))..."
-$repoRoot = (Resolve-Path -LiteralPath '..').Path
-$composeVars = & docker run --rm -v "${repoRoot}:/w:ro" $script:YqImage $script:YqExpr /w/settings.yml
-if ($LASTEXITCODE -ne 0) { Stop-Deploy 'Could not read settings.yml - check it is valid YAML.' }
-# UTF-8 without a BOM: compose would read a BOM as part of the first name.
-[IO.File]::WriteAllLines((Join-Path $PSScriptRoot $script:EnvFile), [string[]]@($composeVars), (New-Object System.Text.UTF8Encoding $false))
-Write-Ok "Compose values read ($(@($composeVars).Count) from settings.yml)"
-
-# Resolve ports / URL / names (fall back to compose defaults).
-$webPort = Get-EnvValue 'DOCKER_PORT';     if (-not $webPort) { $webPort = '3000' }
-$authUrl = Get-EnvValue 'PUBLIC_URL'
-$webBind = Get-EnvValue 'DOCKER_BIND';     if (-not $webBind) { $webBind = '0.0.0.0' }
-$cWeb    = Get-EnvValue 'DOCKER_CONTAINER'; if ($cWeb) { $script:CWeb = $cWeb }
-# This machine's address on the home network, for the "open it here" hint.
-$lanIp = $null
-try {
-  $lanIp = Get-NetIPConfiguration -ErrorAction Stop |
-    Where-Object { $_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq 'Up' } |
-    ForEach-Object { $_.IPv4Address.IPAddress } | Select-Object -First 1
-} catch {}
-$script:WebUrlLocal = "http://127.0.0.1:$webPort/"
-
-# Shared Docker network (compose declares it external). Create it if missing.
-$net = Get-EnvValue 'DOCKER_NETWORK'; if (-not $net) { $net = 'ourhome_net' }
-& docker network inspect $net *> $null
-if ($LASTEXITCODE -eq 0) {
-  Write-Ok "Docker network present ($net)"
-} else {
-  & docker network create $net *> $null
-  if ($LASTEXITCODE -ne 0) { Stop-Deploy "Could not create Docker network '$net'." }
-  Write-Ok "Docker network created ($net)"
-}
-
-# --- [2/4] Build & start --------------------------------------------------
-if ($NoBuild) {
-  Write-Step 'Start web app (no rebuild)'
-  Invoke-Compose up -d
-  if ($LASTEXITCODE -ne 0) { Stop-Deploy "'$($script:ComposeStr) up -d' failed." }
-} else {
-  Write-Step 'Build & start web app'
-  Invoke-Compose up -d --build
-  if ($LASTEXITCODE -ne 0) { Stop-Deploy "'$($script:ComposeStr) up -d --build' failed." }
-}
-Write-Ok 'Containers created/started'
-
-# --- [3/4] Health verification -------------------------------------------
-Write-Step "Verify health (timeout ${Timeout}s)"
-if (-not (Wait-ForCondition "Web app (HTTP :$webPort)" $Timeout { Test-WebUp })) {
-  Stop-Deploy 'Web app did not start responding.'
-}
-
-# --- [4/4] Summary --------------------------------------------------------
-Write-Step 'Summary'
-Write-Row 'web' $script:CWeb
-
-Write-Host ("`n  {0}{1}{2} web app is up{3}" -f $script:Green, $script:Bold, [char]0x2713, $script:Reset)
-Write-Host ("    {0,-18} {1}" -f 'On this machine:', "http://localhost:$webPort/")
-if ($webBind -ne '127.0.0.1' -and $lanIp) {
-  Write-Host ("    {0,-18} {1}" -f 'On your network:', "http://${lanIp}:$webPort/")
-}
-if ($authUrl) { Write-Host ("    {0,-18} {1}" -f 'Public URL:', $authUrl) }
-
-# --- Next steps -----------------------------------------------------------
-Write-Host ("`n  {0}First run?{1} Open one of the addresses above. The setup page creates" -f $script:Bold, $script:Reset)
-Write-Host '  the admin account, then the rest of the household.'
-Write-Host ("    - Follow logs:   {0} logs -f web`n" -f $script:ComposeStr)
+Write-Host 'deploy.ps1 needs bash to run deploy.sh. Install one of:'
+Write-Host '  - Git for Windows (includes Git Bash): https://git-scm.com/download/win'
+Write-Host '  - WSL: wsl --install   (then turn on WSL integration in Docker Desktop)'
+Write-Host 'and run .\deploy.ps1 again.'
+exit 1

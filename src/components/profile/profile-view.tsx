@@ -13,6 +13,8 @@ import {
   UserRound,
 } from 'lucide-react';
 import type { ProfileOverview } from '@/server/services/profileService';
+import type { AppRelease } from '@/server/services/appDownloadService';
+import { AndroidAppCard } from '@/components/profile/android-app-card';
 import { changePassword, updateUser } from '@/lib/auth-client';
 import { apiFetch } from '@/lib/api';
 import { USER_ROLE_LABELS, type UserRole } from '@/lib/enums';
@@ -32,7 +34,14 @@ import { toast } from '@/components/ui/toast';
 const STAT_LINK_CLASS =
   'block rounded-lg transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 
-export function ProfileView({ overview }: { overview: ProfileOverview }) {
+export function ProfileView({
+  overview,
+  appRelease,
+}: {
+  overview: ProfileOverview;
+  /** The Android app built on this server, if any. */
+  appRelease: AppRelease | null;
+}) {
   return (
     <div className="space-y-6">
       <div>
@@ -68,6 +77,7 @@ export function ProfileView({ overview }: { overview: ProfileOverview }) {
       </div>
 
       <OverviewCard overview={overview} />
+      {appRelease && <AndroidAppCard release={appRelease} />}
       <EditProfileCard overview={overview} />
       <ChangePasswordCard />
     </div>

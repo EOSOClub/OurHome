@@ -112,7 +112,18 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
     existing documents are never bulk-imported. Read-only, API v9, token auth;
     off until `PAPERLESS_URL` + `PAPERLESS_TOKEN` are set. Status + recently
     skipped documents are on the Settings card. Dry run:
-    `npm run paperless:preview`. Runbook: `docs/paperless-import.md`.
+    `npm run paperless:preview`. One-time setup with an admin login
+    (`npm run paperless:setup`, `server/paperless/setup.ts`, run by the deploy
+    walkthrough inside the web container): tags, fields, read-only user +
+    token, starter workflows/views, biller correspondents, optional content
+    matching and bill mailbox (mail account + rules); idempotent by name, and
+    the only code that writes to Paperless. Shared tag/field names:
+    `server/paperless/names.ts`. Runbook: `docs/paperless-import.md`.
+  - *Android app download* (`appDownloadService`, `GET /api/app/download`,
+    Profile card): serves the APK the deploy builds
+    (`docker.example/android/Dockerfile`) from `APP_DOWNLOAD_DIR` (android/out,
+    mounted read-only), described by its `ourhome.json`; signed-in members only,
+    nothing shown when no build exists.
   - Paperless, the Proton Bridge it reads mail through, and MongoDB are
     separate stacks in
     [OurHomeServices](https://github.com/EOSOClub/OurHomeServices).

@@ -45,9 +45,48 @@ Paperless.
   next check picks it up.
 - **Bills follow Paperless.** Editing a bill's document in Paperless updates
   the bill on the next check. Payments import once; correct them on the bill page.
-- **Read-only.** Our Home never changes anything in Paperless.
+- **Read-only.** The import never changes anything in Paperless. The only
+  writes come from the one-time setup below, when you run it with an admin
+  login.
 
 ## Setup
+
+> [!TIP]
+> **The easy way:** in `docker/`, run `./deploy.sh -s` (or `.\deploy.ps1 -Setup`),
+> answer yes to Paperless and to **"Set up Paperless for you?"**, and give an
+> admin login (used for that run only, never saved) and, optionally, your
+> billers. Once the app is up it does all of step 1 below, plus the starters,
+> puts the token in `.env`, and restarts the app. Safe to run again: it finds
+> what exists by name and only adds what's missing. By hand, from the web
+> container:
+>
+> ```bash
+> docker compose exec -e PAPERLESS_ADMIN_USER=admin -e PAPERLESS_ADMIN_PASSWORD \
+>   -e PAPERLESS_SETUP_BILLERS="water, electric" web npm run -s paperless:setup
+> ```
+>
+> It prints progress, then the token (put it in `.env` as `PAPERLESS_TOKEN`).
+> For the mailbox, add `PAPERLESS_SETUP_IMAP_HOST`, `_PORT`, `_SECURITY`
+> (`ssl`, `starttls` or `none`), `_USER`, `_PASSWORD` and
+> `PAPERLESS_SETUP_MAIL_FOLDER`. With no Paperless yet, the deploy can run one
+> for you (answer no to "Already have Paperless-ngx running?").
+
+What setup creates (all named so you can find, change or delete them):
+
+| In Paperless | What for |
+| --- | --- |
+| Tags `bill`, `bill-payment` (no owner) | What the import looks for |
+| Custom fields Amount, Due date, Account number, Invoice number | What the import reads |
+| Group **Our Home (read-only)**, user **ourhome** + its API token | View-only access for the import; the user only signs in with its token |
+| Workflow **Our Home: share new documents** | Gives the group view on every new document (needed when documents have owners) |
+| Workflows **Our Home: bill fields** / **payment fields** | When a document gets the tag, its empty fields appear, ready to fill |
+| Workflow **Our Home: payments are not bills** | Takes `bill` off anything tagged `bill-payment` (the mail rules tag the whole folder `bill`; the import skips documents with both) |
+| Saved views **Our Home: bills & payments** / **waiting for an Amount** | On the dashboard: everything tagged, and what the import is still waiting on |
+| A correspondent per biller (only if you list billers) | Files each biller's documents under it (exact-name match), which also lets Our Home match a payment to its bill |
+| Content matching on both tags (only if you list billers) | The patterns below, built from your billers; skipped if a tag already uses another matching rule |
+| Mail account **Our Home: bills** + rules **bill attachments** / **bill emails** (only if you give a mailbox) | Reads your bills folder every 10 minutes: PDF attachments, and HTML-only emails saved as PDF, tagged `bill`. The connection is tested first |
+
+Documents already tagged before setup are shared with the group too.
 
 ### 1. In Paperless
 

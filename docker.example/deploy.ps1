@@ -31,6 +31,12 @@
 .PARAMETER App
   Only update the Android app: rebuild it if it changed, else stop (-a).
 
+.PARAMETER Only
+  Only that walkthrough section, then save (--only); e.g. -Only paperless.
+
+.PARAMETER From
+  The walkthrough from that section to the end (--from); e.g. -From android.
+
 .PARAMETER NoBuild
   Skip rebuilding the image; just (re)start the app (--no-build).
 
@@ -48,6 +54,8 @@ param(
   [Alias('s')][switch]$Setup,
   [Alias('y')][switch]$Yes,
   [Alias('a')][switch]$App,
+  [Alias('o')][string]$Only = '',
+  [string]$From = '',
   [switch]$NoBuild,
   [int]$Timeout = 0,
   [Alias('h')][switch]$Help,
@@ -63,6 +71,8 @@ if ($Branch)  { $bashArgs += @('-b', $Branch) }
 if ($Setup)   { $bashArgs += '-s' }
 if ($Yes)     { $bashArgs += '-y' }
 if ($App)     { $bashArgs += '-a' }
+if ($Only)    { $bashArgs += @('--only', $Only) }
+if ($From)    { $bashArgs += @('--from', $From) }
 if ($NoBuild) { $bashArgs += '--no-build' }
 if ($Timeout -gt 0) { $bashArgs += @('--timeout', "$Timeout") }
 if ($Help)    { $bashArgs += '-h' }

@@ -49,10 +49,19 @@ with your current values as the defaults (Enter keeps each one).
 | `-l`, `--local` | `-Local` | Build from this checkout instead of GitHub. |
 | `-b`, `--branch NAME` | `-Branch NAME` | Build another branch this time. |
 | `-s`, `--setup` | `-Setup` | Go straight to the settings walkthrough. |
+| `-o`, `--only SECTION` | `-Only SECTION` | Only that section of the walkthrough, then save. |
+| `--from SECTION` | `-From SECTION` | The walkthrough from that section to the end. |
 | `-y`, `--yes` | `-Yes` | Don't ask; just deploy (for scripts and cron). |
 | `-a`, `--app` | `-App` | Only update the Android app: rebuild it if its code or settings changed, else say there's nothing new. With `-n`, rebuild anyway. |
 | `--no-build` | `-NoBuild` | Just restart (enough after a settings change). |
 | `--timeout S` | `-Timeout S` | Seconds to wait for the app to respond (default 180). |
+
+Walkthrough sections, by name or number: `1 name`, `2 database`, `3 keys`,
+`4 web`, `5 email`, `6 captcha`, `7 alerts` (Firebase), `8 android`,
+`9 paperless`, `10 docker`. For example `./deploy.sh --only paperless` changes
+just the Paperless setup; `./deploy.sh --from 8` goes through the Android app,
+Paperless and Docker sections. Sections you skip keep their current values.
+The first run always goes through every section.
 
 ### Where the image is built from
 

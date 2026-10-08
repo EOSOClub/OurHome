@@ -61,6 +61,8 @@ LOCAL=0
 BRANCH=        # empty = settings.yml docker.branch, else main
 SETUP=ask      # ask | yes (-s) | no (-y)
 APP_ONLY=0     # -a: only rebuild the Android app, if it changed
+ONLY_SECTION=  # -o/--only SECTION: the walkthrough's one section, then Save
+FROM_SECTION=  # --from SECTION: the walkthrough from that section on
 TIMEOUT=180
 
 usage() {
@@ -78,6 +80,11 @@ ${BOLD}Options:${RESET}
   -l, --local          Build from this checkout instead of GitHub.
   -b, --branch NAME    Git branch to build (default: docker.branch, else main).
   -s, --setup          Go straight to the settings walkthrough.
+  -o, --only SECTION   Only that section of the walkthrough, then save.
+      --from SECTION   The walkthrough from that section to the end.
+                       Sections (name or number): 1 name, 2 database, 3 keys,
+                       4 web, 5 email, 6 captcha, 7 alerts, 8 android,
+                       9 paperless, 10 docker.
   -y, --yes            Don't ask about settings; just deploy (for scripts).
   -a, --app            Only update the Android app: rebuild it if its code or
                        settings changed, else say there's nothing new and stop.
@@ -1341,19 +1348,45 @@ setup_android() {
     "a GitHub repo, or the path of a local checkout (built as it is on disk)"
 }
 
-setup_wizard() {
-  local v def cur
-  load_settings || fail "Could not read settings.yml — check it is valid YAML."
-  # The interactive UI shows this on every screen's header instead.
-  if [ "$FANCY" != 1 ]; then
-    printf '\n  %sSettings walkthrough.%s Enter keeps the value in [brackets], - clears it.\n' "$BOLD" "$RESET"
-    printf '  Nothing is saved until the end; Ctrl+C leaves everything as it was.\n'
-  fi
+# The walkthrough's sections in order, each a wiz_<name> function below.
+# --only / --from narrow them to WIZ_FROM..WIZ_TO; skipped ones keep their
+# current values, and Save only writes what changed.
+WIZ_SECTIONS="name database keys web email captcha alerts android paperless docker"
+WIZ_FROM=1
+WIZ_TO=10
 
+# section_number NAME|N → the section's number (1-10); fails if unknown.
+# A few other words people may use work too (mongo, smtp, firebase, app, …).
+section_number() {
+  local s i=1 want
+  want=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  case "$want" in
+    [1-9]|10) printf '%s' "$want"; return 0 ;;
+    mongo|mongodb|db) want=database ;;
+    secrets|key|auth) want=keys ;;
+    address|url|tunnel|https) want=web ;;
+    smtp|mail) want=email ;;
+    turnstile) want=captcha ;;
+    firebase|push|notifications) want=alerts ;;
+    app|apk) want=android ;;
+    bills|billers) want=paperless ;;
+  esac
+  for s in $WIZ_SECTIONS; do
+    [ "$s" = "$want" ] && { printf '%s' "$i"; return 0; }
+    i=$((i + 1))
+  done
+  return 1
+}
+
+wiz_name() {
+  local v
   section "1/10  Name"
   panel "Shown in the browser tab, on the sign-in page and in emails."
   ask v "Site name" "$(sget app.name)"; sput app.name "${v:-Our Home}"
+}
 
+wiz_database() {
+  local v def cur
   section "2/10  Database (required)"
   panel "Everything is stored in MongoDB, as a replica set (the app uses transactions)."
   cur=$(sget services.mongo); def=n
@@ -1377,7 +1410,9 @@ setup_wizard() {
     link "https://github.com/EOSOClub/OurHomeServices/tree/main/mongo"
     ask_services_path
   fi
+}
 
+wiz_keys() {
   section "3/10  Sign-in keys"
   panel "Two random keys: one signs everyone's sign-in sessions, the other lets you" \
       "trigger the reminder sweep by hand. They're made for you; nothing to type."
@@ -1391,7 +1426,10 @@ setup_wizard() {
   else
     ok "Reminder-sweep key is set"
   fi
+}
 
+wiz_web() {
+  local v
   section "4/10  Web address"
   panel "At home the site works at http://<this-server>:<port> with no setup. To use" \
       "it from anywhere, we suggest a Cloudflare Tunnel: free, HTTPS included, and" \
@@ -1412,7 +1450,10 @@ setup_wizard() {
       "address above and any home-network address already work."
   ask v "Extra trusted addresses" "$(sget better_auth.trusted_origins)"
   sput better_auth.trusted_origins "$(printf '%s' "$v" | tr -d ' ')"
+}
 
+wiz_email() {
+  local v def cur
   section "5/10  Email (optional)"
   panel "Password-reset links, contact-form messages and bug reports. Any SMTP" \
       "provider works (Proton Mail, Gmail, Fastmail, your ISP…). Without it," \
@@ -1442,7 +1483,10 @@ setup_wizard() {
   else
     sput smtp.host ""
   fi
+}
 
+wiz_captcha() {
+  local v def
   section "6/10  Contact-form CAPTCHA (optional)"
   panel "Stops bots spamming the public contact form, with Cloudflare Turnstile." \
       "Free; needs a Cloudflare account (your domain doesn't have to use Cloudflare)."
@@ -1472,13 +1516,20 @@ setup_wizard() {
   else
     sput turnstile.site_key ""
   fi
+}
 
+wiz_alerts() {
   section "7/10  Instant phone alerts (optional)"
   setup_firebase
+}
 
+wiz_android() {
   section "8/10  Android app (optional)"
   setup_android
+}
 
+wiz_paperless() {
+  local def cur
   section "9/10  Paperless-ngx bill import (optional)"
   panel "Documents tagged \"bill\" / \"bill-payment\" in Paperless-ngx become bills and" \
       "payments, checked every 15 minutes. Skip if you don't run Paperless-ngx."
@@ -1508,7 +1559,10 @@ setup_wizard() {
   else
     sput paperless.url ""; sput services.paperless off; sput services.mail off
   fi
+}
 
+wiz_docker() {
+  local v def
   section "10/10  Docker"
   hint "Port the site is served on."
   while true; do ask v "Port" "$(sget docker.port)"; case "$v" in ''|*[!0-9]*) warn "A number, e.g. 3000." ;; *) break ;; esac; done
@@ -1528,6 +1582,20 @@ setup_wizard() {
     ask v "Compose project" "$(sget docker.project)"; sput docker.project "${v:-ourhome}"
     ask v "Container name" "$(sget docker.container)"; sput docker.container "${v:-ourhome_web}"
   fi
+}
+
+setup_wizard() {
+  local v n=1 s
+  load_settings || fail "Could not read settings.yml — check it is valid YAML."
+  # The interactive UI shows this on every screen's header instead.
+  if [ "$FANCY" != 1 ]; then
+    printf '\n  %sSettings walkthrough.%s Enter keeps the value in [brackets], - clears it.\n' "$BOLD" "$RESET"
+    printf '  Nothing is saved until the end; Ctrl+C leaves everything as it was.\n'
+  fi
+  for s in $WIZ_SECTIONS; do
+    if [ "$n" -ge "$WIZ_FROM" ] && [ "$n" -le "$WIZ_TO" ]; then "wiz_$s"; fi
+    n=$((n + 1))
+  done
 
   section "Save"
   local db_row pl_row mail_row
@@ -1611,6 +1679,10 @@ while [ $# -gt 0 ]; do
                     [ -n "$BRANCH" ] || { printf 'error: -b/--branch needs a branch name\n' >&2; exit 2; } ;;
     --branch=*)     BRANCH=${1#*=} ;;
     -s|--setup)     SETUP=yes ;;
+    -o|--only)      shift; ONLY_SECTION=${1:-} ;;
+    --only=*)       ONLY_SECTION=${1#*=} ;;
+    --from)         shift; FROM_SECTION=${1:-} ;;
+    --from=*)       FROM_SECTION=${1#*=} ;;
     -y|--yes)       SETUP=no ;;
     -a|--app)       APP_ONLY=1 ;;
     --no-build)     NO_BUILD=1 ;;
@@ -1622,6 +1694,20 @@ while [ $# -gt 0 ]; do
   shift
 done
 case "$TIMEOUT" in ''|*[!0-9]*) printf 'error: --timeout must be a positive integer\n' >&2; exit 2 ;; esac
+# --only / --from: open the walkthrough at one section (only it, or it and
+# everything after).
+if [ -n "$ONLY_SECTION" ] && [ -n "$FROM_SECTION" ]; then
+  printf 'error: use --only or --from, not both\n' >&2; exit 2
+fi
+if [ -n "$ONLY_SECTION$FROM_SECTION" ]; then
+  _n=$(section_number "$ONLY_SECTION$FROM_SECTION") || {
+    printf 'error: no section "%s". Sections: %s (or 1-10)\n' "$ONLY_SECTION$FROM_SECTION" "$WIZ_SECTIONS" >&2
+    exit 2
+  }
+  WIZ_FROM=$_n
+  [ -n "$ONLY_SECTION" ] && WIZ_TO=$_n
+  SETUP=yes
+fi
 
 # ===========================================================================
 banner
@@ -1668,6 +1754,10 @@ if [ "$FIRST_RUN" = 1 ] && [ "$APP_ONLY" = 1 ]; then
   fail "Nothing is set up yet: run ./deploy.sh first (without -a)."
 elif [ "$FIRST_RUN" = 1 ] || [ "$SETUP" = yes ]; then
   [ "$CAN_ASK" = 1 ] || fail "Settings need answers; run ./deploy.sh in a terminal (or fill in ../settings.yml and ../.env by hand)."
+  if [ "$FIRST_RUN" = 1 ] && { [ "$WIZ_FROM" != 1 ] || [ "$WIZ_TO" != 10 ]; }; then
+    info "First run: going through every section."
+    WIZ_FROM=1; WIZ_TO=10
+  fi
   setup_wizard
 elif [ "$SETUP" = ask ] && [ "$CAN_ASK" = 1 ] && [ "$APP_ONLY" = 0 ]; then
   ok "Settings present (../settings.yml, ../.env)"

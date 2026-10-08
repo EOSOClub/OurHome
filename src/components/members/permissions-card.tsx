@@ -123,8 +123,10 @@ export function PermissionsCard({ membersVersion }: { membersVersion: string }) 
           Choose what people can add, edit and delete on each page. “Own” means
           things they added themselves. Set a default for each role, then adjust
           individual members if needed. On Requests, “Add” is submitting a new
-          request; people can always edit or delete their own. The Head of House
-          can always do everything, and anyone can complete tasks.
+          request and “Approve” is marking media requests added; people can
+          always edit or delete their own. “Shopping lists” is creating,
+          renaming and deleting the lists themselves. The Head of House can
+          always do everything, and anyone can complete tasks.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -210,7 +212,13 @@ export function PermissionsCard({ membersVersion }: { membersVersion: string }) 
                               checked={draft[p][a]}
                               onChange={() => toggle(p, a)}
                               disabled={save.isPending}
-                              aria-label={`${ACCESS_PAGE_LABELS[p]}: ${p === 'requests' ? 'Submit' : ACCESS_ACTION_LABELS[a]}`}
+                              aria-label={`${ACCESS_PAGE_LABELS[p]}: ${
+                                p === 'requests'
+                                  ? a === 'create'
+                                    ? 'Submit'
+                                    : 'Mark media added'
+                                  : ACCESS_ACTION_LABELS[a]
+                              }`}
                             />
                           </label>
                         </td>

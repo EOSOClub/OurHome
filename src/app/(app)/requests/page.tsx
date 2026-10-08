@@ -1,6 +1,5 @@
 import { requireUser } from '@/server/auth/session';
 import { prisma } from '@/server/db/prisma';
-import { can } from '@/lib/permissions';
 import { listRequests, requestToDTO } from '@/server/services/requestService';
 import { getUserAccess } from '@/server/services/permissionService';
 import { RequestsView } from '@/components/requests/requests-view';
@@ -26,7 +25,7 @@ export default async function RequestsPage() {
       currentUserId={user.id}
       members={members}
       canSubmit={access.requests.create}
-      canManageMedia={can(user.role, 'requests:manage_media')}
+      canManageMedia={access.requests.approve}
     />
   );
 }

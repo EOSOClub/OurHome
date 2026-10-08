@@ -9,7 +9,7 @@ export const POST = withAuth(async (ctx) => {
   const { listId } = await parseBody(ctx.req, listIdSchema);
   await requireModify(
     ctx,
-    'shopping',
+    'shoppingLists',
     'delete',
     await recordOwner.shoppingList(householdId, listId),
   );

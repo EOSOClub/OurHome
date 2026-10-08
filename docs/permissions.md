@@ -9,18 +9,22 @@ the server is the authority.
 
 Fixed per role; not editable in the UI.
 
-| Permission | head | manager | member | guest |
-| --- | :-: | :-: | :-: | :-: |
-| `household:manage` (rename household, transfer headship, **edit page permissions**) | ✓ | | | |
-| `members:manage` | ✓ | ✓¹ | | |
-| `settings:manage` (HA tokens, NFC tags, categories) | ✓ | ✓ | | |
-| `tasks:complete` (complete tasks, tick checklist items) | ✓ | ✓ | ✓ | ✓² |
-| `requests:write` (edit/delete **own** requests³, accept/finish assigned ones; *submitting* is the Requests grid switch) | ✓ | ✓ | ✓ | ✓ |
-| `requests:manage_media` (accept movie/TV requests, mark available; gets the app's media reminders) | ✓ | | | |
-| `bugs:report` (file a bug report) | ✓ | ✓ | ✓ | ✓ |
-| `bugs:manage` (receive bug reports: bell + phone alert) | ✓ | | | |
+Roles, highest first: head > manager > member > teen > child > guest. Teen and
+child are household members with narrower page-access defaults; a guest is
+someone from outside the household.
 
-¹ Managers may only manage members/guests (`canManageMember`).
+| Permission | head | manager | member | teen | child | guest |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: |
+| `household:manage` (rename household, transfer headship, **edit page permissions**) | ✓ | | | | | |
+| `members:manage` | ✓ | ✓¹ | | | | |
+| `settings:manage` (HA tokens, NFC tags, categories) | ✓ | ✓ | | | | |
+| `tasks:complete` (complete tasks, tick checklist items) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓² |
+| `requests:write` (edit/delete **own** requests³, accept/finish assigned ones; *submitting* and *approving media* are Requests grid switches) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `bugs:report` (file a bug report) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `bugs:manage` (receive bug reports: bell + phone alert) | ✓ | | | | | |
+
+¹ Managers may only manage and assign the ranks below them — member, teen,
+  child, guest (`canManageMember`, `canAssignRole`).
 ² Guests only on tasks assigned to them (enforced in `taskService`).
 ³ Ownership is enforced in `requestService` — nobody, including the head, can
   edit or delete another person's request. For maintenance requests, only the
@@ -28,23 +32,35 @@ Fixed per role; not editable in the UI.
 
 ## Page access (editable by the head)
 
-Add / edit / delete on **Tasks, Calendar, Shopping, Inventory and Bills**, and
-submitting **Requests**, is a per-page grid the Head of House edits on **Members → Permissions**. Each page
-has five switches:
+Add / edit / delete on **Tasks, Calendar, Shopping items, Shopping lists,
+Inventory and Bills**, and submitting / approving **Requests**, is a per-page
+grid the Head of House edits on **Members → Permissions**. Record pages have
+five switches; Requests has Add and Approve (`PAGE_ACTIONS`):
 
 | Switch | Allows |
 | --- | --- |
 | Add | create records on the page |
 | Edit own / Delete own | change / remove records **you created** |
 | Edit others' / Delete others' | change / remove records **someone else created**, or that have no creator (imported bills, email calendar events, inventory categories) |
+| Approve | Requests only: mark media (movie/TV) requests **added**; approvers get the app's media reminders |
 
 **Resolution** (`resolveAccess` in `src/lib/permissions.ts`):
 
 1. The head always has everything.
 2. Otherwise start from the built-in default for the role
-   (`BUILTIN_ROLE_ACCESS`): tasks head-only; manager and member get every
-   switch on the other pages; guests get nothing; every role may submit
-   requests.
+   (`BUILTIN_ROLE_ACCESS`):
+
+   | Page | manager | member | teen | child | guest |
+   | --- | :-: | :-: | :-: | :-: | :-: |
+   | Tasks | — | — | — | — | — |
+   | Calendar | all | all | own | — | — |
+   | Shopping items | all | all | own | add | — |
+   | Shopping lists | all | all | — | — | — |
+   | Inventory | all | all | own | — | — |
+   | Bills | all | all | — | — | — |
+   | Requests | add + approve | add | add | add | add |
+
+   "own" = Add + Edit own + Delete own; "add" = Add only.
 3. Apply the household's edits to that role (`Household.roleAccess`).
 4. Apply the member's own overrides (`User.accessOverrides`).
 
@@ -58,9 +74,12 @@ not who paid).
 
 **How each action maps:**
 
-- Requests has only **Add** (= submit a request; `PAGE_ACTIONS`). Editing or
-  deleting stays requester-only and accepting stays assignee-only, so someone
+- Requests has **Add** (= submit a request) and **Approve** (= mark media
+  requests added, one step: waiting → added). Editing or deleting stays
+  requester-only and accepting maintenance stays assignee-only, so someone
   with submitting switched off can still manage what they already asked for.
+- **Shopping lists** guards creating, renaming and deleting lists;
+  **Shopping items** guards the items on them.
 
 - Checklist items (add, rename, reorder, remove) edit their task. Ticking one
   off is `tasks:complete`.
@@ -84,6 +103,16 @@ app). The head's editor uses `GET /api/permissions`,
 (`access: null` resets a member to the role default).
 
 ## Changelog
+
+- **2026-10-08** — New roles **teen** and **child** (between member and
+  guest) with tiered defaults (table above).
+- **2026-10-08** — Replaced `requests:manage_media` with the Requests
+  **Approve** switch (head + managers by default). Media is now one step:
+  "Mark as added" completes it (old "accepted" rows still count as waiting;
+  `/api/requests/accept` on media marks it added, for older app builds).
+- **2026-10-08** — **Shopping lists** row split from Shopping (now "Shopping
+  items"); list create/rename/delete use it. Defaults match the old behaviour
+  for managers and members. Stored Shopping overrides don't carry over to it.
 
 - **2026-10-07** — Replaced `tasks:write`, `shopping:write`, `inventory:write`,
   `calendar:write` and `bills:write` with the editable page-access grid above

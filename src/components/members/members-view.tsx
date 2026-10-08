@@ -44,6 +44,8 @@ const ROLE_BADGE: Record<UserRole, 'default' | 'warning' | 'secondary' | 'outlin
   head: 'default',
   manager: 'warning',
   member: 'secondary',
+  teen: 'secondary',
+  child: 'secondary',
   guest: 'outline',
 };
 

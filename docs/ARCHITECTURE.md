@@ -73,7 +73,7 @@ and resets status to `pending` — all in one transaction.
 
 Better Auth with the Prisma adapter (provider matched to the active datasource),
 email/password, HTTP-only signed cookies, 7-day sessions with a short cookie
-cache. `role` (`head` > `manager` > `member` > `guest`) and `householdId` are
+cache. `role` (`head` > `manager` > `member` > `teen` > `child` > `guest`) and `householdId` are
 application-managed fields assigned by first-run setup or the admin. Cookies
 carry no Secure flag so sign-in works over plain HTTP on the home network; the
 auth route adds it on HTTPS responses, and a home-network origin is trusted only
@@ -161,6 +161,8 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
   and items (add, check-off, edit, delete, and a "clear bought" that deletes
   one-off items but un-checks recurring consumables). Marking an item purchased
   records a `Purchase` for history. `/shopping` is a mobile-first list view.
+  Lists and items are separate rows in the page-access grid ("Shopping lists"
+  / "Shopping items"); the Android app can create, rename and delete lists too.
 - **Inventory.** `inventoryService` owns items, quantity adjustments (manual or
   NFC-driven), low-stock thresholds, and a restock forecast
   (`predictedDepletionAt`, derived from `reorderIntervalDays` and the last
@@ -169,16 +171,17 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
   requests on `/requests`, grouped by category; only the requester can edit or
   delete their own.
   - *Media* — movies and TV shows (`mediaType`, name, year, optional TV season).
-    Lifecycle `pending` → `accepted` → `completed` ("available"), driven by
-    whoever holds `requests:manage_media` (the head). Rows created before media
-    had a status have none — treat a missing status as `pending`.
+    One step: `pending` ("waiting") → `completed` ("added"), by anyone with the
+    Requests **Approve** switch (head + managers by default). Rows created
+    before media had a status have none — treat a missing status as `pending`;
+    `accepted` rows from the older accept → available flow also still wait.
   - *Maintenance* — the requester asks another member (`assigneeId`, never
     themself). Lifecycle `pending` → `accepted` → `completed`: the assignee
     accepts with a done-by date stored as `dueAt` (the deadline), may move it,
     and marks it done; reassigning resets to `pending`.
   - **Phone reminders (Android app):** a WorkManager job polls `/api/requests`
     hourly and notifies the signed-in user while anything awaits *their*
-    acceptance (pending media for the head; pending maintenance assigned to
+    acceptance (open media for media approvers; pending maintenance assigned to
     them). The same poll sends maintenance deadline reminders from `dueAt`:
     the assignee is told the day before, on the day, and daily while overdue;
     the requester once when it goes overdue. Every request change also sends
@@ -212,10 +215,11 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
   `bugs:manage` holders). `server/push/fcm.ts` calls the FCM HTTP v1 API
   directly (signed JWT → OAuth token) rather than `firebase-admin`, which needs
   Node 22+. Tokens FCM reports as dead are deleted.
-- **Permissions.** Role-based (`head`/`manager`/`member`/`guest`) via
-  `src/lib/permissions.ts`; routes enforce `requirePermission`, and the guest
+- **Permissions.** Role-based (`head`/`manager`/`member`/`teen`/`child`/`guest`)
+  via `src/lib/permissions.ts`; routes enforce `requirePermission`, and the guest
   task-completion scope (own assignments only) is enforced in
-  `taskService.completeTask`. Creating/editing/deleting tasks is head-only.
+  `taskService.completeTask`. Add/edit/delete per page (and approving media
+  requests) is the head-editable page-access grid; tasks are head-only by default.
   The full matrix, changelog and planned follow-ups are in
   [`docs/permissions.md`](./permissions.md).
 

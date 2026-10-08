@@ -26,6 +26,7 @@ export default async function ShoppingPage() {
       initialLists={lists.map(listToDTO)}
       categories={categories}
       access={access.shopping}
+      listAccess={access.shoppingLists}
       userId={user.id}
     />
   );

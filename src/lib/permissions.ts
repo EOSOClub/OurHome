@@ -2,7 +2,8 @@
 // pure functions so it can be reused on the server (route guards, services) and
 // the client (hiding controls a role can't use) and unit-tested in isolation.
 //
-// Roles (highest first): head > manager > member > guest. See src/lib/enums.ts.
+// Roles (highest first): head > manager > member > teen > child > guest. See
+// src/lib/enums.ts.
 
 import { z } from 'zod';
 import { ROLE_RANK, isUserRole, type UserRole } from '@/lib/enums';
@@ -22,11 +23,9 @@ export const PERMISSIONS = [
   'tasks:complete',
   // Work with requests: edit/delete your own (requestService), accept and
   // finish ones assigned to you. Everyone. *Submitting* a new request is the
-  // Requests "Add" switch in the page-access grid below.
+  // Requests "Add" switch in the page-access grid below, and marking media
+  // requests added is its "Approve" switch.
   'requests:write',
-  // Accept media (movie/TV) requests and mark them available. Head-only; the
-  // app sends the "waiting for you" reminders to whoever holds this.
-  'requests:manage_media',
   // File a bug report about the website or app. Everyone may.
   'bugs:report',
   // Receive bug reports (bell + phone notification). Head-only.
@@ -35,7 +34,7 @@ export const PERMISSIONS = [
 
 export type Permission = (typeof PERMISSIONS)[number];
 
-// Everyday abilities shared by manager and member.
+// Everyday abilities everyone below manager shares.
 const WRITE_MODULES: Permission[] = [
   'tasks:complete',
   'requests:write',
@@ -46,7 +45,9 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
   head: [...PERMISSIONS],
   manager: ['members:manage', 'settings:manage', ...WRITE_MODULES],
   member: [...WRITE_MODULES],
-  guest: ['tasks:complete', 'requests:write', 'bugs:report'],
+  teen: [...WRITE_MODULES],
+  child: [...WRITE_MODULES],
+  guest: [...WRITE_MODULES],
 };
 
 /** True when the role grants the permission. Unknown role strings get nothing. */
@@ -58,7 +59,7 @@ export function can(role: string, permission: Permission): boolean {
 /**
  * Whether an actor may administer a member who currently holds `targetRole`.
  * The head may manage anyone; a manager may only manage ranks below their own
- * (members and guests), never another manager or the head.
+ * (members, teens, children and guests), never another manager or the head.
  */
 export function canManageMember(
   actorRole: string,
@@ -72,16 +73,15 @@ export function canManageMember(
 
 /**
  * Whether an actor may assign `targetRole` to a member. The head may assign any
- * role; a manager may only assign member or guest. Assigning `head` is never
- * done here — headship moves via transferHeadship to preserve the single-head
- * invariant.
+ * role; a manager may only assign the ranks below their own. Assigning `head`
+ * is never done here — headship moves via transferHeadship to preserve the
+ * single-head invariant.
  */
 export function canAssignRole(actorRole: string, targetRole: string): boolean {
   if (!isUserRole(actorRole) || !isUserRole(targetRole)) return false;
   if (targetRole === 'head') return false;
   if (actorRole === 'head') return true;
-  if (actorRole === 'manager')
-    return targetRole === 'member' || targetRole === 'guest';
+  if (actorRole === 'manager') return ROLE_RANK[targetRole] < ROLE_RANK.manager;
   return false;
 }
 
@@ -95,10 +95,13 @@ export function canAssignRole(actorRole: string, targetRole: string): boolean {
 // records with no creator (imported bills, email events) count as others'.
 // ---------------------------------------------------------------------------
 
+// "shopping" is the items on the lists (and ticking them off); "shoppingLists"
+// is adding, renaming and deleting the lists themselves.
 export const ACCESS_PAGES = [
   'tasks',
   'calendar',
   'shopping',
+  'shoppingLists',
   'inventory',
   'bills',
   'requests',
@@ -108,7 +111,8 @@ export type AccessPage = (typeof ACCESS_PAGES)[number];
 export const ACCESS_PAGE_LABELS: Record<AccessPage, string> = {
   tasks: 'Tasks',
   calendar: 'Calendar',
-  shopping: 'Shopping',
+  shopping: 'Shopping items',
+  shoppingLists: 'Shopping lists',
   inventory: 'Inventory',
   bills: 'Bills',
   requests: 'Requests',
@@ -120,6 +124,7 @@ export const ACCESS_ACTIONS = [
   'deleteOwn',
   'editOthers',
   'deleteOthers',
+  'approve',
 ] as const;
 export type AccessAction = (typeof ACCESS_ACTIONS)[number];
 
@@ -129,20 +134,32 @@ export const ACCESS_ACTION_LABELS: Record<AccessAction, string> = {
   deleteOwn: 'Delete own',
   editOthers: "Edit others'",
   deleteOthers: "Delete others'",
+  approve: 'Approve',
 };
 
+/** Add / edit / delete — what every record page offers. */
+const RECORD_ACTIONS = [
+  'create',
+  'editOwn',
+  'deleteOwn',
+  'editOthers',
+  'deleteOthers',
+] as const satisfies readonly AccessAction[];
+
 /**
- * The switches that mean something on each page. Requests only has "Add"
- * (submit): editing/deleting stays limited to the requester and accepting to
- * the assignee (requestService), whatever the grid says.
+ * The switches that mean something on each page. Requests has "Add" (submit)
+ * and "Approve" (mark media requests added): editing/deleting stays limited to
+ * the requester and accepting maintenance to the assignee (requestService),
+ * whatever the grid says.
  */
 export const PAGE_ACTIONS: Record<AccessPage, readonly AccessAction[]> = {
-  tasks: ACCESS_ACTIONS,
-  calendar: ACCESS_ACTIONS,
-  shopping: ACCESS_ACTIONS,
-  inventory: ACCESS_ACTIONS,
-  bills: ACCESS_ACTIONS,
-  requests: ['create'],
+  tasks: RECORD_ACTIONS,
+  calendar: RECORD_ACTIONS,
+  shopping: RECORD_ACTIONS,
+  shoppingLists: RECORD_ACTIONS,
+  inventory: RECORD_ACTIONS,
+  bills: RECORD_ACTIONS,
+  requests: ['create', 'approve'],
 };
 
 export type PageAccess = Record<AccessAction, boolean>;
@@ -151,7 +168,7 @@ export type AccessMatrix = Record<AccessPage, PageAccess>;
 export type AccessOverrides = Partial<Record<AccessPage, Partial<PageAccess>>>;
 
 /** Roles whose access the head can edit (the head itself is always full). */
-export const EDITABLE_ROLES = ['manager', 'member', 'guest'] as const;
+export const EDITABLE_ROLES = ['manager', 'member', 'teen', 'child', 'guest'] as const;
 export type EditableRole = (typeof EDITABLE_ROLES)[number];
 export type RoleAccessOverrides = Partial<Record<EditableRole, AccessOverrides>>;
 
@@ -161,6 +178,7 @@ const ALL: PageAccess = {
   deleteOwn: true,
   editOthers: true,
   deleteOthers: true,
+  approve: true,
 };
 const NONE: PageAccess = {
   create: false,
@@ -168,6 +186,7 @@ const NONE: PageAccess = {
   deleteOwn: false,
   editOthers: false,
   deleteOthers: false,
+  approve: false,
 };
 
 function matrix(fill: (page: AccessPage) => PageAccess): AccessMatrix {
@@ -177,15 +196,32 @@ function matrix(fill: (page: AccessPage) => PageAccess): AccessMatrix {
 }
 
 const SUBMIT_ONLY: PageAccess = { ...NONE, create: true };
+const SUBMIT_AND_APPROVE: PageAccess = { ...NONE, create: true, approve: true };
+const OWN_ONLY: PageAccess = { ...NONE, create: true, editOwn: true, deleteOwn: true };
+const ADD_ONLY: PageAccess = { ...NONE, create: true };
 
 /**
- * Out-of-the-box defaults, matching how the app behaved before the grid
- * existed: tasks are head-only, managers and members can change anything on
- * the other pages, guests change nothing, and everyone may submit requests.
+ * Out-of-the-box defaults. Tasks are head-only; managers and members can
+ * change anything on the other pages; managers (and the head) mark media
+ * requests added; teens add and change their own calendar, shopping and
+ * inventory entries; children can add shopping items; guests change nothing;
+ * and everyone may submit requests.
  */
 export const BUILTIN_ROLE_ACCESS: Record<EditableRole, AccessMatrix> = {
-  manager: matrix((p) => (p === 'tasks' ? NONE : p === 'requests' ? SUBMIT_ONLY : ALL)),
+  manager: matrix((p) =>
+    p === 'tasks' ? NONE : p === 'requests' ? SUBMIT_AND_APPROVE : ALL,
+  ),
   member: matrix((p) => (p === 'tasks' ? NONE : p === 'requests' ? SUBMIT_ONLY : ALL)),
+  teen: matrix((p) =>
+    p === 'requests'
+      ? SUBMIT_ONLY
+      : p === 'calendar' || p === 'shopping' || p === 'inventory'
+        ? OWN_ONLY
+        : NONE,
+  ),
+  child: matrix((p) =>
+    p === 'requests' ? SUBMIT_ONLY : p === 'shopping' ? ADD_ONLY : NONE,
+  ),
   guest: matrix((p) => (p === 'requests' ? SUBMIT_ONLY : NONE)),
 };
 
@@ -281,6 +317,8 @@ export const roleAccessOverridesSchema = z
   .object({
     manager: accessOverridesSchema,
     member: accessOverridesSchema,
+    teen: accessOverridesSchema,
+    child: accessOverridesSchema,
     guest: accessOverridesSchema,
   })
   .partial();

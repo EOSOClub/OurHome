@@ -88,7 +88,7 @@ export function RequestsView({
   members: MemberDTO[];
   /** May submit new requests (Requests "Add" in Members → Permissions). */
   canSubmit: boolean;
-  /** Head: accepts media requests and marks them available. */
+  /** The Requests "Approve" switch: marks media requests added. */
   canManageMedia: boolean;
 }) {
   const queryClient = useQueryClient();
@@ -141,9 +141,10 @@ export function RequestsView({
     onError: (e: Error) => toast.error(e.message),
   });
 
-  // dueAt is required for maintenance and omitted for media.
+  // Maintenance only: the assignee picks a done-by date. Media is marked added
+  // in one step (completeMutation).
   const acceptMutation = useMutation({
-    mutationFn: (input: { id: string; dueAt?: string }) => post<RequestDTO>('/api/requests/accept', input),
+    mutationFn: (input: { id: string; dueAt: string }) => post<RequestDTO>('/api/requests/accept', input),
     onSuccess: (r) => {
       toast.success(r.dueAt ? `Done by ${shortDate(r.dueAt)} — got it` : `Accepted “${r.title}”`);
       setAccepting(null);
@@ -155,7 +156,7 @@ export function RequestsView({
   const completeMutation = useMutation({
     mutationFn: (id: string) => post<RequestDTO>('/api/requests/complete', { id }),
     onSuccess: (r) => {
-      toast.success(r.category === 'media' ? `“${r.title}” is available` : `Marked “${r.title}” done`);
+      toast.success(r.category === 'media' ? `Added “${r.title}”` : `Marked “${r.title}” done`);
       invalidate();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -255,7 +256,6 @@ export function RequestsView({
                         isOwn={r.requester.id === currentUserId}
                         canManage={canManageMedia}
                         busy={busyId === r.id}
-                        onAccept={() => acceptMutation.mutate({ id: r.id })}
                         onComplete={() => completeMutation.mutate(r.id)}
                         onEdit={() => setEditing(r)}
                         onDelete={() => setConfirmDelete(r)}
@@ -339,6 +339,7 @@ function OwnerActions({ title, onEdit, onDelete }: { title: string; onEdit: () =
   );
 }
 
+// `accepted` is never shown for media (folded into pending) but keeps the Record total.
 const MEDIA_STATUS_BADGE: Record<MaintenanceStatus, 'secondary' | 'default' | 'success'> = {
   pending: 'secondary',
   accepted: 'default',
@@ -350,7 +351,6 @@ function MediaRow({
   isOwn,
   canManage,
   busy,
-  onAccept,
   onComplete,
   onEdit,
   onDelete,
@@ -359,13 +359,13 @@ function MediaRow({
   isOwn: boolean;
   canManage: boolean;
   busy: boolean;
-  onAccept: () => void;
   onComplete: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  // Requests from before statuses existed have none: treat as pending.
-  const status = (r.status ?? 'pending') as MaintenanceStatus;
+  // Requests from before statuses existed have none, and "accepted" is left
+  // over from the older accept → available flow: both are still waiting.
+  const status: MaintenanceStatus = r.status === 'completed' ? 'completed' : 'pending';
   return (
     <li className={cn('flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center', canManage && status === 'pending' && 'bg-primary/5')}>
       <div className="min-w-0 flex-1">
@@ -382,13 +382,8 @@ function MediaRow({
       </div>
       <div className="flex shrink-0 flex-wrap items-center gap-1">
         {canManage && status === 'pending' ? (
-          <Button size="sm" onClick={onAccept} disabled={busy}>
-            {busy ? <Loader2 className="animate-spin" /> : null} Accept
-          </Button>
-        ) : null}
-        {canManage && status === 'accepted' ? (
-          <Button size="sm" variant="outline" onClick={onComplete} disabled={busy}>
-            {busy ? <Loader2 className="animate-spin" /> : <Check />} Mark available
+          <Button size="sm" onClick={onComplete} disabled={busy}>
+            {busy ? <Loader2 className="animate-spin" /> : <Check />} Mark as added
           </Button>
         ) : null}
         {isOwn ? <OwnerActions title={r.title} onEdit={onEdit} onDelete={onDelete} /> : null}

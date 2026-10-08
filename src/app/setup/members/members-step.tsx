@@ -20,7 +20,7 @@ import { Select } from '@/components/ui/select';
 import { errorMessage } from '../setup-form';
 
 // The Head of House can hand out any role but head (see canAssignRole).
-const ROLES: UserRole[] = ['member', 'manager', 'guest'];
+const ROLES: UserRole[] = ['member', 'manager', 'teen', 'child', 'guest'];
 
 const EMPTY = { username: '', email: '', password: '', role: 'member' as UserRole };
 

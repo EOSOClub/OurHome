@@ -1,6 +1,7 @@
 import { prisma } from '@/server/db/prisma';
 import { isPushConfigured, sendData } from '@/server/push/fcm';
-import { can, type Permission } from '@/lib/permissions';
+import { membersWithAccess } from '@/server/services/permissionService';
+import { can, type AccessAction, type AccessPage, type Permission } from '@/lib/permissions';
 
 // Instant phone alerts for the Android app, via Firebase Cloud Messaging.
 //
@@ -38,6 +39,8 @@ export interface PushAudience {
   userIds?: (string | null | undefined)[];
   /** Everyone in the household holding this permission (e.g. the head). */
   permission?: Permission;
+  /** Everyone whose page-access grid grants this (e.g. media request approvers). */
+  access?: { page: AccessPage; action: AccessAction };
   /** Every member's phone (e.g. a new app version). */
   everyone?: boolean;
 }
@@ -66,6 +69,10 @@ async function sendSync(householdId: string, audience: PushAudience, reason: Pus
       select: { id: true, role: true },
     });
     for (const m of members) if (can(m.role, audience.permission)) ids.add(m.id);
+  }
+  if (audience.access) {
+    const { page, action } = audience.access;
+    for (const id of await membersWithAccess(householdId, page, action)) ids.add(id);
   }
   if (ids.size === 0) return;
 

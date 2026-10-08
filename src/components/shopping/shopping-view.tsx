@@ -52,12 +52,15 @@ export function ShoppingView({
   initialLists,
   categories,
   access,
+  listAccess,
   userId,
 }: {
   initialLists: ShoppingListDTO[];
   categories: CategoryDTO[];
-  /** The viewer's Shopping access (Members → Permissions). */
+  /** The viewer's access to items on the lists (Members → Permissions). */
   access: PageAccess;
+  /** The viewer's access to the lists themselves: new, rename, delete. */
+  listAccess: PageAccess;
   userId: string;
 }) {
   const queryClient = useQueryClient();
@@ -310,7 +313,7 @@ export function ShoppingView({
               : 'Create a list to get started.'}
           </p>
         </div>
-        {access.create && !showNewList ? (
+        {listAccess.create && !showNewList ? (
           <Button variant="outline" onClick={() => setShowNewList(true)}>
             <Plus /> New list
           </Button>
@@ -347,7 +350,7 @@ export function ShoppingView({
           ))}
           {selected ? (
             <div className="flex items-center">
-              {canModify(access, 'edit', selected.createdById, userId) ? (
+              {canModify(listAccess, 'edit', selected.createdById, userId) ? (
                 <Button
                   variant="ghost"
                   size="icon"
@@ -358,7 +361,7 @@ export function ShoppingView({
                   <Pencil />
                 </Button>
               ) : null}
-              {canModify(access, 'delete', selected.createdById, userId) ? (
+              {canModify(listAccess, 'delete', selected.createdById, userId) ? (
                 <Button
                   variant="ghost"
                   size="icon"

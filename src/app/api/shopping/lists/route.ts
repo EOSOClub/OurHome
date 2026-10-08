@@ -12,7 +12,7 @@ export const GET = withAuth(async ({ user }) => {
 });
 
 export const POST = withAuth(async (ctx) => {
-  await requireCreate(ctx, 'shopping');
+  await requireCreate(ctx, 'shoppingLists');
   const input = await parseBody(ctx.req, createShoppingListSchema);
   const list = await createShoppingList(ctx.user.householdId!, ctx.user.id, input);
   return ok(listToDTO(list), { status: 201 });

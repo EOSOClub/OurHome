@@ -4,21 +4,27 @@
 
 // Household roles, highest authority first. There is exactly one `head` per
 // household (the "Head of House"); see src/server/services/userService.ts.
-export const USER_ROLES = ['head', 'manager', 'member', 'guest'] as const;
+// Teen and child are household members with narrower defaults; a guest is
+// someone from outside the household (a sitter, a visitor).
+export const USER_ROLES = ['head', 'manager', 'member', 'teen', 'child', 'guest'] as const;
 export type UserRole = (typeof USER_ROLES)[number];
 
 export const USER_ROLE_LABELS: Record<UserRole, string> = {
   head: 'Head of House',
   manager: 'Manager',
   member: 'Member',
+  teen: 'Teen',
+  child: 'Child',
   guest: 'Guest',
 };
 
 // Authority ranking — higher outranks lower. Used to decide who may manage whom.
 export const ROLE_RANK: Record<UserRole, number> = {
-  head: 4,
-  manager: 3,
-  member: 2,
+  head: 6,
+  manager: 5,
+  member: 4,
+  teen: 3,
+  child: 2,
   guest: 1,
 };
 
@@ -178,13 +184,15 @@ export const MAINTENANCE_STATUS_LABELS: Record<MaintenanceStatus, string> = {
   completed: 'Done',
 };
 
-// Media requests use the same three statuses (the head accepts them, then marks
-// them available). Requests made before statuses existed have none — treat a
-// missing status as pending.
+// Media requests are one step: whoever may approve them (the Requests "Approve"
+// switch in the page-access grid) marks them added, which completes them.
+// "accepted" only exists on rows from the older accept → available flow and
+// still counts as waiting. Requests made before statuses existed have none —
+// treat a missing status as pending.
 export const MEDIA_STATUS_LABELS: Record<MaintenanceStatus, string> = {
   pending: 'Waiting',
-  accepted: 'Accepted',
-  completed: 'Available',
+  accepted: 'Waiting',
+  completed: 'Added',
 };
 
 export const MEDIA_TYPES = ['movie', 'tv'] as const;

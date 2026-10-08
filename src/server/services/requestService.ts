@@ -7,8 +7,8 @@ import {
   ForbiddenError,
   NotFoundError,
 } from '@/server/services/errors';
+import { getUserAccess } from '@/server/services/permissionService';
 import { MEDIA_TYPE_LABELS, type MediaType } from '@/lib/enums';
-import { can } from '@/lib/permissions';
 import type { RequestDTO } from '@/lib/types';
 import type {
   AcceptRequestInput,
@@ -17,10 +17,12 @@ import type {
 } from '@/lib/validation/request';
 
 // Household requests. Everyone in the household sees every request.
-//   media:       only the requester may edit or delete it. Whoever holds
-//                requests:manage_media (the head) accepts it and marks it
-//                available. Rows from before statuses existed have no status;
-//                treat that as pending.
+//   media:       only the requester may edit or delete it. Anyone with the
+//                Requests "Approve" switch (head and managers by default)
+//                marks it added, which completes it. Rows from before statuses
+//                existed have no status; treat that as pending. "accepted"
+//                rows from the older accept → available flow still count as
+//                waiting.
 //   maintenance: the requester asks another member (the assignee). The
 //                assignee accepts with a done-by date (`dueAt`, the deadline),
 //                may move that date, and marks it done. The requester may edit
@@ -71,7 +73,7 @@ function describe(r: {
 
 /**
  * Wakes the phones of everyone a request change can matter to: the requester,
- * the handler (assignee, or the head for media), and anyone in `also` (e.g. an
+ * the handler (assignee, or the approvers for media), and anyone in `also` (e.g. an
  * assignee it was just taken from). Each phone works out for itself whether to
  * alert, so waking an extra one costs nothing but a quiet re-check, and it
  * clears notifications that went stale on other devices.
@@ -85,7 +87,7 @@ function pushRequestChange(
     householdId,
     {
       userIds: [r.requesterId, r.assigneeId, ...also],
-      permission: r.category === 'media' ? 'requests:manage_media' : undefined,
+      access: r.category === 'media' ? { page: 'requests', action: 'approve' } : undefined,
     },
     'request',
   );
@@ -185,14 +187,15 @@ export interface RequestActor {
 }
 
 /**
- * Loads a request the actor is the handler for: media → requests:manage_media
- * (the head); maintenance → the assignee.
+ * Loads a request the actor is the handler for: media → the Requests "Approve"
+ * switch; maintenance → the assignee.
  */
 async function getHandledRequest(householdId: string, id: string, actor: RequestActor) {
   const existing = await getRequest(householdId, id);
   if (existing.category === 'media') {
-    if (!can(actor.role, 'requests:manage_media')) {
-      throw new ForbiddenError('Only the head of the household handles media requests.');
+    const access = await getUserAccess({ id: actor.id, householdId });
+    if (!access.requests.approve) {
+      throw new ForbiddenError("You can't mark media requests added.");
     }
   } else if (existing.assigneeId !== actor.id) {
     throw new ForbiddenError('Only the person this was assigned to can do that.');
@@ -253,8 +256,9 @@ export async function updateRequest(
 }
 
 /**
- * Accepts a request. Maintenance: the assignee commits to (or moves) a done-by
- * date — the deadline. Media: the head accepts; no date.
+ * Maintenance: the assignee accepts, committing to (or moving) a done-by date
+ * — the deadline. Media has no accept step any more; app builds from before
+ * the one-step flow still call this, so it marks the request added instead.
  */
 export async function acceptRequest(
   householdId: string,
@@ -265,8 +269,8 @@ export async function acceptRequest(
   if (existing.status === 'completed') {
     throw new ConflictError('This request is already done.');
   }
-  const isMaintenance = existing.category === 'maintenance';
-  if (isMaintenance && !input.dueAt) {
+  if (existing.category === 'media') return completeRequest(householdId, actor, input.id);
+  if (!input.dueAt) {
     throw new ConflictError("Pick the date you'll have it done by.");
   }
   const rescheduling = existing.status === 'accepted';
@@ -275,19 +279,16 @@ export async function acceptRequest(
     where: { id: input.id },
     data: {
       status: 'accepted',
-      ...(isMaintenance ? { dueAt: input.dueAt } : {}),
+      dueAt: input.dueAt,
       acceptedAt: existing.acceptedAt ?? new Date(),
     },
     include: requestInclude,
   });
 
-  let message = `accepted ${describe(request)}`;
-  if (isMaintenance) {
-    const when = input.dueAt!.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    message = rescheduling
-      ? `moved ${describe(request)} to ${when}`
-      : `accepted ${describe(request)}, done by ${when}`;
-  }
+  const when = input.dueAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const message = rescheduling
+    ? `moved ${describe(request)} to ${when}`
+    : `accepted ${describe(request)}, done by ${when}`;
   await logActivity({
     householdId,
     actorId: actor.id,
@@ -301,7 +302,7 @@ export async function acceptRequest(
   return request;
 }
 
-/** Maintenance: the assignee marks it done. Media: the head marks it available. */
+/** Maintenance: the assignee marks it done. Media: an approver marks it added. */
 export async function completeRequest(
   householdId: string,
   actor: RequestActor,
@@ -326,7 +327,7 @@ export async function completeRequest(
     subjectId: request.id,
     message:
       request.category === 'media'
-        ? `made ${describe(request)} available`
+        ? `added ${describe(request)}`
         : `finished ${describe(request)}`,
   });
   pushRequestChange(householdId, request);

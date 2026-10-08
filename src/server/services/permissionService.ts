@@ -10,8 +10,10 @@ import {
   resolveAccess,
   roleAccessOverridesSchema,
   roleDefaultAccess,
+  type AccessAction,
   type AccessMatrix,
   type AccessOverrides,
+  type AccessPage,
   type EditableRole,
   type RoleAccessOverrides,
 } from '@/lib/permissions';
@@ -50,6 +52,31 @@ export async function getUserAccess(user: {
     roleOverrides,
     parseStoredJson(row.accessOverrides, accessOverridesSchema),
   );
+}
+
+/** Ids of the household's members whose grid grants `action` on `page`. */
+export async function membersWithAccess(
+  householdId: string,
+  page: AccessPage,
+  action: AccessAction,
+): Promise<string[]> {
+  const [roleOverrides, users] = await Promise.all([
+    loadRoleOverrides(householdId),
+    prisma.user.findMany({
+      where: { householdId },
+      select: { id: true, role: true, accessOverrides: true },
+    }),
+  ]);
+  return users
+    .filter(
+      (u) =>
+        resolveAccess(
+          u.role,
+          roleOverrides,
+          parseStoredJson(u.accessOverrides, accessOverridesSchema),
+        )[page][action],
+    )
+    .map((u) => u.id);
 }
 
 /** Everything the head's permissions editor shows. */

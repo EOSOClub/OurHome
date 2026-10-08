@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { USER_ROLES } from '@/lib/enums';
 import {
-  ACCESS_ACTIONS,
   ACCESS_PAGES,
+  PAGE_ACTIONS,
   BUILTIN_ROLE_ACCESS,
   FULL_ACCESS,
   can,
@@ -16,6 +17,7 @@ import {
   roleAccessOverridesSchema,
   roleDefaultAccess,
   type AccessMatrix,
+  type AccessPage,
   type PageAccess,
 } from '@/lib/permissions';
 
@@ -36,37 +38,32 @@ describe('can', () => {
   });
 
   it('lets every role complete tasks', () => {
-    for (const r of ['head', 'manager', 'member', 'guest']) {
+    for (const r of USER_ROLES) {
       expect(can(r, 'tasks:complete')).toBe(true);
     }
   });
 
   it('lets every role make requests', () => {
-    for (const r of ['head', 'manager', 'member', 'guest']) {
+    for (const r of USER_ROLES) {
       expect(can(r, 'requests:write')).toBe(true);
     }
   });
 
   it('lets everyone report bugs but only the head receive them', () => {
     expect(can('head', 'bugs:manage')).toBe(true);
-    for (const r of ['head', 'manager', 'member', 'guest']) {
+    for (const r of USER_ROLES) {
       expect(can(r, 'bugs:report')).toBe(true);
     }
-    for (const r of ['manager', 'member', 'guest']) {
+    for (const r of USER_ROLES.filter((r) => r !== 'head')) {
       expect(can(r, 'bugs:manage')).toBe(false);
     }
   });
 
-  it('reserves handling media requests for the head', () => {
-    expect(can('head', 'requests:manage_media')).toBe(true);
-    for (const r of ['manager', 'member', 'guest']) {
-      expect(can(r, 'requests:manage_media')).toBe(false);
+  it('keeps teens, children and guests out of administration', () => {
+    for (const r of ['teen', 'child', 'guest']) {
+      expect(can(r, 'members:manage')).toBe(false);
+      expect(can(r, 'settings:manage')).toBe(false);
     }
-  });
-
-  it('keeps guests out of administration', () => {
-    expect(can('guest', 'members:manage')).toBe(false);
-    expect(can('guest', 'settings:manage')).toBe(false);
   });
 
   it('grants nothing to unknown roles', () => {
@@ -82,15 +79,18 @@ describe('canManageMember', () => {
     }
   });
 
-  it('lets managers manage only members and guests', () => {
-    expect(canManageMember('manager', 'member')).toBe(true);
-    expect(canManageMember('manager', 'guest')).toBe(true);
+  it('lets managers manage only the ranks below them', () => {
+    for (const r of ['member', 'teen', 'child', 'guest']) {
+      expect(canManageMember('manager', r)).toBe(true);
+    }
     expect(canManageMember('manager', 'manager')).toBe(false);
     expect(canManageMember('manager', 'head')).toBe(false);
   });
 
-  it('denies members and guests', () => {
+  it('denies members, teens and guests', () => {
     expect(canManageMember('member', 'guest')).toBe(false);
+    expect(canManageMember('member', 'child')).toBe(false);
+    expect(canManageMember('teen', 'child')).toBe(false);
     expect(canManageMember('guest', 'guest')).toBe(false);
   });
 });
@@ -101,15 +101,16 @@ describe('canAssignRole', () => {
     expect(canAssignRole('manager', 'head')).toBe(false);
   });
 
-  it('lets the head assign manager/member/guest', () => {
-    expect(canAssignRole('head', 'manager')).toBe(true);
-    expect(canAssignRole('head', 'member')).toBe(true);
-    expect(canAssignRole('head', 'guest')).toBe(true);
+  it('lets the head assign every role but head', () => {
+    for (const r of ['manager', 'member', 'teen', 'child', 'guest']) {
+      expect(canAssignRole('head', r)).toBe(true);
+    }
   });
 
-  it('lets managers assign only member/guest', () => {
-    expect(canAssignRole('manager', 'member')).toBe(true);
-    expect(canAssignRole('manager', 'guest')).toBe(true);
+  it('lets managers assign only the ranks below them', () => {
+    for (const r of ['member', 'teen', 'child', 'guest']) {
+      expect(canAssignRole('manager', r)).toBe(true);
+    }
     expect(canAssignRole('manager', 'manager')).toBe(false);
   });
 });
@@ -120,8 +121,14 @@ const page = (over: Partial<PageAccess> = {}): PageAccess => ({
   deleteOwn: false,
   editOthers: false,
   deleteOthers: false,
+  approve: false,
   ...over,
 });
+
+/** Only the switches that mean something on `p` (PAGE_ACTIONS). */
+function shown(access: AccessMatrix, p: AccessPage): Partial<PageAccess> {
+  return Object.fromEntries(PAGE_ACTIONS[p].map((a) => [a, access[p][a]]));
+}
 
 describe('resolveAccess', () => {
   it('gives the head everything, ignoring any overrides', () => {
@@ -133,13 +140,14 @@ describe('resolveAccess', () => {
   });
 
   it('defaults to the old behaviour: tasks head-only, guests read-only', () => {
+    const everything = {
+      create: true, editOwn: true, deleteOwn: true, editOthers: true, deleteOthers: true,
+    };
     for (const r of ['manager', 'member'] as const) {
       const a = resolveAccess(r, null, null);
       expect(hasAnyAccess(a.tasks)).toBe(false);
-      for (const p of ['calendar', 'shopping', 'inventory', 'bills'] as const) {
-        expect(a[p]).toEqual(page({
-          create: true, editOwn: true, deleteOwn: true, editOthers: true, deleteOthers: true,
-        }));
+      for (const p of ['calendar', 'shopping', 'shoppingLists', 'inventory', 'bills'] as const) {
+        expect(shown(a, p)).toEqual(everything);
       }
     }
     const guest = resolveAccess('guest', null, null);
@@ -148,10 +156,40 @@ describe('resolveAccess', () => {
     }
   });
 
-  it('lets every role submit requests by default, and only submit', () => {
-    for (const r of ['manager', 'member', 'guest'] as const) {
+  it('gives teens their own calendar, shopping and inventory entries', () => {
+    const teen = resolveAccess('teen', null, null);
+    const own = { create: true, editOwn: true, deleteOwn: true, editOthers: false, deleteOthers: false };
+    for (const p of ['calendar', 'shopping', 'inventory'] as const) {
+      expect(shown(teen, p)).toEqual(own);
+    }
+    for (const p of ['tasks', 'shoppingLists', 'bills'] as const) {
+      expect(hasAnyAccess(teen[p])).toBe(false);
+    }
+  });
+
+  it('lets children only add shopping items (and tick them off)', () => {
+    const child = resolveAccess('child', null, null);
+    expect(child.shopping).toEqual(page({ create: true }));
+    expect(hasAnyAccess(child.shopping)).toBe(true);
+    for (const p of ['tasks', 'calendar', 'shoppingLists', 'inventory', 'bills'] as const) {
+      expect(hasAnyAccess(child[p])).toBe(false);
+    }
+  });
+
+  it('lets every role submit requests; only managers approve media by default', () => {
+    for (const r of ['member', 'teen', 'child', 'guest'] as const) {
       expect(resolveAccess(r, null, null).requests).toEqual(page({ create: true }));
     }
+    expect(resolveAccess('manager', null, null).requests).toEqual(
+      page({ create: true, approve: true }),
+    );
+    expect(resolveAccess('head', null, null).requests.approve).toBe(true);
+  });
+
+  it('can grant media approval to one member', () => {
+    expect(
+      resolveAccess('member', null, { requests: { approve: true } }).requests.approve,
+    ).toBe(true);
   });
 
   it('can switch request submission off for one member', () => {
@@ -229,7 +267,8 @@ describe('diffAccess', () => {
   it('round-trips through resolveAccess', () => {
     const base = BUILTIN_ROLE_ACCESS.guest;
     const next: AccessMatrix = structuredClone(base);
-    for (const a of ACCESS_ACTIONS) next.shopping[a] = true;
+    for (const a of PAGE_ACTIONS.shopping) next.shopping[a] = true;
+    next.requests.approve = true;
     expect(resolveAccess('guest', null, diffAccess(base, next))).toEqual(next);
   });
 });

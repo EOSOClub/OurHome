@@ -11,7 +11,7 @@ import { can, type Permission } from '@/lib/permissions';
 // Off (a no-op) until FIREBASE_SERVICE_ACCOUNT is set.
 
 /** Why the phones were woken; the app logs it. */
-export type PushReason = 'request' | 'bug_report';
+export type PushReason = 'request' | 'bug_report' | 'app_update';
 
 /** Saves (or moves) this install's FCM token to the signed-in user. */
 export async function registerDevice(
@@ -38,6 +38,8 @@ export interface PushAudience {
   userIds?: (string | null | undefined)[];
   /** Everyone in the household holding this permission (e.g. the head). */
   permission?: Permission;
+  /** Every member's phone (e.g. a new app version). */
+  everyone?: boolean;
 }
 
 /**
@@ -54,6 +56,10 @@ export function pushSync(householdId: string, audience: PushAudience, reason: Pu
 
 async function sendSync(householdId: string, audience: PushAudience, reason: PushReason) {
   const ids = new Set(audience.userIds?.filter((id): id is string => Boolean(id)));
+  if (audience.everyone) {
+    const devices = await prisma.pushDevice.findMany({ where: { householdId }, select: { userId: true } });
+    for (const d of devices) ids.add(d.userId);
+  }
   if (audience.permission) {
     const members = await prisma.user.findMany({
       where: { householdId },

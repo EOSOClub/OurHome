@@ -79,6 +79,8 @@ function subjectHref(n: NotificationDTO): string | null {
     case 'shopping_item':
     case 'shopping_list':
       return '/shopping';
+    case 'app_release':
+      return '/profile';
     default:
       return null;
   }

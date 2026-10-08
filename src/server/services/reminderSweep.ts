@@ -2,6 +2,7 @@ import { prisma } from '@/server/db/prisma';
 import { generateReminders } from '@/server/services/reminderService';
 import { resetDueSubtasks } from '@/server/services/taskService';
 import { runPaperlessSync } from '@/server/services/paperlessSync';
+import { announceAppRelease } from '@/server/services/appReleaseService';
 
 // One reminder sweep over every household. Runs every 15 minutes inside the
 // production server (startReminderSchedule, from src/instrumentation.ts) and on
@@ -12,6 +13,11 @@ export async function runReminderSweep(): Promise<{ households: number }> {
   // logged (and shown in Settings) but never stops the reminders.
   await runPaperlessSync().catch((err) => {
     console.warn('[paperless] import failed; retrying next sweep:', err instanceof Error ? err.message : err);
+  });
+
+  // A new Android app build (from the deploy) → tell everyone, once per version.
+  await announceAppRelease().catch((err) => {
+    console.warn('[app] announcing the new app failed; retrying next sweep:', err instanceof Error ? err.message : err);
   });
 
   const households = await prisma.household.findMany({ select: { id: true } });

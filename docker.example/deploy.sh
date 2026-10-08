@@ -1044,6 +1044,22 @@ EOF
   ok "Android app $vname built ($(( $(wc -c < "$out/ourhome.apk") / 1048576 )) MB), on the site under Profile"
 }
 
+# After a new app build: run a reminder sweep now, which tells everyone (a
+# bell notification linking to Profile, and a push to their phones). Without
+# it the next sweep does the same within 15 minutes. The secret goes to curl
+# on stdin, never on a command line.
+announce_app() {
+  local secret
+  secret=$(env_get CRON_SECRET "$SECRETS" || true)
+  if [ -n "$secret" ] && command -v curl >/dev/null 2>&1 \
+     && printf 'header = "Authorization: Bearer %s"\n' "$secret" \
+        | curl -sf -o /dev/null -m 60 -X POST --config - "${WEB_URL_LOCAL}api/cron/reminders"; then
+    ok "Everyone was told about the new version (notification + push)"
+  else
+    info "Everyone gets a notification about it within 15 minutes."
+  fi
+}
+
 setup_firebase() {
   local name cur v file b64 json project found def=n
   panel "The Android app checks the server about once an hour. With Firebase, the" \
@@ -1807,8 +1823,9 @@ if [ "$APP_ONLY" = 1 ]; then
     printf '\n  %sNo app updates.%s The app on offer already has the latest code and settings.\n' "$BOLD" "$RESET"
     printf '  (Add -n to rebuild it anyway.)\n\n'
   else
-    printf '\n  %s%s✓ New app version ready.%s Members get it from Profile → Android app on the\n' "$GREEN" "$BOLD" "$RESET"
-    printf '  site; it installs over the old version.\n\n'
+    announce_app
+    printf '\n  %s%s✓ New app version ready.%s Members get it from Profile → Android app, on the\n' "$GREEN" "$BOLD" "$RESET"
+    printf '  site or in the app; it installs over the old version.\n\n'
   fi
   exit 0
 fi
@@ -1941,6 +1958,7 @@ if [ "$ANDROID_BUILD" = true ]; then
     warn "Docker Buildx is missing (it ships with Docker Desktop and docker-buildx-plugin); app not built."
   else
     android_build || true
+    [ "$ANDROID_RESULT" = built ] && announce_app
   fi
 fi
 

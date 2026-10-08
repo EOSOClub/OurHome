@@ -123,7 +123,12 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
     Profile card): serves the APK the deploy builds
     (`docker.example/android/Dockerfile`) from `APP_DOWNLOAD_DIR` (android/out,
     mounted read-only), described by its `ourhome.json`; signed-in members only,
-    nothing shown when no build exists.
+    nothing shown when no build exists. `GET /api/app/info` gives the app its
+    "update available" check. `appReleaseService.announceAppRelease` (every
+    reminder sweep; the deploy triggers one after a build) posts one
+    household-wide `system` notification per version (dedupeKey
+    `app_release:<versionCode>`, older ones removed, links to /profile) and an
+    `app_update` push to every registered phone.
   - Paperless, the Proton Bridge it reads mail through, and MongoDB are
     separate stacks in
     [OurHomeServices](https://github.com/EOSOClub/OurHomeServices).

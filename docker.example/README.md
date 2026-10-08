@@ -103,6 +103,13 @@ Answer yes to **"Build the Android app here?"** and every deploy builds the app
 your Firebase app id built in, and offers it under **Profile → Android app** to
 signed-in members. Phones install updates over the old version.
 
+When a new version is built, everyone is told: a bell notification on the
+site and in the app (linking to Profile), and a phone notification, "Our Home
+update ready". In the app, **Profile → Android app → Download and install**
+fetches it and opens Android's installer (Android asks once to allow installs
+from Our Home). The download is checked against its published size and SHA-256,
+and Android only installs it over the old app when it's signed with the same key.
+
 - The build runs in Docker ([`android/Dockerfile`](android/Dockerfile)); the
   first one downloads the Android tools (about 3 GB) and takes ~10 minutes.
 - It's signed with this install's own key, made on the first build:

@@ -89,6 +89,8 @@ ${BOLD}Options:${RESET}
 
 ${BOLD}Environment:${RESET}
   NO_COLOR             Set to disable coloured output.
+  OURHOME_PLAIN        Set for plain typed prompts instead of the interactive
+                       screens (menus you can click, Yes/No buttons).
 
 The first run creates settings.yml and .env (repo root) from their templates.
 EOF
@@ -98,24 +100,99 @@ EOF
 # Colours — disabled when NO_COLOR is set or stdout is not a TTY.
 # ---------------------------------------------------------------------------
 if [ -z "${NO_COLOR:-}" ] && [ -t 1 ]; then
-  RESET=$'\033[0m'; BOLD=$'\033[1m'; DIM=$'\033[2m'
+  RESET=$'\033[0m'; BOLD=$'\033[1m'; DIM=$'\033[2m'; REV=$'\033[7m'
   RED=$'\033[31m'; GREEN=$'\033[32m'; YELLOW=$'\033[33m'
   BLUE=$'\033[34m'; MAGENTA=$'\033[35m'; CYAN=$'\033[36m'
   IS_TTY=1
 else
-  RESET= BOLD= DIM= RED= GREEN= YELLOW= BLUE= MAGENTA= CYAN=
+  RESET= BOLD= DIM= REV= RED= GREEN= YELLOW= BLUE= MAGENTA= CYAN=
   IS_TTY=0
 fi
 # Questions need a keyboard; without one (cron, CI) settings are never asked.
 if [ -t 0 ]; then CAN_ASK=1; else CAN_ASK=0; fi
 
 # ---------------------------------------------------------------------------
+# Terminal UI
+# ---------------------------------------------------------------------------
+# All output is wrapped to the window's width. In a capable terminal the walkthrough is interactive too: every
+# section starts on a clean screen with a progress header, and choices are
+# menus and buttons picked with the arrow keys, Enter or a mouse click. With no
+# keyboard, a dumb terminal or OURHOME_PLAIN=1, the same questions are plain
+# typed prompts, so scripts and cron work as before. Only bash and the
+# terminal's own control codes are used; nothing to install.
+
+# UTF-8, so lengths count characters (✓, ─, …) rather than bytes.
+case "$(locale charmap 2>/dev/null)" in
+  UTF-8|utf8) ;;
+  *) for _l in C.UTF-8 en_US.UTF-8; do
+       if LC_ALL=$_l locale charmap 2>/dev/null | grep -qi 'utf-*8'; then export LC_ALL=$_l; break; fi
+     done ;;
+esac
+
+FANCY=0
+if [ "$CAN_ASK" = 1 ] && [ -t 1 ] && [ "${TERM:-dumb}" != dumb ] && [ -z "${OURHOME_PLAIN:-}" ]; then FANCY=1; fi
+# Waiting for the rest of an escape sequence: bash 3 (macOS) only takes whole seconds.
+if [ "${BASH_VERSINFO[0]}" -ge 4 ]; then ESC_WAIT=0.05; else ESC_WAIT=1; fi
+
+# The window's width, and the width text is wrapped to (at most 84 columns:
+# long lines are hard to read).
+set_width() {
+  local c
+  c=$( { stty size </dev/tty; } 2>/dev/null | awk '{print $2}')
+  [ -n "$c" ] && [ "$c" -gt 0 ] 2>/dev/null || c=$(tput cols 2>/dev/null)
+  [ -n "$c" ] && [ "$c" -gt 0 ] 2>/dev/null || c=${COLUMNS:-80}
+  COLS=$c
+  WIDTH=$((COLS - 4)); [ "$WIDTH" -gt 84 ] && WIDTH=84; [ "$WIDTH" -lt 30 ] && WIDTH=30
+  return 0
+}
+# Measured again at every screen, step and menu redraw. (Not from a WINCH trap:
+# a trapped signal can cut a pending `read` short.)
+set_width
+
+# Leave the terminal as we found it, however the script ends.
+tui_restore() { [ "$FANCY" = 1 ] && printf '\033[?1000l\033[?1006l\033[?25h' >/dev/tty 2>/dev/null; return 0; }
+trap 'tui_restore' EXIT
+trap 'tui_restore; printf "\n"; exit 130' INT TERM
+
+# VLEN = how many columns $1 takes (colour codes don't count).
+vlen() {
+  local s=$1 pre rest
+  while [[ $s == *$'\033['* ]]; do
+    pre=${s%%$'\033['*}; rest=${s#*$'\033['}; rest=${rest#*m}; s=$pre$rest
+  done
+  VLEN=${#s}
+}
+rep() { local s='' i; for ((i = 0; i < $2; i++)); do s+=$1; done; printf '%s' "$s"; }
+
+# wrap "first-line prefix" "next-lines prefix" text… — word-wraps to WIDTH.
+# Each line ends with RESET, so a colour in the prefix covers just that line.
+wrap() {
+  local p1=$1 p2=$2 prefix line='' ll=0 room w words
+  shift 2
+  read -ra words <<< "$*"
+  prefix=$p1; vlen "$prefix"; room=$((WIDTH - VLEN))
+  for w in "${words[@]}"; do
+    vlen "$w"
+    if [ -z "$line" ]; then line=$w; ll=$VLEN
+    elif [ $((ll + 1 + VLEN)) -le "$room" ]; then line+=" $w"; ll=$((ll + 1 + VLEN))
+    else
+      printf '%s%s%s\n' "$prefix" "$line" "$RESET"
+      prefix=$p2; vlen "$prefix"; room=$((WIDTH - VLEN)); line=$w; ll=$VLEN
+    fi
+  done
+  [ -n "$line" ] && printf '%s%s%s\n' "$prefix" "$line" "$RESET"
+  return 0
+}
+
+center() { vlen "$1"; local pad=$(((COLS - VLEN) / 2)); [ "$pad" -lt 0 ] && pad=0; printf '%*s%s\n' "$pad" '' "$1"; }
+
+# ---------------------------------------------------------------------------
 # Output helpers
 # ---------------------------------------------------------------------------
-ok()    { printf '  %s✓%s %s\n'  "$GREEN"  "$RESET" "$*"; }
-warn()  { printf '  %s!%s %s\n'  "$YELLOW" "$RESET" "$*"; }
-info()  { printf '  %s·%s %s\n'  "$CYAN"   "$RESET" "$*"; }
-errln() { printf '  %s✗%s %s\n'  "$RED"    "$RESET" "$*" >&2; }
+ok()    { wrap "  ${GREEN}✓${RESET} "  "    " "$*"; }
+warn()  { wrap "  ${YELLOW}!${RESET} " "    " "$*"; }
+info()  { wrap "  ${CYAN}·${RESET} "   "    " "$*"; }
+errln() { wrap "  ${RED}✗${RESET} "    "    " "$*" >&2; }
 
 DC_STR="docker compose"   # for hint messages; resolved for real below
 
@@ -130,19 +207,26 @@ fail() {
 # the Android app) is only known once the settings are read.
 STEP_N=0
 step() {
+  local head
+  set_width
   STEP_N=$((STEP_N + 1))
-  printf '\n%s[%d]%s %s%s%s\n' "$DIM" "$STEP_N" "$RESET" "$BOLD" "$*" "$RESET"
+  head="── $STEP_N · $* "
+  vlen "$head"
+  printf '\n  %s%s%s%s%s\n' "$BOLD" "$head" "$DIM" "$(rep ─ $((WIDTH - VLEN)))" "$RESET"
 }
 
 banner() {
-  printf '%s' "$MAGENTA$BOLD"
-  cat <<'EOF'
-  ╔══════════════════════════════════════════════════╗
-  ║            O U R   H O M E   ·   deploy           ║
-  ╚══════════════════════════════════════════════════╝
-EOF
-  printf '%s' "$RESET"
-  printf '  %sweb app%s\n' "$DIM" "$RESET"
+  local inner=48 title='O U R   H O M E · deploy'   # 24 columns
+  set_width
+  printf '\n'
+  if [ "$COLS" -lt 52 ]; then   # too narrow for the box
+    center "${MAGENTA}${BOLD}── OUR HOME · deploy ──${RESET}"
+    return 0
+  fi
+  center "${MAGENTA}${BOLD}╭$(rep ─ $inner)╮${RESET}"
+  center "${MAGENTA}${BOLD}│$(rep ' ' 12)${title}$(rep ' ' 12)│${RESET}"
+  center "${MAGENTA}${BOLD}╰$(rep ─ $inner)╯${RESET}"
+  center "${DIM}web app · services · Android app${RESET}"
 }
 
 # ---------------------------------------------------------------------------
@@ -156,7 +240,7 @@ spin_tick() {  # $1 label  $2 elapsed
   SPIN_I=$(((SPIN_I + 1) % ${#SPIN_FRAMES}))
   printf '\r  %s%s%s waiting for %s… %ss ' "$CYAN" "$f" "$RESET" "$1" "$2"
 }
-spin_clear() { [ "$IS_TTY" = 1 ] && printf '\r%*s\r' 64 ''; return 0; }
+spin_clear() { [ "$IS_TTY" = 1 ] && printf '\r\033[2K'; return 0; }
 
 # wait_until <label> <timeout> <check_fn>
 wait_until() {
@@ -315,20 +399,200 @@ save_env() {
 
 rand_hex() { od -An -tx1 -N32 /dev/urandom | tr -d ' \n'; }
 
-section() { printf '\n  %s%s── %s%s\n' "$BOLD" "$BLUE" "$1" "$RESET"; }
-say()     { local l; for l in "$@"; do printf '    %s\n' "$l"; done; }
-example() { printf '    %se.g.%s %s\n' "$DIM" "$RESET" "$*"; }
-hint()    { printf '    %s%s%s\n' "$DIM" "$*" "$RESET"; }
-link()    { printf '    %s→%s %s%s%s\n' "$CYAN" "$RESET" "$BOLD" "$1" "$RESET"; }
+# ---------------------------------------------------------------------------
+# Walkthrough screens and questions (see "Terminal UI" above)
+# ---------------------------------------------------------------------------
+WIZARD_HELP="Enter keeps the value shown · - clears it · Ctrl+C quits without saving"
+
+# section "4/10  Title" (or just "Title"): in the interactive UI a fresh screen
+# with a progress header; the previous screen stays in the scrollback.
+section() {
+  local n='' total='' title=$1 label barw fill
+  if [[ $1 =~ ^([0-9]+)/([0-9]+)[[:space:]]+(.*)$ ]]; then
+    n=${BASH_REMATCH[1]}; total=${BASH_REMATCH[2]}; title=${BASH_REMATCH[3]}
+  fi
+  set_width
+  if [ "$FANCY" != 1 ]; then printf '\n  %s%s── %s%s\n' "$BOLD" "$BLUE" "$1" "$RESET"; return 0; fi
+  printf '\033[H\033[2J\n'
+  center "${MAGENTA}${BOLD}── OUR HOME · setup ──${RESET}"
+  printf '\n'
+  if [ -n "$n" ]; then
+    label="Step $n of $total"
+    barw=$((WIDTH - ${#label} - ${#title} - 6)); [ "$barw" -gt 30 ] && barw=30
+    if [ "$barw" -ge 6 ]; then
+      fill=$((barw * n / total))
+      printf '  %s%s%s  %s%s%s%s%s  %s%s%s\n' "$DIM" "$label" "$RESET" \
+        "$CYAN" "$(rep ▓ "$fill")" "$DIM" "$(rep ░ $((barw - fill)))" "$RESET" "$BOLD" "$title" "$RESET"
+    elif [ $((${#label} + ${#title} + 4)) -le "$WIDTH" ]; then
+      printf '  %s%s%s  %s%s%s\n' "$DIM" "$label" "$RESET" "$BOLD" "$title" "$RESET"
+    else   # narrow window: the title gets a line of its own
+      printf '  %s%s%s\n' "$DIM" "$label" "$RESET"
+      wrap "  $BOLD" "  $BOLD" "$title"
+    fi
+  else
+    printf '  %s%s%s\n' "$BOLD" "$title" "$RESET"
+  fi
+  wrap "  $DIM" "  $DIM" "$WIZARD_HELP"
+  printf '\n'
+}
+
+# Text, wrapped to the window. say joins its arguments into one paragraph;
+# say_lines keeps each argument on a line of its own (lists, commands).
+say()       { wrap "    " "    " "$*"; }
+say_lines() { local l; for l in "$@"; do wrap "    " "      " "$l"; done; }
+item()      { wrap "    ${BOLD}$1.${RESET} " "       " "${*:2}"; }   # a numbered step
+example()   { wrap "    ${DIM}e.g.${RESET} " "         " "$*"; }
+hint()      { wrap "    $DIM" "    $DIM" "$*"; }
+link()      { printf '    %s→%s %s%s%s\n' "$CYAN" "$RESET" "$BOLD" "$1" "$RESET"; }   # URLs never wrap
+
+# panel text… — a section's introduction, framed in the interactive UI.
+panel() {
+  local inner saved=$WIDTH out line pad
+  if [ "$FANCY" != 1 ]; then say "$@"; return 0; fi
+  inner=$((WIDTH - 6))
+  WIDTH=$inner; out=$(wrap "" "" "$*"); WIDTH=$saved
+  printf '  %s╭%s╮%s\n' "$DIM" "$(rep ─ $((inner + 2)))" "$RESET"
+  while IFS= read -r line; do
+    vlen "$line"; pad=$((inner - VLEN)); [ "$pad" -lt 0 ] && pad=0
+    printf '  %s│%s %s%*s %s│%s\n' "$DIM" "$RESET" "$line" "$pad" '' "$DIM" "$RESET"
+  done <<< "$out"
+  printf '  %s╰%s╯%s\n\n' "$DIM" "$(rep ─ $((inner + 2)))" "$RESET"
+}
+
+# The question itself, in the interactive UI: "? Question".
+question() { wrap "  ${CYAN}?${RESET} ${BOLD}" "    ${BOLD}" "$*"; }
+
+# One key press → KEY: up down left right tab btab enter space esc,
+# char:<c>, or mouse:<button>;<x>;<y><M|m> (SGR mouse reporting).
+read_key() {
+  local c c2 seq=''
+  KEY=''
+  IFS= read -rsn1 c || return 1
+  case "$c" in
+    $'\033')
+      if ! IFS= read -rsn1 -t "$ESC_WAIT" c2; then KEY=esc; return 0; fi
+      if [ "$c2" = '[' ] || [ "$c2" = 'O' ]; then
+        while IFS= read -rsn1 -t 1 c2; do seq+=$c2; case "$c2" in [A-Za-z~]) break ;; esac; done
+        case "$seq" in
+          A) KEY=up ;; B) KEY=down ;; C) KEY=right ;; D) KEY=left ;; Z) KEY=btab ;;
+          '<'*[Mm]) KEY="mouse:${seq#<}" ;;
+          *) KEY=other ;;
+        esac
+      else
+        KEY=other
+      fi ;;
+    '')    KEY=enter ;;
+    $'\t') KEY=tab ;;
+    ' ')   KEY=space ;;
+    *)     KEY="char:$c" ;;
+  esac
+}
+
+# TUI_ROW = the cursor's row (asked from the terminal), 0 if it didn't answer;
+# then mouse clicks are simply ignored.
+tui_cursor_row() {
+  local esc r c
+  TUI_ROW=0
+  printf '\033[6n' >/dev/tty
+  if IFS='[;' read -rsd R -t 1 esc r c </dev/tty && [ "$r" -gt 0 ] 2>/dev/null; then TUI_ROW=$r; fi
+}
+
+_tui_list() {  # the options, the chosen one marked, then the help line (no newline)
+  local i o max=$((WIDTH - 6))
+  for ((i = 1; i <= ${#TUI_OPTS[@]}; i++)); do
+    o=${TUI_OPTS[i - 1]}
+    [ "${#o}" -gt "$max" ] && o="${o:0:max-1}…"
+    if [ "$i" = "$TUI_SEL" ]; then printf '\r\033[2K   %s❯%s %s%s%s\n' "$CYAN" "$RESET" "$BOLD" "$o" "$RESET"
+    else printf '\r\033[2K     %s\n' "$o"; fi
+  done
+  printf '\r\033[2K    %s↑↓ move · Enter or click to choose · 1-%d%s' "$DIM" "${#TUI_OPTS[@]}" "$RESET"
+}
+
+_tui_buttons() {  # the buttons on one line (no newline); TUI_X1/TUI_X2 = their columns
+  local i label line='    ' col=5
+  for ((i = 1; i <= ${#TUI_OPTS[@]}; i++)); do
+    label=" ${TUI_OPTS[i - 1]} "
+    TUI_X1[i]=$col; TUI_X2[i]=$((col + ${#label}))
+    # Both styles take label + 4 columns: "❯ Yes " + 3 spaces, "[ No ]" + 2.
+    if [ "$i" = "$TUI_SEL" ]; then line+="${REV}${BOLD}❯${label}${RESET}   "
+    else line+="${DIM}[${label}]${RESET}  "; fi
+    col=$((col + ${#label} + 4))
+  done
+  printf '\r\033[2K%s%s←→ Enter · click%s' "$line" "$DIM" "$RESET"
+}
+
+# tui_choose VAR list|buttons "option"… — a menu (one option per line) or a
+# row of buttons. VAR holds the choice to start on (1…) and gets the picked
+# one. Arrow keys / Tab move, Enter picks, 1-9 pick directly, y/n answer
+# Yes/No buttons, and a mouse click picks. Afterwards it folds into one line
+# showing the answer.
+tui_choose() {
+  local __var=$1 mode=$2 n first=0 i done=0 m mb mx my
+  shift 2
+  TUI_OPTS=("$@"); n=$#; TUI_X1=(); TUI_X2=()
+  TUI_SEL=${!__var:-1}
+  { [ "$TUI_SEL" -ge 1 ] && [ "$TUI_SEL" -le "$n" ]; } 2>/dev/null || TUI_SEL=1
+  set_width
+  printf '\033[?25l'
+  if [ "$mode" = list ]; then _tui_list; else _tui_buttons; fi
+  tui_cursor_row
+  [ "$mode" = list ] && first=$((TUI_ROW - n))
+  printf '\033[?1000h\033[?1006h'
+  while [ "$done" = 0 ]; do
+    if ! read_key; then printf '\033[?1000l\033[?1006l\033[?25h\n'; no_input; fi
+    case "$KEY" in
+      up|left|btab|char:k|char:h) [ "$TUI_SEL" -gt 1 ] && TUI_SEL=$((TUI_SEL - 1)) ;;
+      down|right|tab|char:j|char:l) [ "$TUI_SEL" -lt "$n" ] && TUI_SEL=$((TUI_SEL + 1)) ;;
+      enter|space) done=1 ;;
+      char:[1-9]) i=${KEY#char:}; [ "$i" -le "$n" ] && { TUI_SEL=$i; done=1; } ;;
+      char:[yY]) [ "$mode" = buttons ] && { TUI_SEL=1; done=1; } ;;
+      char:[nN]) [ "$mode" = buttons ] && { TUI_SEL=2; done=1; } ;;
+      mouse:*)
+        m=${KEY#mouse:}
+        IFS=';' read -r mb mx my <<< "${m%?}"
+        case "$mb" in
+          64) [ "$TUI_SEL" -gt 1 ] && TUI_SEL=$((TUI_SEL - 1)) ;;          # wheel up
+          65) [ "$TUI_SEL" -lt "$n" ] && TUI_SEL=$((TUI_SEL + 1)) ;;       # wheel down
+          0)
+            if [ "${m: -1}" = M ] && [ "$TUI_ROW" -gt 0 ]; then
+              if [ "$mode" = list ]; then
+                if [ "$my" -ge "$first" ] && [ "$my" -lt $((first + n)) ]; then TUI_SEL=$((my - first + 1)); done=1; fi
+              elif [ "$my" = "$TUI_ROW" ]; then
+                for ((i = 1; i <= n; i++)); do
+                  if [ "$mx" -ge "${TUI_X1[i]}" ] && [ "$mx" -le "${TUI_X2[i]}" ]; then TUI_SEL=$i; done=1; fi
+                done
+              fi
+            fi ;;
+        esac ;;
+    esac
+    if [ "$mode" = list ]; then printf '\r\033[%dA' "$n"; _tui_list; else _tui_buttons; fi
+  done
+  printf '\033[?1000l\033[?1006l'
+  if [ "$mode" = list ]; then printf '\r\033[%dA\033[J' "$n"; else printf '\r\033[2K'; fi
+  printf '    %s›%s %s\n\033[?25h' "$GREEN" "$RESET" "${TUI_OPTS[TUI_SEL - 1]}"
+  printf -v "$__var" '%s' "$TUI_SEL"
+}
 
 # Input ended (Ctrl+D) mid-walkthrough: stop rather than loop on a required
 # question. Nothing has been written yet.
 no_input() { printf '\n'; fail "Input ended; no settings were changed."; }
 
-# ask VAR "Question" [default] — Enter keeps the default, "-" clears it.
+# ask VAR "Question" [default] — Enter keeps the default, "-" clears it. In
+# the interactive UI (bash 4+) the default is already typed in, to keep or
+# edit, and Tab completes file paths; emptying the line clears it too.
 ask() {
   local __a
-  if [ -n "${3:-}" ]; then
+  if [ "$FANCY" = 1 ]; then
+    question "$2"
+    if [ "${BASH_VERSINFO[0]}" -ge 4 ]; then
+      IFS= read -e -r -i "${3:-}" -p $'    \001'"$CYAN"$'\002›\001'"$RESET"$'\002 ' __a || no_input
+      __a="${__a#"${__a%%[![:space:]]*}"}"; __a="${__a%"${__a##*[![:space:]]}"}"
+      [ "$__a" = "-" ] && __a=
+      printf -v "$1" '%s' "$__a"
+      return 0
+    fi
+    printf '    %s›%s %s' "$CYAN" "$RESET" "${3:+$DIM[$3]$RESET }"
+  elif [ -n "${3:-}" ]; then
     printf '    %s %s[%s]%s: ' "$2" "$DIM" "$3" "$RESET"
   else
     printf '    %s: ' "$2"
@@ -339,9 +603,16 @@ ask() {
   printf -v "$1" '%s' "$__a"
 }
 
-# ask_yn "Question" y|n — returns 0 for yes.
+# ask_yn "Question" y|n — returns 0 for yes. Interactive: Yes / No buttons.
 ask_yn() {
-  local a prompt='y/N'
+  local a prompt='y/N' pick
+  if [ "$FANCY" = 1 ]; then
+    pick=2; [ "$2" = y ] && pick=1
+    question "$1"
+    tui_choose pick buttons Yes No
+    [ "$pick" = 1 ]
+    return
+  fi
   [ "$2" = y ] && prompt='Y/n'
   while true; do
     printf '    %s %s[%s]%s: ' "$1" "$DIM" "$prompt" "$RESET"
@@ -353,11 +624,21 @@ ask_yn() {
   done
 }
 
+# The prompt for hidden typing.
+hidden_prompt() {
+  if [ "$FANCY" = 1 ]; then
+    question "$1 ${DIM}(hidden)${RESET}"
+    printf '    %s›%s ' "$CYAN" "$RESET"
+  else
+    printf '    %s %s(hidden)%s: ' "$1" "$DIM" "$RESET"
+  fi
+}
+
 # ask_hidden VAR "Question" — hidden typing, nothing kept or shown back (for a
 # one-time admin password).
 ask_hidden() {
   local __a
-  printf '    %s %s(hidden)%s: ' "$2" "$DIM" "$RESET"
+  hidden_prompt "$2"
   IFS= read -rs __a || no_input
   printf '\n'
   printf -v "$1" '%s' "$__a"
@@ -380,7 +661,7 @@ ask_secret() {
   local __a cur
   cur=$(eget "$2")
   [ -n "$cur" ] && hint "Now: $(masked "$2" "$cur"). Enter keeps it, - clears it."
-  printf '    %s %s(hidden)%s: ' "$3" "$DIM" "$RESET"
+  hidden_prompt "$3"
   IFS= read -rs __a || no_input
   printf '\n'
   __a="${__a#"${__a%%[![:space:]]*}"}"; __a="${__a%"${__a##*[![:space:]]}"}"
@@ -389,9 +670,16 @@ ask_secret() {
   printf -v "$1" '%s' "$__a"
 }
 
-# ready "What to have ready" — returns 1 if the user types skip.
+# ready "What to have ready" — returns 1 if the user types skip (interactive:
+# Ready / Skip for now buttons).
 ready() {
-  local a
+  local a pick=1
+  if [ "$FANCY" = 1 ]; then
+    question "$1"
+    tui_choose pick buttons "Ready" "Skip for now"
+    [ "$pick" = 1 ]
+    return
+  fi
   printf '    %s%s%s %s(Enter when ready, or type skip)%s: ' "$BOLD" "$1" "$RESET" "$DIM" "$RESET"
   IFS= read -r a || no_input
   case "$a" in [Ss][Kk][Ii][Pp]) return 1 ;; esac
@@ -414,6 +702,13 @@ find_firebase_key() {
 ask_menu() {
   local __var=$1 __q=$2 __def=$3 __a __i=1
   shift 3
+  if [ "$FANCY" = 1 ]; then
+    question "$__q"
+    __a=$__def
+    tui_choose __a list "$@"
+    printf -v "$__var" '%s' "$__a"
+    return 0
+  fi
   printf '    %s\n' "$__q"
   for __a in "$@"; do printf '      %s%d)%s %s\n' "$BOLD" "$__i" "$RESET" "$__a"; __i=$((__i + 1)); done
   while true; do
@@ -592,10 +887,10 @@ bridge_up() {  # $1 services folder
   svc_compose "$d" build -q || fail "Could not build the Proton Bridge image ($d)."
   if ! bridge_logged_in "$1"; then
     printf '\n'
-    say "${BOLD}Proton login (once).${RESET} The Bridge starts its own prompt now. Type:" \
-        "  ${BOLD}login${RESET}   then your Proton email, password and 2FA code" \
-        "  ${BOLD}exit${RESET}    once it says the account was added" \
-        "It syncs your mailbox afterwards, which can take a while for big inboxes."
+    say "${BOLD}Proton login (once).${RESET} The Bridge starts its own prompt now. Type:"
+    say_lines "  ${BOLD}login${RESET}   then your Proton email, password and 2FA code" \
+              "  ${BOLD}exit${RESET}    once it says the account was added"
+    say "It syncs your mailbox afterwards, which can take a while for big inboxes."
     ready "Ready to log in?" || fail "Stopped before the Proton login; run ./deploy.sh again to continue."
     svc_compose "$d" run --rm protonmail-bridge init
     bridge_logged_in "$1" || fail "The Bridge has no saved login; run ./deploy.sh again to retry."
@@ -744,7 +1039,7 @@ EOF
 
 setup_firebase() {
   local name cur v file b64 json project found def=n
-  say "The Android app checks the server about once an hour. With Firebase, the" \
+  panel "The Android app checks the server about once an hour. With Firebase, the" \
       "server nudges phones the moment a request or bug report comes in, so" \
       "alerts arrive within seconds. Firebase Cloud Messaging is free (no cost," \
       "no message limit); you need a Google account. Only a \"something changed\"" \
@@ -773,14 +1068,11 @@ setup_firebase() {
 
   printf '\n'
   say "Now in Firebase (keep this window open):"
-  say "${BOLD}1.${RESET} Create a project (any name; Google Analytics isn't needed, turn it off)."
+  item 1 "Create a project (any name; Google Analytics isn't needed, turn it off)."
   link "https://console.firebase.google.com"
-  say "${BOLD}2.${RESET} In the project: Add app → Android. Package name:" \
-      "     ${BOLD}com.$name.ourhome${RESET}   (exactly). Skip the SHA-1, then Register app."
-  say "${BOLD}3.${RESET} Download google-services.json. That file is for the ${BOLD}app${RESET} build" \
-      "   (it goes in the app repo, see the note at the end). Skip the remaining steps."
-  say "${BOLD}4.${RESET} Project settings → Service accounts → Generate new private key →" \
-      "   Generate key. That downloads the ${BOLD}server key${RESET}, a .json file:"
+  item 2 "In the project: Add app → Android. Package name: ${BOLD}com.$name.ourhome${RESET} (exactly). Skip the SHA-1, then Register app."
+  item 3 "Download google-services.json. That file is for the ${BOLD}app${RESET} build (step 8 asks for it). Skip the remaining steps."
+  item 4 "Project settings → Service accounts → Generate new private key → Generate key. That downloads the ${BOLD}server key${RESET}, a .json file:"
   link "https://console.firebase.google.com/project/_/settings/serviceaccounts/adminsdk"
   if ! ready "Have the server key file downloaded?"; then
     info "Skipped; run ./deploy.sh -s to finish later."
@@ -1010,7 +1302,7 @@ find_google_services() {
 ANDROID_GS_SRC=""
 setup_android() {
   local def v appid
-  say "Build the Android app here, with this server's address built in, signed with" \
+  panel "Build the Android app here, with this server's address built in, signed with" \
       "this install's own key, and offered to signed-in members on the site (Profile" \
       "page). Each deploy rebuilds it when the app or these settings changed. The" \
       "first build downloads the Android tools (about 3 GB) and takes ~10 minutes."
@@ -1052,15 +1344,18 @@ setup_android() {
 setup_wizard() {
   local v def cur
   load_settings || fail "Could not read settings.yml — check it is valid YAML."
-  printf '\n  %sSettings walkthrough.%s Enter keeps the value in [brackets], - clears it.\n' "$BOLD" "$RESET"
-  printf '  Nothing is saved until the end; Ctrl+C leaves everything as it was.\n'
+  # The interactive UI shows this on every screen's header instead.
+  if [ "$FANCY" != 1 ]; then
+    printf '\n  %sSettings walkthrough.%s Enter keeps the value in [brackets], - clears it.\n' "$BOLD" "$RESET"
+    printf '  Nothing is saved until the end; Ctrl+C leaves everything as it was.\n'
+  fi
 
   section "1/10  Name"
-  say "Shown in the browser tab, on the sign-in page and in emails."
+  panel "Shown in the browser tab, on the sign-in page and in emails."
   ask v "Site name" "$(sget app.name)"; sput app.name "${v:-Our Home}"
 
   section "2/10  Database (required)"
-  say "Everything is stored in MongoDB, as a replica set (the app uses transactions)."
+  panel "Everything is stored in MongoDB, as a replica set (the app uses transactions)."
   cur=$(sget services.mongo); def=n
   if [ "$cur" = own ] || { [ -z "$cur" ] && [ -n "$(eget DATABASE_URL)" ]; }; then def=y; fi
   if ask_yn "Already have MongoDB running?" "$def"; then
@@ -1084,7 +1379,7 @@ setup_wizard() {
   fi
 
   section "3/10  Sign-in keys"
-  say "Two random keys: one signs everyone's sign-in sessions, the other lets you" \
+  panel "Two random keys: one signs everyone's sign-in sessions, the other lets you" \
       "trigger the reminder sweep by hand. They're made for you; nothing to type."
   if [ -z "$(eget BETTER_AUTH_SECRET)" ]; then
     eput BETTER_AUTH_SECRET "$(rand_hex)"; ok "Session key created"
@@ -1098,7 +1393,7 @@ setup_wizard() {
   fi
 
   section "4/10  Web address"
-  say "At home the site works at http://<this-server>:<port> with no setup. To use" \
+  panel "At home the site works at http://<this-server>:<port> with no setup. To use" \
       "it from anywhere, we suggest a Cloudflare Tunnel: free, HTTPS included, and" \
       "it only connects outward, so no router port is ever opened. (A reverse proxy" \
       "such as Caddy works too, but needs a port forwarded and its own upkeep.)" \
@@ -1119,7 +1414,7 @@ setup_wizard() {
   sput better_auth.trusted_origins "$(printf '%s' "$v" | tr -d ' ')"
 
   section "5/10  Email (optional)"
-  say "Password-reset links, contact-form messages and bug reports. Any SMTP" \
+  panel "Password-reset links, contact-form messages and bug reports. Any SMTP" \
       "provider works (Proton Mail, Gmail, Fastmail, your ISP…). Without it," \
       "messages are logged instead of sent."
   def=n; [ -n "$(sget smtp.host)" ] && def=y
@@ -1149,7 +1444,7 @@ setup_wizard() {
   fi
 
   section "6/10  Contact-form CAPTCHA (optional)"
-  say "Stops bots spamming the public contact form, with Cloudflare Turnstile." \
+  panel "Stops bots spamming the public contact form, with Cloudflare Turnstile." \
       "Free; needs a Cloudflare account (your domain doesn't have to use Cloudflare)."
   def=n; [ -n "$(sget turnstile.site_key)" ] && def=y
   if ask_yn "Protect the contact form?" "$def"; then
@@ -1185,7 +1480,7 @@ setup_wizard() {
   setup_android
 
   section "9/10  Paperless-ngx bill import (optional)"
-  say "Documents tagged \"bill\" / \"bill-payment\" in Paperless-ngx become bills and" \
+  panel "Documents tagged \"bill\" / \"bill-payment\" in Paperless-ngx become bills and" \
       "payments, checked every 15 minutes. Skip if you don't run Paperless-ngx."
   link "https://github.com/EOSOClub/OurHome/blob/main/docs/paperless-import.md"
   def=n; [ -n "$(sget paperless.url)" ] && def=y

@@ -29,6 +29,14 @@ you only need Docker. Optional parts can be skipped and set up later with
 Then open `http://<server-ip>:3000` from any device on your network and follow
 the setup page (see [step 3](#3-first-run-setup)).
 
+In a terminal, the walkthrough is interactive: each section on its own screen
+with a progress bar, choices picked with the arrow keys, Enter or a mouse
+click, and text answers pre-filled with the current value to keep or edit (Tab
+completes file paths). Everything wraps to the window's width. It needs nothing
+installed beyond bash, also works over SSH, and leaves your terminal as it
+was. Run with `OURHOME_PLAIN=1` for plain typed prompts; without a keyboard
+(cron, `-y`) it never asks anything.
+
 ### Later runs and options
 
 Each later run asks once **"Change settings before deploying?"** Answer no (the

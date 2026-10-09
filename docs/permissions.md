@@ -102,7 +102,27 @@ app). The head's editor uses `GET /api/permissions`,
 `POST /api/permissions/role` and `POST /api/permissions/member`
 (`access: null` resets a member to the role default).
 
+## Who gets generated reminders
+
+The grid also decides who hears about overdue tasks, low stock and bills
+coming due, in the bell, by email and on the phone. Each reminder goes to the
+people tied to the subject plus that page's managers, meaning everyone whose
+grid allows **Edit others'** on the page:
+
+| Reminder | Tied to | Managers (defaults) |
+| --- | --- | --- |
+| Overdue task | assignee, creator | Tasks → Edit others' (head) |
+| Bill due / overdue | assigned person, creator | Bills → Edit others' (head, manager, member) |
+| Low / running-out stock | creator | Inventory → Edit others' (head, manager, member) |
+
+So a child or teen hears only about their own tasks and bills unless the head
+grants them more. Read state is per person: reading a notification never marks
+it read for anyone else.
+
 ## Changelog
+
+- **2026-10-08** — Generated reminders are targeted (table above) instead of
+  going to the whole household, and read state is per person.
 
 - **2026-10-08** — New roles **teen** and **child** (between member and
   guest) with tiered defaults (table above).

@@ -4,7 +4,9 @@ import {
   buildInventoryReminders,
   buildOverdueReminders,
   buildReminders,
+  reminderRecipients,
   selectNewReminders,
+  withManagers,
   type BillLike,
   type InventoryLike,
   type ReminderCandidate,
@@ -162,6 +164,7 @@ function candidate(partial: Partial<ReminderCandidate>): ReminderCandidate {
     body: null,
     subjectType: 'task',
     subjectId: 'c1',
+    audienceUserIds: [],
     ...partial,
   };
 }
@@ -225,5 +228,47 @@ describe('buildReminders idempotency', () => {
     const second = buildReminders(tasks, items, bills, NOW).map((c) => c.dedupeKey);
     expect(first).toEqual(second);
     expect(new Set(first).size).toBe(first.length); // no duplicates
+  });
+});
+
+describe('reminder audience', () => {
+  it('ties a task to its assignee and creator, once each', () => {
+    const [c] = buildOverdueReminders(
+      [task({ dueDate: iso('2026-06-20T12:00:00.000Z'), assigneeId: 'kid', createdById: 'kid' })],
+      NOW,
+    );
+    expect(c.audienceUserIds).toEqual(['kid']);
+  });
+
+  it('ties a bill to its assignee and creator, and stock to its creator', () => {
+    const [b] = buildBillReminders(
+      [bill({ dueDate: iso('2026-06-25T12:00:00.000Z'), assignedUserId: 'a', createdById: 'c' })],
+      NOW,
+    );
+    expect(b.audienceUserIds).toEqual(['a', 'c']);
+    const [i] = buildInventoryReminders([item({ isLow: true, createdById: 'c' })], NOW);
+    expect(i.audienceUserIds).toEqual(['c']);
+  });
+
+  it("adds each subject's page managers, without duplicates", () => {
+    const out = withManagers(
+      buildReminders(
+        [task({ dueDate: iso('2026-06-20T12:00:00.000Z'), assigneeId: 'kid', createdById: 'head' })],
+        [item({ isLow: true })],
+        [bill({ dueDate: iso('2026-06-25T12:00:00.000Z'), assignedUserId: 'teen' })],
+        NOW,
+      ),
+      { tasks: ['head'], bills: ['head', 'mgr'], inventory: ['head', 'mgr', 'mem'] },
+    );
+    const bySubject = Object.fromEntries(out.map((c) => [c.subjectType, c.audienceUserIds]));
+    expect(bySubject.task).toEqual(['kid', 'head']);
+    expect(bySubject.bill).toEqual(['teen', 'head', 'mgr']);
+    expect(bySubject.inventory_item).toEqual(['head', 'mgr', 'mem']);
+  });
+
+  it('emails only the audience', () => {
+    const c = candidate({ audienceUserIds: ['kid1', 'h'] });
+    const members = [{ id: 'h' }, { id: 'm' }, { id: 'kid1' }, { id: 'kid2' }];
+    expect(reminderRecipients(c, members).map((m) => m.id)).toEqual(['h', 'kid1']);
   });
 });

@@ -614,6 +614,14 @@ model Notification {
   // Stable key for idempotent generation, e.g. "overdue:task:<id>". Lets the
   // reminder generator upsert instead of creating duplicates on every run.
   dedupeKey   String?
+  // Generated reminders only: who sees it — the people tied to the subject
+  // (assignee, creator) plus that page's managers (grid "edit others").
+  // Refreshed on every sweep. Nobody outside it sees the reminder.
+  audienceUserIds String[] @default([])
+  // Per-person read state: who has read it. Reading never affects others.
+  readByUserIds String[] @default([])
+  // Legacy household-wide read flag: rows read before per-person read state
+  // stay read for everyone. No longer written.
   readAt      DateTime?
   createdAt   DateTime  @default(now())
 

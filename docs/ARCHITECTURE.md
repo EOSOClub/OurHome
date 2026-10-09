@@ -154,9 +154,10 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
   (`src/instrumentation.ts` → `reminderSweep`). The same sweep can be triggered
   via `/api/cron/reminders` (guarded by `CRON_SECRET`), and it also runs
   opportunistically when the notifications page is opened. Only the `in_app` channel is dispatched today; Home
-  Assistant / Discord channels are reserved seams. (Generated reminders are
-  also emailed when created; phone push currently covers requests and bug
-  reports only, see *Instant push*.)
+  Assistant / Discord channels are reserved seams. Each reminder carries its
+  audience (`audienceUserIds`): the people tied to the subject plus the page's
+  grid managers (`withManagers`; table in `docs/permissions.md`). Only they see
+  it in the bell, get its email when created, and get the push.
 - **Shopping & grocery.** `shoppingService` owns lists (create, rename, delete)
   and items (add, check-off, edit, delete, and a "clear bought" that deletes
   one-off items but un-checks recurring consumables). Marking an item purchased
@@ -198,8 +199,11 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
   (`emailed` / `email_failed` / `not_configured`) and logged; it never fails
   the submit. The Android app alerts the head once per new report (instant
   push, with the hourly poll as fallback).
-  Notifications with a `userId` are visible only to that user; rows without one
-  are household-wide (`notificationService.visibleTo`).
+  Notifications with a `userId` are visible only to that user; generated
+  reminders only to their audience; other rows without one are household-wide
+  (`notificationService.visibleTo`). Read state is per person
+  (`readByUserIds`); the old shared `readAt` is only read, for rows marked read
+  before the switch.
 - **Instant push (Android app).** Firebase Cloud Messaging, off until
   `FIREBASE_SERVICE_ACCOUNT` is set (in `.env`; setup in
   `docs/push-notifications.md`). The app registers its FCM
@@ -211,8 +215,9 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
   app's lock-screen rules cover every alert. Fire-and-forget: a failed push
   never fails the action; the phone catches up hourly. Sent on every request
   create/update/accept/complete/delete (to the requester, the handler, and
-  for a reassignment the previous assignee) and on each new bug report (to
-  `bugs:manage` holders). `server/push/fcm.ts` calls the FCM HTTP v1 API
+  for a reassignment the previous assignee), on each new bug report (to
+  `bugs:manage` holders), and when reminder generation creates a new reminder
+  (to its audience, `Notification.audienceUserIds`). `server/push/fcm.ts` calls the FCM HTTP v1 API
   directly (signed JWT → OAuth token) rather than `firebase-admin`, which needs
   Node 22+. Tokens FCM reports as dead are deleted.
 - **Permissions.** Role-based (`head`/`manager`/`member`/`teen`/`child`/`guest`)

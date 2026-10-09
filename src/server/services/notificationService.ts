@@ -6,32 +6,58 @@ import type {
   MarkReadInput,
 } from '@/lib/validation/notification';
 import { NotFoundError } from '@/server/services/errors';
+import { MANAGED_TYPES } from '@/server/services/reminderService';
 
 /**
- * Matches unread notifications. On MongoDB a `readAt: null` filter only matches
- * an explicit null, not a document where the field was never written — and
- * rows created without `readAt` have no such field. Without the `isSet: false`
- * branch those rows could never be marked read and were never counted as
- * unread (the "keeps coming back unread" bug).
+ * Matches notifications [userId] hasn't read. Read state is per person
+ * (`readByUserIds`), so one member reading a household notification doesn't
+ * clear it for anyone else.
+ *
+ * `readAt` is the old household-wide flag: rows marked read before the switch
+ * stay read for everyone, and nothing sets it any more. On MongoDB a
+ * `readAt: null` filter only matches an explicit null, not a document where
+ * the field was never written, hence the `isSet: false` branch (the "keeps
+ * coming back unread" bug).
  */
-const UNREAD = {
-  OR: [{ readAt: null }, { readAt: { isSet: false } }],
-} satisfies Prisma.NotificationWhereInput;
-
-/**
- * Notifications a user may see: household-wide ones (no userId — the reminder
- * generator's rows) plus those addressed to them (e.g. bug reports to the
- * head). Unset is matched alongside null for the same Mongo reason as UNREAD.
- */
-function visibleTo(householdId: string, userId: string): Prisma.NotificationWhereInput {
+function unreadBy(userId: string): Prisma.NotificationWhereInput {
   return {
-    householdId,
-    OR: [{ userId: null }, { userId: { isSet: false } }, { userId }],
+    AND: [
+      { OR: [{ readAt: null }, { readAt: { isSet: false } }] },
+      { NOT: { readByUserIds: { has: userId } } },
+    ],
   };
 }
 
-/** Map a Prisma notification to the serializable client DTO. */
-export function notificationToDTO(n: Notification): NotificationDTO {
+/**
+ * Notifications a user may see: those addressed to them (e.g. bug reports to
+ * the head), generated reminders whose audience includes them (the people
+ * tied to the task/bill/item plus that page's managers; see
+ * reminderService.withManagers), and other household-wide rows (e.g. a new
+ * app version). Unset is matched alongside null for the same Mongo reason as
+ * in [unreadBy].
+ */
+export function visibleTo(householdId: string, userId: string): Prisma.NotificationWhereInput {
+  return {
+    householdId,
+    OR: [
+      { userId },
+      {
+        AND: [
+          { OR: [{ userId: null }, { userId: { isSet: false } }] },
+          {
+            OR: [
+              { type: { notIn: MANAGED_TYPES } },
+              { audienceUserIds: { has: userId } },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+}
+
+/** Map a Prisma notification to the serializable client DTO, as [userId] sees it. */
+export function notificationToDTO(n: Notification, userId: string): NotificationDTO {
   return {
     id: n.id,
     type: n.type,
@@ -40,7 +66,7 @@ export function notificationToDTO(n: Notification): NotificationDTO {
     channel: n.channel,
     subjectType: n.subjectType,
     subjectId: n.subjectId,
-    read: n.readAt != null,
+    read: n.readAt != null || n.readByUserIds.includes(userId),
     createdAt: n.createdAt.toISOString(),
   };
 }
@@ -52,10 +78,10 @@ export interface NotificationList {
 }
 
 /**
- * List the notifications [userId] can see (newest first) plus the unread count
- * across ALL of them (not just this page). Pass `before` (the id of the oldest
- * already-loaded notification) to page further back; `hasMore` reports whether
- * older notifications exist past the returned page.
+ * List the notifications [userId] can see (newest first) plus their unread
+ * count across ALL of them (not just this page). Pass `before` (the id of the
+ * oldest already-loaded notification) to page further back; `hasMore` reports
+ * whether older notifications exist past the returned page.
  */
 export async function listNotifications(
   householdId: string,
@@ -63,9 +89,10 @@ export async function listNotifications(
   query: ListNotificationsQuery & { before?: string },
 ): Promise<NotificationList> {
   const visible = visibleTo(householdId, userId);
+  const unread = unreadBy(userId);
   const [rows, unreadCount] = await Promise.all([
     prisma.notification.findMany({
-      where: { AND: [visible, ...(query.unreadOnly ? [UNREAD] : [])] },
+      where: { AND: [visible, ...(query.unreadOnly ? [unread] : [])] },
       // `id` tiebreak keeps the order (and thus the cursor) stable when rows
       // share a createdAt.
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -73,12 +100,12 @@ export async function listNotifications(
       take: query.limit + 1,
       ...(query.before ? { cursor: { id: query.before }, skip: 1 } : {}),
     }),
-    prisma.notification.count({ where: { AND: [visible, UNREAD] } }),
+    prisma.notification.count({ where: { AND: [visible, unread] } }),
   ]);
 
   const hasMore = rows.length > query.limit;
   return {
-    items: rows.slice(0, query.limit).map(notificationToDTO),
+    items: rows.slice(0, query.limit).map((n) => notificationToDTO(n, userId)),
     unreadCount,
     hasMore,
   };
@@ -86,28 +113,30 @@ export async function listNotifications(
 
 /**
  * Mark a single notification (by id) or all of the notifications [userId] can
- * see as read. Scoped to what they can see, so members can't touch other
- * households' rows or notifications addressed to someone else.
+ * see as read — for [userId] only. Scoped to what they can see, so members
+ * can't touch other households' rows or notifications addressed to someone
+ * else.
  */
 export async function markRead(
   householdId: string,
   userId: string,
   input: MarkReadInput,
 ): Promise<{ updated: number }> {
-  const now = new Date();
   const visible = visibleTo(householdId, userId);
+  const unread = unreadBy(userId);
+  const data = { readByUserIds: { push: userId } };
 
   if (input.all) {
     const res = await prisma.notification.updateMany({
-      where: { AND: [visible, UNREAD] },
-      data: { readAt: now },
+      where: { AND: [visible, unread] },
+      data,
     });
     return { updated: res.count };
   }
 
   const res = await prisma.notification.updateMany({
-    where: { AND: [visible, UNREAD, { id: input.id }] },
-    data: { readAt: now },
+    where: { AND: [visible, unread, { id: input.id }] },
+    data,
   });
   if (res.count === 0) {
     // Either already read or not visible to this user; distinguish "not found".

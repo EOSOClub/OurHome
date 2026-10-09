@@ -3,8 +3,10 @@
 Out of the box, the [Android app](https://github.com/EOSOClub/OurHomeApp)
 checks the server about once an hour in the background. With Firebase set up,
 the server pushes a "something changed" signal the moment a request is made,
-assigned, accepted, finished or withdrawn, or a bug report comes in. The phone
-then checks right away and alerts within seconds.
+assigned, accepted, finished or withdrawn, a bug report comes in, a new app
+build is announced, or the 15-minute reminder sweep creates a new bell reminder
+(overdue task, low or soon-depleted stock, bill coming due). The phone then
+checks right away and alerts within seconds.
 
 **What goes through Google:** only `{ type: "sync", reason: "request" }` and a
 device token. The phone fetches the details from your server and builds the

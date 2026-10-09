@@ -12,7 +12,10 @@ import {
   ShoppingBag,
   UserRound,
 } from 'lucide-react';
-import type { ProfileOverview } from '@/server/services/profileService';
+import type { HouseholdProfile, ProfileOverview } from '@/server/services/profileService';
+import { AboutMeCard } from '@/components/profile/about-me-card';
+import { HouseholdCard } from '@/components/profile/household-card';
+import { ProfileAvatar } from '@/components/profile/profile-avatar';
 import type { AppRelease } from '@/server/services/appDownloadService';
 import { AndroidAppCard } from '@/components/profile/android-app-card';
 import { changePassword, updateUser } from '@/lib/auth-client';
@@ -36,19 +39,30 @@ const STAT_LINK_CLASS =
 
 export function ProfileView({
   overview,
+  household,
   appRelease,
 }: {
   overview: ProfileOverview;
+  /** Everyone's about-me fields (the household directory). */
+  household: HouseholdProfile[];
   /** The Android app built on this server, if any. */
   appRelease: AppRelease | null;
 }) {
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Profile</h1>
-        <p className="text-sm text-muted-foreground">
-          Manage your account details and password.
-        </p>
+      <div className="flex items-center gap-3">
+        <ProfileAvatar
+          name={overview.name}
+          emoji={overview.profile.avatarEmoji}
+          color={overview.profile.profileColor}
+          size="lg"
+        />
+        <div>
+          <h1 className="text-2xl font-semibold">Profile</h1>
+          <p className="text-sm text-muted-foreground">
+            Your about-me, account details and password.
+          </p>
+        </div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
@@ -76,6 +90,8 @@ export function ProfileView({
         </Link>
       </div>
 
+      <AboutMeCard overview={overview} />
+      {household.length > 1 ? <HouseholdCard members={household} userId={overview.id} /> : null}
       <OverviewCard overview={overview} />
       {appRelease && <AndroidAppCard release={appRelease} />}
       <EditProfileCard overview={overview} />

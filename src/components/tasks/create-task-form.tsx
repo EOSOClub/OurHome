@@ -50,6 +50,8 @@ export interface TaskFormPayload {
   pointsFollowTime: boolean;
   categoryId?: string | null;
   assigneeId?: string | null;
+  // Rotating assignees in turn order; [] clears (src/lib/taskRotation.ts).
+  rotationUserIds: string[];
   // object when recurring, null to clear, undefined to leave unchanged
   recurrence?: TaskRecurrencePayload | null;
   // The whole checklist as edited (existing items keep their id).
@@ -115,6 +117,9 @@ export function CreateTaskForm({
   const [points, setPoints] = useState<PointsDraft>(() => draftFromTask(initial));
   const [categoryId, setCategoryId] = useState(initial?.category?.id ?? '');
   const [assigneeId, setAssigneeId] = useState(initial?.assignee?.id ?? '');
+  const [rotation, setRotation] = useState<string[]>(
+    () => initial?.rotation?.map((m) => m.id) ?? [],
+  );
   const [recurKind, setRecurKind] = useState(initial?.recurrence?.kind ?? 'weekly');
   const [interval, setInterval] = useState(initial?.recurrence?.interval ?? 1);
   const [weekdays, setWeekdays] = useState<number[]>(
@@ -133,6 +138,14 @@ export function CreateTaskForm({
   );
 
   const isRecurring = type === 'recurring';
+  // Turns only move on when a recurring task does, so rotation needs it.
+  const rotating = isRecurring && rotation.length >= 2;
+  const turnMembers = rotating
+    ? rotation
+        .map((id) => members.find((m) => m.id === id))
+        .filter((m): m is MemberDTO => !!m)
+    : members;
+  const currentTurn = rotating && !rotation.includes(assigneeId) ? rotation[0] : assigneeId;
   // Weekly/monthly cycles need their start days (the server checks too).
   const cycleIncomplete =
     isRecurring &&
@@ -161,7 +174,8 @@ export function CreateTaskForm({
       points: points.task.pointsFollowTime || points.task.basePointsCenti === null ? null : points.task.basePointsCenti / 100,
       pointsFollowTime: points.task.pointsFollowTime,
       categoryId: categoryId || null,
-      assigneeId: assigneeId || null,
+      assigneeId: currentTurn || null,
+      rotationUserIds: rotating ? rotation : [],
       subtasks: points.steps
         .filter((s) => s.title.trim())
         .map((s) => ({
@@ -275,14 +289,14 @@ export function CreateTaskForm({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="assignee">Assignee</Label>
+              <Label htmlFor="assignee">{rotating ? 'Whose turn now' : 'Assignee'}</Label>
               <Select
                 id="assignee"
-                value={assigneeId}
+                value={currentTurn}
                 onChange={(e) => setAssigneeId(e.target.value)}
               >
-                <option value="">Unassigned</option>
-                {members.map((m) => (
+                {rotating ? null : <option value="">Unassigned</option>}
+                {turnMembers.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.name}
                   </option>
@@ -412,6 +426,50 @@ export function CreateTaskForm({
                   value={until}
                   onChange={(e) => setUntil(e.target.value)}
                 />
+              </div>
+
+              <div className="space-y-2 border-t border-border pt-4">
+                <Label>Take turns (optional)</Label>
+                <p className="text-xs text-muted-foreground">
+                  Pick people in turn order. Each time the task is done
+                  {rollover ? ' or its cycle ends (even if missed)' : ''}, it passes to the next person.
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {members.map((m) => {
+                    const turn = rotation.indexOf(m.id);
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        aria-pressed={turn >= 0}
+                        onClick={() =>
+                          setRotation((p) =>
+                            p.includes(m.id) ? p.filter((id) => id !== m.id) : [...p, m.id],
+                          )
+                        }
+                        className={cn(
+                          'inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-sm transition-colors',
+                          turn >= 0
+                            ? 'border-primary bg-primary text-primary-foreground'
+                            : 'border-input hover:bg-accent',
+                        )}
+                      >
+                        {turn >= 0 ? (
+                          <span className="text-xs font-semibold tabular-nums">{turn + 1}</span>
+                        ) : null}
+                        {m.name}
+                      </button>
+                    );
+                  })}
+                </div>
+                {rotation.length === 1 ? (
+                  <p className="text-xs text-muted-foreground">Pick at least two people to take turns.</p>
+                ) : null}
+                {rotation.length > 0 ? (
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setRotation([])}>
+                    Clear turns
+                  </Button>
+                ) : null}
               </div>
 
               <div className="space-y-2 border-t border-border pt-4">

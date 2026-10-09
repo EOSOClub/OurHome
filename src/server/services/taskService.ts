@@ -40,6 +40,12 @@ import {
 } from '@/lib/taskPoints';
 import { cycleStartAt, nextCycleStart, type CycleSpec } from '@/lib/taskCycles';
 import {
+  assigneeForRotation,
+  formatRotation,
+  nextInRotation,
+  parseRotation,
+} from '@/lib/taskRotation';
+import {
   UNDO_WINDOW_MS,
   canUndo,
   checkOutcome,
@@ -101,6 +107,9 @@ function member(id: string | null | undefined, names: Map<string, string>) {
 export function taskToDTO(task: TaskWithRelations, ctx: TaskContext): TaskDTO {
   const state = effectivePoints(task, ctx.settings.minutesPerPoint);
   const live = liveTotals(state);
+  // People who left the household drop out of the rotation.
+  const rotation = parseRotation(task.rotationUserIds).filter((id) => ctx.names.has(id));
+  const next = rotation.length >= 2 ? nextInRotation(rotation, task.assigneeId) : null;
   return {
     id: task.id,
     createdById: task.createdById,
@@ -126,6 +135,8 @@ export function taskToDTO(task: TaskWithRelations, ctx: TaskContext): TaskDTO {
     assignee: task.assignee
       ? { id: task.assignee.id, name: task.assignee.name }
       : null,
+    rotation: rotation.length >= 2 ? rotation.map((id) => member(id, ctx.names)!) : [],
+    nextAssignee: member(next, ctx.names),
     recurrence: task.recurrence
       ? {
           kind: task.recurrence.kind,
@@ -247,6 +258,47 @@ function cycleWindow(rule: RuleRow | null | undefined, tz: string, now: Date) {
 
 const UNCHECKED = { done: false, doneAt: null, doneById: null, checkAwardId: null, autoResetAt: null };
 
+// --- Rotating assignees (src/lib/taskRotation.ts) ---------------------------------
+
+/** The rotation's ids that are (still) household members, in order. */
+async function liveRotation(db: Tx, householdId: string, ids: readonly string[]): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const members = await db.user.findMany({
+    where: { householdId, id: { in: [...ids] } },
+    select: { id: true },
+  });
+  const ok = new Set(members.map((m) => m.id));
+  return ids.filter((id) => ok.has(id));
+}
+
+/** Columns for a save that sets the rotation: the stored list plus the
+ *  assignee it leaves (see assigneeForRotation). */
+async function rotationColumns(
+  db: Tx,
+  householdId: string,
+  requested: readonly string[] | null,
+  assigneeId: string | null | undefined,
+  currentAssigneeId: string | null,
+) {
+  const rotation = parseRotation(formatRotation(await liveRotation(db, householdId, requested ?? [])));
+  return {
+    rotationUserIds: formatRotation(rotation),
+    assigneeId: rotation.length ? assigneeForRotation(rotation, assigneeId, currentAssigneeId) : assigneeId,
+  };
+}
+
+/** The assignee `steps` turns on, or undefined when the task doesn't rotate. */
+async function rotatedAssignee(
+  db: Tx,
+  householdId: string,
+  task: { rotationUserIds: string | null; assigneeId: string | null },
+  steps: number,
+): Promise<string | undefined> {
+  const rotation = await liveRotation(db, householdId, parseRotation(task.rotationUserIds));
+  if (rotation.length < 2 || steps < 1) return undefined;
+  return nextInRotation(rotation, task.assigneeId, steps) ?? undefined;
+}
+
 /** Cap on missed cycles recorded in one catch-up (e.g. after downtime). */
 const MAX_MISSED_PER_ROLL = 60;
 
@@ -285,7 +337,9 @@ async function rollOne(tx: Tx, householdId: string, taskId: string, settings: Po
   let end = task.cycleEndsAt;
   let unfinished = task.status === 'pending' || task.status === 'in_progress';
   let missed = 0;
+  let ended = 0; // windows that closed: one rotation turn each, done or not
   while (end <= now) {
+    ended += 1;
     if (unfinished && missed < MAX_MISSED_PER_ROLL) {
       await tx.taskCompletion.create({
         data: { taskId: task.id, userId: null, outcome: 'missed', completedAt: end },
@@ -306,9 +360,10 @@ async function rollOne(tx: Tx, householdId: string, taskId: string, settings: Po
   await tx.pendingCredit.deleteMany({ where: { taskId: task.id } });
   await tx.subtask.updateMany({ where: { taskId: task.id }, data: UNCHECKED });
   await tx.recurrenceRule.update({ where: { id: task.recurrence.id }, data: { nextRunAt: dueDate } });
+  const assigneeId = await rotatedAssignee(tx, householdId, task, ended);
   await tx.task.update({
     where: { id: task.id },
-    data: { status: 'pending', completedAt: null, dueDate, cycleStartedAt: start, cycleEndsAt: end },
+    data: { status: 'pending', completedAt: null, dueDate, cycleStartedAt: start, cycleEndsAt: end, assigneeId },
   });
   if (missed > 0) {
     await logActivity(
@@ -402,6 +457,7 @@ export async function createTask(
   const now = new Date();
 
   return prisma.$transaction(async (tx) => {
+    const rotation = await rotationColumns(tx, householdId, input.rotationUserIds ?? null, input.assigneeId ?? null, null);
     let rule: RuleRow | null = null;
     if (input.recurrence) {
       rule = await tx.recurrenceRule.create({
@@ -420,7 +476,8 @@ export async function createTask(
         ...taskPointsColumns(state),
         ...cycleWindow(rule, settings.timezone, now),
         categoryId: input.categoryId ?? null,
-        assigneeId: input.assigneeId ?? null,
+        assigneeId: rotation.assigneeId ?? null,
+        rotationUserIds: rotation.rotationUserIds,
         createdById: userId,
         recurrenceId: rule?.id,
         subtasks: state.steps.length
@@ -540,7 +597,7 @@ export async function updateTask(
   userId: string,
   input: UpdateTaskInput,
 ): Promise<TaskWithRelations> {
-  const { taskId, recurrence, subtasks, ...rest } = input;
+  const { taskId, recurrence, subtasks, rotationUserIds, ...rest } = input;
   const settings = await getPointsSettings(householdId);
   const now = new Date();
 
@@ -627,6 +684,14 @@ export async function updateTask(
       if (changed) await writePoints(tx, taskId, existing.subtasks.map((s) => s.id), state);
     }
 
+    // Rotation: saving a list puts the assignee on it (whose turn it is now).
+    // Without one (older clients), a hand-picked assignee is taken as is —
+    // someone covering a turn; the next turn then starts the list over.
+    const assignment =
+      rotationUserIds !== undefined
+        ? await rotationColumns(tx, householdId, rotationUserIds, rest.assigneeId, existing.assigneeId)
+        : { assigneeId: rest.assigneeId };
+
     const task = await tx.task.update({
       where: { id: taskId },
       data: {
@@ -637,7 +702,7 @@ export async function updateTask(
         status: rest.status,
         dueDate: rest.dueDate,
         categoryId: rest.categoryId,
-        assigneeId: rest.assigneeId,
+        ...assignment,
         recurrenceId,
         ...(cycle ?? {}),
       },
@@ -766,6 +831,7 @@ export async function completeTask(
       nextRunAt: existing.recurrence?.nextRunAt?.toISOString() ?? null,
       cycleStartedAt: existing.cycleStartedAt?.toISOString() ?? null,
       cycleEndsAt: existing.cycleEndsAt?.toISOString() ?? null,
+      assigneeId: existing.assigneeId,
       steps: existing.subtasks.map((s) => ({
         id: s.id,
         done: s.done,
@@ -840,7 +906,8 @@ export async function completeTask(
         where: { id: existing.recurrence.id },
         data: { nextRunAt: next },
       });
-      // The task starts its next occurrence fresh: uncheck the whole checklist.
+      // The task starts its next occurrence fresh: uncheck the whole checklist,
+      // and a rotating task passes to the next person.
       await tx.subtask.updateMany({ where: { taskId: existing.id }, data: UNCHECKED });
       task = await tx.task.update({
         where: { id: existing.id },
@@ -848,6 +915,7 @@ export async function completeTask(
           status: 'pending',
           completedAt: null,
           dueDate: next ?? existing.dueDate,
+          assigneeId: await rotatedAssignee(tx, householdId, existing, 1),
         },
         include: taskInclude,
       });
@@ -967,6 +1035,8 @@ export async function undoCompletion(
         status: snapshot.status,
         completedAt: date(snapshot.completedAt),
         dueDate: date(snapshot.dueDate),
+        // A rotation that moved on completing moves back (absent in older snapshots).
+        ...(snapshot.assigneeId !== undefined ? { assigneeId: snapshot.assigneeId } : {}),
       },
       include: taskInclude,
     });

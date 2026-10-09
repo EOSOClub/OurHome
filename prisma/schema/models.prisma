@@ -82,6 +82,14 @@ model User {
   // Per-member page-access overrides on top of the role's grid, as JSON text
   // (AccessOverrides in src/lib/permissions.ts). null = role defaults only.
   accessOverrides String?
+  // Self-chosen profile (the user edits these on Profile; every member can
+  // see them). avatarEmoji: one emoji shown instead of initials; profileColor:
+  // a PROFILE_COLORS key (src/lib/profile.ts); birthday: "MM-DD" (no year).
+  bio           String?
+  pronouns      String?
+  avatarEmoji   String?
+  profileColor  String?
+  birthday      String?
   // Audit: which user provisioned this member (plain id, no relation).
   createdById   String?
   householdId   String?
@@ -212,6 +220,10 @@ model Task {
   cycleEndsAt      DateTime?
   categoryId  String?
   assigneeId  String?
+  // Rotating assignees (src/lib/taskRotation.ts): member ids in turn order,
+  // comma-separated. The assignee moves to the next one each time a recurring
+  // task moves on (completed, or a cycle ends). null = no rotation.
+  rotationUserIds String?
   createdById String?
   recurrenceId String?
   createdAt   DateTime  @default(now())

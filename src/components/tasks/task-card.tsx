@@ -13,6 +13,7 @@ import {
   Repeat,
   Star,
   Trash2,
+  Users,
 } from 'lucide-react';
 import type { TaskDTO } from '@/lib/types';
 import { formatPoints, toCenti } from '@/lib/taskPoints';
@@ -198,6 +199,16 @@ export function TaskCard({
             {task.assignee ? (
               <span className="text-muted-foreground">
                 · {task.assignee.name}
+                {task.rotation?.length ? '’s turn' : ''}
+              </span>
+            ) : null}
+            {task.nextAssignee ? (
+              <span
+                className="inline-flex items-center gap-1 text-muted-foreground"
+                title={`Takes turns: ${task.rotation.map((m) => m.name).join(' → ')}`}
+              >
+                <Users className="size-3" />
+                next {task.nextAssignee.name}
               </span>
             ) : null}
             {task.estimatedMinutes ? (

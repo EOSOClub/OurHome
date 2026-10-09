@@ -1,5 +1,12 @@
 import { z } from 'zod';
 import { USER_ROLES } from '@/lib/enums';
+import {
+  BIO_MAX,
+  PRONOUNS_MAX,
+  PROFILE_COLOR_KEYS,
+  isBirthday,
+  type ProfileColor,
+} from '@/lib/profile';
 
 // Mirrors the Better Auth username plugin defaults (3–30 chars). Letters,
 // numbers, and . _ - so display names like "jane.d" work.
@@ -59,14 +66,41 @@ export type RenameHouseholdInput = z.infer<typeof renameHouseholdSchema>;
 export const accessSettingsSchema = z.object({ allowHttp: z.boolean() });
 export type AccessSettingsInput = z.infer<typeof accessSettingsSchema>;
 
+/** Exactly one emoji (one grapheme with a pictograph or a flag in it). */
+function isSingleEmoji(v: string): boolean {
+  if (v.length > 32) return false;
+  const graphemes = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(v)];
+  return graphemes.length === 1 && /\p{Extended_Pictographic}|\p{Regional_Indicator}/u.test(v);
+}
+
+// Optional profile text: blank clears it (stored as null).
+const optionalText = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .transform((v) => (v === '' ? null : v))
+    .nullable()
+    .optional();
+
 // Self-service profile edits (the signed-in user editing their own account).
+// The "about me" fields: omitted = unchanged, null or "" = cleared.
 export const updateProfileSchema = z
   .object({
     name: nameSchema.optional(),
     username: usernameSchema.optional(),
     email: z.string().trim().email().max(160).optional(),
+    bio: optionalText(BIO_MAX),
+    pronouns: optionalText(PRONOUNS_MAX),
+    avatarEmoji: optionalText(32).refine((v) => v == null || isSingleEmoji(v), {
+      message: 'Pick a single emoji.',
+    }),
+    profileColor: z.enum(PROFILE_COLOR_KEYS as [ProfileColor, ...ProfileColor[]]).nullable().optional(),
+    birthday: optionalText(5).refine((v) => v == null || isBirthday(v), {
+      message: 'Birthday must be a real MM-DD day.',
+    }),
   })
-  .refine((v) => v.name || v.username || v.email, {
+  .refine((v) => Object.values(v).some((x) => x !== undefined), {
     message: 'Nothing to update.',
   });
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;

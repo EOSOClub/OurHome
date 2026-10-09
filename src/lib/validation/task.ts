@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MAX_ROTATION } from '@/lib/taskRotation';
 import {
   RECURRENCE_KINDS,
   TASK_PRIORITIES,
@@ -70,6 +71,10 @@ const subtaskInputSchema = z.object({
 
 export type SubtaskInput = z.infer<typeof subtaskInputSchema>;
 
+// Rotating assignees: member ids in turn order (src/lib/taskRotation.ts).
+// Fewer than two distinct people clears the rotation.
+const rotationSchema = z.array(z.string().cuid()).max(MAX_ROTATION);
+
 export const createTaskSchema = z.object({
   title: z.string().trim().min(1).max(200),
   notes: z.string().trim().max(2000).optional(),
@@ -83,6 +88,7 @@ export const createTaskSchema = z.object({
   pointsFollowTime: z.boolean().optional(),
   categoryId: z.string().cuid().optional().nullable(),
   assigneeId: z.string().cuid().optional().nullable(),
+  rotationUserIds: rotationSchema.optional().nullable(),
   recurrence: recurrenceInputSchema.optional(),
   subtasks: z.array(subtaskInputSchema).max(50).optional(),
 });
@@ -104,6 +110,8 @@ export const updateTaskSchema = z.object({
   pointsFollowTime: z.boolean().optional(),
   categoryId: z.string().cuid().optional().nullable(),
   assigneeId: z.string().cuid().optional().nullable(),
+  // When present, replaces the rotation; `null` or [] clears it.
+  rotationUserIds: rotationSchema.optional().nullable(),
   // When present, replaces the task's recurrence rule. `null` clears it.
   recurrence: recurrenceInputSchema.optional().nullable(),
   // When present, the whole checklist as the editor left it: items with an

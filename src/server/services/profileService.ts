@@ -1,6 +1,7 @@
 import { prisma } from '@/server/db/prisma';
 import { ConflictError, NotFoundError } from '@/server/services/errors';
 import type { UpdateProfileInput } from '@/lib/validation/user';
+import { publicProfile, type PublicProfile } from '@/lib/profile';
 
 export interface ProfileOverview {
   id: string;
@@ -10,6 +11,8 @@ export interface ProfileOverview {
   role: string;
   householdName: string | null;
   memberSince: string;
+  /** About-me fields every member can see (src/lib/profile.ts). */
+  profile: PublicProfile;
   stats: {
     tasksCompleted: number;
     openAssignedTasks: number;
@@ -39,6 +42,11 @@ export async function getProfileOverview(
           username: true,
           role: true,
           createdAt: true,
+          bio: true,
+          pronouns: true,
+          avatarEmoji: true,
+          profileColor: true,
+          birthday: true,
           household: { select: { name: true } },
         },
       }),
@@ -62,11 +70,12 @@ export async function getProfileOverview(
     role: user.role,
     householdName: user.household?.name ?? null,
     memberSince: user.createdAt.toISOString(),
+    profile: publicProfile(user),
     stats: { tasksCompleted, openAssignedTasks, purchasesLogged },
   };
 }
 
-/** Update the signed-in user's own name / username / email. */
+/** Update the signed-in user's own name / username / email / about-me fields. */
 export async function updateProfile(
   userId: string,
   input: UpdateProfileInput,
@@ -95,10 +104,41 @@ export async function updateProfile(
       username: username ?? undefined,
       displayUsername: displayUsername ?? undefined,
       email: email ?? undefined,
+      // undefined = unchanged; null = cleared (the schema turns "" into null).
+      bio: input.bio,
+      pronouns: input.pronouns,
+      avatarEmoji: input.avatarEmoji,
+      profileColor: input.profileColor,
+      birthday: input.birthday,
     },
   });
 
   return getProfileOverview(userId);
+}
+
+export interface HouseholdProfile extends PublicProfile {
+  id: string;
+  name: string;
+  role: string;
+}
+
+/** Everyone in the household with their about-me fields, by name. */
+export async function listHouseholdProfiles(householdId: string): Promise<HouseholdProfile[]> {
+  const rows = await prisma.user.findMany({
+    where: { householdId },
+    select: {
+      id: true,
+      name: true,
+      role: true,
+      bio: true,
+      pronouns: true,
+      avatarEmoji: true,
+      profileColor: true,
+      birthday: true,
+    },
+    orderBy: { name: 'asc' },
+  });
+  return rows.map((u) => ({ id: u.id, name: u.name, role: u.role, ...publicProfile(u) }));
 }
 
 /**

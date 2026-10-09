@@ -163,6 +163,10 @@ export interface TaskDTO {
   cycleEndsAt: string | null;
   category: CategoryDTO | null;
   assignee: MemberDTO | null;
+  /** Rotating assignees in turn order ([] = no rotation; src/lib/taskRotation.ts). */
+  rotation: MemberDTO[];
+  /** Whose turn comes after the current assignee (null without a rotation). */
+  nextAssignee: MemberDTO | null;
   recurrence: RecurrenceDTO | null;
   subtasks: SubtaskDTO[];
 }

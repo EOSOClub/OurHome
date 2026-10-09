@@ -101,6 +101,23 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
 
 ## Feature systems
 
+- **Rotating assignees.** `Task.rotationUserIds` holds member ids in turn
+  order (comma-separated; fewer than two = no rotation). Pure rules in
+  `lib/taskRotation.ts` (+ test); `taskService` applies them: completing a
+  recurring task without cycles passes it to the next person; with cycles,
+  each cycle that ends (done *or* missed) is one turn, applied in
+  `rollTaskCycles`. Undo restores the assignee (`CompletionSnapshot.assigneeId`).
+  Saving a rotation puts the assignee on it ("whose turn now"); a hand-picked
+  assignee without a rotation in the request (older app) is kept as a stand-in,
+  and the next turn then goes to the first person. Members who leave drop out.
+  The DTO carries `rotation` + `nextAssignee`. Edited in the task form's
+  "Take turns" (recurring tasks only), on web and app.
+- **Profiles.** `User.bio/pronouns/avatarEmoji/profileColor/birthday` — the
+  user's own "About me" (`PATCH /api/profile`; blank clears; one emoji;
+  colour keys and `MM-DD` birthdays in `lib/profile.ts`, mirrored in the app's
+  `data/ProfileStyle.kt`). Every member can read everyone's via
+  `GET /api/household/members` (also the picker list; now with role) — shown
+  as the Household card on Profile. Emails stay behind `members:manage`.
 - **Bills.** `billService` owns bills, payments (partial payments, card fees),
   and recurrence; `billIngestService` turns a parsed bill document into
   bills/payments, matching by reference, account number, then biller

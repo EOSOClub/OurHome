@@ -5,7 +5,7 @@ import {
   requirePermission,
   withAuth,
 } from '@/server/api/http';
-import { updateSubtask, taskToDTO } from '@/server/services/taskService';
+import { updateSubtask, taskDTO } from '@/server/services/taskService';
 import { recordOwner } from '@/server/services/permissionService';
 import { updateSubtaskSchema } from '@/lib/validation/task';
 
@@ -34,5 +34,5 @@ export const POST = withAuth(async (ctx) => {
     id: ctx.user.id,
     role: ctx.user.role,
   });
-  return ok(taskToDTO(task));
+  return ok(await taskDTO(householdId, task));
 });

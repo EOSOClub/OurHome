@@ -10,6 +10,7 @@ import {
   ListChecks,
   Receipt,
   ShoppingCart,
+  Trophy,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -21,7 +22,11 @@ const items = [
   { href: '/inventory', label: 'Inventory', short: 'Stock', icon: Boxes },
   { href: '/bills', label: 'Bills', short: 'Bills', icon: Receipt },
   { href: '/requests', label: 'Requests', short: 'Requests', icon: Inbox },
+  // Desktop only: the phone bar is full; Tasks links to it there.
+  { href: '/points', label: 'Points', short: 'Points', icon: Trophy, topOnly: true },
 ];
+
+const bottomItems = items.filter((i) => !i.topOnly);
 
 export function AppNav({ variant }: { variant: 'top' | 'bottom' }) {
   const pathname = usePathname();
@@ -33,10 +38,10 @@ export function AppNav({ variant }: { variant: 'top' | 'bottom' }) {
       <nav
         className="fixed inset-x-0 bottom-0 z-20 grid border-t border-border bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
         style={{
-          gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))`,
+          gridTemplateColumns: `repeat(${bottomItems.length}, minmax(0, 1fr))`,
         }}
       >
-        {items.map(({ href, short, icon: Icon }) => (
+        {bottomItems.map(({ href, short, icon: Icon }) => (
           <Link
             key={href}
             href={href}

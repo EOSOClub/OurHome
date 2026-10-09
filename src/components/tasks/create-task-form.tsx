@@ -1,8 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronDown, ChevronUp, Loader2, Plus, X } from 'lucide-react';
-import type { CategoryDTO, MemberDTO, SubtaskDTO, TaskDTO } from '@/lib/types';
+import { Loader2 } from 'lucide-react';
+import type { CategoryDTO, MemberDTO, TaskDTO } from '@/lib/types';
 import {
   TASK_PRIORITIES,
   TASK_TYPES,
@@ -16,7 +16,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { SubtaskRow } from '@/components/tasks/subtask-row';
+import {
+  PointsEditor,
+  draftFromTask,
+  type PointsDraft,
+} from '@/components/tasks/points-editor';
 
 const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 const WEEKDAY_VALUES = [1, 2, 3, 4, 5];
@@ -29,6 +33,9 @@ export interface TaskRecurrencePayload {
   byMonthday?: number[];
   timezone: string;
   until?: string | null;
+  rollover: boolean;
+  cycleWeekdays?: number[] | null;
+  cycleMonthdays?: number[] | null;
 }
 
 export interface TaskFormPayload {
@@ -37,13 +44,25 @@ export interface TaskFormPayload {
   type: string;
   priority: string;
   dueDate?: string | null;
+  // Task-level time/points (src/lib/taskPoints.ts "base").
   estimatedMinutes?: number | null;
+  points?: number | null;
+  pointsFollowTime: boolean;
   categoryId?: string | null;
   assigneeId?: string | null;
   // object when recurring, null to clear, undefined to leave unchanged
   recurrence?: TaskRecurrencePayload | null;
-  // create mode only: initial checklist
-  subtasks?: { title: string; done: boolean }[];
+  // The whole checklist as edited (existing items keep their id).
+  subtasks: {
+    id?: string;
+    title: string;
+    done: boolean;
+    resetIntervalDays: number | null;
+    minutes: number;
+    points: number;
+    minutesCustom: boolean;
+    pointsFollowTime: boolean;
+  }[];
 }
 
 function parseList(value: string | null): number[] {
@@ -72,7 +91,7 @@ export function CreateTaskForm({
   submitting,
   onSubmit,
   onCancel,
-  checklist,
+  minutesPerPoint,
 }: {
   categories: CategoryDTO[];
   members: MemberDTO[];
@@ -80,21 +99,8 @@ export function CreateTaskForm({
   submitting: boolean;
   onSubmit: (payload: TaskFormPayload) => void;
   onCancel: () => void;
-  /**
-   * Edit mode only: live checklist management. Items already exist on the
-   * server, so these actions apply immediately (independent of Save/Cancel).
-   */
-  checklist?: {
-    subtasks: SubtaskDTO[];
-    onAdd: (title: string) => void;
-    onToggle: (subtaskId: string, done: boolean) => void;
-    onSave: (
-      subtaskId: string,
-      patch: { title: string; resetIntervalDays: number | null },
-    ) => void;
-    onDelete: (subtaskId: string) => void;
-    onMove: (subtaskId: string, direction: -1 | 1) => void;
-  };
+  /** Household rate (points settings), for live points. */
+  minutesPerPoint: number;
 }) {
   const isEdit = !!initial;
   const initialDue = splitDateTime(initial?.dueDate ?? null);
@@ -106,9 +112,7 @@ export function CreateTaskForm({
   const [priority, setPriority] = useState(initial?.priority ?? 'medium');
   const [dueDate, setDueDate] = useState(initialDue.date);
   const [dueTime, setDueTime] = useState(initialDue.time);
-  const [estimatedMinutes, setEstimatedMinutes] = useState(
-    initial?.estimatedMinutes != null ? String(initial.estimatedMinutes) : '',
-  );
+  const [points, setPoints] = useState<PointsDraft>(() => draftFromTask(initial));
   const [categoryId, setCategoryId] = useState(initial?.category?.id ?? '');
   const [assigneeId, setAssigneeId] = useState(initial?.assignee?.id ?? '');
   const [recurKind, setRecurKind] = useState(initial?.recurrence?.kind ?? 'weekly');
@@ -120,10 +124,21 @@ export function CreateTaskForm({
     parseList(initial?.recurrence?.byMonthday ?? null),
   );
   const [until, setUntil] = useState(initialUntil.date);
-  const [subtasks, setSubtasks] = useState<string[]>([]);
-  const [subtaskDraft, setSubtaskDraft] = useState('');
+  const [rollover, setRollover] = useState(initial?.recurrence?.rollover ?? false);
+  const [cycleWeekdays, setCycleWeekdays] = useState<number[]>(
+    parseList(initial?.recurrence?.cycleWeekdays ?? null),
+  );
+  const [cycleMonthdays, setCycleMonthdays] = useState<number[]>(
+    parseList(initial?.recurrence?.cycleMonthdays ?? null),
+  );
 
   const isRecurring = type === 'recurring';
+  // Weekly/monthly cycles need their start days (the server checks too).
+  const cycleIncomplete =
+    isRecurring &&
+    rollover &&
+    ((recurKind === 'weekly' && cycleWeekdays.length === 0) ||
+      (recurKind === 'monthly' && cycleMonthdays.length === 0));
 
   function toggleIn(list: number[], value: number): number[] {
     return list.includes(value)
@@ -131,15 +146,9 @@ export function CreateTaskForm({
       : [...list, value];
   }
 
-  function addSubtaskDraft() {
-    const t = subtaskDraft.trim();
-    if (!t) return;
-    setSubtasks((prev) => [...prev, t]);
-    setSubtaskDraft('');
-  }
-
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (cycleIncomplete) return;
     const payload: TaskFormPayload = {
       title: title.trim(),
       type,
@@ -148,9 +157,23 @@ export function CreateTaskForm({
       dueDate: dueDate
         ? new Date(`${dueDate}T${dueTime || '12:00'}:00`).toISOString()
         : null,
-      estimatedMinutes: estimatedMinutes ? Number(estimatedMinutes) : null,
+      estimatedMinutes: points.task.baseMinutes || null,
+      points: points.task.pointsFollowTime || points.task.basePointsCenti === null ? null : points.task.basePointsCenti / 100,
+      pointsFollowTime: points.task.pointsFollowTime,
       categoryId: categoryId || null,
       assigneeId: assigneeId || null,
+      subtasks: points.steps
+        .filter((s) => s.title.trim())
+        .map((s) => ({
+          id: s.id,
+          title: s.title.trim(),
+          done: false,
+          resetIntervalDays: s.resetIntervalDays,
+          minutes: s.minutes,
+          points: s.pointsCenti / 100,
+          minutesCustom: s.minutesCustom,
+          pointsFollowTime: s.pointsFollowTime,
+        })),
     };
 
     if (isRecurring) {
@@ -165,14 +188,13 @@ export function CreateTaskForm({
         ...(recurKind === 'monthly' && monthdays.length > 0
           ? { byMonthday: monthdays }
           : {}),
+        rollover,
+        cycleWeekdays: recurKind === 'weekly' && rollover ? cycleWeekdays : null,
+        cycleMonthdays: recurKind === 'monthly' && rollover ? cycleMonthdays : null,
       };
     } else {
       // null clears recurrence on edit; ignored on create.
       payload.recurrence = null;
-    }
-
-    if (!isEdit && subtasks.length > 0) {
-      payload.subtasks = subtasks.map((t) => ({ title: t, done: false }));
     }
 
     onSubmit(payload);
@@ -253,17 +275,6 @@ export function CreateTaskForm({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="estimate">Estimated effort (min)</Label>
-              <Input
-                id="estimate"
-                type="number"
-                min={1}
-                value={estimatedMinutes}
-                onChange={(e) => setEstimatedMinutes(e.target.value)}
-                placeholder="e.g. 15"
-              />
-            </div>
-            <div className="space-y-2">
               <Label htmlFor="assignee">Assignee</Label>
               <Select
                 id="assignee"
@@ -278,7 +289,7 @@ export function CreateTaskForm({
                 ))}
               </Select>
             </div>
-            <div className="space-y-2 sm:col-span-2">
+            <div className="space-y-2">
               <Label htmlFor="category">Category</Label>
               <Select
                 id="category"
@@ -402,113 +413,96 @@ export function CreateTaskForm({
                   onChange={(e) => setUntil(e.target.value)}
                 />
               </div>
-            </div>
-          ) : null}
 
-          {isEdit && checklist ? (
-            <div className="space-y-2">
-              <Label>Checklist</Label>
-              <div className="space-y-1.5">
-                {checklist.subtasks.map((s, i) => (
-                  <SubtaskRow
-                    key={s.id}
-                    subtask={s}
-                    canWrite
-                    isFirst={i === 0}
-                    isLast={i === checklist.subtasks.length - 1}
-                    onToggle={checklist.onToggle}
-                    onDelete={checklist.onDelete}
-                    onSave={checklist.onSave}
-                    onMove={checklist.onMove}
+              <div className="space-y-2 border-t border-border pt-4">
+                <label className="flex items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 size-4"
+                    checked={rollover}
+                    onChange={(e) => setRollover(e.target.checked)}
                   />
-                ))}
-                <ChecklistQuickAdd onAdd={checklist.onAdd} />
+                  <span>
+                    Runs in cycles
+                    <span className="block text-xs text-muted-foreground">
+                      Each cycle is a window with the due date inside it. If it isn&apos;t done when the
+                      next cycle starts, it&apos;s recorded as missed, checked steps reset and their
+                      queued points are dropped. Done early, it waits for the next cycle.
+                    </span>
+                  </span>
+                </label>
+                {rollover && recurKind === 'weekly' ? (
+                  <div className="space-y-2">
+                    <Label>A new cycle starts on</Label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {WEEKDAYS.map((label, day) => (
+                        <button
+                          key={day}
+                          type="button"
+                          onClick={() => setCycleWeekdays((p) => toggleIn(p, day))}
+                          className={cn(
+                            'size-9 rounded-md border text-sm font-medium transition-colors',
+                            cycleWeekdays.includes(day)
+                              ? 'border-primary bg-primary text-primary-foreground'
+                              : 'border-input hover:bg-accent',
+                          )}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                {rollover && recurKind === 'monthly' ? (
+                  <div className="space-y-2">
+                    <Label>A new cycle starts on day</Label>
+                    <div className="grid grid-cols-7 gap-1.5 sm:grid-cols-10">
+                      {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
+                        <button
+                          key={day}
+                          type="button"
+                          onClick={() => setCycleMonthdays((p) => toggleIn(p, day))}
+                          className={cn(
+                            'size-8 rounded-md border text-xs font-medium transition-colors',
+                            cycleMonthdays.includes(day)
+                              ? 'border-primary bg-primary text-primary-foreground'
+                              : 'border-input hover:bg-accent',
+                          )}
+                        >
+                          {day}
+                        </button>
+                      ))}
+                    </div>
+                    {cycleMonthdays.some((d) => d > 28) ? (
+                      <p className="text-xs text-muted-foreground">
+                        In months without that day, the cycle starts on the month&apos;s last day.
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+                {rollover && (recurKind === 'daily' || recurKind === 'interval') ? (
+                  <p className="text-xs text-muted-foreground">
+                    {recurKind === 'daily' && interval <= 1
+                      ? 'A new cycle starts every midnight.'
+                      : `A new cycle starts every ${Math.max(1, interval)} days at midnight.`}
+                  </p>
+                ) : null}
+                {cycleIncomplete ? (
+                  <p className="text-xs text-destructive">Pick when each cycle starts.</p>
+                ) : null}
               </div>
-              <p className="text-xs text-muted-foreground">
-                Checklist changes save immediately.
-              </p>
             </div>
           ) : null}
 
-          {!isEdit ? (
-            <div className="space-y-2">
-              <Label>Checklist (optional)</Label>
-              {subtasks.length > 0 ? (
-                <ul className="space-y-1">
-                  {subtasks.map((t, i) => (
-                    <li
-                      key={i}
-                      className="flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-sm"
-                    >
-                      <span className="min-w-0 flex-1 truncate">{t}</span>
-                      <button
-                        type="button"
-                        aria-label="Move item up"
-                        disabled={i === 0}
-                        className="text-muted-foreground hover:text-foreground disabled:opacity-30"
-                        onClick={() =>
-                          setSubtasks((prev) => {
-                            const next = [...prev];
-                            [next[i - 1], next[i]] = [next[i], next[i - 1]];
-                            return next;
-                          })
-                        }
-                      >
-                        <ChevronUp className="size-4" />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label="Move item down"
-                        disabled={i === subtasks.length - 1}
-                        className="text-muted-foreground hover:text-foreground disabled:opacity-30"
-                        onClick={() =>
-                          setSubtasks((prev) => {
-                            const next = [...prev];
-                            [next[i], next[i + 1]] = [next[i + 1], next[i]];
-                            return next;
-                          })
-                        }
-                      >
-                        <ChevronDown className="size-4" />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label="Remove item"
-                        className="text-muted-foreground hover:text-destructive"
-                        onClick={() =>
-                          setSubtasks((prev) => prev.filter((_, idx) => idx !== i))
-                        }
-                      >
-                        <X className="size-4" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-              <div className="flex gap-2">
-                <Input
-                  value={subtaskDraft}
-                  onChange={(e) => setSubtaskDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      addSubtaskDraft();
-                    }
-                  }}
-                  placeholder="Add a checklist item…"
-                />
-                <Button type="button" variant="outline" onClick={addSubtaskDraft}>
-                  <Plus />
-                </Button>
-              </div>
-            </div>
-          ) : null}
+          <div className="space-y-2 rounded-md border border-border p-4">
+            <PointsEditor value={points} onChange={setPoints} minutesPerPoint={minutesPerPoint} />
+          </div>
 
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={onCancel}>
               Cancel
             </Button>
-            <Button type="submit" disabled={submitting || !title.trim()}>
+            <Button type="submit" disabled={submitting || !title.trim() || cycleIncomplete}>
               {submitting ? <Loader2 className="animate-spin" /> : null}
               {isEdit ? 'Save changes' : 'Add task'}
             </Button>
@@ -516,44 +510,5 @@ export function CreateTaskForm({
         </form>
       </CardContent>
     </Card>
-  );
-}
-
-// Quick-add input for the edit-mode checklist; adds apply to the server
-// immediately via the parent's mutation.
-function ChecklistQuickAdd({ onAdd }: { onAdd: (title: string) => void }) {
-  const [draft, setDraft] = useState('');
-
-  function submit() {
-    const t = draft.trim();
-    if (!t) return;
-    onAdd(t);
-    setDraft('');
-  }
-
-  return (
-    <div className="flex gap-2">
-      <Input
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            submit();
-          }
-        }}
-        placeholder="Add a checklist item…"
-        className="h-9"
-      />
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={submit}
-        aria-label="Add checklist item"
-      >
-        <Plus />
-      </Button>
-    </div>
   );
 }

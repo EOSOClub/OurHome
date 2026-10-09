@@ -6,6 +6,7 @@ import { ChevronDown, ChevronUp, History, Loader2 } from 'lucide-react';
 import type { TaskCompletionDTO } from '@/lib/types';
 import { apiFetch } from '@/lib/api';
 import { formatDate, formatRelativeTime } from '@/lib/format';
+import { cn } from '@/lib/utils';
 
 /** Show at most this many entries; the rest collapse into a "+N more" line. */
 const MAX_VISIBLE = 10;
@@ -14,7 +15,14 @@ const MAX_VISIBLE = 10;
  * Lazy disclosure of a task's completion history. Nothing is fetched until
  * the user opens the disclosure, so rendering this in every card is cheap.
  */
-export function CompletionHistory({ taskId }: { taskId: string }) {
+export function CompletionHistory({
+  taskId,
+  onUndo,
+}: {
+  taskId: string;
+  /** Undo a completion (offered while the server says the viewer may). */
+  onUndo: (completionId: string) => void;
+}) {
   const [open, setOpen] = useState(false);
 
   const {
@@ -50,6 +58,7 @@ export function CompletionHistory({ taskId }: { taskId: string }) {
           completions={completions}
           isPending={isPending}
           isError={isError}
+          onUndo={onUndo}
         />
       ) : null}
     </div>
@@ -60,10 +69,12 @@ function CompletionList({
   completions,
   isPending,
   isError,
+  onUndo,
 }: {
   completions: TaskCompletionDTO[] | undefined;
   isPending: boolean;
   isError: boolean;
+  onUndo: (completionId: string) => void;
 }) {
   if (isError) {
     return (
@@ -94,12 +105,29 @@ function CompletionList({
   return (
     <ul className="mt-1.5 space-y-1 text-xs text-muted-foreground">
       {visible.map((c) => (
-        <li key={c.id} className="flex flex-wrap items-baseline gap-x-2">
+        <li
+          key={c.id}
+          className={cn('flex flex-wrap items-baseline gap-x-2', c.undoneAt && 'line-through opacity-70')}
+        >
           <span title={formatDate(c.completedAt)}>
             {formatRelativeTime(c.completedAt)}
           </span>
+          {c.outcome === 'missed' ? (
+            <span className="text-destructive">· missed (cycle ran out)</span>
+          ) : null}
           {c.user ? <span>· {c.user.name}</span> : null}
+          {c.points > 0 ? <span>· {c.points} pts</span> : null}
           {c.note ? <span className="italic">“{c.note}”</span> : null}
+          {c.undoneAt ? <span className="no-underline">· undone</span> : null}
+          {c.canUndo ? (
+            <button
+              type="button"
+              onClick={() => onUndo(c.id)}
+              className="font-medium text-foreground underline-offset-2 hover:underline"
+            >
+              Undo
+            </button>
+          ) : null}
         </li>
       ))}
       {hidden > 0 ? <li>+{hidden} more</li> : null}

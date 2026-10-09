@@ -43,6 +43,13 @@ export interface RecurrenceDTO {
   timezone: string;
   until: string | null;
   nextRunAt: string | null;
+  // Tasks only (bills/events leave these out):
+  /** Runs in cycles that roll over at local midnight (see src/lib/taskCycles.ts). */
+  rollover?: boolean;
+  /** Weekly cycle start days, "1,5" (0 = Sunday). */
+  cycleWeekdays?: string | null;
+  /** Monthly cycle start days, "1,20". */
+  cycleMonthdays?: string | null;
 }
 
 export interface SubtaskDTO {
@@ -51,9 +58,20 @@ export interface SubtaskDTO {
   done: boolean;
   // When the item was last checked (null when unchecked).
   doneAt: string | null;
+  /** Who checked it. */
+  doneBy: MemberDTO | null;
+  /** Who its points are queued for this cycle (survives the step's own reset). */
+  queuedFor: MemberDTO | null;
   // Auto-uncheck cadence in days; null = resets only with the parent task.
   resetIntervalDays: number | null;
   position: number;
+  /** This step's share: whole minutes and points (2 decimals). */
+  minutes: number;
+  points: number;
+  /** Time set by hand. */
+  minutesCustom: boolean;
+  /** false = points set by hand. */
+  pointsFollowTime: boolean;
 }
 
 export interface TaskCompletionDTO {
@@ -61,6 +79,61 @@ export interface TaskCompletionDTO {
   note: string | null;
   completedAt: string;
   user: MemberDTO | null;
+  /** "completed" | "missed" (a cycle ran out unfinished). */
+  outcome: string;
+  undoneAt: string | null;
+  /** Points paid by this completion (not counting voided ones). */
+  points: number;
+  /** The caller may undo it now (completer within 10 min, or the head). */
+  canUndo: boolean;
+}
+
+export interface PointsSettingsDTO {
+  timezone: string;
+  /** 0 = Sunday. */
+  weekStartsOn: number;
+  minutesPerPoint: number;
+}
+
+export interface PointAwardDTO {
+  id: string;
+  userId: string;
+  userName: string | null;
+  taskId: string;
+  subtaskId: string | null;
+  /** "task" | "step" | "step_repeat" */
+  kind: string;
+  points: number;
+  taskTitle: string;
+  stepTitle: string | null;
+  earnedAt: string;
+  awardedAt: string;
+  voided: boolean;
+  voidReason: string | null;
+}
+
+export interface PointsSummaryDTO {
+  period: 'day' | 'week' | 'month' | 'year';
+  start: string;
+  end: string;
+  /** First local date of the period, "YYYY-MM-DD". */
+  startDate: string;
+  days: number;
+  /** Days of the period started so far: the per-day divisor. */
+  elapsedDays: number;
+  timezone: string;
+  members: {
+    userId: string;
+    name: string;
+    points: number;
+    perDay: number;
+    awards: number;
+    /** Checked steps waiting for their task to be completed (any period). */
+    queued: number;
+  }[];
+  householdTotal: number;
+  averagePerPerson: number;
+  averagePerPersonPerDay: number;
 }
 
 export interface TaskDTO {
@@ -75,7 +148,19 @@ export interface TaskDTO {
   dueDate: string | null;
   completedAt: string | null;
   createdAt: string;
+  /** Live time to complete: the sum of the steps (or the base without steps). */
   estimatedMinutes: number | null;
+  /** Live points, same rule. 2 decimals. */
+  points: number;
+  /** Task-level values the user set (they define the task's rate). */
+  baseMinutes: number | null;
+  basePoints: number | null;
+  pointsFollowTime: boolean;
+  /** Household rate, so editors can compute live. */
+  minutesPerPoint: number;
+  /** Current cycle window (rollover tasks). Completed inside it = done this cycle. */
+  cycleStartedAt: string | null;
+  cycleEndsAt: string | null;
   category: CategoryDTO | null;
   assignee: MemberDTO | null;
   recurrence: RecurrenceDTO | null;

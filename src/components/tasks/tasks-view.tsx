@@ -8,7 +8,7 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
-import { ChevronDown, ListChecks, Loader2, Plus } from 'lucide-react';
+import { ChevronDown, ListChecks, Loader2, Plus, Trophy } from 'lucide-react';
 import type { CategoryDTO, MemberDTO, TaskDTO } from '@/lib/types';
 import { TASK_STATUSES, TASK_TYPES, TASK_TYPE_LABELS } from '@/lib/enums';
 import { cn } from '@/lib/utils';
@@ -63,6 +63,7 @@ export function TasksView({
   members,
   access,
   userId,
+  minutesPerPoint,
 }: {
   initialTasks: TaskDTO[];
   categories: CategoryDTO[];
@@ -70,6 +71,8 @@ export function TasksView({
   /** The viewer's Tasks access (Members → Permissions). */
   access: PageAccess;
   userId: string;
+  /** Household points rate, for the editor's live points. */
+  minutesPerPoint: number;
 }) {
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -179,13 +182,35 @@ export function TasksView({
   // predict. The `completingId` spinner covers the wait instead.
   const completeMutation = useMutation({
     mutationFn: (taskId: string) =>
-      apiFetch<TaskDTO>('/api/tasks/complete', {
+      apiFetch<TaskDTO & { completionId: string }>('/api/tasks/complete', {
         method: 'POST',
         body: JSON.stringify({ taskId }),
       }),
     onMutate: (taskId) => setCompletingId(taskId),
     onSettled: () => setCompletingId(null),
-    onSuccess: () => invalidate(),
+    onSuccess: (task) => {
+      invalidate();
+      queryClient.invalidateQueries({ queryKey: ['points'] });
+      // The completer can take it back for 10 minutes (then only the head).
+      toast.success(`Completed “${task.title}”`, {
+        label: 'Undo',
+        onClick: () => undoMutation.mutate(task.completionId),
+      });
+    },
+  });
+
+  const undoMutation = useMutation({
+    mutationFn: (completionId: string) =>
+      apiFetch<TaskDTO>('/api/tasks/completions/undo', {
+        method: 'POST',
+        body: JSON.stringify({ completionId }),
+      }),
+    onSuccess: () => {
+      toast.success('Completion undone; its points were taken back');
+      invalidate();
+      queryClient.invalidateQueries({ queryKey: ['points'] });
+      queryClient.invalidateQueries({ queryKey: ['task-completions'] });
+    },
   });
 
   const deleteMutation = useMutation({
@@ -347,6 +372,7 @@ export function TasksView({
     },
     onToggleSubtask: (subtaskId: string, done: boolean) =>
       toggleSubtaskMutation.mutate({ subtaskId, done }),
+    onUndoCompletion: (completionId: string) => undoMutation.mutate(completionId),
     onAddSubtask: (taskId: string, title: string) =>
       addSubtaskMutation.mutate({ taskId, title }),
     onDeleteSubtask: (subtaskId: string) =>
@@ -374,17 +400,24 @@ export function TasksView({
             {active.length} active · {completed.length} completed
           </p>
         </div>
-        {access.create && !showForm && !editing ? (
-          <Button onClick={() => setShowForm(true)}>
-            <Plus /> New task
+        <div className="flex items-center gap-2">
+          {/* Phones have no Points tab in the bottom bar; this is the way in. */}
+          <Button variant="outline" onClick={() => router.push('/points')}>
+            <Trophy /> Points
           </Button>
-        ) : null}
+          {access.create && !showForm && !editing ? (
+            <Button onClick={() => setShowForm(true)}>
+              <Plus /> New task
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       {showForm ? (
         <CreateTaskForm
           categories={categories}
           members={members}
+          minutesPerPoint={minutesPerPoint}
           submitting={createMutation.isPending}
           onSubmit={(payload) => createMutation.mutate(payload)}
           onCancel={() => setShowForm(false)}
@@ -392,33 +425,19 @@ export function TasksView({
       ) : null}
 
       {editing ? (
+        // The editor works on a draft of the whole checklist (time/points are
+        // split live) and saves it in one go with the task.
         <CreateTaskForm
+          key={editing.id}
           categories={categories}
           members={members}
-          initial={editing}
+          minutesPerPoint={minutesPerPoint}
+          initial={tasks.find((t) => t.id === editing.id) ?? editing}
           submitting={updateMutation.isPending}
           onSubmit={(payload) =>
             updateMutation.mutate({ taskId: editing.id, payload })
           }
           onCancel={() => setEditing(null)}
-          checklist={{
-            // Read subtasks from the live query (the `editing` snapshot goes
-            // stale as soon as a checklist mutation invalidates).
-            subtasks:
-              tasks.find((t) => t.id === editing.id)?.subtasks ??
-              editing.subtasks,
-            onAdd: (title) =>
-              addSubtaskMutation.mutate({ taskId: editing.id, title }),
-            onToggle: (subtaskId, done) =>
-              toggleSubtaskMutation.mutate({ subtaskId, done }),
-            onSave: (subtaskId, patch) =>
-              editSubtaskMutation.mutate({ subtaskId, ...patch }),
-            onDelete: (subtaskId) => deleteSubtaskMutation.mutate(subtaskId),
-            onMove: (subtaskId, direction) => {
-              const live = tasks.find((t) => t.id === editing.id);
-              if (live) cardHandlers.onMoveSubtask(live, subtaskId, direction);
-            },
-          }}
         />
       ) : null}
 

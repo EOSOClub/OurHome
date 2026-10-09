@@ -11,9 +11,11 @@ import {
   Pencil,
   Plus,
   Repeat,
+  Star,
   Trash2,
 } from 'lucide-react';
 import type { TaskDTO } from '@/lib/types';
+import { formatPoints, toCenti } from '@/lib/taskPoints';
 import { canModify, type PageAccess } from '@/lib/permissions';
 import { TASK_TYPE_LABELS, type TaskType } from '@/lib/enums';
 import { cn } from '@/lib/utils';
@@ -59,6 +61,7 @@ export function TaskCard({
   onDeleteSubtask,
   onEditSubtask,
   onMoveSubtask,
+  onUndoCompletion,
   completing,
   deleting,
 }: {
@@ -77,10 +80,13 @@ export function TaskCard({
     patch: { title: string; resetIntervalDays: number | null },
   ) => void;
   onMoveSubtask: (task: TaskDTO, subtaskId: string, direction: -1 | 1) => void;
+  onUndoCompletion: (completionId: string) => void;
   completing: boolean;
   deleting: boolean;
 }) {
   const done = task.status === 'completed';
+  // A cycle task completed inside its window waits for the next cycle.
+  const doneThisCycle = done && !!task.cycleEndsAt;
   const canEdit = canModify(access, 'edit', task.createdById, userId);
   const canDelete = canModify(access, 'delete', task.createdById, userId);
   const [expanded, setExpanded] = useState(false);
@@ -119,7 +125,7 @@ export function TaskCard({
             <p
               className={cn(
                 'font-medium leading-snug',
-                done && 'text-muted-foreground line-through',
+                done && !doneThisCycle && 'text-muted-foreground line-through',
               )}
             >
               {task.category?.color ? (
@@ -165,15 +171,30 @@ export function TaskCard({
           ) : null}
 
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-            <span
-              className={
-                isOverdue(task.dueDate) && !done
-                  ? 'text-destructive'
-                  : 'text-muted-foreground'
-              }
-            >
-              {formatDueDate(task.dueDate)}
-            </span>
+            {doneThisCycle ? (
+              <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                Done this cycle · reopens {formatUntil(task.cycleEndsAt!)}
+              </span>
+            ) : (
+              <span
+                className={
+                  isOverdue(task.dueDate) && !done
+                    ? 'text-destructive'
+                    : 'text-muted-foreground'
+                }
+              >
+                {formatDueDate(task.dueDate)}
+              </span>
+            )}
+            {task.points > 0 ? (
+              <span
+                className="inline-flex items-center gap-1 text-muted-foreground"
+                title="Points are paid when the task is completed"
+              >
+                <Star className="size-3" />
+                {formatPoints(toCenti(task.points))} pts
+              </span>
+            ) : null}
             {task.assignee ? (
               <span className="text-muted-foreground">
                 · {task.assignee.name}
@@ -256,7 +277,7 @@ export function TaskCard({
             ) : null}
           </div>
 
-          <CompletionHistory taskId={task.id} />
+          <CompletionHistory taskId={task.id} onUndo={onUndoCompletion} />
         </div>
       ) : null}
     </Card>

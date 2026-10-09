@@ -42,7 +42,10 @@ export async function getProfileOverview(
           household: { select: { name: true } },
         },
       }),
-      prisma.taskCompletion.count({ where: { userId } }),
+      // Undone completions don't count (missed cycles have no user anyway).
+      prisma.taskCompletion.count({
+        where: { userId, OR: [{ undoneAt: null }, { undoneAt: { isSet: false } }] },
+      }),
       prisma.task.count({
         where: { assigneeId: userId, status: { in: ACTIVE_STATUSES } },
       }),

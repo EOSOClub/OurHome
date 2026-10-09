@@ -10,6 +10,7 @@ import { listNfcTags } from '@/server/services/nfcService';
 import { listIntegrations } from '@/server/services/integrationService';
 import { listCategories } from '@/server/services/categoryService';
 import { listContactMessages } from '@/server/services/contactService';
+import { getPointsSettings } from '@/server/services/pointsService';
 import { SettingsView } from '@/components/settings/settings-view';
 
 export default async function SettingsPage() {
@@ -28,7 +29,8 @@ export default async function SettingsPage() {
   }
 
   const householdId = user.householdId!;
-  const [integrations, tags, items, categories, contactMessages, access] =
+  const isHead = can(user.role, 'household:manage');
+  const [integrations, tags, items, categories, contactMessages, access, points] =
     await Promise.all([
       listIntegrations(householdId),
       listNfcTags(householdId),
@@ -37,9 +39,9 @@ export default async function SettingsPage() {
       // Not household-scoped; gated by the settings:manage check above.
       listContactMessages(),
       // Security is the Head of House's alone (household:manage).
-      can(user.role, 'household:manage')
-        ? getAccessSettings(householdId, await headers())
-        : null,
+      isHead ? getAccessSettings(householdId, await headers()) : null,
+      // Points rate / time zone / week start: also the head's.
+      isHead ? getPointsSettings(householdId) : null,
     ]);
 
   return (
@@ -49,6 +51,7 @@ export default async function SettingsPage() {
       initialTags={tags}
       initialCategories={categories}
       initialContactMessages={contactMessages}
+      initialPoints={points}
       items={items.map(itemToDTO).map((i) => ({ id: i.id, name: i.name }))}
     />
   );

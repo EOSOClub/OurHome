@@ -1,6 +1,6 @@
 import { prisma } from '@/server/db/prisma';
 import { generateReminders } from '@/server/services/reminderService';
-import { resetDueSubtasks } from '@/server/services/taskService';
+import { resetDueSubtasks, rollTaskCycles } from '@/server/services/taskService';
 import { runPaperlessSync } from '@/server/services/paperlessSync';
 import { announceAppRelease } from '@/server/services/appReleaseService';
 
@@ -22,8 +22,10 @@ export async function runReminderSweep(): Promise<{ households: number }> {
 
   const households = await prisma.household.findMany({ select: { id: true } });
   for (const { id } of households) {
-    // Flip recurring checklist items back first so an item that just became
-    // "not done" can be reflected in this sweep's reminders.
+    // Roll finished task cycles over (missed ones are recorded and their queued
+    // points dropped), then flip recurring checklist items back, so this
+    // sweep's reminders see the current state.
+    await rollTaskCycles(id);
     await resetDueSubtasks(id);
     await generateReminders(id);
   }

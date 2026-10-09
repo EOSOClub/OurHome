@@ -22,25 +22,53 @@ export const recurrenceInputSchema = z
     anchorDate: z.coerce.date().optional(),
     // optional end date: occurrences stop after this instant
     until: z.coerce.date().optional().nullable(),
+    // Tasks only: run in cycles that roll over at local midnight. Weekly
+    // needs cycleWeekdays and monthly needs cycleMonthdays; daily/interval
+    // cycles follow the rule itself. Month days past a month's end start on
+    // its last day, so only 1–31 are accepted.
+    rollover: z.boolean().optional(),
+    cycleWeekdays: z.array(z.number().int().min(0).max(6)).max(7).optional().nullable(),
+    cycleMonthdays: z.array(z.number().int().min(1).max(31)).max(31).optional().nullable(),
   })
   .refine((r) => r.kind !== 'cron', {
     message: 'cron recurrence is not yet supported',
     path: ['kind'],
+  })
+  .refine((r) => !r.rollover || r.kind !== 'weekly' || (r.cycleWeekdays?.length ?? 0) > 0, {
+    message: 'Pick the day(s) each weekly cycle starts.',
+    path: ['cycleWeekdays'],
+  })
+  .refine((r) => !r.rollover || r.kind !== 'monthly' || (r.cycleMonthdays?.length ?? 0) > 0, {
+    message: 'Pick the day(s) of the month each cycle starts.',
+    path: ['cycleMonthdays'],
   });
 
 export type RecurrenceInput = z.infer<typeof recurrenceInputSchema>;
 
 const estimatedMinutesSchema = z.number().int().positive().max(100000);
 
+// Points as entered (2 decimals kept; stored as hundredths).
+const pointsSchema = z.number().min(0).max(100000);
+
 // Auto-uncheck cadence for a checklist item, in days (null clears it).
 const resetIntervalDaysSchema = z.number().int().min(1).max(365);
 
-// Subtasks supplied inline when creating a task.
+// A checklist item as the task editor saves it. Time/points values come from
+// the editor's live calculation (src/lib/taskPoints.ts); omitted ones are
+// filled in by the server. `id` keeps an existing item when replacing the
+// whole checklist on update.
 const subtaskInputSchema = z.object({
+  id: z.string().cuid().optional(),
   title: z.string().trim().min(1).max(200),
   done: z.boolean().default(false),
   resetIntervalDays: resetIntervalDaysSchema.optional().nullable(),
+  minutes: z.number().int().min(0).max(100000).optional(),
+  points: pointsSchema.optional(),
+  minutesCustom: z.boolean().optional(),
+  pointsFollowTime: z.boolean().optional(),
 });
+
+export type SubtaskInput = z.infer<typeof subtaskInputSchema>;
 
 export const createTaskSchema = z.object({
   title: z.string().trim().min(1).max(200),
@@ -48,7 +76,11 @@ export const createTaskSchema = z.object({
   type: z.enum(TASK_TYPES).default('one_time'),
   priority: z.enum(TASK_PRIORITIES).default('medium'),
   dueDate: z.coerce.date().optional().nullable(),
+  // The task-level (base) time to complete and points. Points omitted while
+  // they follow time are calculated from the household rate.
   estimatedMinutes: estimatedMinutesSchema.optional().nullable(),
+  points: pointsSchema.optional().nullable(),
+  pointsFollowTime: z.boolean().optional(),
   categoryId: z.string().cuid().optional().nullable(),
   assigneeId: z.string().cuid().optional().nullable(),
   recurrence: recurrenceInputSchema.optional(),
@@ -65,14 +97,24 @@ export const updateTaskSchema = z.object({
   priority: z.enum(TASK_PRIORITIES).optional(),
   status: z.enum(TASK_STATUSES).optional(),
   dueDate: z.coerce.date().optional().nullable(),
+  // Base time/points (see createTaskSchema). Without `subtasks`, a changed
+  // base is redistributed over the steps on the server (older clients).
   estimatedMinutes: estimatedMinutesSchema.optional().nullable(),
+  points: pointsSchema.optional().nullable(),
+  pointsFollowTime: z.boolean().optional(),
   categoryId: z.string().cuid().optional().nullable(),
   assigneeId: z.string().cuid().optional().nullable(),
   // When present, replaces the task's recurrence rule. `null` clears it.
   recurrence: recurrenceInputSchema.optional().nullable(),
+  // When present, the whole checklist as the editor left it: items with an
+  // `id` are updated, new ones created, missing ones deleted, order = array.
+  subtasks: z.array(subtaskInputSchema).max(50).optional(),
 });
 
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
+
+export const undoCompletionSchema = z.object({ completionId: z.string().cuid() });
+export type UndoCompletionInput = z.infer<typeof undoCompletionSchema>;
 
 export const completeTaskSchema = z.object({
   taskId: z.string().cuid(),

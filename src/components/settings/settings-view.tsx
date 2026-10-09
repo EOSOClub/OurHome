@@ -9,6 +9,7 @@ import type {
   ContactMessageDTO,
   IntegrationDTO,
   NfcTagDTO,
+  PointsSettingsDTO,
 } from '@/lib/types';
 import {
   NFC_REPRESENTS,
@@ -20,6 +21,7 @@ import { AccessCard } from '@/components/settings/access-settings';
 import { CategoriesCard } from '@/components/settings/categories-card';
 import { ContactMessagesCard } from '@/components/settings/contact-messages-card';
 import { PaperlessCard } from '@/components/settings/paperless-card';
+import { PointsCard } from '@/components/settings/points-card';
 import { Button, type ButtonProps } from '@/components/ui/button';
 import {
   Card,
@@ -82,10 +84,13 @@ export function SettingsView({
   initialTags,
   initialCategories,
   initialContactMessages,
+  initialPoints,
   items,
 }: {
   /** null unless the viewer is the Head of House. */
   initialAccess: AccessSettingsDTO | null;
+  /** null unless the viewer is the Head of House. */
+  initialPoints: PointsSettingsDTO | null;
   initialIntegrations: IntegrationDTO[];
   initialTags: NfcTagDTO[];
   initialCategories: CategoryAdminDTO[];
@@ -101,6 +106,7 @@ export function SettingsView({
         </p>
       </div>
       {initialAccess ? <AccessCard initialSettings={initialAccess} /> : null}
+      {initialPoints ? <PointsCard initial={initialPoints} /> : null}
       <CategoriesCard initialCategories={initialCategories} />
       <PaperlessCard />
       <HomeAssistantCard initialIntegrations={initialIntegrations} />

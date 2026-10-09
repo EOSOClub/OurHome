@@ -1,5 +1,5 @@
 import { ok, parseBody, requireModify, withAuth } from '@/server/api/http';
-import { addSubtask, taskToDTO } from '@/server/services/taskService';
+import { addSubtask, taskDTO } from '@/server/services/taskService';
 import { recordOwner } from '@/server/services/permissionService';
 import { createSubtaskSchema } from '@/lib/validation/task';
 
@@ -9,5 +9,5 @@ export const POST = withAuth(async (ctx) => {
   const input = await parseBody(ctx.req, createSubtaskSchema);
   await requireModify(ctx, 'tasks', 'edit', await recordOwner.task(householdId, input.taskId));
   const task = await addSubtask(householdId, input);
-  return ok(taskToDTO(task), { status: 201 });
+  return ok(await taskDTO(householdId, task), { status: 201 });
 });

@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/server/db/prisma';
+import { dateOnOrBefore } from '@/server/db/dateFilters';
 import type { SubtaskDTO, TaskCompletionDTO, TaskDTO } from '@/lib/types';
 import type {
   CompleteTaskInput,
@@ -8,6 +9,7 @@ import type {
   ListTasksQuery,
   RecurrenceInput,
   ReorderSubtasksInput,
+  SubtaskInput,
   UpdateSubtaskInput,
   UpdateTaskInput,
 } from '@/lib/validation/task';
@@ -23,6 +25,31 @@ import {
   parseIntList,
   type NormalizedRule,
 } from '@/server/services/recurrenceService';
+import {
+  addStep,
+  formatPoints,
+  liveTotals,
+  removeStep,
+  setTaskFollow,
+  setTaskMinutes,
+  setTaskPoints,
+  toCenti,
+  withDefaults,
+  type PointsState,
+  type StepPoints,
+} from '@/lib/taskPoints';
+import { cycleStartAt, nextCycleStart, type CycleSpec } from '@/lib/taskCycles';
+import {
+  UNDO_WINDOW_MS,
+  canUndo,
+  checkOutcome,
+  effectivePoints,
+  getPointsSettings,
+  planPayout,
+  writeAwards,
+  type CompletionSnapshot,
+  type PointsSettings,
+} from '@/server/services/pointsService';
 
 const taskInclude = {
   category: { select: { id: true, name: true, color: true, icon: true } },
@@ -32,24 +59,48 @@ const taskInclude = {
 } satisfies Prisma.TaskInclude;
 
 export type TaskWithRelations = Prisma.TaskGetPayload<{ include: typeof taskInclude }>;
+type Tx = Prisma.TransactionClient;
+type RuleRow = NonNullable<TaskWithRelations['recurrence']>;
 
-type CompletionWithUser = Prisma.TaskCompletionGetPayload<{
-  include: { user: { select: { id: true; name: true } } };
-}>;
+/** Who is acting on a task; role narrows what guests may do. */
+export interface CompletingActor {
+  id: string;
+  role: string;
+}
 
-function subtaskToDTO(s: TaskWithRelations['subtasks'][number]): SubtaskDTO {
+// --- DTOs ---------------------------------------------------------------------
+
+/** What a task DTO needs beyond the row: the rate, member names, queued points. */
+export interface TaskContext {
+  settings: PointsSettings;
+  names: Map<string, string>;
+  /** subtaskId → user whose points are queued on it. */
+  pending: Map<string, string>;
+}
+
+export async function loadTaskContext(householdId: string, taskIds: string[]): Promise<TaskContext> {
+  const [settings, members, pending] = await Promise.all([
+    getPointsSettings(householdId),
+    prisma.user.findMany({ where: { householdId }, select: { id: true, name: true } }),
+    taskIds.length
+      ? prisma.pendingCredit.findMany({ where: { householdId, taskId: { in: taskIds } } })
+      : Promise.resolve([]),
+  ]);
   return {
-    id: s.id,
-    title: s.title,
-    done: s.done,
-    doneAt: s.doneAt?.toISOString() ?? null,
-    resetIntervalDays: s.resetIntervalDays,
-    position: s.position,
+    settings,
+    names: new Map(members.map((m) => [m.id, m.name])),
+    pending: new Map(pending.map((p) => [p.subtaskId, p.userId])),
   };
 }
 
+function member(id: string | null | undefined, names: Map<string, string>) {
+  return id ? { id, name: names.get(id) ?? 'Former member' } : null;
+}
+
 /** Map a Prisma task (with relations) to the serializable client DTO. */
-export function taskToDTO(task: TaskWithRelations): TaskDTO {
+export function taskToDTO(task: TaskWithRelations, ctx: TaskContext): TaskDTO {
+  const state = effectivePoints(task, ctx.settings.minutesPerPoint);
+  const live = liveTotals(state);
   return {
     id: task.id,
     createdById: task.createdById,
@@ -61,7 +112,14 @@ export function taskToDTO(task: TaskWithRelations): TaskDTO {
     dueDate: task.dueDate?.toISOString() ?? null,
     completedAt: task.completedAt?.toISOString() ?? null,
     createdAt: task.createdAt.toISOString(),
-    estimatedMinutes: task.estimatedMinutes,
+    estimatedMinutes: state.task.baseMinutes === null && live.minutes === 0 ? null : live.minutes,
+    points: live.pointsCenti / 100,
+    baseMinutes: state.task.baseMinutes,
+    basePoints: state.task.basePointsCenti === null ? null : state.task.basePointsCenti / 100,
+    pointsFollowTime: state.task.pointsFollowTime,
+    minutesPerPoint: ctx.settings.minutesPerPoint,
+    cycleStartedAt: task.cycleStartedAt?.toISOString() ?? null,
+    cycleEndsAt: task.cycleEndsAt?.toISOString() ?? null,
     category: task.category
       ? { id: task.category.id, name: task.category.name, color: task.category.color }
       : null,
@@ -77,20 +135,38 @@ export function taskToDTO(task: TaskWithRelations): TaskDTO {
           timezone: task.recurrence.timezone,
           until: task.recurrence.until?.toISOString() ?? null,
           nextRunAt: task.recurrence.nextRunAt?.toISOString() ?? null,
+          rollover: task.recurrence.rollover ?? false,
+          cycleWeekdays: task.recurrence.cycleWeekdays,
+          cycleMonthdays: task.recurrence.cycleMonthdays,
         }
       : null,
-    subtasks: task.subtasks.map(subtaskToDTO),
+    subtasks: task.subtasks.map((s, i): SubtaskDTO => ({
+      id: s.id,
+      title: s.title,
+      done: s.done,
+      doneAt: s.doneAt?.toISOString() ?? null,
+      doneBy: member(s.doneById, ctx.names),
+      queuedFor: member(ctx.pending.get(s.id), ctx.names),
+      resetIntervalDays: s.resetIntervalDays,
+      position: s.position,
+      minutes: state.steps[i].minutes,
+      points: state.steps[i].pointsCenti / 100,
+      minutesCustom: state.steps[i].minutesCustom,
+      pointsFollowTime: state.steps[i].pointsFollowTime,
+    })),
   };
 }
 
-export function completionToDTO(c: CompletionWithUser): TaskCompletionDTO {
-  return {
-    id: c.id,
-    note: c.note,
-    completedAt: c.completedAt.toISOString(),
-    user: c.user ? { id: c.user.id, name: c.user.name } : null,
-  };
+export async function taskDTO(householdId: string, task: TaskWithRelations): Promise<TaskDTO> {
+  return taskToDTO(task, await loadTaskContext(householdId, [task.id]));
 }
+
+export async function taskDTOs(householdId: string, tasks: TaskWithRelations[]): Promise<TaskDTO[]> {
+  const ctx = await loadTaskContext(householdId, tasks.map((t) => t.id));
+  return tasks.map((t) => taskToDTO(t, ctx));
+}
+
+// --- Recurrence & cycles --------------------------------------------------------
 
 function normalizeRule(rule: {
   kind: string;
@@ -112,6 +188,37 @@ function normalizeRule(rule: {
   };
 }
 
+/** The task's cycle boundaries, or null when it doesn't run in cycles. */
+export function cycleSpecFor(rule: RuleRow | null | undefined): CycleSpec | null {
+  if (!rule?.rollover) return null;
+  switch (rule.kind) {
+    case 'daily':
+      return rule.interval > 1
+        ? { kind: 'interval', everyDays: rule.interval, anchor: rule.anchorDate }
+        : { kind: 'daily' };
+    case 'interval':
+      return { kind: 'interval', everyDays: rule.interval, anchor: rule.anchorDate };
+    case 'weekly': {
+      const days = parseIntList(rule.cycleWeekdays);
+      return days ? { kind: 'weekdays', days } : null;
+    }
+    case 'monthly': {
+      const days = parseIntList(rule.cycleMonthdays);
+      return days ? { kind: 'monthdays', days } : null;
+    }
+    default:
+      return null;
+  }
+}
+
+/** The due date inside a cycle window: the rule's first occurrence in it, or
+ *  the window's last minute when none falls inside. Null when the rule ended. */
+function dueInCycle(rule: RuleRow, start: Date, end: Date): Date | null {
+  const next = computeNextRunAt(normalizeRule(rule), new Date(start.getTime() - 1));
+  if (!next) return null;
+  return next < end ? next : new Date(end.getTime() - 60_000);
+}
+
 /** Build the persisted RecurrenceRule columns from validated input. */
 function recurrenceData(recurrence: RecurrenceInput, dueDate: Date | null | undefined) {
   const anchor = dueDate ?? recurrence.anchorDate ?? new Date();
@@ -125,22 +232,181 @@ function recurrenceData(recurrence: RecurrenceInput, dueDate: Date | null | unde
     anchorDate: anchor,
     until: recurrence.until ?? null,
     nextRunAt: dueDate ?? anchor,
+    rollover: recurrence.rollover ?? false,
+    cycleWeekdays: recurrence.kind === 'weekly' ? formatIntList(recurrence.cycleWeekdays) : null,
+    cycleMonthdays: recurrence.kind === 'monthly' ? formatIntList(recurrence.cycleMonthdays) : null,
   };
 }
+
+/** The cycle window containing `now` for a rule (null fields = no cycles). */
+function cycleWindow(rule: RuleRow | null | undefined, tz: string, now: Date) {
+  const spec = cycleSpecFor(rule);
+  if (!spec) return { cycleStartedAt: null, cycleEndsAt: null };
+  return { cycleStartedAt: cycleStartAt(now, spec, tz), cycleEndsAt: nextCycleStart(now, spec, tz) };
+}
+
+const UNCHECKED = { done: false, doneAt: null, doneById: null, checkAwardId: null, autoResetAt: null };
+
+/** Cap on missed cycles recorded in one catch-up (e.g. after downtime). */
+const MAX_MISSED_PER_ROLL = 60;
+
+/**
+ * Roll every task whose cycle has ended into its current cycle: a cycle that
+ * ended unfinished is recorded as missed (one row per missed cycle) and its
+ * queued points are dropped; steps uncheck and the due date moves into the
+ * new window. Runs from the reminder sweep and before task reads/changes.
+ */
+export async function rollTaskCycles(householdId: string, now = new Date(), taskId?: string): Promise<number> {
+  const due = await prisma.task.findMany({
+    where: { householdId, ...(taskId ? { id: taskId } : {}), cycleEndsAt: dateOnOrBefore(now) },
+    select: { id: true },
+  });
+  if (due.length === 0) return 0;
+  const settings = await getPointsSettings(householdId);
+  for (const { id } of due) {
+    await prisma.$transaction((tx) => rollOne(tx, householdId, id, settings, now));
+  }
+  return due.length;
+}
+
+async function rollOne(tx: Tx, householdId: string, taskId: string, settings: PointsSettings, now: Date) {
+  const task = await tx.task.findFirst({
+    where: { id: taskId, householdId },
+    include: { recurrence: true },
+  });
+  // Re-check inside the transaction: a concurrent roll may have done it.
+  if (!task?.cycleEndsAt || task.cycleEndsAt > now) return;
+  const spec = cycleSpecFor(task.recurrence);
+  if (!spec || !task.recurrence) {
+    await tx.task.update({ where: { id: task.id }, data: { cycleStartedAt: null, cycleEndsAt: null } });
+    return;
+  }
+
+  let end = task.cycleEndsAt;
+  let unfinished = task.status === 'pending' || task.status === 'in_progress';
+  let missed = 0;
+  while (end <= now) {
+    if (unfinished && missed < MAX_MISSED_PER_ROLL) {
+      await tx.taskCompletion.create({
+        data: { taskId: task.id, userId: null, outcome: 'missed', completedAt: end },
+      });
+      missed += 1;
+    }
+    unfinished = true; // every later window passed with nobody completing it
+    end = nextCycleStart(end, spec, settings.timezone);
+  }
+  const start = cycleStartAt(now, spec, settings.timezone);
+  const dueDate = dueInCycle(task.recurrence, start, end);
+  if (dueDate === null) {
+    // The rule's end date passed: stop cycling and leave the task as it is.
+    await tx.task.update({ where: { id: task.id }, data: { cycleStartedAt: null, cycleEndsAt: null } });
+    return;
+  }
+
+  await tx.pendingCredit.deleteMany({ where: { taskId: task.id } });
+  await tx.subtask.updateMany({ where: { taskId: task.id }, data: UNCHECKED });
+  await tx.recurrenceRule.update({ where: { id: task.recurrence.id }, data: { nextRunAt: dueDate } });
+  await tx.task.update({
+    where: { id: task.id },
+    data: { status: 'pending', completedAt: null, dueDate, cycleStartedAt: start, cycleEndsAt: end },
+  });
+  if (missed > 0) {
+    await logActivity(
+      {
+        householdId,
+        actorId: null,
+        verb: 'missed',
+        subjectType: 'task',
+        subjectId: task.id,
+        message: `missed task “${task.title}”${missed > 1 ? ` (${missed} cycles)` : ''}`,
+      },
+      tx,
+    );
+  }
+}
+
+// --- Points on save ---------------------------------------------------------------
+
+type EditorStep = StepPoints & { title: string; resetIntervalDays: number | null; done: boolean; id?: string };
+
+/** The points state an editor save describes, with missing values filled in. */
+function stateFromInput(
+  base: { estimatedMinutes?: number | null; points?: number | null; pointsFollowTime?: boolean },
+  steps: SubtaskInput[],
+  minutesPerPoint: number,
+): PointsState<EditorStep> {
+  const follow = base.pointsFollowTime ?? (base.points === undefined || base.points === null);
+  const baseMinutes = base.estimatedMinutes ?? null;
+  const filled = withDefaults(
+    {
+      baseMinutes,
+      basePointsCenti: follow || base.points == null ? null : toCenti(base.points),
+      pointsFollowTime: follow,
+    },
+    steps.map((s) => ({
+      id: s.id,
+      title: s.title,
+      resetIntervalDays: s.resetIntervalDays ?? null,
+      done: s.done,
+      minutes: s.minutes,
+      pointsCenti: s.points === undefined ? undefined : toCenti(s.points),
+      minutesCustom: s.minutesCustom,
+      pointsFollowTime: s.pointsFollowTime,
+    })),
+    minutesPerPoint,
+  );
+  // withDefaults treats a missing base-points value as "follows time"; keep
+  // the caller's explicit choice.
+  return { task: { ...filled.task, pointsFollowTime: follow }, steps: filled.steps };
+}
+
+/** Task columns for a points state: base values and live totals. */
+function taskPointsColumns(state: PointsState) {
+  const live = liveTotals(state);
+  return {
+    baseMinutes: state.task.baseMinutes,
+    basePointsCenti: state.task.basePointsCenti,
+    pointsFollowTime: state.task.pointsFollowTime,
+    estimatedMinutes: state.task.baseMinutes === null && live.minutes === 0 ? null : live.minutes,
+    pointsCenti: live.pointsCenti,
+  };
+}
+
+function stepPointsColumns(s: StepPoints) {
+  return {
+    minutes: s.minutes,
+    pointsCenti: s.pointsCenti,
+    minutesCustom: s.minutesCustom,
+    pointsFollowTime: s.pointsFollowTime,
+  };
+}
+
+/** Writes every step's values and the task's totals for `state` (steps in
+ *  checklist order, matching `ids`). */
+async function writePoints(tx: Tx, taskId: string, ids: string[], state: PointsState) {
+  for (const [i, id] of ids.entries()) {
+    await tx.subtask.update({ where: { id }, data: stepPointsColumns(state.steps[i]) });
+  }
+  await tx.task.update({ where: { id: taskId }, data: taskPointsColumns(state) });
+}
+
+// --- Tasks --------------------------------------------------------------------------
 
 export async function createTask(
   householdId: string,
   userId: string,
   input: CreateTaskInput,
 ): Promise<TaskWithRelations> {
-  return prisma.$transaction(async (tx) => {
-    let recurrenceId: string | undefined;
+  const settings = await getPointsSettings(householdId);
+  const state = stateFromInput(input, input.subtasks ?? [], settings.minutesPerPoint);
+  const now = new Date();
 
+  return prisma.$transaction(async (tx) => {
+    let rule: RuleRow | null = null;
     if (input.recurrence) {
-      const rule = await tx.recurrenceRule.create({
+      rule = await tx.recurrenceRule.create({
         data: recurrenceData(input.recurrence, input.dueDate),
       });
-      recurrenceId = rule.id;
     }
 
     const task = await tx.task.create({
@@ -151,25 +417,42 @@ export async function createTask(
         type: input.recurrence ? 'recurring' : input.type,
         priority: input.priority,
         dueDate: input.dueDate ?? null,
-        estimatedMinutes: input.estimatedMinutes ?? null,
+        ...taskPointsColumns(state),
+        ...cycleWindow(rule, settings.timezone, now),
         categoryId: input.categoryId ?? null,
         assigneeId: input.assigneeId ?? null,
         createdById: userId,
-        recurrenceId,
-        subtasks: input.subtasks?.length
+        recurrenceId: rule?.id,
+        subtasks: state.steps.length
           ? {
-              create: input.subtasks.map((s, i) => ({
+              create: state.steps.map((s, i) => ({
                 title: s.title,
                 done: s.done,
-                doneAt: s.done ? new Date() : null,
-                resetIntervalDays: s.resetIntervalDays ?? null,
+                doneAt: s.done ? now : null,
+                doneById: s.done ? userId : null,
+                resetIntervalDays: s.resetIntervalDays,
                 position: i,
+                ...stepPointsColumns(s),
               })),
             }
           : undefined,
       },
       include: taskInclude,
     });
+    // Steps created already checked queue their points like any other check.
+    const prechecked = task.subtasks.filter((s) => s.done);
+    if (prechecked.length) {
+      await tx.pendingCredit.createMany({
+        data: prechecked.map((s) => ({
+          householdId,
+          taskId: task.id,
+          subtaskId: s.id,
+          userId,
+          checkedAt: now,
+          cycleStartedAt: task.cycleStartedAt,
+        })),
+      });
+    }
 
     await logActivity(
       {
@@ -193,6 +476,7 @@ export async function createTask(
  * repeats every 3 days). Runs opportunistically before task reads and from the
  * reminder cron, mirroring how reminders regenerate. The elapsed check is
  * `doneAt + N×24h <= now`, computed in JS because the cutoff varies per row.
+ * Queued points survive this reset; `autoResetAt` lets the next check pay out.
  */
 export async function resetDueSubtasks(householdId: string): Promise<number> {
   const candidates = await prisma.subtask.findMany({
@@ -216,7 +500,7 @@ export async function resetDueSubtasks(householdId: string): Promise<number> {
   if (dueIds.length === 0) return 0;
   const { count } = await prisma.subtask.updateMany({
     where: { id: { in: dueIds } },
-    data: { done: false, doneAt: null },
+    data: { ...UNCHECKED, autoResetAt: new Date(now) },
   });
   return count;
 }
@@ -225,6 +509,7 @@ export async function listTasks(
   householdId: string,
   query: ListTasksQuery,
 ): Promise<TaskWithRelations[]> {
+  await rollTaskCycles(householdId);
   await resetDueSubtasks(householdId);
   const rows = await prisma.task.findMany({
     where: {
@@ -255,36 +540,91 @@ export async function updateTask(
   userId: string,
   input: UpdateTaskInput,
 ): Promise<TaskWithRelations> {
-  const { taskId, recurrence, ...rest } = input;
+  const { taskId, recurrence, subtasks, ...rest } = input;
+  const settings = await getPointsSettings(householdId);
+  const now = new Date();
 
   return prisma.$transaction(async (tx) => {
     // Scope the update to the household so members can't touch other households.
     const existing = await tx.task.findFirst({
       where: { id: taskId, householdId },
-      select: { id: true, recurrenceId: true, dueDate: true },
+      include: { subtasks: { orderBy: { position: 'asc' } }, recurrence: true },
     });
     if (!existing) throw new TaskNotFoundError(taskId);
 
     let recurrenceId: string | null | undefined; // undefined = unchanged
     let typeOverride: string | undefined;
+    let rule: RuleRow | null = existing.recurrence;
 
     if (recurrence === null) {
       // Clear recurrence: the task becomes a one-time task.
       recurrenceId = null;
+      rule = null;
       if (rest.type === undefined) typeOverride = 'one_time';
     } else if (recurrence) {
       const dueDate = rest.dueDate ?? existing.dueDate;
       const data = recurrenceData(recurrence, dueDate);
       if (existing.recurrenceId) {
-        await tx.recurrenceRule.update({
+        rule = await tx.recurrenceRule.update({
           where: { id: existing.recurrenceId },
           data,
         });
       } else {
-        const rule = await tx.recurrenceRule.create({ data });
+        rule = await tx.recurrenceRule.create({ data });
         recurrenceId = rule.id;
       }
       if (rest.type === undefined) typeOverride = 'recurring';
+    }
+
+    // Cycles: (re)start the window when cycling was switched on or its days
+    // changed; clear it when switched off.
+    let cycle: { cycleStartedAt: Date | null; cycleEndsAt: Date | null } | undefined;
+    if (recurrence !== undefined) {
+      const before = JSON.stringify(cycleSpecFor(existing.recurrence));
+      const after = JSON.stringify(cycleSpecFor(rule));
+      if (before !== after) cycle = cycleWindow(rule, settings.timezone, now);
+    }
+
+    // Points. A full checklist from the editor carries its own values;
+    // otherwise a changed base is redistributed here (older clients).
+    if (subtasks) {
+      await replaceChecklist(tx, householdId, existing, subtasks, userId, now);
+      const state = stateFromInput(
+        {
+          estimatedMinutes: rest.estimatedMinutes !== undefined ? rest.estimatedMinutes : existing.baseMinutes ?? existing.estimatedMinutes,
+          points:
+            rest.points !== undefined
+              ? rest.points
+              : existing.basePointsCenti == null
+                ? null
+                : existing.basePointsCenti / 100,
+          pointsFollowTime: rest.pointsFollowTime ?? existing.pointsFollowTime ?? true,
+        },
+        subtasks,
+        settings.minutesPerPoint,
+      );
+      const ids = (
+        await tx.subtask.findMany({ where: { taskId }, orderBy: { position: 'asc' }, select: { id: true } })
+      ).map((s) => s.id);
+      await writePoints(tx, taskId, ids, state);
+    } else {
+      let state: PointsState = effectivePoints(existing, settings.minutesPerPoint);
+      const live = liveTotals(state);
+      let changed = false;
+      // An older app re-sends the live total it was shown: not a change.
+      if (rest.estimatedMinutes !== undefined && rest.estimatedMinutes !== live.minutes && rest.estimatedMinutes !== state.task.baseMinutes) {
+        state = setTaskMinutes(state, rest.estimatedMinutes, settings.minutesPerPoint, { confirm: true }).state;
+        changed = true;
+      }
+      if (rest.pointsFollowTime === true && !state.task.pointsFollowTime) {
+        state = setTaskFollow(state, true, settings.minutesPerPoint, { confirm: true }).state;
+        changed = true;
+      }
+      if (rest.points !== undefined && rest.points !== null && rest.pointsFollowTime !== true) {
+        state = setTaskPoints(state, toCenti(rest.points), { confirm: true }).state;
+        changed = true;
+      }
+      if (changed) await writePoints(tx, taskId, existing.subtasks.map((s) => s.id), state);
     }
 
     const task = await tx.task.update({
@@ -296,10 +636,10 @@ export async function updateTask(
         priority: rest.priority,
         status: rest.status,
         dueDate: rest.dueDate,
-        estimatedMinutes: rest.estimatedMinutes,
         categoryId: rest.categoryId,
         assigneeId: rest.assigneeId,
         recurrenceId,
+        ...(cycle ?? {}),
       },
       include: taskInclude,
     });
@@ -325,17 +665,64 @@ export async function updateTask(
   });
 }
 
-/** Who is completing a task; role narrows what guests may complete. */
-export interface CompletingActor {
-  id: string;
-  role: string;
+/**
+ * Make the checklist match the editor's list: items with a known id are
+ * updated (done state is left alone — ticking goes through updateSubtask),
+ * new ones created, missing ones deleted with their queued points. Order =
+ * array order.
+ */
+async function replaceChecklist(
+  tx: Tx,
+  householdId: string,
+  existing: { id: string; cycleStartedAt: Date | null; subtasks: { id: string }[] },
+  items: SubtaskInput[],
+  userId: string,
+  now: Date,
+) {
+  const known = new Set(existing.subtasks.map((s) => s.id));
+  const keep = new Set(items.map((i) => i.id).filter((id): id is string => !!id && known.has(id)));
+  const removed = [...known].filter((id) => !keep.has(id));
+  if (removed.length) {
+    await tx.pendingCredit.deleteMany({ where: { subtaskId: { in: removed } } });
+    await tx.subtask.deleteMany({ where: { id: { in: removed } } });
+  }
+  for (const [position, item] of items.entries()) {
+    if (item.id && keep.has(item.id)) {
+      await tx.subtask.update({
+        where: { id: item.id },
+        data: { title: item.title, resetIntervalDays: item.resetIntervalDays ?? null, position },
+      });
+    } else {
+      const created = await tx.subtask.create({
+        data: {
+          taskId: existing.id,
+          title: item.title,
+          resetIntervalDays: item.resetIntervalDays ?? null,
+          position,
+          done: item.done,
+          doneAt: item.done ? now : null,
+          doneById: item.done ? userId : null,
+        },
+      });
+      if (item.done) {
+        await tx.pendingCredit.create({
+          data: { householdId, taskId: existing.id, subtaskId: created.id, userId, checkedAt: now, cycleStartedAt: existing.cycleStartedAt },
+        });
+      }
+    }
+  }
 }
 
 /**
- * Complete a task. For recurring tasks this records the completion, then rolls
- * the task forward to its next occurrence (dueDate + rule.nextRunAt advance,
- * status returns to pending). One-time tasks — and recurring tasks whose `until`
- * end date has been reached — are marked completed.
+ * Complete a task and pay out its points (see pointsService). For recurring
+ * tasks this records the completion, then:
+ * - with cycles, the task is done for this cycle (status completed) and
+ *   reopens at the next cycle start (rollTaskCycles);
+ * - without, it rolls forward to its next occurrence (due date advances,
+ *   status returns to pending) as before.
+ * One-time tasks — and recurring tasks whose `until` end date has been
+ * reached — are marked completed. Steps left unchecked are checked by the
+ * completer (they "finish the rest").
  *
  * Guests hold `tasks:complete` but only for tasks assigned to them (see
  * src/lib/permissions.ts) — that narrower scope is enforced here.
@@ -344,12 +731,14 @@ export async function completeTask(
   householdId: string,
   actor: CompletingActor,
   input: CompleteTaskInput,
-): Promise<TaskWithRelations> {
+): Promise<{ task: TaskWithRelations; completionId: string }> {
   const userId = actor.id;
+  await rollTaskCycles(householdId, new Date(), input.taskId);
+  const settings = await getPointsSettings(householdId);
   return prisma.$transaction(async (tx) => {
     const existing = await tx.task.findFirst({
       where: { id: input.taskId, householdId },
-      include: { recurrence: true },
+      include: { recurrence: true, subtasks: { orderBy: { position: 'asc' } } },
     });
     if (!existing) {
       throw new TaskNotFoundError(input.taskId);
@@ -360,36 +749,99 @@ export async function completeTask(
         'Guests may only complete tasks assigned to them.',
       );
     }
+    if (existing.status === 'completed' || existing.status === 'archived') {
+      throw new ConflictError(
+        existing.cycleEndsAt ? 'This task is already done for this cycle.' : 'This task is already completed.',
+      );
+    }
 
-    await tx.taskCompletion.create({
+    const now = new Date();
+    const pending = await tx.pendingCredit.findMany({ where: { taskId: existing.id } });
+    const pendingBy = new Map(pending.map((p) => [p.subtaskId, p]));
+    const state = effectivePoints(existing, settings.minutesPerPoint);
+    const snapshot: CompletionSnapshot = {
+      status: existing.status,
+      completedAt: existing.completedAt?.toISOString() ?? null,
+      dueDate: existing.dueDate?.toISOString() ?? null,
+      nextRunAt: existing.recurrence?.nextRunAt?.toISOString() ?? null,
+      cycleStartedAt: existing.cycleStartedAt?.toISOString() ?? null,
+      cycleEndsAt: existing.cycleEndsAt?.toISOString() ?? null,
+      steps: existing.subtasks.map((s) => ({
+        id: s.id,
+        done: s.done,
+        doneAt: s.doneAt?.toISOString() ?? null,
+        doneById: s.doneById,
+        checkAwardId: s.checkAwardId,
+        autoResetAt: s.autoResetAt?.toISOString() ?? null,
+      })),
+      pending: pending.map((p) => ({
+        subtaskId: p.subtaskId,
+        userId: p.userId,
+        checkedAt: p.checkedAt.toISOString(),
+        cycleStartedAt: p.cycleStartedAt?.toISOString() ?? null,
+      })),
+    };
+
+    const completion = await tx.taskCompletion.create({
       data: {
         taskId: existing.id,
         userId,
         note: input.note ?? null,
+        outcome: 'completed',
+        completedAt: now,
+        snapshot: JSON.stringify(snapshot),
       },
     });
 
-    const now = new Date();
-    let task: TaskWithRelations;
+    const awards = planPayout({
+      taskPointsCenti: liveTotals(state).pointsCenti,
+      steps: existing.subtasks.map((s, i) => {
+        const p = pendingBy.get(s.id);
+        return {
+          id: s.id,
+          title: s.title,
+          pointsCenti: state.steps[i].pointsCenti,
+          pending: p ? { userId: p.userId, checkedAt: p.checkedAt } : null,
+        };
+      }),
+      completerId: userId,
+      now,
+    });
+    await writeAwards(tx, { householdId, taskId: existing.id, taskTitle: existing.title, completionId: completion.id, now }, awards);
+    await tx.pendingCredit.deleteMany({ where: { taskId: existing.id } });
+    // Rows from before points get their values written now, so what was paid
+    // matches what the task shows from here on.
+    await writePoints(tx, existing.id, existing.subtasks.map((s) => s.id), state);
 
-    const next = existing.recurrence
+    const next = existing.recurrence && !existing.cycleEndsAt
       ? computeNextRunAt(normalizeRule(existing.recurrence), now)
       : null;
     // A supported recurring rule that yields no next occurrence has reached its
     // `until` end date and should finalize. (cron yields null but isn't ended.)
     const recurrenceEnded =
-      !!existing.recurrence && existing.recurrence.kind !== 'cron' && next === null;
+      !!existing.recurrence && !existing.cycleEndsAt && existing.recurrence.kind !== 'cron' && next === null;
+    const finishSteps = () =>
+      tx.subtask.updateMany({
+        where: { taskId: existing.id, done: false },
+        data: { done: true, doneAt: now, doneById: userId, checkAwardId: null, autoResetAt: null },
+      });
 
-    if (existing.recurrence && !recurrenceEnded) {
+    let task: TaskWithRelations;
+    if (existing.recurrence && existing.cycleEndsAt) {
+      // Done for this cycle; rollTaskCycles reopens it at the next start.
+      await finishSteps();
+      task = await tx.task.update({
+        where: { id: existing.id },
+        data: { status: 'completed', completedAt: now },
+        include: taskInclude,
+      });
+    } else if (existing.recurrence && !recurrenceEnded) {
       await tx.recurrenceRule.update({
         where: { id: existing.recurrence.id },
         data: { nextRunAt: next },
       });
-      // The task starts its next cycle fresh: uncheck the whole checklist.
-      await tx.subtask.updateMany({
-        where: { taskId: existing.id, done: true },
-        data: { done: false, doneAt: null },
-      });
+      // The task starts its next occurrence fresh: uncheck the whole checklist.
+      await tx.subtask.updateMany({ where: { taskId: existing.id }, data: UNCHECKED });
       task = await tx.task.update({
         where: { id: existing.id },
         data: {
@@ -400,6 +852,7 @@ export async function completeTask(
         include: taskInclude,
       });
     } else {
+      await finishSteps();
       task = await tx.task.update({
         where: { id: existing.id },
         data: { status: 'completed', completedAt: now },
@@ -407,6 +860,7 @@ export async function completeTask(
       });
     }
 
+    const paid = awards.reduce((a, w) => a + w.pointsCenti, 0);
     await logActivity(
       {
         householdId,
@@ -414,35 +868,169 @@ export async function completeTask(
         verb: 'completed',
         subjectType: 'task',
         subjectId: task.id,
-        message: `completed task “${task.title}”`,
+        message: `completed task “${task.title}”${paid > 0 ? ` (${formatPoints(paid)} pts)` : ''}`,
         metadata: input.note ? { note: input.note } : undefined,
       },
       tx,
     );
 
-    return task;
+    return { task, completionId: completion.id };
   });
 }
 
-/** Recent completion history for a task, newest first. */
+/**
+ * Undo a completion: restore the task as it was just before and void the
+ * points it paid. The completer may within UNDO_WINDOW_MS, the head any time
+ * — but only for the task's latest completion, and only while nothing has
+ * happened on the task since (otherwise the head voids points in the ledger).
+ */
+export async function undoCompletion(
+  householdId: string,
+  actor: CompletingActor,
+  completionId: string,
+): Promise<TaskWithRelations> {
+  const now = new Date();
+  return prisma.$transaction(async (tx) => {
+    const completion = await tx.taskCompletion.findFirst({
+      where: { id: completionId, task: { householdId } },
+      include: { task: { include: { recurrence: true, subtasks: true } } },
+    });
+    if (!completion) throw new NotFoundError('Completion not found.');
+    if (completion.undoneAt) throw new ConflictError('This completion was already undone.');
+    if (completion.outcome === 'missed') throw new ConflictError('A missed cycle can’t be undone.');
+    if (!canUndo({ completedById: completion.userId, completedAt: completion.completedAt, actor, now })) {
+      throw new ForbiddenError('Only the head can undo this now (the 10-minute window has passed).');
+    }
+    if (!completion.snapshot) {
+      throw new ConflictError('This completion is from before undo existed; ask the head to void its points.');
+    }
+
+    const task = completion.task;
+    const later = await tx.taskCompletion.count({
+      where: {
+        taskId: task.id,
+        id: { not: completion.id },
+        completedAt: { gte: completion.completedAt },
+        OR: [{ undoneAt: null }, { undoneAt: { isSet: false } }],
+      },
+    });
+    const at = completion.completedAt.getTime();
+    const touched =
+      task.subtasks.some((s) => (s.doneAt?.getTime() ?? 0) > at || (s.autoResetAt?.getTime() ?? 0) > at) ||
+      (await tx.pendingCredit.count({ where: { taskId: task.id, checkedAt: { gt: completion.completedAt } } })) > 0;
+    const snapshot = JSON.parse(completion.snapshot) as CompletionSnapshot;
+    const rolled = (task.cycleStartedAt?.toISOString() ?? null) !== snapshot.cycleStartedAt;
+    if (later > 0 || touched || rolled) {
+      throw new ConflictError('The task has changed since it was completed; ask the head to void the points instead.');
+    }
+
+    const date = (v: string | null) => (v ? new Date(v) : null);
+    for (const s of snapshot.steps) {
+      if (!task.subtasks.some((t) => t.id === s.id)) continue;
+      await tx.subtask.update({
+        where: { id: s.id },
+        data: {
+          done: s.done,
+          doneAt: date(s.doneAt),
+          doneById: s.doneById,
+          checkAwardId: s.checkAwardId,
+          autoResetAt: date(s.autoResetAt),
+        },
+      });
+    }
+    await tx.pendingCredit.deleteMany({ where: { taskId: task.id } });
+    const liveSteps = new Set(task.subtasks.map((s) => s.id));
+    const restore = snapshot.pending.filter((p) => liveSteps.has(p.subtaskId));
+    if (restore.length) {
+      await tx.pendingCredit.createMany({
+        data: restore.map((p) => ({
+          householdId,
+          taskId: task.id,
+          subtaskId: p.subtaskId,
+          userId: p.userId,
+          checkedAt: new Date(p.checkedAt),
+          cycleStartedAt: date(p.cycleStartedAt),
+        })),
+      });
+    }
+    if (task.recurrence) {
+      await tx.recurrenceRule.update({ where: { id: task.recurrence.id }, data: { nextRunAt: date(snapshot.nextRunAt) } });
+    }
+    await tx.pointAward.updateMany({
+      where: { completionId: completion.id, OR: [{ voidedAt: null }, { voidedAt: { isSet: false } }] },
+      data: { voidedAt: now, voidedById: actor.id, voidReason: 'Completion undone' },
+    });
+    await tx.taskCompletion.update({ where: { id: completion.id }, data: { undoneAt: now, undoneById: actor.id } });
+    const restored = await tx.task.update({
+      where: { id: task.id },
+      data: {
+        status: snapshot.status,
+        completedAt: date(snapshot.completedAt),
+        dueDate: date(snapshot.dueDate),
+      },
+      include: taskInclude,
+    });
+    await logActivity(
+      {
+        householdId,
+        actorId: actor.id,
+        verb: 'updated',
+        subjectType: 'task',
+        subjectId: task.id,
+        message: `undid completing task “${task.title}”`,
+      },
+      tx,
+    );
+    return restored;
+  });
+}
+
+/** Completion history for a task, newest first, as the caller sees it. */
 export async function listTaskCompletions(
   householdId: string,
   taskId: string,
+  actor: CompletingActor,
   limit = 20,
-): Promise<CompletionWithUser[]> {
+): Promise<TaskCompletionDTO[]> {
   await assertTaskInHousehold(taskId, householdId);
-  return prisma.taskCompletion.findMany({
+  const rows = await prisma.taskCompletion.findMany({
     where: { taskId },
     include: { user: { select: { id: true, name: true } } },
     orderBy: { completedAt: 'desc' },
     take: limit,
   });
+  const sums = await prisma.pointAward.groupBy({
+    by: ['completionId'],
+    where: {
+      completionId: { in: rows.map((r) => r.id) },
+      OR: [{ voidedAt: null }, { voidedAt: { isSet: false } }],
+    },
+    _sum: { pointsCenti: true },
+  });
+  const paid = new Map(sums.map((s) => [s.completionId, s._sum.pointsCenti ?? 0]));
+  const now = new Date();
+  // Only the newest live completion can be undone.
+  const latestLive = rows.find((r) => !r.undoneAt && r.outcome !== 'missed');
+  return rows.map((c) => ({
+    id: c.id,
+    note: c.note,
+    completedAt: c.completedAt.toISOString(),
+    user: c.user ? { id: c.user.id, name: c.user.name } : null,
+    outcome: c.outcome ?? 'completed',
+    undoneAt: c.undoneAt?.toISOString() ?? null,
+    points: (paid.get(c.id) ?? 0) / 100,
+    canUndo:
+      c === latestLive &&
+      !!c.snapshot &&
+      canUndo({ completedById: c.userId, completedAt: c.completedAt, actor, now }),
+  }));
 }
 
 /**
  * Permanently delete a task. Completions and subtasks cascade via their DB
  * relation, but the recurrence rule is the FK parent (Task.recurrenceId ->
- * SetNull on delete) so it is removed explicitly to avoid orphaning it.
+ * SetNull on delete) so it is removed explicitly to avoid orphaning it. Queued
+ * points are dropped; paid points stay in the ledger (it keeps the title).
  */
 export async function deleteTask(
   householdId: string,
@@ -458,6 +1046,7 @@ export async function deleteTask(
       throw new TaskNotFoundError(taskId);
     }
 
+    await tx.pendingCredit.deleteMany({ where: { taskId: existing.id } });
     await tx.task.delete({ where: { id: existing.id } });
     if (existing.recurrenceId) {
       await tx.recurrenceRule.delete({ where: { id: existing.recurrenceId } });
@@ -479,23 +1068,36 @@ export async function deleteTask(
 
 // --- Subtasks -------------------------------------------------------------
 
+/** Add a step; its time/points come from the task's split rules (addStep). */
 export async function addSubtask(
   householdId: string,
   input: CreateSubtaskInput,
 ): Promise<TaskWithRelations> {
   await assertTaskInHousehold(input.taskId, householdId);
-  const count = await prisma.subtask.count({ where: { taskId: input.taskId } });
-  await prisma.subtask.create({
-    data: {
-      taskId: input.taskId,
-      title: input.title,
-      resetIntervalDays: input.resetIntervalDays ?? null,
-      position: count,
-    },
+  const settings = await getPointsSettings(householdId);
+  await prisma.$transaction(async (tx) => {
+    const task = await tx.task.findFirstOrThrow({
+      where: { id: input.taskId },
+      include: { subtasks: { orderBy: { position: 'asc' } } },
+    });
+    const state = addStep(effectivePoints(task, settings.minutesPerPoint), {});
+    const created = await tx.subtask.create({
+      data: {
+        taskId: input.taskId,
+        title: input.title,
+        resetIntervalDays: input.resetIntervalDays ?? null,
+        position: task.subtasks.length,
+      },
+    });
+    await writePoints(tx, task.id, [...task.subtasks.map((s) => s.id), created.id], state);
   });
   return getTaskOrThrow(householdId, input.taskId);
 }
 
+/**
+ * Edit a step's title/order/reset, or check/uncheck it — which is where step
+ * points are queued or paid (checkOutcome) and dropped on a hand uncheck.
+ */
 export async function updateSubtask(
   householdId: string,
   input: UpdateSubtaskInput,
@@ -515,21 +1117,105 @@ export async function updateSubtask(
       );
     }
   }
-  await prisma.subtask.update({
-    where: { id: input.subtaskId },
-    data: {
-      title: input.title,
-      done: input.done,
-      // Track when the item was checked so resetIntervalDays knows when to
-      // flip it back; clearing on uncheck keeps stale timestamps out.
-      ...(input.done !== undefined
-        ? { doneAt: input.done ? new Date() : null }
-        : {}),
-      position: input.position,
-      resetIntervalDays: input.resetIntervalDays,
-    },
-  });
+  if (input.done !== undefined) {
+    await rollTaskCycles(householdId, new Date(), taskId);
+    await setStepDone(householdId, taskId, input.subtaskId, input.done, actor ?? null);
+  }
+  if (input.title !== undefined || input.position !== undefined || input.resetIntervalDays !== undefined) {
+    await prisma.subtask.update({
+      where: { id: input.subtaskId },
+      data: {
+        title: input.title,
+        position: input.position,
+        resetIntervalDays: input.resetIntervalDays,
+      },
+    });
+  }
   return getTaskOrThrow(householdId, taskId);
+}
+
+async function setStepDone(
+  householdId: string,
+  taskId: string,
+  subtaskId: string,
+  done: boolean,
+  actor: CompletingActor | null,
+) {
+  const settings = await getPointsSettings(householdId);
+  const now = new Date();
+  await prisma.$transaction(async (tx) => {
+    const task = await tx.task.findFirstOrThrow({
+      where: { id: taskId },
+      include: { subtasks: { orderBy: { position: 'asc' } } },
+    });
+    const index = task.subtasks.findIndex((s) => s.id === subtaskId);
+    const step = task.subtasks[index];
+    const pending = await tx.pendingCredit.findUnique({ where: { subtaskId } });
+
+    if (done) {
+      if (step.done) return;
+      const outcome = actor
+        ? checkOutcome({
+            alreadyDone: step.done,
+            taskFinished: task.status === 'completed',
+            hasPending: !!pending,
+            autoReset: !!step.autoResetAt,
+          })
+        : 'nothing';
+      let checkAwardId: string | null = null;
+      if (outcome === 'queue') {
+        await tx.pendingCredit.create({
+          data: { householdId, taskId, subtaskId, userId: actor!.id, checkedAt: now, cycleStartedAt: task.cycleStartedAt },
+        });
+      } else if (outcome === 'pay_now') {
+        const points = effectivePoints(task, settings.minutesPerPoint).steps[index].pointsCenti;
+        if (points > 0) {
+          const award = await tx.pointAward.create({
+            data: {
+              householdId,
+              userId: actor!.id,
+              taskId,
+              subtaskId,
+              kind: 'step_repeat',
+              pointsCenti: points,
+              taskTitle: task.title,
+              stepTitle: step.title,
+              earnedAt: now,
+              awardedAt: now,
+            },
+          });
+          checkAwardId = award.id;
+        }
+      }
+      await tx.subtask.update({
+        where: { id: subtaskId },
+        data: { done: true, doneAt: now, doneById: actor?.id ?? null, checkAwardId, autoResetAt: null },
+      });
+      return;
+    }
+
+    if (!step.done) return;
+    if (step.checkAwardId) {
+      // This check paid at once: unchecking it within the undo window (by the
+      // same person, or the head) takes the points back.
+      const award = await tx.pointAward.findUnique({ where: { id: step.checkAwardId } });
+      if (
+        award &&
+        !award.voidedAt &&
+        actor &&
+        (actor.role === 'head' || (award.userId === actor.id && now.getTime() - award.awardedAt.getTime() <= UNDO_WINDOW_MS))
+      ) {
+        await tx.pointAward.update({
+          where: { id: award.id },
+          data: { voidedAt: now, voidedById: actor.id, voidReason: 'Step unchecked' },
+        });
+      }
+    } else if (pending) {
+      // Unchecked by hand: its queued points are dropped.
+      await tx.pendingCredit.delete({ where: { id: pending.id } });
+    }
+    await tx.subtask.update({ where: { id: subtaskId }, data: UNCHECKED });
+  });
 }
 
 /**
@@ -567,12 +1253,25 @@ export async function reorderSubtasks(
   });
 }
 
+/** Remove a step: its share goes back to the others or the totals shrink
+ *  (removeStep); its queued points are dropped. */
 export async function deleteSubtask(
   householdId: string,
   subtaskId: string,
 ): Promise<TaskWithRelations> {
   const taskId = await assertSubtaskInHousehold(subtaskId, householdId);
-  await prisma.subtask.delete({ where: { id: subtaskId } });
+  const settings = await getPointsSettings(householdId);
+  await prisma.$transaction(async (tx) => {
+    const task = await tx.task.findFirstOrThrow({
+      where: { id: taskId },
+      include: { subtasks: { orderBy: { position: 'asc' } } },
+    });
+    const index = task.subtasks.findIndex((s) => s.id === subtaskId);
+    const state = removeStep(effectivePoints(task, settings.minutesPerPoint), index);
+    await tx.pendingCredit.deleteMany({ where: { subtaskId } });
+    await tx.subtask.delete({ where: { id: subtaskId } });
+    await writePoints(tx, taskId, task.subtasks.filter((s) => s.id !== subtaskId).map((s) => s.id), state);
+  });
   return getTaskOrThrow(householdId, taskId);
 }
 

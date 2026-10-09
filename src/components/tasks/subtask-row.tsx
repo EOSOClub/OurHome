@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Check, ChevronDown, ChevronUp, Pencil, Repeat, X } from 'lucide-react';
 import type { SubtaskDTO } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { formatPoints, toCenti } from '@/lib/taskPoints';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
@@ -148,6 +149,24 @@ export function SubtaskRow({
       >
         {subtask.title}
       </span>
+      {/* Who did it, and whether its points are waiting for the task. */}
+      {subtask.queuedFor || subtask.doneBy ? (
+        <span
+          className="shrink-0 text-xs text-muted-foreground"
+          title={
+            subtask.queuedFor
+              ? `${subtask.queuedFor.name}'s points are queued until the task is completed`
+              : undefined
+          }
+        >
+          {subtask.queuedFor ? `queued · ${subtask.queuedFor.name}` : subtask.doneBy?.name}
+        </span>
+      ) : null}
+      {subtask.points > 0 ? (
+        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+          {formatPoints(toCenti(subtask.points))} pts
+        </span>
+      ) : null}
       {subtask.resetIntervalDays ? (
         <span
           className="inline-flex shrink-0 items-center gap-0.5 text-xs text-muted-foreground"

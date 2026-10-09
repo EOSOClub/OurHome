@@ -119,7 +119,23 @@ So a child or teen hears only about their own tasks and bills unless the head
 grants them more. Read state is per person: reading a notification never marks
 it read for anyone else.
 
+## Task points
+
+Anyone who may check steps or complete a task (`tasks:complete`; guests only
+on tasks assigned to them) earns its points; editing a task's time/points
+follows the Tasks grid like any other edit. Everyone sees the `/points` stats.
+
+| Action | Who |
+| --- | --- |
+| Undo a completion (restores the task, voids its points) | the completer within 10 minutes; the head any time |
+| Void a points entry in the ledger (with a reason) | head |
+| Change the rate, time zone, week start | head (Settings → Task points) |
+
+Rules: `docs/points.md`.
+
 ## Changelog
+
+- **2026-10-09** — Task points (table above).
 
 - **2026-10-08** — Generated reminders are targeted (table above) instead of
   going to the whole household, and read state is per person.

@@ -36,6 +36,11 @@ model Household {
   // The head's edits to each role's page-access grid, as JSON text
   // (RoleAccessOverrides in src/lib/permissions.ts). null = built-in defaults.
   roleAccess       String?
+  // Points and calendar settings (head). null = defaults: America/Chicago,
+  // weeks start Sunday (0), 10 minutes per point.
+  timezone         String?
+  weekStartsOn     Int?
+  minutesPerPoint  Float?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -190,8 +195,21 @@ model Task {
   status      String    @default("pending")
   dueDate     DateTime?
   completedAt DateTime?
-  // estimated effort to complete, in minutes
+  // Live time to complete, in minutes: the sum of the steps when there are
+  // any, else baseMinutes. Points work the same way (src/lib/taskPoints.ts).
   estimatedMinutes Int?
+  pointsCenti      Int?
+  // Task-level values the user set; they define the task's points-per-minute
+  // rate. Step edits change the live totals above, never these.
+  baseMinutes      Int?
+  basePointsCenti  Int?
+  // Points recalculate from time when it changes (null = true, the default).
+  pointsFollowTime Boolean?
+  // Recurring tasks with a cycle (RecurrenceRule.rollover): the current
+  // window [cycleStartedAt, cycleEndsAt). Reaching cycleEndsAt rolls the task
+  // over (recorded as missed if it wasn't done).
+  cycleStartedAt   DateTime?
+  cycleEndsAt      DateTime?
   categoryId  String?
   assigneeId  String?
   createdById String?
@@ -226,6 +244,13 @@ model RecurrenceRule {
   // optional end date: no occurrences are generated after this instant
   until     DateTime?
   nextRunAt DateTime?
+  // Tasks only: the task runs in cycles that start at local midnight (household
+  // time zone) — daily: every day; interval: every `interval` days from the
+  // anchor; weekly: on cycleWeekdays; monthly: on cycleMonthdays (a day past
+  // the month's end starts on its last day). null/false = no cycles.
+  rollover       Boolean?
+  cycleWeekdays  String?
+  cycleMonthdays String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -246,6 +271,14 @@ model TaskCompletion {
   userId      String?
   note        String?
   completedAt DateTime @default(now())
+  // "completed" (null = completed, rows from before) | "missed" (a cycle ran
+  // out unfinished; no user).
+  outcome     String?
+  // Undo: the task's state just before completing (JSON, see pointsService
+  // CompletionSnapshot), and who undid it when.
+  snapshot    String?
+  undoneAt    DateTime?
+  undoneById  String?
 
   task Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
@@ -261,10 +294,26 @@ model Subtask {
   done      Boolean  @default(false)
   // When the item was last checked; drives the per-item reset cadence below.
   doneAt    DateTime?
+  // Who checked it (plain id), for points.
+  doneById  String?
+  // Set when this check paid out at once (a re-check after the step's own
+  // reset): the PointAward, so unchecking within the undo window voids it.
+  checkAwardId String?
+  // Set when the step's own reset unchecked it (cleared by any check or hand
+  // uncheck). Only a re-check after an auto-reset can pay out on its own —
+  // unchecking and re-checking by hand never earns twice.
+  autoResetAt  DateTime?
   // Auto-uncheck this item N days after it was checked (e.g. "dishes" daily
   // inside a "clean kitchen" task that repeats every 3 days). Null = the item
   // only resets when the parent recurring task advances.
   resetIntervalDays Int?
+  // This step's share of the task (src/lib/taskPoints.ts). null = not yet
+  // split (rows from before points; filled in on read).
+  minutes      Int?
+  pointsCenti  Int?
+  // Hand-set time / points ("customised"). pointsFollowTime null = true.
+  minutesCustom    Boolean?
+  pointsFollowTime Boolean?
   position  Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -272,6 +321,55 @@ model Subtask {
   task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@index([taskId])
+}
+
+// ---------------------------------------------------------------------------
+// Points (src/server/services/pointsService.ts, docs/points.md)
+// ---------------------------------------------------------------------------
+
+// A step's first check in a task cycle: its points wait here for whoever
+// checked it until the task is completed (then they become a PointAward).
+// Dropped when the step is unchecked by hand or the task's cycle runs out.
+// Survives the step's own auto-reset. At most one per step.
+model PendingCredit {
+  id             String    @id @default(cuid()) @map("_id")
+  householdId    String
+  taskId         String
+  subtaskId      String    @unique
+  userId         String
+  checkedAt      DateTime  @default(now())
+  cycleStartedAt DateTime?
+
+  @@index([taskId])
+  @@index([householdId, userId])
+}
+
+// The points ledger. Never deleted or edited except to void: totals are the
+// sum of rows without voidedAt. Ids are plain strings (no relations), and
+// titles are copied, so history survives deleting a task or member.
+model PointAward {
+  id           String    @id @default(cuid()) @map("_id")
+  householdId  String
+  userId       String
+  taskId       String
+  subtaskId    String?
+  completionId String?
+  // "task" (a step-less task) | "step" (paid at completion) |
+  // "step_repeat" (a re-check after the step's own reset, paid at once)
+  kind         String
+  pointsCenti  Int
+  taskTitle    String
+  stepTitle    String?
+  // When the work was done (step checked) and when the points landed.
+  earnedAt     DateTime
+  awardedAt    DateTime  @default(now())
+  voidedAt     DateTime?
+  voidedById   String?
+  voidReason   String?
+
+  @@index([householdId, awardedAt])
+  @@index([householdId, userId, awardedAt])
+  @@index([completionId])
 }
 
 // ---------------------------------------------------------------------------

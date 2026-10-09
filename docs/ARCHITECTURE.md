@@ -148,6 +148,12 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
   - HA as a display: `GET /api/integrations/inventory` (same token) is a
     read-only feed; config in `HomeAssistant/display.yaml`.
   Tokens and the web tag mappings live on the Settings page; runbooks in `docs/`.
+- **Task points.** Tasks carry a time to complete and points (split over their
+  steps by `src/lib/taskPoints.ts`, shared with the editor). Checking a step
+  queues its points (`PendingCredit`); completing pays everything into the
+  `PointAward` ledger; recurring tasks can run in cycles that roll over at
+  local midnight (`src/lib/taskCycles.ts`, missed cycles recorded). Stats at
+  `/points`. `pointsService` + `taskService`; full rules in `docs/points.md`.
 - **Notifications & reminders.** `reminderService` generates overdue-task,
   low-inventory, predicted-depletion, and bill-due notifications. The
   production server sweeps every household every 15 minutes in-process

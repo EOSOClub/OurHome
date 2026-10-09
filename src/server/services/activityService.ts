@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/server/db/prisma';
+import { areaOf, subjectFilter, type ActivityArea } from '@/lib/activityAreas';
 
 type Db = typeof prisma | Prisma.TransactionClient;
 
@@ -34,11 +35,45 @@ export async function logActivity(input: LogActivityInput, db: Db = prisma) {
   });
 }
 
-export async function listRecentActivity(householdId: string, take = 20) {
-  return prisma.activityEntry.findMany({
-    where: { householdId },
-    orderBy: { createdAt: 'desc' },
-    take,
-    include: { actor: { select: { id: true, name: true } } },
-  });
+export interface ActivityQuery {
+  area?: ActivityArea;
+  actorId?: string;
+  /** Id of the last entry already shown; the page continues after it. */
+  before?: string;
+  limit?: number;
 }
+
+/**
+ * One page of the activity log, newest first, for the Activity page (web
+ * /activity, app ⋮ → Activity). `nextBefore` continues it; null at the end.
+ */
+export async function listActivity(householdId: string, query: ActivityQuery = {}) {
+  const take = Math.min(100, query.limit ?? 50);
+  const rows = await prisma.activityEntry.findMany({
+    where: {
+      householdId,
+      ...(query.area ? { subjectType: subjectFilter(query.area) } : {}),
+      ...(query.actorId ? { actorId: query.actorId } : {}),
+    },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    ...(query.before ? { cursor: { id: query.before }, skip: 1 } : {}),
+    // One extra tells whether there is another page.
+    take: take + 1,
+    select: {
+      id: true,
+      verb: true,
+      subjectType: true,
+      subjectId: true,
+      message: true,
+      createdAt: true,
+      actor: { select: { id: true, name: true } },
+    },
+  });
+  const items = rows.slice(0, take).map((r) => ({ ...r, area: areaOf(r.subjectType) }));
+  return {
+    items,
+    nextBefore: rows.length > take ? items[items.length - 1].id : null,
+  };
+}
+
+export type ActivityPage = Awaited<ReturnType<typeof listActivity>>;

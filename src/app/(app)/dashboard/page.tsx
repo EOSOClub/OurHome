@@ -1,37 +1,29 @@
 import Link from 'next/link';
 import {
-  Activity,
   AlertTriangle,
-  CalendarClock,
+  ArrowRight,
   CalendarDays,
   CheckCircle2,
+  History,
+  Inbox,
   ListTodo,
   Package,
+  PartyPopper,
   Receipt,
-  Repeat,
   ShoppingCart,
+  Trophy,
+  Users,
 } from 'lucide-react';
 import { requireUser } from '@/server/auth/session';
-import { getDashboard } from '@/server/services/dashboardService';
+import { getDashboard, type DashboardData } from '@/server/services/dashboardService';
+import { getUserAccess } from '@/server/services/permissionService';
 import { StatCard } from '@/components/dashboard/stat-card';
-import { EmptyState } from '@/components/empty-state';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import {
-  formatDueDate,
-  formatMoney,
-  formatRelativeTime,
-  isOverdue,
-} from '@/lib/format';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatDueDate, formatMoney, isOverdue } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { AccessPage } from '@/lib/permissions';
-import { getUserAccess } from '@/server/services/permissionService';
 
 // Each shows only to people who may add on that page (Members → Permissions).
 const quickActions: { href: string; label: string; icon: typeof ListTodo; page: AccessPage }[] = [
@@ -39,391 +31,334 @@ const quickActions: { href: string; label: string; icon: typeof ListTodo; page: 
   { href: '/shopping', label: 'Add item', icon: ShoppingCart, page: 'shopping' },
   { href: '/bills', label: 'Log payment', icon: Receipt, page: 'bills' },
   { href: '/calendar', label: 'New event', icon: CalendarDays, page: 'calendar' },
+  { href: '/requests', label: 'New request', icon: Inbox, page: 'requests' },
 ];
 
 export default async function DashboardPage() {
   const user = await requireUser();
-  const [data, access] = await Promise.all([
-    getDashboard(user.householdId!),
-    getUserAccess(user),
-  ]);
+  const access = await getUserAccess(user);
+  const data = await getDashboard({ id: user.id, householdId: user.householdId! }, access);
   const actions = quickActions.filter((a) => access[a.page].create);
+  const now = new Date();
+  const hour = Number(
+    new Intl.DateTimeFormat('en-US', { hour: 'numeric', hourCycle: 'h23', timeZone: data.timezone }).format(now),
+  );
+  const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
 
   return (
     <div className="space-y-6">
       <div className="space-y-3">
         <div>
-          <h1 className="text-2xl font-semibold">Hi, {user.name.split(' ')[0]}</h1>
           <p className="text-sm text-muted-foreground">
-            Here’s what’s happening around the house.
+            {now.toLocaleDateString(undefined, {
+              weekday: 'long',
+              month: 'long',
+              day: 'numeric',
+              timeZone: data.timezone,
+            })}
           </p>
+          <h1 className="text-2xl font-semibold">
+            {greeting}, {user.name.split(' ')[0]}
+          </h1>
+          <DoneToday done={data.doneToday} />
         </div>
-        <div className="flex flex-wrap gap-2">
-          {actions.map(({ href, label, icon: Icon }) => (
-            <Link
-              key={label}
-              href={href}
-              className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
-            >
-              <Icon /> {label}
-            </Link>
-          ))}
+        {actions.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {actions.map(({ href, label, icon: Icon }) => (
+              <Link key={label} href={href} className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}>
+                <Icon /> {label}
+              </Link>
+            ))}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className="space-y-6 lg:col-span-2">
+          <NeedsYouCard me={data.me} />
+          <ComingUpCard data={data} />
+        </div>
+        <div className="space-y-6">
+          <PointsCard points={data.me.points} userId={user.id} />
+          <HouseholdCard counts={data.counts} />
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <StatCard
-          label="Pending"
-          value={data.counts.pending}
-          icon={ListTodo}
-          href="/tasks"
-        />
-        <StatCard
-          label="Overdue"
-          value={data.counts.overdue}
-          icon={AlertTriangle}
-          tone={data.counts.overdue > 0 ? 'danger' : 'default'}
-          href="/tasks"
-        />
-        <StatCard
-          label="Recurring"
-          value={data.counts.recurring}
-          icon={Repeat}
-          href="/tasks"
-        />
-        <StatCard
-          label="Low stock"
-          value={data.counts.lowInventory}
-          icon={Package}
-          tone={data.counts.lowInventory > 0 ? 'warning' : 'default'}
-          href="/inventory"
-        />
-        <StatCard
-          label="To buy"
-          value={data.counts.openShopping}
-          icon={ShoppingCart}
-          href="/shopping"
-        />
-        <StatCard
-          label="Bills due"
-          value={data.counts.billsDue}
-          icon={Receipt}
-          tone={data.counts.billsDue > 0 ? 'warning' : 'default'}
-          href="/bills"
-        />
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <TaskListCard
-          title="Overdue"
-          icon={AlertTriangle}
-          tasks={data.overdue}
-          emptyTitle="Nothing overdue"
-          emptyDescription="You’re all caught up."
-        />
-        <TaskListCard
-          title="Upcoming (7 days)"
-          icon={CalendarClock}
-          tasks={data.upcoming}
-          emptyTitle="No upcoming tasks"
-          emptyDescription="Add a task to get started."
-        />
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Activity className="size-4" /> Recent activity
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="pt-0">
-          {data.recentActivity.length === 0 ? (
-            <EmptyState
-              icon={Activity}
-              title="No activity yet"
-              description="Completed chores and changes will show up here."
-            />
-          ) : (
-            <ul className="divide-y divide-border">
-              {data.recentActivity.map((entry) => {
-                const href = activityHref(entry.subjectType, entry.subjectId);
-                const body = (
-                  <>
-                    <p className="text-sm">
-                      <span className="font-medium">
-                        {entry.actor?.name ?? 'System'}
-                      </span>{' '}
-                      <span className={href ? 'group-hover:underline' : undefined}>
-                        {entry.message}
-                      </span>
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {formatRelativeTime(entry.createdAt)}
-                    </p>
-                  </>
-                );
-                return (
-                  <li
-                    key={entry.id}
-                    className="flex items-start gap-3 py-3 first:pt-0 last:pb-0"
-                  >
-                    <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                    {href ? (
-                      <Link href={href} className="group min-w-0 flex-1">
-                        {body}
-                      </Link>
-                    ) : (
-                      <div className="min-w-0 flex-1">{body}</div>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center justify-between gap-2">
-              <span className="flex items-center gap-2">
-                <ShoppingCart className="size-4" /> Shopping
-              </span>
-              <Link
-                href="/shopping"
-                className="text-xs font-medium text-primary hover:underline"
-              >
-                Open
-              </Link>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
-            {data.shoppingLists.length === 0 ? (
-              <EmptyState
-                icon={ShoppingCart}
-                title="No shopping lists yet"
-                description="Create a grocery or supplies list to start adding items."
-              />
-            ) : (
-              <ul className="divide-y divide-border">
-                {data.shoppingLists.map((list) => (
-                  <li
-                    key={list.id}
-                    className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0"
-                  >
-                    <Link
-                      href={`/shopping?list=${list.id}`}
-                      className="truncate text-sm font-medium hover:underline"
-                    >
-                      {list.name}
-                    </Link>
-                    <Badge variant={list.openCount > 0 ? 'default' : 'secondary'}>
-                      {list.openCount} to buy
-                    </Badge>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center justify-between gap-2">
-              <span className="flex items-center gap-2">
-                <CalendarDays className="size-4" /> Upcoming events
-              </span>
-              <Link
-                href="/calendar"
-                className="text-xs font-medium text-primary hover:underline"
-              >
-                Open
-              </Link>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
-            {data.upcomingEvents.length === 0 ? (
-              <EmptyState
-                icon={CalendarDays}
-                title="Nothing scheduled"
-                description="Add events to your household calendar."
-              />
-            ) : (
-              <ul className="divide-y divide-border">
-                {data.upcomingEvents.map((event) => (
-                  <li
-                    key={`${event.eventId}-${event.start}`}
-                    className="py-3 first:pt-0 last:pb-0"
-                  >
-                    <Link
-                      href="/calendar"
-                      className="group flex items-center justify-between gap-3"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium group-hover:underline">
-                          {event.title}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {event.allDay
-                            ? new Date(event.start).toLocaleDateString(undefined, {
-                                weekday: 'short',
-                                month: 'short',
-                                day: 'numeric',
-                              })
-                            : new Date(event.start).toLocaleString(undefined, {
-                                weekday: 'short',
-                                month: 'short',
-                                day: 'numeric',
-                                hour: 'numeric',
-                                minute: '2-digit',
-                              })}
-                          {event.location ? ` · ${event.location}` : ''}
-                        </p>
-                      </div>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center justify-between gap-2">
-              <span className="flex items-center gap-2">
-                <Receipt className="size-4" /> Upcoming bills
-              </span>
-              <Link
-                href="/bills"
-                className="text-xs font-medium text-primary hover:underline"
-              >
-                Open
-              </Link>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
-            {data.upcomingBills.length === 0 ? (
-              <EmptyState
-                icon={Receipt}
-                title="No unpaid bills"
-                description="Bills you add or receive by email will show up here."
-              />
-            ) : (
-              <ul className="divide-y divide-border">
-                {data.upcomingBills.map((bill) => (
-                  <li key={bill.id} className="py-3 first:pt-0 last:pb-0">
-                    <Link
-                      href={`/bills/${bill.id}`}
-                      className="group flex items-center justify-between gap-3"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium group-hover:underline">
-                          {bill.name}
-                        </p>
-                        <p
-                          className={
-                            isOverdue(bill.dueDate)
-                              ? 'text-xs text-destructive'
-                              : 'text-xs text-muted-foreground'
-                          }
-                        >
-                          {formatDueDate(bill.dueDate)}
-                        </p>
-                      </div>
-                      <span className="shrink-0 text-sm font-medium">
-                        {formatMoney(bill.amount, bill.currency)}
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+      <Link
+        href="/activity"
+        className="flex items-center justify-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+      >
+        <History className="size-4" /> Household activity <ArrowRight className="size-4" />
+      </Link>
     </div>
   );
 }
 
-/** Route for an activity entry's subject, when a sensible one exists. */
-function activityHref(
-  subjectType: string,
-  subjectId: string | null,
-): string | null {
-  switch (subjectType) {
-    case 'task':
-      return '/tasks';
-    case 'bill':
-      return subjectId ? `/bills/${subjectId}` : '/bills';
-    case 'shopping_list':
-    case 'shopping_item':
-      return '/shopping';
-    case 'inventory_item':
-      return '/inventory';
-    default:
-      return null;
+function DoneToday({ done }: { done: DashboardData['doneToday'] }) {
+  if (done.total === 0) {
+    return <p className="text-sm text-muted-foreground">Nothing ticked off yet today.</p>;
   }
+  const chores = done.total === 1 ? '1 task' : `${done.total} tasks`;
+  return (
+    <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+      <PartyPopper className="size-4 text-[var(--color-success)]" />
+      {chores} done today{done.mine > 0 ? ` — ${done.mine === done.total ? 'all' : done.mine} by you` : ''}.
+    </p>
+  );
 }
 
-function TaskListCard({
-  title,
-  icon: Icon,
-  tasks,
-  emptyTitle,
-  emptyDescription,
-}: {
-  title: string;
-  icon: typeof AlertTriangle;
-  tasks: Array<{
-    id: string;
-    title: string;
-    priority: string;
-    dueDate: Date | null;
-    assignee: { id: string; name: string } | null;
-  }>;
-  emptyTitle: string;
-  emptyDescription: string;
-}) {
+type Me = DashboardData['me'];
+type DashTask = Me['today'][number];
+
+function NeedsYouCard({ me }: { me: Me }) {
+  const nothing =
+    me.today.length === 0 && me.requests.length === 0 && me.openToAnyone.length === 0;
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <Icon className="size-4" /> {title}
+          <AlertTriangle className="size-4" /> Needs you
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-5 pt-0">
+        {nothing ? (
+          <div className="flex items-center gap-3 rounded-lg bg-[var(--color-success)]/10 px-4 py-3 text-sm">
+            <CheckCircle2 className="size-5 shrink-0 text-[var(--color-success)]" />
+            <span>
+              <span className="font-medium">You’re all caught up.</span>{' '}
+              <span className="text-muted-foreground">Nothing is due on you today.</span>
+            </span>
+          </div>
+        ) : null}
+        {me.today.length > 0 ? <TaskList tasks={me.today} /> : null}
+        {me.requests.length > 0 ? (
+          <Section title="Requests">
+            <ul className="divide-y divide-border">
+              {me.requests.map((r) => (
+                <li key={r.id} className="py-2.5 first:pt-0 last:pb-0">
+                  <Link href="/requests" className="group flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium group-hover:underline">{requestTitle(r)}</p>
+                      <p className="text-xs text-muted-foreground">from {r.requester.name}</p>
+                    </div>
+                    <RequestBadge reason={r.reason} dueAt={r.dueAt} />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </Section>
+        ) : null}
+        {me.openToAnyone.length > 0 ? (
+          <Section title="Open to anyone">
+            <TaskList tasks={me.openToAnyone} />
+          </Section>
+        ) : null}
+        {me.later.length > 0 ? (
+          <Section title="Later this week">
+            <TaskList tasks={me.later} muted />
+          </Section>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-2">
+      <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</h3>
+      {children}
+    </div>
+  );
+}
+
+function TaskList({ tasks, muted = false }: { tasks: DashTask[]; muted?: boolean }) {
+  return (
+    <ul className="divide-y divide-border">
+      {tasks.map((task) => (
+        <li key={task.id} className="py-2.5 first:pt-0 last:pb-0">
+          <Link href="/tasks" className="group flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className={cn('truncate text-sm group-hover:underline', muted ? '' : 'font-medium')}>
+                {task.title}
+              </p>
+              <p
+                className={
+                  isOverdue(task.dueDate) ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'
+                }
+              >
+                {formatDueDate(task.dueDate)}
+              </p>
+            </div>
+            {!muted && (task.priority === 'urgent' || task.priority === 'high') ? (
+              <Badge variant={task.priority === 'urgent' ? 'destructive' : 'warning'}>{task.priority}</Badge>
+            ) : null}
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function requestTitle(r: Me['requests'][number]): string {
+  if (r.category !== 'media') return r.title;
+  const kind = r.mediaType === 'tv' ? 'TV' : 'Movie';
+  return `${kind}: ${r.title}${r.year ? ` (${r.year})` : ''}${r.season ? ` · S${r.season}` : ''}`;
+}
+
+function RequestBadge({ reason, dueAt }: { reason: Me['requests'][number]['reason']; dueAt: Date | null }) {
+  switch (reason) {
+    case 'approve':
+      return <Badge>Mark added</Badge>;
+    case 'accept':
+      return <Badge>Accept</Badge>;
+    case 'due':
+      return <Badge variant="destructive">{isOverdue(dueAt) ? 'Overdue' : 'Due today'}</Badge>;
+  }
+}
+
+function PointsCard({ points, userId }: { points: Me['points']; userId: string }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center justify-between gap-2">
+          <span className="flex items-center gap-2">
+            <Trophy className="size-4" /> This week
+          </span>
+          <Link href="/points" className="text-xs font-medium text-primary hover:underline">
+            Points
+          </Link>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4 pt-0">
+        <div>
+          <div className="text-3xl font-semibold leading-tight">
+            {formatPoints(points.week)} <span className="text-base font-normal text-muted-foreground">pts</span>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {points.rank ? `#${points.rank} in the house` : 'No points yet this week'}
+            {points.queued > 0 ? ` · ${formatPoints(points.queued)} waiting on unfinished tasks` : ''}
+          </p>
+        </div>
+        {points.leaders.length > 0 ? (
+          <ol className="space-y-1.5">
+            {points.leaders.map((m, i) => (
+              <li key={m.userId} className="flex items-center justify-between gap-2 text-sm">
+                <span className={cn('truncate', m.userId === userId && 'font-medium')}>
+                  <span className="mr-2 text-muted-foreground">{i + 1}.</span>
+                  {m.name}
+                </span>
+                <span className="shrink-0 tabular-nums text-muted-foreground">{formatPoints(m.points)}</span>
+              </li>
+            ))}
+          </ol>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function formatPoints(n: number): string {
+  return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+function HouseholdCard({ counts }: { counts: DashboardData['counts'] }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Users className="size-4" /> Around the house
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="grid grid-cols-2 gap-3 pt-0">
+        <StatCard
+          label="Overdue tasks"
+          value={counts.overdue}
+          icon={AlertTriangle}
+          tone={counts.overdue > 0 ? 'danger' : 'default'}
+          href="/tasks"
+        />
+        <StatCard
+          label="Low stock"
+          value={counts.lowInventory}
+          icon={Package}
+          tone={counts.lowInventory > 0 ? 'warning' : 'default'}
+          href="/inventory"
+        />
+        <StatCard label="To buy" value={counts.openShopping} icon={ShoppingCart} href="/shopping" />
+        <StatCard
+          label="Bills due (7d)"
+          value={counts.billsDue}
+          icon={Receipt}
+          tone={counts.billsDue > 0 ? 'warning' : 'default'}
+          href="/bills"
+        />
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Calendar events and unpaid bills, in date order. */
+function ComingUpCard({ data }: { data: DashboardData }) {
+  const rows = [
+    ...data.upcomingEvents.map((e) => ({
+      key: `event-${e.eventId}-${e.start}`,
+      at: new Date(e.start),
+      href: '/calendar',
+      icon: CalendarDays,
+      title: e.title,
+      detail: [
+        e.allDay
+          ? new Date(e.start).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+          : new Date(e.start).toLocaleString(undefined, {
+              weekday: 'short',
+              month: 'short',
+              day: 'numeric',
+              hour: 'numeric',
+              minute: '2-digit',
+            }),
+        e.location,
+      ]
+        .filter(Boolean)
+        .join(' · '),
+      late: false,
+      trailing: null as string | null,
+    })),
+    ...data.upcomingBills.map((b) => ({
+      key: `bill-${b.id}`,
+      at: b.dueDate ? new Date(b.dueDate) : new Date(8.64e15),
+      href: `/bills/${b.id}`,
+      icon: Receipt,
+      title: b.name,
+      detail: formatDueDate(b.dueDate),
+      late: isOverdue(b.dueDate),
+      trailing: formatMoney(b.amount, b.currency),
+    })),
+  ]
+    .sort((a, b) => a.at.getTime() - b.at.getTime())
+    .slice(0, 8);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <CalendarDays className="size-4" /> Coming up
         </CardTitle>
       </CardHeader>
       <CardContent className="pt-0">
-        {tasks.length === 0 ? (
-          <EmptyState
-            icon={CheckCircle2}
-            title={emptyTitle}
-            description={emptyDescription}
-          />
+        {rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No events this week and no unpaid bills.</p>
         ) : (
           <ul className="divide-y divide-border">
-            {tasks.map((task) => (
-              <li key={task.id} className="py-3 first:pt-0 last:pb-0">
-                <Link
-                  href="/tasks"
-                  className="group flex items-center justify-between gap-3"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium group-hover:underline">
-                      {task.title}
-                    </p>
-                    <p
-                      className={
-                        isOverdue(task.dueDate)
-                          ? 'text-xs text-destructive'
-                          : 'text-xs text-muted-foreground'
-                      }
-                    >
-                      {formatDueDate(task.dueDate)}
-                      {task.assignee ? ` · ${task.assignee.name}` : ''}
-                    </p>
+            {rows.map(({ key, href, icon: Icon, title, detail, late, trailing }) => (
+              <li key={key} className="py-2.5 first:pt-0 last:pb-0">
+                <Link href={href} className="group flex items-center gap-3">
+                  <Icon className="size-4 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium group-hover:underline">{title}</p>
+                    <p className={late ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>{detail}</p>
                   </div>
-                  <Badge variant={priorityVariant(task.priority)}>
-                    {task.priority}
-                  </Badge>
+                  {trailing ? <span className="shrink-0 text-sm font-medium">{trailing}</span> : null}
                 </Link>
               </li>
             ))}
@@ -432,19 +367,4 @@ function TaskListCard({
       </CardContent>
     </Card>
   );
-}
-
-function priorityVariant(
-  priority: string,
-): 'default' | 'secondary' | 'destructive' | 'warning' {
-  switch (priority) {
-    case 'urgent':
-      return 'destructive';
-    case 'high':
-      return 'warning';
-    case 'low':
-      return 'secondary';
-    default:
-      return 'default';
-  }
 }

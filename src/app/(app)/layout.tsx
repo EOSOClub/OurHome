@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { Home, Settings, Users, UserRound } from 'lucide-react';
+import { History, Home, Settings, Users, UserRound } from 'lucide-react';
 import { requireUser } from '@/server/auth/session';
 import { prisma } from '@/server/db/prisma';
 import { getAccessSettings } from '@/server/services/accessService';
@@ -69,6 +69,18 @@ export default async function AppLayout({
             </Link>
             <Tooltip label="Notifications">
               <NotificationBell />
+            </Tooltip>
+            <Tooltip label="Activity">
+              <Link
+                href="/activity"
+                aria-label="Activity"
+                className={cn(
+                  buttonVariants({ variant: 'ghost', size: 'icon' }),
+                  'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <History />
+              </Link>
             </Tooltip>
             <Tooltip label="Profile">
               <Link

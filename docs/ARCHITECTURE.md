@@ -23,7 +23,12 @@ Request
 **Rule:** business logic never lives in a route handler. Handlers parse + delegate.
 Services own the rules and are the only code that touches the database. Every
 state-changing service writes an `ActivityEntry`, so the activity feed is an
-authoritative, append-only log of household events.
+authoritative, append-only log of household events. It is read on its own
+page (`/activity`, `GET /api/activity`, filtered by area — `lib/activityAreas.ts`
+— and person), not on the dashboard: the dashboard (`dashboardService`) is
+"my day first" — the viewer's tasks due today, requests waiting on them
+(`lib/requestAttention.ts`, mirrored by the app's `RequestAttention.kt`),
+their points this week, then a household glance.
 
 UI follows the same separation: Server Components fetch via services for the
 initial render; interactive mutations go through the typed API (`/api/*`) with

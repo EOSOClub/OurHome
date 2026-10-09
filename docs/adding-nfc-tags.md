@@ -156,7 +156,7 @@ name, e.g. `Paper Towels`. Unnamed tags just fall back to the generic title
 1. Scan the tag with the phone.
 2. Tap the notification, type a number (e.g. `-1`), submit.
 3. App → **Inventory**: the item's quantity should change by that amount
-   (clamped at `0`), and the scan appears in the dashboard activity feed.
+   (clamped at `0`), and the scan appears on the Activity page (Stock filter).
 
 You can also test without NFC: HA → **Developer Tools → Actions** →
 `rest_command.inventory_scan` with

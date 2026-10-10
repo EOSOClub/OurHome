@@ -71,6 +71,16 @@ const subtaskInputSchema = z.object({
 
 export type SubtaskInput = z.infer<typeof subtaskInputSchema>;
 
+// The whole checklist as the editor saves it. An id may appear once: it names
+// the row that keeps its place and values.
+const checklistSchema = z
+  .array(subtaskInputSchema)
+  .max(50)
+  .refine((items) => {
+    const ids = items.map((i) => i.id).filter(Boolean);
+    return new Set(ids).size === ids.length;
+  }, 'A checklist step appears twice.');
+
 // Rotating assignees: member ids in turn order (src/lib/taskRotation.ts).
 // Fewer than two distinct people clears the rotation.
 const rotationSchema = z.array(z.string().cuid()).max(MAX_ROTATION);
@@ -90,7 +100,7 @@ export const createTaskSchema = z.object({
   assigneeId: z.string().cuid().optional().nullable(),
   rotationUserIds: rotationSchema.optional().nullable(),
   recurrence: recurrenceInputSchema.optional(),
-  subtasks: z.array(subtaskInputSchema).max(50).optional(),
+  subtasks: checklistSchema.optional(),
 });
 
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;
@@ -116,7 +126,7 @@ export const updateTaskSchema = z.object({
   recurrence: recurrenceInputSchema.optional().nullable(),
   // When present, the whole checklist as the editor left it: items with an
   // `id` are updated, new ones created, missing ones deleted, order = array.
-  subtasks: z.array(subtaskInputSchema).max(50).optional(),
+  subtasks: checklistSchema.optional(),
 });
 
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;

@@ -1,6 +1,7 @@
 import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { username } from 'better-auth/plugins';
+import { createAuthMiddleware, isAPIError } from 'better-auth/api';
 import { nextCookies } from 'better-auth/next-js';
 import { activeProvider, prisma } from '@/server/db/prisma';
 import { sendEmail } from '@/server/email/mailer';
@@ -112,6 +113,19 @@ If you didn't request this, you can safely ignore this email.`,
         input: false,
       },
     },
+  },
+  // A temporary password is gone only once the user really changed it: the
+  // forced-change flag is lifted here, after Better Auth's change-password
+  // succeeded — never on the client's word (that route could be called
+  // without changing anything).
+  hooks: {
+    after: createAuthMiddleware(async (ctx) => {
+      if (ctx.path !== '/change-password' || isAPIError(ctx.context.returned)) return;
+      const userId = ctx.context.session?.user.id;
+      if (userId) {
+        await prisma.user.update({ where: { id: userId }, data: { mustChangePassword: false } });
+      }
+    }),
   },
   // nextCookies() must be last — it bridges Better Auth cookie writes into
   // Next.js server actions.

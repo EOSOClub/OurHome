@@ -28,14 +28,14 @@ describe('initials', () => {
 describe('publicProfile', () => {
   it('drops stored values that are no longer valid', () => {
     expect(
-      publicProfile({ bio: 'hi', pronouns: null, avatarEmoji: '🦊', profileColor: 'mauve', birthday: '02-30' }),
-    ).toEqual({ bio: 'hi', pronouns: null, avatarEmoji: '🦊', profileColor: null, birthday: null });
+      publicProfile({ bio: 'hi', avatarEmoji: '🦊', profileColor: 'mauve', birthday: '02-30' }),
+    ).toEqual({ bio: 'hi', avatarEmoji: '🦊', profileColor: null, birthday: null });
   });
 });
 
 describe('updateProfileSchema about-me fields', () => {
   it('turns blanks into null (cleared)', () => {
-    expect(updateProfileSchema.parse({ bio: '  ', pronouns: '' })).toMatchObject({ bio: null, pronouns: null });
+    expect(updateProfileSchema.parse({ bio: '  ' })).toMatchObject({ bio: null });
   });
   it('accepts one emoji, including joined and flag emoji', () => {
     for (const e of ['🦊', '👩‍👧', '🇺🇸', '❤️']) {

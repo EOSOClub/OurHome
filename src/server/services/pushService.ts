@@ -12,7 +12,7 @@ import { can, type AccessAction, type AccessPage, type Permission } from '@/lib/
 // Off (a no-op) until FIREBASE_SERVICE_ACCOUNT is set.
 
 /** Why the phones were woken; the app logs it. */
-export type PushReason = 'request' | 'bug_report' | 'app_update' | 'reminder';
+export type PushReason = 'request' | 'bug_report' | 'app_update' | 'reminder' | 'task';
 
 /** Saves (or moves) this install's FCM token to the signed-in user. */
 export async function registerDevice(

@@ -119,6 +119,9 @@ So a child or teen hears only about their own tasks and bills unless the head
 grants them more. Read state is per person: reading a notification never marks
 it read for anyone else.
 
+"Your turn" notices (a task became theirs to do) go to the task's assignee
+only.
+
 ## Task points
 
 Anyone who may check steps or complete a task (`tasks:complete`; guests only
@@ -134,6 +137,11 @@ follows the Tasks grid like any other edit. Everyone sees the `/points` stats.
 Rules: `docs/points.md`.
 
 ## Changelog
+
+- **2026-10-10** — Messages from the public contact form are Head of House only
+  (`household:manage`; were `settings:manage`). Role changes and removals apply
+  on the next request (the session is read without the 5-minute cookie cache).
+  Changing your own email needs your current password.
 
 - **2026-10-09** — Task points (table above).
 

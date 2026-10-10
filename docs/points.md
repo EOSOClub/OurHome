@@ -51,7 +51,14 @@ Sunday). Changing the rate doesn't touch existing tasks; their values are stored
   through the reset; **re-checking it after the reset pays that step at once**
   (`step_repeat`), on its own. Same for a reset step on a finished task.
 - **Unchecking by hand** drops that step's queued points. Unchecking and
-  re-checking by hand never earns twice.
+  re-checking by hand never earns twice. Unchecking a step that paid at once
+  (within the undo window, so its payment is voided) puts it back to "after
+  its reset": checking it again pays once more.
+- Steps can't be ticked on an archived task.
+- **Completed stays completed**: an edit can't set a task to completed (use
+  Complete, which pays) or reopen a completed one (use Undo, which takes the
+  points back). Switching cycles off on a task done for this cycle moves it on
+  to its next occurrence.
 - Undo: the completer may undo a completion within 10 minutes; the head any
   time. It restores the task as it was and voids the points, but only for the
   task's latest completion with nothing done on the task since. Otherwise the
@@ -76,7 +83,10 @@ last day (30 and 31 both land on Feb 28/29, once).
   the next window. Rolling over runs in the 15-minute sweep and before any task
   read or change.
 - Tasks without cycles behave as before: completing moves them to the next
-  occurrence, and a late one simply stays overdue.
+  occurrence (counted from the current due date if that's still ahead), and a
+  late one simply stays overdue.
+- Archiving stops the cycle clock (no "missed" rows while archived);
+  un-archiving starts a fresh window.
 
 ## Stats
 

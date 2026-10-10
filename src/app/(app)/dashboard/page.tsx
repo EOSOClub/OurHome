@@ -75,7 +75,7 @@ export default async function DashboardPage() {
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
-          <NeedsYouCard me={data.me} />
+          <NeedsYouCard me={data.me} timeZone={data.timezone} />
           <ComingUpCard data={data} />
         </div>
         <div className="space-y-6">
@@ -110,7 +110,8 @@ function DoneToday({ done }: { done: DashboardData['doneToday'] }) {
 type Me = DashboardData['me'];
 type DashTask = Me['today'][number];
 
-function NeedsYouCard({ me }: { me: Me }) {
+// Rendered on the server (UTC there): every date shows in the household's zone.
+function NeedsYouCard({ me, timeZone }: { me: Me; timeZone: string }) {
   const nothing =
     me.today.length === 0 && me.requests.length === 0 && me.openToAnyone.length === 0;
   return (
@@ -130,7 +131,7 @@ function NeedsYouCard({ me }: { me: Me }) {
             </span>
           </div>
         ) : null}
-        {me.today.length > 0 ? <TaskList tasks={me.today} /> : null}
+        {me.today.length > 0 ? <TaskList tasks={me.today} timeZone={timeZone} /> : null}
         {me.requests.length > 0 ? (
           <Section title="Requests">
             <ul className="divide-y divide-border">
@@ -141,7 +142,7 @@ function NeedsYouCard({ me }: { me: Me }) {
                       <p className="truncate text-sm font-medium group-hover:underline">{requestTitle(r)}</p>
                       <p className="text-xs text-muted-foreground">from {r.requester.name}</p>
                     </div>
-                    <RequestBadge reason={r.reason} dueAt={r.dueAt} />
+                    <RequestBadge reason={r.reason} dueAt={r.dueAt} timeZone={timeZone} />
                   </Link>
                 </li>
               ))}
@@ -150,12 +151,12 @@ function NeedsYouCard({ me }: { me: Me }) {
         ) : null}
         {me.openToAnyone.length > 0 ? (
           <Section title="Open to anyone">
-            <TaskList tasks={me.openToAnyone} />
+            <TaskList tasks={me.openToAnyone} timeZone={timeZone} />
           </Section>
         ) : null}
         {me.later.length > 0 ? (
           <Section title="Later this week">
-            <TaskList tasks={me.later} muted />
+            <TaskList tasks={me.later} timeZone={timeZone} muted />
           </Section>
         ) : null}
       </CardContent>
@@ -172,7 +173,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function TaskList({ tasks, muted = false }: { tasks: DashTask[]; muted?: boolean }) {
+function TaskList({ tasks, timeZone, muted = false }: { tasks: DashTask[]; timeZone: string; muted?: boolean }) {
   return (
     <ul className="divide-y divide-border">
       {tasks.map((task) => (
@@ -184,10 +185,10 @@ function TaskList({ tasks, muted = false }: { tasks: DashTask[]; muted?: boolean
               </p>
               <p
                 className={
-                  isOverdue(task.dueDate) ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'
+                  isOverdue(task.dueDate, timeZone) ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'
                 }
               >
-                {formatDueDate(task.dueDate)}
+                {formatDueDate(task.dueDate, timeZone)}
               </p>
             </div>
             {!muted && (task.priority === 'urgent' || task.priority === 'high') ? (
@@ -206,14 +207,22 @@ function requestTitle(r: Me['requests'][number]): string {
   return `${kind}: ${r.title}${r.year ? ` (${r.year})` : ''}${r.season ? ` · S${r.season}` : ''}`;
 }
 
-function RequestBadge({ reason, dueAt }: { reason: Me['requests'][number]['reason']; dueAt: Date | null }) {
+function RequestBadge({
+  reason,
+  dueAt,
+  timeZone,
+}: {
+  reason: Me['requests'][number]['reason'];
+  dueAt: Date | null;
+  timeZone: string;
+}) {
   switch (reason) {
     case 'approve':
       return <Badge>Mark added</Badge>;
     case 'accept':
       return <Badge>Accept</Badge>;
     case 'due':
-      return <Badge variant="destructive">{isOverdue(dueAt) ? 'Overdue' : 'Due today'}</Badge>;
+      return <Badge variant="destructive">{isOverdue(dueAt, timeZone) ? 'Overdue' : 'Due today'}</Badge>;
   }
 }
 
@@ -309,13 +318,19 @@ function ComingUpCard({ data }: { data: DashboardData }) {
       title: e.title,
       detail: [
         e.allDay
-          ? new Date(e.start).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+          ? new Date(e.start).toLocaleDateString(undefined, {
+              weekday: 'short',
+              month: 'short',
+              day: 'numeric',
+              timeZone: data.timezone,
+            })
           : new Date(e.start).toLocaleString(undefined, {
               weekday: 'short',
               month: 'short',
               day: 'numeric',
               hour: 'numeric',
               minute: '2-digit',
+              timeZone: data.timezone,
             }),
         e.location,
       ]
@@ -330,8 +345,8 @@ function ComingUpCard({ data }: { data: DashboardData }) {
       href: `/bills/${b.id}`,
       icon: Receipt,
       title: b.name,
-      detail: formatDueDate(b.dueDate),
-      late: isOverdue(b.dueDate),
+      detail: formatDueDate(b.dueDate, data.timezone),
+      late: isOverdue(b.dueDate, data.timezone),
       trailing: formatMoney(b.amount, b.currency),
     })),
   ]

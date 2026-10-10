@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { assertCategoryRef } from '@/server/services/householdRefs';
 import { prisma } from '@/server/db/prisma';
 import type { CategoryDTO, InventoryItemDTO } from '@/lib/types';
 import type {
@@ -162,6 +163,7 @@ export async function createInventoryItem(
   userId: string | null,
   input: CreateInventoryItemInput,
 ): Promise<InventoryItemWithRelations> {
+  await assertCategoryRef(prisma, householdId, input.categoryId);
   const item = await prisma.inventoryItem.create({
     data: {
       householdId,
@@ -201,6 +203,7 @@ export async function updateInventoryItem(
 ): Promise<InventoryItemWithRelations> {
   const { itemId, ...rest } = input;
   const existing = await findItemInHousehold(itemId, householdId);
+  await assertCategoryRef(prisma, householdId, rest.categoryId);
 
   // Recompute the low flag against whichever of quantity/threshold changed.
   const nextQuantity = rest.quantity ?? existing.quantity;
@@ -266,33 +269,42 @@ export async function adjustQuantity(
   opts: AdjustOptions = {},
   db: Db = prisma,
 ): Promise<InventoryItemWithRelations> {
-  const existing = await findItemInHousehold(itemId, householdId, db);
+  // Compare-and-set on the quantity read: two phones scanning at once (or a
+  // Home Assistant webhook racing the app) would otherwise both read 5 and
+  // both write 4, losing one adjustment. A lost race re-reads and retries.
+  let newQuantity = 0;
+  let wasLow = false;
+  let isLow = false;
+  for (let attempt = 0; ; attempt += 1) {
+    const existing = await findItemInHousehold(itemId, householdId, db);
+    newQuantity = Math.max(0, existing.quantity + delta);
+    wasLow = existing.isLow;
+    isLow = computeIsLow(newQuantity, existing.lowThreshold);
 
-  const newQuantity = Math.max(0, existing.quantity + delta);
-  const wasLow = existing.isLow;
-  const isLow = computeIsLow(newQuantity, existing.lowThreshold);
+    // A positive adjustment counts as a restock, which also resets the
+    // depletion forecast: full again, expected to last one reorder interval.
+    const restockedAt = delta > 0 ? new Date() : existing.lastRestockedAt;
 
-  // A positive adjustment counts as a restock, which also resets the
-  // depletion forecast: full again, expected to last one reorder interval.
-  const restockedAt = delta > 0 ? new Date() : existing.lastRestockedAt;
-
-  const item = await db.inventoryItem.update({
-    where: { id: itemId },
-    data: {
-      quantity: newQuantity,
-      isLow,
-      lastRestockedAt: restockedAt,
-      ...(delta > 0
-        ? {
-            predictedDepletionAt: computePredictedDepletionAt(
-              existing.reorderIntervalDays,
-              restockedAt,
-            ),
-          }
-        : {}),
-    },
-    include: itemInclude,
-  });
+    const { count } = await db.inventoryItem.updateMany({
+      where: { id: itemId, quantity: existing.quantity },
+      data: {
+        quantity: newQuantity,
+        isLow,
+        lastRestockedAt: restockedAt,
+        ...(delta > 0
+          ? {
+              predictedDepletionAt: computePredictedDepletionAt(
+                existing.reorderIntervalDays,
+                restockedAt,
+              ),
+            }
+          : {}),
+      },
+    });
+    if (count === 1) break;
+    if (attempt >= 4) throw new ConflictError('The stock changed at the same moment; try again.');
+  }
+  const item = await db.inventoryItem.findUniqueOrThrow({ where: { id: itemId }, include: itemInclude });
 
   const verb = delta > 0 ? 'restocked' : 'consumed';
   const unit = item.unit ? ` ${item.unit}` : '';

@@ -1,9 +1,10 @@
 import { Prisma } from '@prisma/client';
+import { getPointsSettings } from '@/server/services/pointsService';
 import { prisma } from '@/server/db/prisma';
 import { logActivity } from '@/server/services/activityService';
 import { NotFoundError } from '@/server/services/errors';
 import {
-  computeNextRunAt,
+  nextAfterOccurrence,
   formatIntList,
   parseIntList,
   type NormalizedRule,
@@ -63,7 +64,7 @@ function paymentToDTO(p: PaymentWithRelations): BillPaymentDTO {
   };
 }
 
-function normalizeRule(r: BillWithRelations['recurrence']): NormalizedRule | null {
+function normalizeRule(r: BillWithRelations['recurrence'], timeZone?: string): NormalizedRule | null {
   if (!r) return null;
   return {
     kind: r.kind as NormalizedRule['kind'],
@@ -73,6 +74,8 @@ function normalizeRule(r: BillWithRelations['recurrence']): NormalizedRule | nul
     cron: r.cron,
     anchorDate: r.anchorDate,
     until: r.until,
+    // The household's zone: due dates keep their local time across DST.
+    timeZone,
   };
 }
 
@@ -284,13 +287,23 @@ export async function updateBill(
         ? undefined
         : await validAssignee(householdId, assignedUserId);
 
+    // A one-off bill's paid/unpaid follows its payments: a new amount can
+    // leave it owing (or settle it). Only when it has payments — a bill marked
+    // paid by hand has nothing to recompute from — and the edit didn't set a
+    // status itself.
+    let status = rest.status;
+    if (rest.amount !== undefined && status === undefined && !existing.recurrenceId && recurrenceId === undefined && !recurrence) {
+      const { paidTotal, paymentCount } = await paymentStats(tx, id);
+      if (paymentCount > 0) status = paidTotal + 0.005 >= rest.amount ? 'paid' : 'unpaid';
+    }
+
     const updated = await tx.bill.update({
       where: { id },
       data: {
         name: rest.name?.trim(),
         amount: rest.amount,
         dueDate: rest.dueDate,
-        status: rest.status,
+        status,
         category: rest.category,
         autoPay: rest.autoPay,
         notes: rest.notes,
@@ -353,6 +366,7 @@ export async function markBillPaid(
   userId: string,
   input: MarkBillPaidInput,
 ): Promise<BillDTO> {
+  const { timezone: timeZone } = await getPointsSettings(householdId);
   const result = await prisma.$transaction(async (tx) => {
     const existing = await tx.bill.findFirst({
       where: { id: input.id, householdId },
@@ -360,8 +374,8 @@ export async function markBillPaid(
     });
     if (!existing) throw new NotFoundError(`Bill ${input.id} not found.`);
 
-    const rule = normalizeRule(existing.recurrence);
-    const next = rule ? computeNextRunAt(rule, new Date()) : null;
+    const rule = normalizeRule(existing.recurrence, timeZone);
+    const next = rule ? nextAfterOccurrence(rule, existing.dueDate) : null;
     const recurrenceEnded =
       !!existing.recurrence && existing.recurrence.kind !== 'cron' && next === null;
     const recurs = !!existing.recurrence && !recurrenceEnded;

@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { assertCategoryRef } from '@/server/services/householdRefs';
 import { prisma } from '@/server/db/prisma';
 import type { ShoppingItemDTO, ShoppingListDTO } from '@/lib/types';
 import type {
@@ -158,6 +159,7 @@ export async function addShoppingItem(
   input: AddShoppingItemInput,
 ): Promise<ShoppingItemWithRelations> {
   const list = await assertListInHousehold(input.listId, householdId);
+  await assertCategoryRef(prisma, householdId, input.categoryId);
 
   // Save-time fallback: a link was pasted but no preview image was attached in
   // the form, so best-effort fetch one now (returns null on Amazon's bot wall etc.).
@@ -206,6 +208,7 @@ export async function updateShoppingItem(
   // Save-time fallback: when the link is newly set or changed without a preview
   // image, best-effort fetch one so attaching a URL still gets a thumbnail. Gated
   // on the URL actually changing so unrelated edits don't re-hit the network.
+  await assertCategoryRef(prisma, householdId, rest.categoryId);
   let imageUrl = rest.imageUrl;
   if (rest.url && !rest.imageUrl && rest.url !== existing.url) {
     imageUrl = (await fetchLinkPreview(rest.url)).imageUrl;

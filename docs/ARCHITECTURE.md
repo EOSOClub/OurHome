@@ -66,19 +66,36 @@ compose `mongo` service runs a single-node replica set (`rs0`); a plain standalo
 `src/server/services/recurrenceService.ts` is **pure** (no IO) so it is directly
 unit-tested (`recurrenceService.test.ts`). `computeNextRunAt(rule, from)` returns
 the next occurrence strictly after `from`, aligned to the rule's anchor and to
-`byWeekday` / `byMonthday` where given, computed in UTC. Supported kinds: daily,
-weekly, monthly, interval. `cron` is reserved for an external scheduler and
-returns `null` for now.
+`byWeekday` / `byMonthday` where given. It works on local "wall clock" dates in
+`rule.timeZone` (callers pass the household's zone from `getPointsSettings`),
+so a noon due date stays noon across DST and weekdays are local weekdays.
+Weekday / month-day rules never occur before the anchor and honour `interval`
+(every other Tuesday, every second month). Supported kinds: daily, weekly,
+monthly, interval. `cron` is reserved for an external scheduler and returns
+`null` for now.
 
-On completing a recurring task, `taskService.completeTask` records a
-`TaskCompletion`, advances `RecurrenceRule.nextRunAt` and the task's `dueDate`,
-and resets status to `pending` — all in one transaction.
+Completing a recurring task or paying a recurring bill moves on with
+`nextAfterOccurrence(rule, dueDate)`: counted from the current due date while
+that is still ahead (picked dates sit at 12:00, so counting from "now" in the
+morning landed on the same occurrence and a task could be completed — and
+paid — again). `taskService.completeTask` records a `TaskCompletion`, advances
+`RecurrenceRule.nextRunAt` and the task's `dueDate`, and resets status to
+`pending` — all in one transaction.
+
+**Due vs overdue.** A due date picked without a time is stored at 12:00 local
+and is due all day: it counts as overdue from the next day (`lib/format.ts`
+`isOverdue`, household zone on the server). A task with an explicit due time
+is overdue once that time passes. Pages, the dashboard counts and the reminder
+sweep all use this one rule.
 
 ## Authentication
 
 Better Auth with the Prisma adapter (provider matched to the active datasource),
 email/password, HTTP-only signed cookies, 7-day sessions with a short cookie
-cache. `role` (`head` > `manager` > `member` > `teen` > `child` > `guest`) and `householdId` are
+cache. Server code reads the session with `disableCookieCache` (`server/auth/session.ts`),
+so a role change or removal applies on the next request, not after the cache's
+5 minutes. The forced password change is lifted by an `after` hook on
+`/change-password`, never by the client. `role` (`head` > `manager` > `member` > `teen` > `child` > `guest`) and `householdId` are
 application-managed fields assigned by first-run setup or the admin. Cookies
 carry no Secure flag so sign-in works over plain HTTP on the home network; the
 auth route adds it on HTTPS responses, and a home-network origin is trusted only
@@ -112,12 +129,29 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
   and the next turn then goes to the first person. Members who leave drop out.
   The DTO carries `rotation` + `nextAssignee`. Edited in the task form's
   "Take turns" (recurring tasks only), on web and app.
-- **Profiles.** `User.bio/pronouns/avatarEmoji/profileColor/birthday` — the
+- **"Your turn" notices** (`taskReadyService`, type `task_ready`). When a task
+  becomes someone's to do — created or reassigned to them, passed on by a
+  rotation, a new cycle opening, or (without cycles) the next occurrence after
+  someone else completed it — its assignee gets one bell row addressed to them
+  plus a phone push (`reason: "task"`; the app alerts through the household
+  reminder notification). One per task: newer replaces older; completing,
+  archiving or deleting removes it. Whoever caused it isn't notified. Not
+  emailed.
+- **The bell** is a to-do list: the page shows unread by default, and opening a
+  notification marks it read and goes to its subject (`/tasks?task=<id>` opens
+  and highlights that task; bills, stock, requests, calendar, settings). The
+  app does the same (unread only; a tap opens the tab).
+- **Profiles.** `User.bio/avatarEmoji/profileColor/birthday` — the
   user's own "About me" (`PATCH /api/profile`; blank clears; one emoji;
   colour keys and `MM-DD` birthdays in `lib/profile.ts`, mirrored in the app's
   `data/ProfileStyle.kt`). Every member can read everyone's via
   `GET /api/household/members` (also the picker list; now with role) — shown
   as the Household card on Profile. Emails stay behind `members:manage`.
+  Changing your own email needs your current password (`currentPassword`):
+  password resets go there.
+- **Household references.** Ids pointing at other rows (task assignee,
+  task/shopping/inventory category) are checked to belong to the household
+  (`householdRefs.ts`); Mongo has no foreign keys.
 - **Bills.** `billService` owns bills, payments (partial payments, card fees),
   and recurrence; `billIngestService` turns a parsed bill document into
   bills/payments, matching by reference, account number, then biller

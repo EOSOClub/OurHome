@@ -84,7 +84,12 @@ export function TasksView({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<TaskDTO | null>(null);
   const [search, setSearch] = useState(searchParams.get('q') ?? '');
-  const [showCompleted, setShowCompleted] = useState(false);
+  // A link to one task (?task=<id>, from a notification) opens and
+  // highlights it.
+  const focusId = searchParams.get('task');
+  const [showCompleted, setShowCompleted] = useState(
+    () => !!focusId && initialTasks.some((t) => t.id === focusId && t.status === 'completed'),
+  );
   const [filters, setFilters] = useState<Filters>({
     status: searchParams.get('status') ?? '',
     type: searchParams.get('type') ?? '',
@@ -553,6 +558,7 @@ export function TasksView({
               <TaskCard
                 key={task.id}
                 task={task}
+                focused={task.id === focusId}
                 completing={completingId === task.id}
                 deleting={deletingId === task.id}
                 {...cardHandlers}
@@ -580,6 +586,7 @@ export function TasksView({
                   <TaskCard
                     key={task.id}
                     task={task}
+                    focused={task.id === focusId}
                     completing={false}
                     deleting={deletingId === task.id}
                     {...cardHandlers}

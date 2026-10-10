@@ -152,6 +152,8 @@ function EditProfileCard({ overview }: { overview: ProfileOverview }) {
   const [name, setName] = useState(overview.name);
   const [username, setUsername] = useState(overview.username ?? '');
   const [email, setEmail] = useState(overview.email);
+  // Changing the email (where password resets go) needs the password.
+  const [emailPassword, setEmailPassword] = useState('');
 
   const dirtyName = name.trim() !== overview.name;
   const dirtyUsername = username.trim() !== (overview.username ?? '');
@@ -174,12 +176,14 @@ function EditProfileCard({ overview }: { overview: ProfileOverview }) {
           body: JSON.stringify({
             username: dirtyUsername ? username.trim() : undefined,
             email: dirtyEmail ? email.trim() : undefined,
+            currentPassword: dirtyEmail ? emailPassword : undefined,
           }),
         });
       }
     },
     onSuccess: () => {
       toast.success('Profile updated');
+      setEmailPassword('');
       router.refresh();
     },
     // Errors surface via the global mutation-error toast.
@@ -190,6 +194,7 @@ function EditProfileCard({ overview }: { overview: ProfileOverview }) {
     name.trim().length > 0 &&
     username.trim().length >= 3 &&
     email.trim().length > 0 &&
+    (!dirtyEmail || emailPassword.length > 0) &&
     !save.isPending;
 
   return (
@@ -241,6 +246,21 @@ function EditProfileCard({ overview }: { overview: ProfileOverview }) {
                 autoComplete="email"
               />
             </div>
+            {dirtyEmail ? (
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="profile-email-password">Current password</Label>
+                <Input
+                  id="profile-email-password"
+                  type="password"
+                  value={emailPassword}
+                  onChange={(e) => setEmailPassword(e.target.value)}
+                  autoComplete="current-password"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Needed to change your email, since password resets go there.
+                </p>
+              </div>
+            ) : null}
           </div>
           <Button type="submit" disabled={!canSubmit}>
             {save.isPending ? <Loader2 className="animate-spin" /> : null}

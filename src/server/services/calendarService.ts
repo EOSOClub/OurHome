@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { getPointsSettings } from '@/server/services/pointsService';
 import { prisma } from '@/server/db/prisma';
 import { logActivity } from '@/server/services/activityService';
 import { NotFoundError } from '@/server/services/errors';
@@ -25,7 +26,7 @@ type EventWithRelations = Prisma.EventGetPayload<{ include: typeof eventInclude 
 // Cap occurrence expansion so a malformed rule can never loop forever.
 const MAX_OCCURRENCES = 500;
 
-function buildRule(r: EventWithRelations['recurrence']): NormalizedRule | null {
+function buildRule(r: EventWithRelations['recurrence'], timeZone?: string): NormalizedRule | null {
   if (!r) return null;
   return {
     kind: r.kind as NormalizedRule['kind'],
@@ -35,6 +36,8 @@ function buildRule(r: EventWithRelations['recurrence']): NormalizedRule | null {
     cron: r.cron,
     anchorDate: r.anchorDate,
     until: r.until,
+    // The household's zone: events keep their local time across DST.
+    timeZone,
   };
 }
 
@@ -90,14 +93,14 @@ export async function listOccurrences(
   rangeStart: Date,
   rangeEnd: Date,
 ): Promise<EventOccurrenceDTO[]> {
-  const events = await prisma.event.findMany({
-    where: { householdId },
-    include: eventInclude,
-  });
+  const [events, { timezone }] = await Promise.all([
+    prisma.event.findMany({ where: { householdId }, include: eventInclude }),
+    getPointsSettings(householdId),
+  ]);
 
   const out: EventOccurrenceDTO[] = [];
   for (const e of events) {
-    const rule = buildRule(e.recurrence);
+    const rule = buildRule(e.recurrence, timezone);
     if (!rule) {
       const overlapEnd = e.endAt ?? e.startAt;
       if (e.startAt <= rangeEnd && overlapEnd >= rangeStart) {

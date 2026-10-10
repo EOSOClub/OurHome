@@ -36,8 +36,9 @@ export default async function SettingsPage() {
       listNfcTags(householdId),
       listInventoryItems(householdId),
       listCategories(householdId),
-      // Not household-scoped; gated by the settings:manage check above.
-      listContactMessages(),
+      // Messages from the public contact form aren't tied to a household
+      // (strangers' names and emails), so only the Head of House reads them.
+      isHead ? listContactMessages() : null,
       // Security is the Head of House's alone (household:manage).
       isHead ? getAccessSettings(householdId, await headers()) : null,
       // Points rate / time zone / week start: also the head's.

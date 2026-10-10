@@ -1,5 +1,6 @@
 import { prisma } from '@/server/db/prisma';
 import { dateBefore, dateOnOrBefore } from '@/server/db/dateFilters';
+import { isOverdue } from '@/lib/format';
 import { listOccurrences } from '@/server/services/calendarService';
 import { getPointsSettings, pointsSummary } from '@/server/services/pointsService';
 import { addDays, localDateOf, startOfLocalDate } from '@/lib/taskCycles';
@@ -149,6 +150,10 @@ export async function getDashboard(
     prisma.taskCompletion.count({ where: { ...completedToday, userId: user.id } }),
   ]);
 
+  // The query finds anything due before now; date-only due dates (12:00
+  // local) only count as overdue from the next day, like everywhere else.
+  const overdueNow = overdue.filter((t) => isOverdue(t.dueDate, timezone, now));
+
   const myRow = points.members.find((m) => m.userId === user.id);
   const myRank = myRow && myRow.points > 0 ? points.members.indexOf(myRow) + 1 : null;
 
@@ -156,13 +161,13 @@ export async function getDashboard(
     timezone,
     counts: {
       pending: pendingCount,
-      overdue: overdue.length,
+      overdue: overdueNow.length,
       recurring: recurringCount,
       lowInventory: lowInventoryCount,
       openShopping: openShoppingCount,
       billsDue: billsDueCount,
     },
-    overdue,
+    overdue: overdueNow,
     upcoming,
     upcomingBills,
     upcomingEvents: upcomingEvents.slice(0, 6),

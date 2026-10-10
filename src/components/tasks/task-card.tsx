@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Check,
   ChevronDown,
@@ -65,6 +65,7 @@ export function TaskCard({
   onUndoCompletion,
   completing,
   deleting,
+  focused = false,
 }: {
   task: TaskDTO;
   /** The viewer's Tasks access; own = tasks they created. */
@@ -84,13 +85,18 @@ export function TaskCard({
   onUndoCompletion: (completionId: string) => void;
   completing: boolean;
   deleting: boolean;
+  /** Opened from a link to this task (?task=<id>, e.g. a notification). */
+  focused?: boolean;
 }) {
   const done = task.status === 'completed';
   // A cycle task completed inside its window waits for the next cycle.
   const doneThisCycle = done && !!task.cycleEndsAt;
   const canEdit = canModify(access, 'edit', task.createdById, userId);
   const canDelete = canModify(access, 'delete', task.createdById, userId);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(focused);
+  useEffect(() => {
+    if (focused) document.getElementById(`task-${task.id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [focused, task.id]);
   const [subtaskDraft, setSubtaskDraft] = useState('');
 
   const doneCount = task.subtasks.filter((s) => s.done).length;
@@ -104,7 +110,10 @@ export function TaskCard({
   }
 
   return (
-    <Card className="flex flex-col gap-3 p-4">
+    <Card
+      id={`task-${task.id}`}
+      className={cn('flex flex-col gap-3 p-4', focused && 'ring-2 ring-primary')}
+    >
       <div className="flex items-start gap-3">
         <Button
           variant={done ? 'secondary' : 'outline'}

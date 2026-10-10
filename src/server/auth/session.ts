@@ -21,7 +21,11 @@ export type AuthUser = {
 export const getServerSession = cache(async () => {
   const h = await headers();
   if (await isRefusedPlainHttp(h)) return null;
-  return auth.api.getSession({ headers: h });
+  // Read the session and user from the database, not Better Auth's signed
+  // cookie cache: that copy is up to 5 minutes old, so a demoted manager kept
+  // their powers, and a removed member (sessions deleted) kept access, until
+  // it expired. Permission checks must see the live role and session.
+  return auth.api.getSession({ headers: h, query: { disableCookieCache: true } });
 });
 
 /**

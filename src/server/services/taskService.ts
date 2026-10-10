@@ -14,6 +14,7 @@ import type {
   UpdateTaskInput,
 } from '@/lib/validation/task';
 import { logActivity } from '@/server/services/activityService';
+import { assertCategoryRef, assertMemberRef } from '@/server/services/householdRefs';
 import {
   ConflictError,
   ForbiddenError,
@@ -21,6 +22,7 @@ import {
 } from '@/server/services/errors';
 import {
   computeNextRunAt,
+  nextAfterOccurrence,
   formatIntList,
   parseIntList,
   type NormalizedRule,
@@ -39,6 +41,11 @@ import {
   type StepPoints,
 } from '@/lib/taskPoints';
 import { cycleStartAt, nextCycleStart, type CycleSpec } from '@/lib/taskCycles';
+import {
+  announceTaskReady,
+  clearTaskReady,
+  pushTaskReady,
+} from '@/server/services/taskReadyService';
 import {
   assigneeForRotation,
   formatRotation,
@@ -187,7 +194,7 @@ function normalizeRule(rule: {
   cron: string | null;
   anchorDate: Date;
   until: Date | null;
-}): NormalizedRule {
+}, timeZone?: string): NormalizedRule {
   return {
     kind: rule.kind as NormalizedRule['kind'],
     interval: rule.interval,
@@ -196,6 +203,8 @@ function normalizeRule(rule: {
     cron: rule.cron,
     anchorDate: rule.anchorDate,
     until: rule.until,
+    // The household's zone: occurrences keep their local time across DST.
+    timeZone,
   };
 }
 
@@ -224,8 +233,8 @@ export function cycleSpecFor(rule: RuleRow | null | undefined): CycleSpec | null
 
 /** The due date inside a cycle window: the rule's first occurrence in it, or
  *  the window's last minute when none falls inside. Null when the rule ended. */
-function dueInCycle(rule: RuleRow, start: Date, end: Date): Date | null {
-  const next = computeNextRunAt(normalizeRule(rule), new Date(start.getTime() - 1));
+function dueInCycle(rule: RuleRow, start: Date, end: Date, timeZone: string): Date | null {
+  const next = computeNextRunAt(normalizeRule(rule, timeZone), new Date(start.getTime() - 1));
   if (!next) return null;
   return next < end ? next : new Date(end.getTime() - 60_000);
 }
@@ -310,28 +319,44 @@ const MAX_MISSED_PER_ROLL = 60;
  */
 export async function rollTaskCycles(householdId: string, now = new Date(), taskId?: string): Promise<number> {
   const due = await prisma.task.findMany({
-    where: { householdId, ...(taskId ? { id: taskId } : {}), cycleEndsAt: dateOnOrBefore(now) },
+    where: {
+      householdId,
+      ...(taskId ? { id: taskId } : {}),
+      // Archived tasks sit still (archiving also clears the window; this
+      // covers rows archived before that).
+      status: { not: 'archived' },
+      cycleEndsAt: dateOnOrBefore(now),
+    },
     select: { id: true },
   });
   if (due.length === 0) return 0;
   const settings = await getPointsSettings(householdId);
+  const ready: (string | null)[] = [];
   for (const { id } of due) {
-    await prisma.$transaction((tx) => rollOne(tx, householdId, id, settings, now));
+    try {
+      ready.push(await prisma.$transaction((tx) => rollOne(tx, householdId, id, settings, now)));
+    } catch (err) {
+      // One bad task mustn't stop the others rolling over.
+      if (taskId) throw err;
+      console.error(`[tasks] rolling task ${id} over failed; retrying next sweep`, err);
+    }
   }
+  pushTaskReady(householdId, ready);
   return due.length;
 }
 
-async function rollOne(tx: Tx, householdId: string, taskId: string, settings: PointsSettings, now: Date) {
+/** Rolls one task; returns who to alert that it's ready for them, if anyone. */
+async function rollOne(tx: Tx, householdId: string, taskId: string, settings: PointsSettings, now: Date): Promise<string | null> {
   const task = await tx.task.findFirst({
     where: { id: taskId, householdId },
     include: { recurrence: true },
   });
   // Re-check inside the transaction: a concurrent roll may have done it.
-  if (!task?.cycleEndsAt || task.cycleEndsAt > now) return;
+  if (!task?.cycleEndsAt || task.cycleEndsAt > now || task.status === 'archived') return null;
   const spec = cycleSpecFor(task.recurrence);
   if (!spec || !task.recurrence) {
     await tx.task.update({ where: { id: task.id }, data: { cycleStartedAt: null, cycleEndsAt: null } });
-    return;
+    return null;
   }
 
   let end = task.cycleEndsAt;
@@ -350,18 +375,18 @@ async function rollOne(tx: Tx, householdId: string, taskId: string, settings: Po
     end = nextCycleStart(end, spec, settings.timezone);
   }
   const start = cycleStartAt(now, spec, settings.timezone);
-  const dueDate = dueInCycle(task.recurrence, start, end);
+  const dueDate = dueInCycle(task.recurrence, start, end, settings.timezone);
   if (dueDate === null) {
     // The rule's end date passed: stop cycling and leave the task as it is.
     await tx.task.update({ where: { id: task.id }, data: { cycleStartedAt: null, cycleEndsAt: null } });
-    return;
+    return null;
   }
 
   await tx.pendingCredit.deleteMany({ where: { taskId: task.id } });
   await tx.subtask.updateMany({ where: { taskId: task.id }, data: UNCHECKED });
   await tx.recurrenceRule.update({ where: { id: task.recurrence.id }, data: { nextRunAt: dueDate } });
   const assigneeId = await rotatedAssignee(tx, householdId, task, ended);
-  await tx.task.update({
+  const rolled = await tx.task.update({
     where: { id: task.id },
     data: { status: 'pending', completedAt: null, dueDate, cycleStartedAt: start, cycleEndsAt: end, assigneeId },
   });
@@ -378,6 +403,8 @@ async function rollOne(tx: Tx, householdId: string, taskId: string, settings: Po
       tx,
     );
   }
+  // A new cycle is open: it's ready for whoever's turn it is.
+  return announceTaskReady(tx, householdId, rolled, null, settings.timezone);
 }
 
 // --- Points on save ---------------------------------------------------------------
@@ -456,7 +483,10 @@ export async function createTask(
   const state = stateFromInput(input, input.subtasks ?? [], settings.minutesPerPoint);
   const now = new Date();
 
-  return prisma.$transaction(async (tx) => {
+  let ready: string | null = null;
+  const created = await prisma.$transaction(async (tx) => {
+    await assertMemberRef(tx, householdId, input.assigneeId);
+    await assertCategoryRef(tx, householdId, input.categoryId);
     const rotation = await rotationColumns(tx, householdId, input.rotationUserIds ?? null, input.assigneeId ?? null, null);
     let rule: RuleRow | null = null;
     if (input.recurrence) {
@@ -523,8 +553,11 @@ export async function createTask(
       tx,
     );
 
+    ready = await announceTaskReady(tx, householdId, task, userId, settings.timezone);
     return task;
   });
+  pushTaskReady(householdId, [ready]);
+  return created;
 }
 
 /**
@@ -545,20 +578,24 @@ export async function resetDueSubtasks(householdId: string): Promise<number> {
     select: { id: true, doneAt: true, resetIntervalDays: true },
   });
   const now = Date.now();
-  const dueIds = candidates
-    .filter(
-      (s) =>
-        // Items checked before doneAt existed reset immediately — better than
-        // sticking checked forever.
-        s.doneAt === null ||
-        s.doneAt.getTime() + s.resetIntervalDays! * 86_400_000 <= now,
-    )
-    .map((s) => s.id);
-  if (dueIds.length === 0) return 0;
-  const { count } = await prisma.subtask.updateMany({
-    where: { id: { in: dueIds } },
-    data: { ...UNCHECKED, autoResetAt: new Date(now) },
-  });
+  const due = candidates.filter(
+    (s) =>
+      // Items checked before doneAt existed reset immediately — better than
+      // sticking checked forever.
+      s.doneAt === null ||
+      s.doneAt.getTime() + s.resetIntervalDays! * 86_400_000 <= now,
+  );
+  let count = 0;
+  for (const s of due) {
+    // Only if it's still the same check: someone may have unticked and
+    // re-ticked it since the read (that fresh tick must survive, and its
+    // paid-at-once award must not be detached).
+    const res = await prisma.subtask.updateMany({
+      where: { id: s.id, done: true, doneAt: s.doneAt },
+      data: { ...UNCHECKED, autoResetAt: new Date(now) },
+    });
+    count += res.count;
+  }
   return count;
 }
 
@@ -601,13 +638,26 @@ export async function updateTask(
   const settings = await getPointsSettings(householdId);
   const now = new Date();
 
-  return prisma.$transaction(async (tx) => {
+  let ready: string | null = null;
+  const updated = await prisma.$transaction(async (tx) => {
     // Scope the update to the household so members can't touch other households.
     const existing = await tx.task.findFirst({
       where: { id: taskId, householdId },
       include: { subtasks: { orderBy: { position: 'asc' } }, recurrence: true },
     });
     if (!existing) throw new TaskNotFoundError(taskId);
+    await assertMemberRef(tx, householdId, rest.assigneeId);
+    await assertCategoryRef(tx, householdId, rest.categoryId);
+
+    // Completing pays points and reopening must take them back, so neither
+    // can happen through an edit: Complete and Undo (task history) do that.
+    const wasDone = existing.status === 'completed';
+    if (rest.status === 'completed' && !wasDone) {
+      throw new ConflictError('Use Complete to finish a task, so its points are paid.');
+    }
+    if (wasDone && (rest.status === 'pending' || rest.status === 'in_progress')) {
+      throw new ConflictError('To reopen a completed task, undo its completion from the task’s history.');
+    }
 
     let recurrenceId: string | null | undefined; // undefined = unchanged
     let typeOverride: string | undefined;
@@ -640,6 +690,24 @@ export async function updateTask(
       const before = JSON.stringify(cycleSpecFor(existing.recurrence));
       const after = JSON.stringify(cycleSpecFor(rule));
       if (before !== after) cycle = cycleWindow(rule, settings.timezone, now);
+    }
+    // Archiving stops the cycle clock; un-archiving starts a fresh window.
+    const archiving = rest.status === 'archived' && existing.status !== 'archived';
+    const unarchiving = existing.status === 'archived' && rest.status !== undefined && rest.status !== 'archived';
+    if (archiving) cycle = { cycleStartedAt: null, cycleEndsAt: null };
+    else if (unarchiving) cycle = cycleWindow(rule, settings.timezone, now);
+
+    // A task done for this cycle whose cycles were switched off would never
+    // reopen (only a cycle start reopens it): move it on to its next
+    // occurrence now, like completing a task without cycles does.
+    let reopen: { status: string; completedAt: null; dueDate: Date | null } | undefined;
+    if (cycle && cycle.cycleEndsAt === null && !archiving && wasDone && existing.cycleEndsAt && rule) {
+      reopen = {
+        status: 'pending',
+        completedAt: null,
+        dueDate: nextAfterOccurrence(normalizeRule(rule, settings.timezone), existing.dueDate, now) ?? existing.dueDate,
+      };
+      await tx.subtask.updateMany({ where: { taskId }, data: UNCHECKED });
     }
 
     // Points. A full checklist from the editor carries its own values;
@@ -705,6 +773,7 @@ export async function updateTask(
         ...assignment,
         recurrenceId,
         ...(cycle ?? {}),
+        ...(reopen ?? {}),
       },
       include: taskInclude,
     });
@@ -712,6 +781,14 @@ export async function updateTask(
     // Drop the orphaned rule after detaching it from the task.
     if (recurrence === null && existing.recurrenceId) {
       await tx.recurrenceRule.delete({ where: { id: existing.recurrenceId } });
+    }
+
+    // "Your turn" notice: gone once the task can't be done; renewed when it
+    // changes hands or comes back.
+    if (task.status === 'completed' || task.status === 'archived') {
+      await clearTaskReady(tx, householdId, task.id);
+    } else if (task.assigneeId !== existing.assigneeId || unarchiving || reopen) {
+      ready = await announceTaskReady(tx, householdId, task, userId, settings.timezone);
     }
 
     await logActivity(
@@ -728,6 +805,8 @@ export async function updateTask(
 
     return task;
   });
+  pushTaskReady(householdId, [ready]);
+  return updated;
 }
 
 /**
@@ -800,7 +879,8 @@ export async function completeTask(
   const userId = actor.id;
   await rollTaskCycles(householdId, new Date(), input.taskId);
   const settings = await getPointsSettings(householdId);
-  return prisma.$transaction(async (tx) => {
+  let ready: string | null = null;
+  const result = await prisma.$transaction(async (tx) => {
     const existing = await tx.task.findFirst({
       where: { id: input.taskId, householdId },
       include: { recurrence: true, subtasks: { orderBy: { position: 'asc' } } },
@@ -879,8 +959,12 @@ export async function completeTask(
     // matches what the task shows from here on.
     await writePoints(tx, existing.id, existing.subtasks.map((s) => s.id), state);
 
+    // The next occurrence after the one being completed: counted from its due
+    // date when that's still ahead (picked dates sit at 12:00, so a daily task
+    // done in the morning would otherwise "advance" to the same noon and could
+    // be completed — and paid — again).
     const next = existing.recurrence && !existing.cycleEndsAt
-      ? computeNextRunAt(normalizeRule(existing.recurrence), now)
+      ? nextAfterOccurrence(normalizeRule(existing.recurrence, settings.timezone), existing.dueDate, now)
       : null;
     // A supported recurring rule that yields no next occurrence has reached its
     // `until` end date and should finalize. (cron yields null but isn't ended.)
@@ -919,6 +1003,8 @@ export async function completeTask(
         },
         include: taskInclude,
       });
+      // The next occurrence is open now: tell its assignee (not the completer).
+      ready = await announceTaskReady(tx, householdId, task, userId, settings.timezone);
     } else {
       await finishSteps();
       task = await tx.task.update({
@@ -941,9 +1027,22 @@ export async function completeTask(
       },
       tx,
     );
+    if (task.status === 'completed') await clearTaskReady(tx, householdId, task.id);
 
     return { task, completionId: completion.id };
+  }).catch((err: unknown) => {
+    // Two people completing at the same moment: Mongo aborts the second
+    // transaction (write conflict). Only one is paid; tell the other plainly.
+    if (isWriteConflict(err)) throw new ConflictError('Someone else just completed this task.');
+    throw err;
   });
+  pushTaskReady(householdId, [ready]);
+  return result;
+}
+
+/** Prisma's "transaction failed due to a write conflict" (Mongo). */
+function isWriteConflict(err: unknown): boolean {
+  return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2034';
 }
 
 /**
@@ -958,7 +1057,8 @@ export async function undoCompletion(
   completionId: string,
 ): Promise<TaskWithRelations> {
   const now = new Date();
-  return prisma.$transaction(async (tx) => {
+  let ready: string | null = null;
+  const result = await prisma.$transaction(async (tx) => {
     const completion = await tx.taskCompletion.findFirst({
       where: { id: completionId, task: { householdId } },
       include: { task: { include: { recurrence: true, subtasks: true } } },
@@ -988,7 +1088,11 @@ export async function undoCompletion(
       (await tx.pendingCredit.count({ where: { taskId: task.id, checkedAt: { gt: completion.completedAt } } })) > 0;
     const snapshot = JSON.parse(completion.snapshot) as CompletionSnapshot;
     const rolled = (task.cycleStartedAt?.toISOString() ?? null) !== snapshot.cycleStartedAt;
-    if (later > 0 || touched || rolled) {
+    // Saved in the editor since (completing itself writes the row in the
+    // same moment, hence the margin): undoing would silently put back the old
+    // due date / recurrence / assignee over that edit.
+    const edited = task.updatedAt.getTime() > completion.completedAt.getTime() + EDIT_MARGIN_MS;
+    if (later > 0 || touched || rolled || edited) {
       throw new ConflictError('The task has changed since it was completed; ask the head to void the points instead.');
     }
 
@@ -1051,9 +1155,21 @@ export async function undoCompletion(
       },
       tx,
     );
+    // Back as it was: its assignee's notice comes back with it (and the one
+    // the completion gave the next person in a rotation goes).
+    if (restored.status === 'completed' || restored.status === 'archived') {
+      await clearTaskReady(tx, householdId, restored.id);
+    } else {
+      ready = await announceTaskReady(tx, householdId, restored, actor.id);
+    }
     return restored;
   });
+  pushTaskReady(householdId, [ready]);
+  return result;
 }
+
+/** How long after a completion the task row may still be written by it. */
+const EDIT_MARGIN_MS = 10_000;
 
 /** Completion history for a task, newest first, as the caller sees it. */
 export async function listTaskCompletions(
@@ -1117,6 +1233,7 @@ export async function deleteTask(
     }
 
     await tx.pendingCredit.deleteMany({ where: { taskId: existing.id } });
+    await clearTaskReady(tx, householdId, existing.id);
     await tx.task.delete({ where: { id: existing.id } });
     if (existing.recurrenceId) {
       await tx.recurrenceRule.delete({ where: { id: existing.recurrenceId } });
@@ -1191,14 +1308,22 @@ export async function updateSubtask(
     await rollTaskCycles(householdId, new Date(), taskId);
     await setStepDone(householdId, taskId, input.subtaskId, input.done, actor ?? null);
   }
-  if (input.title !== undefined || input.position !== undefined || input.resetIntervalDays !== undefined) {
+  if (input.title !== undefined || input.resetIntervalDays !== undefined) {
     await prisma.subtask.update({
       where: { id: input.subtaskId },
-      data: {
-        title: input.title,
-        position: input.position,
-        resetIntervalDays: input.resetIntervalDays,
-      },
+      data: { title: input.title, resetIntervalDays: input.resetIntervalDays },
+    });
+  }
+  if (input.position !== undefined) {
+    // Move it and renumber the rest, so no two steps share a position.
+    await prisma.$transaction(async (tx) => {
+      const ids = (
+        await tx.subtask.findMany({ where: { taskId }, orderBy: { position: 'asc' }, select: { id: true } })
+      ).map((s) => s.id).filter((id) => id !== input.subtaskId);
+      ids.splice(Math.min(input.position!, ids.length), 0, input.subtaskId);
+      for (const [position, id] of ids.entries()) {
+        await tx.subtask.update({ where: { id }, data: { position } });
+      }
     });
   }
   return getTaskOrThrow(householdId, taskId);
@@ -1218,6 +1343,9 @@ async function setStepDone(
       where: { id: taskId },
       include: { subtasks: { orderBy: { position: 'asc' } } },
     });
+    if (task.status === 'archived') {
+      throw new ConflictError('This task is archived; restore it before ticking steps.');
+    }
     const index = task.subtasks.findIndex((s) => s.id === subtaskId);
     const step = task.subtasks[index];
     const pending = await tx.pendingCredit.findUnique({ where: { subtaskId } });
@@ -1265,6 +1393,9 @@ async function setStepDone(
     }
 
     if (!step.done) return;
+    // Set when the points this check paid are taken back: the step is then
+    // as it was after its own reset, so ticking it again pays again (once).
+    let autoResetAt: Date | null = null;
     if (step.checkAwardId) {
       // This check paid at once: unchecking it within the undo window (by the
       // same person, or the head) takes the points back.
@@ -1279,12 +1410,13 @@ async function setStepDone(
           where: { id: award.id },
           data: { voidedAt: now, voidedById: actor.id, voidReason: 'Step unchecked' },
         });
+        autoResetAt = now;
       }
     } else if (pending) {
       // Unchecked by hand: its queued points are dropped.
       await tx.pendingCredit.delete({ where: { id: pending.id } });
     }
-    await tx.subtask.update({ where: { id: subtaskId }, data: UNCHECKED });
+    await tx.subtask.update({ where: { id: subtaskId }, data: { ...UNCHECKED, autoResetAt } });
   });
 }
 

@@ -35,7 +35,8 @@ import { EmptyState } from '@/components/empty-state';
 import { PaymentDialog } from '@/components/bills/payment-dialog';
 
 const KEY = ['bills'];
-type Repeat = 'none' | 'daily' | 'weekly' | 'monthly';
+// 'interval' = every N days (the API allows it; imported bills can use it).
+type Repeat = 'none' | 'daily' | 'weekly' | 'monthly' | 'interval';
 
 // How many paid bills the disclosure shows before "Show all (N)".
 const PAID_PREVIEW = 12;
@@ -690,11 +691,14 @@ export function BillDialog({
               <option value="daily">Daily</option>
               <option value="weekly">Weekly</option>
               <option value="monthly">Monthly</option>
+              <option value="interval">Every N days</option>
             </Select>
           </div>
           {repeat !== 'none' ? (
             <div className="space-y-1.5">
-              <Label htmlFor="bill-interval">Every</Label>
+              <Label htmlFor="bill-interval">
+                {repeat === 'weekly' ? 'Every N weeks' : repeat === 'monthly' ? 'Every N months' : 'Every N days'}
+              </Label>
               <Input
                 id="bill-interval"
                 type="number"

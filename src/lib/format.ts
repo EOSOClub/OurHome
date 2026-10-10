@@ -26,15 +26,36 @@ export function formatDate(date: Date | string | null | undefined): string {
   });
 }
 
-function startOfDay(d: Date): number {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+/**
+ * The calendar day (as a UTC midnight timestamp, for differences) and clock
+ * time of `d` as seen in `timeZone` (default: wherever this code runs). The
+ * dashboard renders on the server, so it passes the household's zone.
+ */
+function zoned(d: Date, timeZone?: string) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(d);
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
+  return {
+    day: Date.UTC(get('year'), get('month') - 1, get('day')),
+    hour: get('hour'),
+    minute: get('minute'),
+    second: get('second'),
+  };
 }
 
 /** Human-friendly due-date label relative to today. */
-export function formatDueDate(date: Date | string | null | undefined): string {
+export function formatDueDate(date: Date | string | null | undefined, timeZone?: string): string {
   if (!date) return 'No due date';
   const due = new Date(date);
-  const diffDays = Math.round((startOfDay(due) - startOfDay(new Date())) / DAY_MS);
+  const diffDays = Math.round((zoned(due, timeZone).day - zoned(new Date(), timeZone).day) / DAY_MS);
 
   if (diffDays === 0) return 'Due today';
   if (diffDays === 1) return 'Due tomorrow';
@@ -45,12 +66,33 @@ export function formatDueDate(date: Date | string | null | undefined): string {
   return `Due ${due.toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
+    timeZone,
   })}`;
 }
 
-export function isOverdue(date: Date | string | null | undefined): boolean {
+/**
+ * A due date picked without a time is stored at 12:00 local; such a date is
+ * due all day. (A task given an explicit due time keeps that exact time.)
+ */
+export function isDateOnly(date: Date | string, timeZone?: string): boolean {
+  const t = zoned(new Date(date), timeZone);
+  return t.hour === 12 && t.minute === 0 && t.second === 0;
+}
+
+/**
+ * Past due: a date-only due date from the next day on (not from noon on the
+ * day itself — that showed "Overdue" next to "Due today"); a timed one once
+ * its time has passed.
+ */
+export function isOverdue(
+  date: Date | string | null | undefined,
+  timeZone?: string,
+  now: Date = new Date(),
+): boolean {
   if (!date) return false;
-  return new Date(date).getTime() < Date.now();
+  const due = new Date(date);
+  if (!isDateOnly(due, timeZone)) return due.getTime() < now.getTime();
+  return zoned(due, timeZone).day < zoned(now, timeZone).day;
 }
 
 /** True when `date` is now-or-future and within `days` days from now. */

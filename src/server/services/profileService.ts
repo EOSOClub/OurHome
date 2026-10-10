@@ -1,5 +1,6 @@
 import { prisma } from '@/server/db/prisma';
-import { ConflictError, NotFoundError } from '@/server/services/errors';
+import { auth } from '@/server/auth/auth';
+import { ConflictError, ForbiddenError, NotFoundError } from '@/server/services/errors';
 import type { UpdateProfileInput } from '@/lib/validation/user';
 import { publicProfile, type PublicProfile } from '@/lib/profile';
 
@@ -43,8 +44,7 @@ export async function getProfileOverview(
           role: true,
           createdAt: true,
           bio: true,
-          pronouns: true,
-          avatarEmoji: true,
+                    avatarEmoji: true,
           profileColor: true,
           birthday: true,
           household: { select: { name: true } },
@@ -84,6 +84,13 @@ export async function updateProfile(
   const username = displayUsername?.toLowerCase();
   const email = input.email?.trim().toLowerCase();
 
+  if (email) {
+    const current = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+    if (current && current.email.toLowerCase() !== email) {
+      await assertCurrentPassword(userId, input.currentPassword);
+    }
+  }
+
   if (username || email) {
     const or: { username?: string; email?: string }[] = [];
     if (username) or.push({ username });
@@ -106,7 +113,6 @@ export async function updateProfile(
       email: email ?? undefined,
       // undefined = unchanged; null = cleared (the schema turns "" into null).
       bio: input.bio,
-      pronouns: input.pronouns,
       avatarEmoji: input.avatarEmoji,
       profileColor: input.profileColor,
       birthday: input.birthday,
@@ -131,8 +137,7 @@ export async function listHouseholdProfiles(householdId: string): Promise<Househ
       name: true,
       role: true,
       bio: true,
-      pronouns: true,
-      avatarEmoji: true,
+            avatarEmoji: true,
       profileColor: true,
       birthday: true,
     },
@@ -141,13 +146,14 @@ export async function listHouseholdProfiles(householdId: string): Promise<Househ
   return rows.map((u) => ({ id: u.id, name: u.name, role: u.role, ...publicProfile(u) }));
 }
 
-/**
- * Clear the temporary-password flag once the user has chosen their own
- * password. Called after a successful Better Auth changePassword.
- */
-export async function clearMustChangePassword(userId: string): Promise<void> {
-  await prisma.user.update({
-    where: { id: userId },
-    data: { mustChangePassword: false },
+/** Throws unless [password] is the user's current password. */
+async function assertCurrentPassword(userId: string, password: string | undefined): Promise<void> {
+  if (!password) throw new ForbiddenError('Enter your current password to change your email.');
+  const cred = await prisma.account.findFirst({
+    where: { userId, providerId: 'credential' },
+    select: { password: true },
   });
+  const authCtx = await auth.$context;
+  const okPassword = !!cred?.password && (await authCtx.password.verify({ hash: cred.password, password }));
+  if (!okPassword) throw new ForbiddenError('Your current password is incorrect.');
 }

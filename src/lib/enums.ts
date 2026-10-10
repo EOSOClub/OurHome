@@ -220,6 +220,9 @@ export const NOTIFICATION_TYPES = [
   'system',
   // Sent to bugs:manage holders (the head) when someone files a bug report.
   'bug_report',
+  // Sent to a task's assignee when it becomes theirs to do: assigned to them,
+  // their turn in a rotation, or a new cycle/occurrence (taskReadyService).
+  'task_ready',
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
@@ -230,6 +233,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   bill_due: 'Bill due',
   system: 'System',
   bug_report: 'Bug report',
+  task_ready: 'Your turn',
 };
 
 // --- Bug reports ----------------------------------------------------------

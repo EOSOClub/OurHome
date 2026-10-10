@@ -2,7 +2,6 @@ import { z } from 'zod';
 import { USER_ROLES } from '@/lib/enums';
 import {
   BIO_MAX,
-  PRONOUNS_MAX,
   PROFILE_COLOR_KEYS,
   isBirthday,
   type ProfileColor,
@@ -91,7 +90,6 @@ export const updateProfileSchema = z
     username: usernameSchema.optional(),
     email: z.string().trim().email().max(160).optional(),
     bio: optionalText(BIO_MAX),
-    pronouns: optionalText(PRONOUNS_MAX),
     avatarEmoji: optionalText(32).refine((v) => v == null || isSingleEmoji(v), {
       message: 'Pick a single emoji.',
     }),
@@ -99,8 +97,11 @@ export const updateProfileSchema = z
     birthday: optionalText(5).refine((v) => v == null || isBirthday(v), {
       message: 'Birthday must be a real MM-DD day.',
     }),
+    // Required to change the email: it's where password resets go, so a
+    // borrowed or stolen session mustn't be able to redirect it.
+    currentPassword: z.string().max(128).optional(),
   })
-  .refine((v) => Object.values(v).some((x) => x !== undefined), {
+  .refine((v) => Object.entries(v).some(([k, x]) => k !== 'currentPassword' && x !== undefined), {
     message: 'Nothing to update.',
   });
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;

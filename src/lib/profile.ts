@@ -1,5 +1,5 @@
 /**
- * Self-chosen profile fields (User.bio/pronouns/avatarEmoji/profileColor/
+ * Self-chosen profile fields (User.bio/avatarEmoji/profileColor/
  * birthday). Every household member can see them; only the owner edits.
  * The Android app mirrors PROFILE_COLORS in data/ProfileStyle.kt.
  */
@@ -25,7 +25,6 @@ export function isProfileColor(v: unknown): v is ProfileColor {
 }
 
 export const BIO_MAX = 500;
-export const PRONOUNS_MAX = 40;
 
 /** "MM-DD" → true when it names a real day of some year (02-29 allowed). */
 export function isBirthday(v: string): boolean {
@@ -56,7 +55,6 @@ export function initials(name: string): string {
 /** What every member sees about someone (household members list, profile). */
 export interface PublicProfile {
   bio: string | null;
-  pronouns: string | null;
   avatarEmoji: string | null;
   profileColor: ProfileColor | null;
   birthday: string | null;
@@ -64,14 +62,12 @@ export interface PublicProfile {
 
 export function publicProfile(u: {
   bio: string | null;
-  pronouns: string | null;
   avatarEmoji: string | null;
   profileColor: string | null;
   birthday: string | null;
 }): PublicProfile {
   return {
     bio: u.bio ?? null,
-    pronouns: u.pronouns ?? null,
     avatarEmoji: u.avatarEmoji ?? null,
     profileColor: isProfileColor(u.profileColor) ? u.profileColor : null,
     birthday: u.birthday && isBirthday(u.birthday) ? u.birthday : null,

@@ -34,7 +34,7 @@ export function HouseholdCard({ members, userId }: { members: HouseholdProfile[]
                     {m.id === userId ? <span className="text-muted-foreground"> (you)</span> : null}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {[USER_ROLE_LABELS[m.role as UserRole] ?? m.role, m.pronouns].filter(Boolean).join(' · ')}
+                    {USER_ROLE_LABELS[m.role as UserRole] ?? m.role}
                   </p>
                   {m.bio ? <p className="mt-1 whitespace-pre-line text-sm">{m.bio}</p> : null}
                   {birthday ? (

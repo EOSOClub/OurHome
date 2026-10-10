@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   computeNextRunAt,
   formatIntList,
+  fromWall,
+  nextAfterOccurrence,
+  toWall,
   parseIntList,
   type NormalizedRule,
 } from '@/server/services/recurrenceService';
@@ -153,5 +156,77 @@ describe('computeNextRunAt — unsupported', () => {
       expect(next).not.toBeNull();
       expect(next!.getTime()).toBeGreaterThan(from.getTime());
     }
+  });
+});
+
+describe('nextAfterOccurrence (paying/completing the current one)', () => {
+  // Due dates are picked at 12:00; anchor and due share that time.
+  const daily = rule({ kind: 'daily', anchorDate: iso('2026-01-01T12:00:00.000Z') });
+  const monthly = rule({ kind: 'monthly', anchorDate: iso('2026-01-15T12:00:00.000Z') });
+
+  it('moves a daily task on when done the morning it is due', () => {
+    const due = iso('2026-03-10T12:00:00.000Z');
+    expect(nextAfterOccurrence(daily, due, iso('2026-03-10T09:00:00.000Z'))).toEqual(
+      iso('2026-03-11T12:00:00.000Z'),
+    );
+    // Counting from "now" lands on the same due date — the old bug.
+    expect(computeNextRunAt(daily, iso('2026-03-10T09:00:00.000Z'))).toEqual(due);
+  });
+
+  it('moves a monthly bill on when paid days early', () => {
+    expect(
+      nextAfterOccurrence(monthly, iso('2026-03-15T12:00:00.000Z'), iso('2026-03-09T18:00:00.000Z')),
+    ).toEqual(iso('2026-04-15T12:00:00.000Z'));
+  });
+
+  it('counts from now once the due date has passed', () => {
+    expect(
+      nextAfterOccurrence(daily, iso('2026-03-01T12:00:00.000Z'), iso('2026-03-10T15:00:00.000Z')),
+    ).toEqual(iso('2026-03-11T12:00:00.000Z'));
+  });
+});
+
+describe('local time zone rules', () => {
+  const tz = 'America/Chicago';
+
+  it('keeps noon local across the spring DST change', () => {
+    // Sat Mar 7 2026 12:00 CST (UTC-6) → Sun Mar 8 12:00 CDT (UTC-5).
+    const r = rule({ kind: 'daily', anchorDate: iso('2026-03-01T18:00:00.000Z'), timeZone: tz });
+    expect(computeNextRunAt(r, iso('2026-03-07T18:00:00.000Z'))).toEqual(iso('2026-03-08T17:00:00.000Z'));
+  });
+
+  it('uses local weekdays for evening times', () => {
+    // Monday 19:00 Chicago is Tuesday 01:00 UTC.
+    const r = rule({
+      kind: 'weekly',
+      byWeekday: [1],
+      anchorDate: iso('2026-03-03T01:00:00.000Z'), // Mon Mar 2, 19:00 CST
+      timeZone: tz,
+    });
+    // From Tue Mar 3 noon UTC the next local Monday is Mar 9 (19:00 CDT = Mar 10 00:00 UTC).
+    expect(computeNextRunAt(r, iso('2026-03-03T12:00:00.000Z'))).toEqual(iso('2026-03-10T00:00:00.000Z'));
+  });
+
+  it('round-trips wall time', () => {
+    const d = iso('2026-07-04T17:30:00.000Z');
+    expect(fromWall(toWall(d, tz), tz)).toEqual(d);
+  });
+});
+
+describe('weekday / month-day rules respect start and interval', () => {
+  it('does not occur before the start date', () => {
+    // Weekly on Tuesdays, starting Tue Dec 1 2026.
+    const r = rule({ kind: 'weekly', byWeekday: [2], anchorDate: iso('2026-12-01T12:00:00.000Z') });
+    expect(computeNextRunAt(r, iso('2026-11-01T00:00:00.000Z'))).toEqual(iso('2026-12-01T12:00:00.000Z'));
+  });
+
+  it('every other week skips the weeks between', () => {
+    const r = rule({ kind: 'weekly', interval: 2, byWeekday: [2], anchorDate: iso('2026-12-01T12:00:00.000Z') });
+    expect(computeNextRunAt(r, iso('2026-12-01T12:00:00.000Z'))).toEqual(iso('2026-12-15T12:00:00.000Z'));
+  });
+
+  it('every other month on a day skips the month between', () => {
+    const r = rule({ kind: 'monthly', interval: 2, byMonthday: [10], anchorDate: iso('2026-01-10T12:00:00.000Z') });
+    expect(computeNextRunAt(r, iso('2026-01-10T12:00:00.000Z'))).toEqual(iso('2026-03-10T12:00:00.000Z'));
   });
 });

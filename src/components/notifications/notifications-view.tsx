@@ -12,6 +12,7 @@ import {
   Package,
   Receipt,
   Clock,
+  ListChecks,
   type LucideIcon,
 } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -39,6 +40,7 @@ const TYPE_ICON: Record<NotificationType, LucideIcon> = {
   bill_due: Receipt,
   system: Info,
   bug_report: Bug,
+  task_ready: ListChecks,
 };
 
 const TYPE_VARIANT: Record<
@@ -51,25 +53,32 @@ const TYPE_VARIANT: Record<
   bill_due: 'warning',
   system: 'secondary',
   bug_report: 'destructive',
+  task_ready: 'default',
 };
 
 type ReadFilter = 'all' | 'unread' | 'read';
 
 const READ_FILTERS: { value: ReadFilter; label: string }[] = [
-  { value: 'all', label: 'All' },
   { value: 'unread', label: 'Unread' },
   { value: 'read', label: 'Read' },
+  { value: 'all', label: 'All' },
 ];
 
 /**
  * Where a notification's subject lives, from ActivityEntry-style subject types
- * (see the writers in src/server/services/reminderService.ts). Unknown types
- * get no link.
+ * (see the writers in src/server/services/reminderService.ts). Tasks open on
+ * the task itself. Unknown types get no link.
  */
 function subjectHref(n: NotificationDTO): string | null {
   switch (n.subjectType) {
     case 'task':
-      return '/tasks';
+      return n.subjectId ? `/tasks?task=${encodeURIComponent(n.subjectId)}` : '/tasks';
+    case 'request':
+      return '/requests';
+    case 'event':
+      return '/calendar';
+    case 'household':
+      return '/settings';
     case 'bill':
       return n.subjectId ? `/bills/${n.subjectId}` : '/bills';
     case 'inventory_item':
@@ -88,7 +97,9 @@ function subjectHref(n: NotificationDTO): string | null {
 
 export function NotificationsView({ initial }: { initial: NotificationList }) {
   const queryClient = useQueryClient();
-  const [filter, setFilter] = useState<ReadFilter>('all');
+  // The bell is a to-do list: opening a notification marks it read, so it
+  // leaves this (default) view. "Read" keeps the history.
+  const [filter, setFilter] = useState<ReadFilter>('unread');
 
   // Older pages loaded via "Load more" live outside the shared query cache so
   // the bell's badge query and the optimistic patches keep their small,
@@ -233,7 +244,7 @@ export function NotificationsView({ initial }: { initial: NotificationList }) {
         <div>
           <h1 className="text-2xl font-semibold">Notifications</h1>
           <p className="text-sm text-muted-foreground">
-            Overdue chores, low stock, and reorder reminders.
+            Open one to go to it; it then clears from here.
           </p>
         </div>
         <Button
@@ -285,7 +296,7 @@ export function NotificationsView({ initial }: { initial: NotificationList }) {
 
           {visible.length === 0 ? (
             <p className="px-1 text-sm text-muted-foreground">
-              No {filter} notifications.
+              {filter === 'unread' ? 'You’re all caught up.' : `No ${filter} notifications.`}
             </p>
           ) : (
             <ul className="divide-y divide-border rounded-lg border border-border bg-card">
@@ -383,7 +394,16 @@ function NotificationRow({
           {body}
         </Link>
       ) : (
-        <div className="min-w-0 flex-1">{body}</div>
+        // Nothing to open: tapping it just clears it.
+        <button
+          type="button"
+          className="min-w-0 flex-1 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={() => {
+            if (!n.read) onMarkRead();
+          }}
+        >
+          {body}
+        </button>
       )}
       {!n.read ? (
         <Button

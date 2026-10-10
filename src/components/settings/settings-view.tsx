@@ -94,7 +94,8 @@ export function SettingsView({
   initialIntegrations: IntegrationDTO[];
   initialTags: NfcTagDTO[];
   initialCategories: CategoryAdminDTO[];
-  initialContactMessages: ContactMessageDTO[];
+  /** Head only (null for managers). */
+  initialContactMessages: ContactMessageDTO[] | null;
   items: ItemRef[];
 }) {
   return (
@@ -111,7 +112,7 @@ export function SettingsView({
       <PaperlessCard />
       <HomeAssistantCard initialIntegrations={initialIntegrations} />
       <NfcTagsCard initialTags={initialTags} items={items} />
-      <ContactMessagesCard initialMessages={initialContactMessages} />
+      {initialContactMessages ? <ContactMessagesCard initialMessages={initialContactMessages} /> : null}
     </div>
   );
 }

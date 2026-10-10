@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
 import { Prisma } from '@prisma/client';
+import { getPointsSettings } from '@/server/services/pointsService';
 import { prisma } from '@/server/db/prisma';
 import { logActivity } from '@/server/services/activityService';
 import {
-  computeNextRunAt,
+  nextAfterOccurrence,
   parseIntList,
   type NormalizedRule,
 } from '@/server/services/recurrenceService';
@@ -97,6 +98,7 @@ function resolveReference(doc: BillIngestInput): string {
 
 function normalizeRule(
   r: { kind: string; interval: number; byWeekday: string | null; byMonthday: string | null; cron: string | null; anchorDate: Date; until: Date | null } | null,
+  timeZone?: string,
 ): NormalizedRule | null {
   if (!r) return null;
   return {
@@ -107,6 +109,7 @@ function normalizeRule(
     cron: r.cron,
     anchorDate: r.anchorDate,
     until: r.until,
+    timeZone,
   };
 }
 
@@ -358,8 +361,8 @@ async function ingestReceipt(
       const paidTotal = prior + applied;
       const fullyPaid = paidTotal + 0.005 >= match.amount; // cent tolerance
 
-      const rule = normalizeRule(match.recurrence);
-      const next = rule ? computeNextRunAt(rule, new Date()) : null;
+      const rule = normalizeRule(match.recurrence, (await getPointsSettings(householdId)).timezone);
+      const next = rule ? nextAfterOccurrence(rule, match.dueDate) : null;
       const recurrenceEnded =
         !!match.recurrence && match.recurrence.kind !== 'cron' && next === null;
 

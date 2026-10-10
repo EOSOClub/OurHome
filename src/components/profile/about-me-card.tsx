@@ -7,7 +7,6 @@ import { Loader2, Smile } from 'lucide-react';
 import type { ProfileOverview } from '@/server/services/profileService';
 import {
   BIO_MAX,
-  PRONOUNS_MAX,
   PROFILE_COLORS,
   PROFILE_COLOR_KEYS,
   isBirthday,
@@ -44,7 +43,6 @@ export function AboutMeCard({ overview }: { overview: ProfileOverview }) {
   const p = overview.profile;
   const [emoji, setEmoji] = useState(p.avatarEmoji ?? '');
   const [color, setColor] = useState<ProfileColor | null>(p.profileColor);
-  const [pronouns, setPronouns] = useState(p.pronouns ?? '');
   const [bio, setBio] = useState(p.bio ?? '');
   const [month, setMonth] = useState(p.birthday?.slice(0, 2) ?? '');
   const [day, setDay] = useState(p.birthday ? String(Number(p.birthday.slice(3))) : '');
@@ -54,7 +52,6 @@ export function AboutMeCard({ overview }: { overview: ProfileOverview }) {
   const dirty =
     emoji.trim() !== (p.avatarEmoji ?? '') ||
     color !== p.profileColor ||
-    pronouns.trim() !== (p.pronouns ?? '') ||
     bio.trim() !== (p.bio ?? '') ||
     birthday !== (p.birthday ?? '');
 
@@ -65,7 +62,6 @@ export function AboutMeCard({ overview }: { overview: ProfileOverview }) {
         body: JSON.stringify({
           avatarEmoji: emoji.trim() || null,
           profileColor: color,
-          pronouns: pronouns.trim() || null,
           bio: bio.trim() || null,
           birthday: birthday || null,
         }),
@@ -99,9 +95,6 @@ export function AboutMeCard({ overview }: { overview: ProfileOverview }) {
             <ProfileAvatar name={overview.name} emoji={emoji.trim() || null} color={color} size="lg" />
             <div className="min-w-0">
               <p className="truncate font-medium">{overview.name}</p>
-              {pronouns.trim() ? (
-                <p className="text-sm text-muted-foreground">{pronouns.trim()}</p>
-              ) : null}
             </div>
           </div>
 
@@ -160,16 +153,6 @@ export function AboutMeCard({ overview }: { overview: ProfileOverview }) {
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="about-pronouns">Pronouns</Label>
-              <Input
-                id="about-pronouns"
-                value={pronouns}
-                maxLength={PRONOUNS_MAX}
-                onChange={(e) => setPronouns(e.target.value)}
-                placeholder="optional"
-              />
-            </div>
             <div className="space-y-1.5">
               <Label htmlFor="about-month">Birthday</Label>
               <div className="flex gap-2">

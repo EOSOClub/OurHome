@@ -24,10 +24,19 @@ export async function runReminderSweep(): Promise<{ households: number }> {
   for (const { id } of households) {
     // Roll finished task cycles over (missed ones are recorded and their queued
     // points dropped), then flip recurring checklist items back, so this
-    // sweep's reminders see the current state.
-    await rollTaskCycles(id);
-    await resetDueSubtasks(id);
-    await generateReminders(id);
+    // sweep's reminders see the current state. Each step stands alone: one
+    // household's (or one step's) failure is logged and the sweep goes on.
+    for (const [step, run] of [
+      ['task cycles', () => rollTaskCycles(id)],
+      ['step resets', () => resetDueSubtasks(id)],
+      ['reminders', () => generateReminders(id)],
+    ] as const) {
+      try {
+        await run();
+      } catch (err) {
+        console.error(`[reminders] ${step} failed for household ${id}; continuing`, err);
+      }
+    }
   }
   return { households: households.length };
 }

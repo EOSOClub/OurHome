@@ -57,6 +57,8 @@ interface ItemGroup {
   items: InventoryItemDTO[];
 }
 
+const ADJUST_KEY = ['inventory', 'adjust'] as const;
+
 export function InventoryView({
   initialItems,
   categories: initialCategories,
@@ -144,6 +146,7 @@ export function InventoryView({
   });
 
   const adjust = useMutation({
+    mutationKey: ADJUST_KEY,
     mutationFn: (vars: { itemId: string; delta: number }) =>
       apiFetch<InventoryItemDTO>('/api/inventory/items/adjust', {
         method: 'POST',
@@ -152,10 +155,10 @@ export function InventoryView({
     // Optimistically apply the delta (clamped at 0, matching the service) and
     // recompute the low flag so +/- taps respond instantly — no busy spinner,
     // so rapid taps aren't blocked. Restock timestamps and the depletion
-    // forecast are server-derived; the onSettled invalidate refreshes those.
+    // forecast are server-derived; the refetch after the last tap refreshes
+    // those.
     onMutate: async ({ itemId, delta }) => {
       await queryClient.cancelQueries({ queryKey: ITEMS_KEY });
-      const previous = queryClient.getQueryData<InventoryItemDTO[]>(ITEMS_KEY);
       queryClient.setQueryData<InventoryItemDTO[]>(ITEMS_KEY, (old) =>
         old?.map((item) => {
           if (item.id !== itemId) return item;
@@ -167,18 +170,20 @@ export function InventoryView({
           };
         }),
       );
-      return { previous };
     },
-    onError: (error, _vars, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(ITEMS_KEY, context.previous);
-      }
+    onError: (error) => {
+      // No snapshot rollback: it would also wipe later taps still in flight.
+      // The refetch below (once the last tap settles) restores the truth.
       // A local onError suppresses the global MutationCache toast; re-surface.
       toast.error(
         error instanceof Error ? error.message : 'Something went wrong.',
       );
     },
-    onSettled: () => invalidate(),
+    // Refetch only after the last in-flight tap: an earlier refetch could
+    // land before a later tap is saved and briefly show the old count.
+    onSettled: () => {
+      if (queryClient.isMutating({ mutationKey: ADJUST_KEY }) <= 1) invalidate();
+    },
   });
 
   const updateItem = useMutation({

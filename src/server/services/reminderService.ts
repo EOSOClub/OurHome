@@ -6,6 +6,8 @@ import { pushSync } from '@/server/services/pushService';
 import { membersWithAccess } from '@/server/services/permissionService';
 import type { AccessPage } from '@/lib/permissions';
 import type { NotificationType } from '@/lib/enums';
+import { isOverdue } from '@/lib/format';
+import { getPointsSettings } from '@/server/services/pointsService';
 
 // Turns current household state (overdue tasks, low / soon-depleted inventory,
 // upcoming/overdue unpaid bills) into notifications. The *selection* logic is
@@ -71,17 +73,22 @@ export function tiedUsers(...ids: (string | null | undefined)[]): string[] {
   return [...new Set(ids.filter((id): id is string => Boolean(id)))];
 }
 
-/** Overdue = active task whose due date is strictly in the past. */
+/**
+ * Overdue = active task past its due date: a date-only one (stored at 12:00
+ * local) from the next day in the household's zone, a timed one once its
+ * time passed — the same rule the pages show (lib/format isOverdue).
+ */
 export function buildOverdueReminders(
   tasks: TaskLike[],
   now: Date,
+  timeZone?: string,
 ): ReminderCandidate[] {
   return tasks
     .filter(
       (t) =>
         ACTIVE_STATUSES.includes(t.status) &&
         t.dueDate !== null &&
-        t.dueDate.getTime() < now.getTime(),
+        isOverdue(t.dueDate, timeZone, now),
     )
     .map((t) => ({
       dedupeKey: `overdue:task:${t.id}`,
@@ -150,6 +157,7 @@ export function buildBillReminders(
   bills: BillLike[],
   now: Date,
   windowDays = REORDER_WINDOW_DAYS,
+  timeZone?: string,
 ): ReminderCandidate[] {
   const horizon = now.getTime() + windowDays * 24 * 60 * 60 * 1000;
   return bills
@@ -164,7 +172,7 @@ export function buildBillReminders(
       type: 'bill_due' as const,
       title: b.name,
       body:
-        b.dueDate!.getTime() < now.getTime()
+        isOverdue(b.dueDate, timeZone, now)
           ? 'This bill is past its due date and still unpaid.'
           : 'This bill is due soon.',
       subjectType: 'bill',
@@ -180,11 +188,12 @@ export function buildReminders(
   bills: BillLike[],
   now: Date,
   windowDays = REORDER_WINDOW_DAYS,
+  timeZone?: string,
 ): ReminderCandidate[] {
   return [
-    ...buildOverdueReminders(tasks, now),
+    ...buildOverdueReminders(tasks, now, timeZone),
     ...buildInventoryReminders(items, now, windowDays),
-    ...buildBillReminders(bills, now, windowDays),
+    ...buildBillReminders(bills, now, windowDays, timeZone),
   ];
 }
 
@@ -309,12 +318,13 @@ export async function generateReminders(
     }),
   ]);
 
-  const [taskManagers, billManagers, stockManagers] = await Promise.all([
+  const [taskManagers, billManagers, stockManagers, settings] = await Promise.all([
     membersWithAccess(householdId, 'tasks', 'editOthers'),
     membersWithAccess(householdId, 'bills', 'editOthers'),
     membersWithAccess(householdId, 'inventory', 'editOthers'),
+    getPointsSettings(householdId),
   ]);
-  const candidates = withManagers(buildReminders(tasks, items, bills, now), {
+  const candidates = withManagers(buildReminders(tasks, items, bills, now, REORDER_WINDOW_DAYS, settings.timezone), {
     tasks: taskManagers,
     bills: billManagers,
     inventory: stockManagers,

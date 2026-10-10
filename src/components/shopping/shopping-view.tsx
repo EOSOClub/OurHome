@@ -194,10 +194,11 @@ export function ShoppingView({
   });
 
   // Re-creates a deleted item via the regular add endpoint (the new item gets
-  // a fresh id). No local onError: the global MutationCache toast covers a
-  // failed undo, and mutate() swallows the rejection.
+  // a fresh id), back in the cart if it was there. No local onError: the
+  // global MutationCache toast covers a failed undo, and mutate() swallows the
+  // rejection. Offered only to people who may add items (see deleteItem).
   const undoDelete = useMutation({
-    mutationFn: (item: ShoppingItemDTO) => {
+    mutationFn: async (item: ShoppingItemDTO) => {
       const payload: AddItemPayload = {
         listId: item.listId,
         name: item.name,
@@ -212,10 +213,17 @@ export function ShoppingView({
       if (item.estimatedPrice != null) {
         payload.estimatedPrice = item.estimatedPrice;
       }
-      return apiFetch<ShoppingItemDTO>('/api/shopping/items', {
+      const restored = await apiFetch<ShoppingItemDTO>('/api/shopping/items', {
         method: 'POST',
         body: JSON.stringify(payload),
       });
+      if (item.purchased) {
+        await apiFetch<ShoppingItemDTO>('/api/shopping/items/purchase', {
+          method: 'POST',
+          body: JSON.stringify({ itemId: restored.id, purchased: true }),
+        });
+      }
+      return restored;
     },
     onSuccess: () => invalidate(),
   });
@@ -244,10 +252,11 @@ export function ShoppingView({
             : list,
         ),
       );
-      const toastId = toast.info(`Removed “${item.name}”`, {
-        label: 'Undo',
-        onClick: () => undoDelete.mutate(item),
-      });
+      // Undo adds the item back, so only someone who may add items gets it.
+      const toastId = toast.info(
+        `Removed “${item.name}”`,
+        access.create ? { label: 'Undo', onClick: () => undoDelete.mutate(item) } : undefined,
+      );
       return { previous, toastId };
     },
     onError: (error, _item, context) => {
@@ -791,7 +800,12 @@ function RenameListDialog({
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const trimmed = name.trim();
-    if (!trimmed || trimmed === list.name) return;
+    if (!trimmed) return;
+    // Nothing changed: just close, rather than a Save that silently does nothing.
+    if (trimmed === list.name) {
+      onClose();
+      return;
+    }
     onRename(trimmed);
   }
 

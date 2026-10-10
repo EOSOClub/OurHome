@@ -17,6 +17,8 @@ export const HOUSEHOLD_MODELS = [
   'Session',
   'Account',
   'Category',
+  'Floor',
+  'Room',
   'Task',
   'RecurrenceRule',
   'TaskCompletion',
@@ -64,6 +66,8 @@ export async function exportHousehold(householdId: string) {
   const [
     members,
     categories,
+    floors,
+    rooms,
     tasks,
     pendingCredits,
     pointAwards,
@@ -99,6 +103,8 @@ export async function exportHousehold(householdId: string) {
       },
     }),
     prisma.category.findMany({ where }),
+    prisma.floor.findMany({ where }),
+    prisma.room.findMany({ where }),
     prisma.task.findMany({ where, include: { subtasks: true, completions: true, recurrence: true } }),
     prisma.pendingCredit.findMany({ where }),
     prisma.pointAward.findMany({ where }),
@@ -135,6 +141,7 @@ export async function exportHousehold(householdId: string) {
     },
     members,
     categories,
+    places: { floors, rooms },
     tasks,
     points: { awards: pointAwards, pending: pendingCredits },
     activity,
@@ -226,6 +233,8 @@ export async function deleteHousehold(adminId: string, householdId: string, conf
       count('PaperlessConnection', await tx.paperlessConnection.deleteMany({ where }));
       count('PushDevice', await tx.pushDevice.deleteMany({ where }));
       count('Category', await tx.category.deleteMany({ where }));
+      count('Room', await tx.room.deleteMany({ where }));
+      count('Floor', await tx.floor.deleteMany({ where }));
       // Members last: their sign-ins, then the accounts themselves.
       count('Session', await tx.session.deleteMany({ where: { userId: { in: userIds } } }));
       count('Account', await tx.account.deleteMany({ where: { userId: { in: userIds } } }));

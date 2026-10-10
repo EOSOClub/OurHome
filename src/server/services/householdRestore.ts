@@ -38,6 +38,8 @@ export const RESTORE_ORDER = [
   'Household',
   'User',
   'Category',
+  'Floor',
+  'Room',
   'RecurrenceRule',
   'Task',
   'Subtask',
@@ -107,6 +109,8 @@ export function planRestore(
   const lists = asArray(doc.shoppingLists);
   const points = (doc.points ?? {}) as Row;
   const inventory = (doc.inventory ?? {}) as Row;
+  // Exports from before floors and rooms have none.
+  const places = (doc.places ?? {}) as Row;
   const recurrence = [...tasks, ...events, ...bills]
     .map((r) => r.recurrence)
     .filter((r): r is Row => !!r && typeof r === 'object');
@@ -115,6 +119,8 @@ export function planRestore(
     Household: [household],
     User: members,
     Category: asArray(doc.categories),
+    Floor: asArray(places.floors),
+    Room: asArray(places.rooms),
     RecurrenceRule: recurrence,
     Task: tasks,
     Subtask: tasks.flatMap((t) => asArray(t.subtasks)),

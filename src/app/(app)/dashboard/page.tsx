@@ -186,6 +186,7 @@ function TaskList({ tasks, timeZone, muted = false }: { tasks: DashTask[]; timeZ
                 }
               >
                 {formatDueDate(task.dueDate, timeZone)}
+                {task.place ? <span className="text-muted-foreground"> · {task.place}</span> : null}
               </p>
             </div>
             {!muted && (task.priority === 'urgent' || task.priority === 'high') ? (

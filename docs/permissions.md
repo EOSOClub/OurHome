@@ -102,6 +102,12 @@ app). The head's editor uses `GET /api/permissions`,
 `POST /api/permissions/role` and `POST /api/permissions/member`
 (`access: null` resets a member to the role default).
 
+**Rooms & floors:** everyone sees them; setting them up (Settings → Rooms &
+floors) takes `settings:manage` (head and managers). Putting a task in a room
+is part of editing the task. Reordering tasks within a place is the
+household's shared list, so it takes Tasks **Edit others'** (head only by
+default).
+
 ## Who gets generated reminders
 
 The grid also decides who hears about overdue tasks, low stock and bills

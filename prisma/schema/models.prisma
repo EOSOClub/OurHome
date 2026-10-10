@@ -56,6 +56,8 @@ model Household {
 
   members        User[]
   categories     Category[]
+  floors         Floor[]
+  rooms          Room[]
   tasks          Task[]
   activity       ActivityEntry[]
   shoppingLists  ShoppingList[]
@@ -201,6 +203,43 @@ model Category {
 }
 
 // ---------------------------------------------------------------------------
+// Places: floors and the rooms on them (src/server/services/placeService.ts).
+// Tasks point at a room or a whole floor; both are ordered by hand.
+// ---------------------------------------------------------------------------
+
+model Floor {
+  id          String   @id @default(cuid()) @map("_id")
+  householdId String
+  name        String
+  // Hand-set order (0 = first), the same everywhere floors are listed.
+  position    Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  rooms     Room[]
+  tasks     Task[]
+
+  @@index([householdId])
+}
+
+model Room {
+  id          String   @id @default(cuid()) @map("_id")
+  householdId String
+  // null = not on any floor (a one-storey home needs no floors).
+  floorId     String?
+  name        String
+  // Hand-set order among the rooms of its floor.
+  position    Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  floor     Floor?    @relation(fields: [floorId], references: [id], onDelete: SetNull)
+  tasks     Task[]
+
+  @@index([householdId])
+}
+
+// ---------------------------------------------------------------------------
 // Tasks, chores & recurrence (implemented this milestone)
 // ---------------------------------------------------------------------------
 
@@ -233,6 +272,13 @@ model Task {
   cycleStartedAt   DateTime?
   cycleEndsAt      DateTime?
   categoryId  String?
+  // Where it's done: one room, or a whole floor (never both; neither = the
+  // whole house).
+  roomId      String?
+  floorId     String?
+  // Hand-set order among the tasks of the same place (null = after the
+  // ordered ones, by due date).
+  position    Int?
   assigneeId  String?
   // Rotating assignees (src/lib/taskRotation.ts): member ids in turn order,
   // comma-separated. The assignee moves to the next one each time a recurring
@@ -245,6 +291,8 @@ model Task {
 
   household   Household        @relation(fields: [householdId], references: [id], onDelete: Cascade)
   category    Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  room        Room?            @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  floor       Floor?           @relation(fields: [floorId], references: [id], onDelete: SetNull)
   assignee    User?            @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   createdBy   User?            @relation("TaskCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   recurrence  RecurrenceRule?  @relation(fields: [recurrenceId], references: [id], onDelete: SetNull)

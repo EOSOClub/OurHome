@@ -7,6 +7,7 @@ import { addDays, localDateOf, startOfLocalDate } from '@/lib/taskCycles';
 import { attentionReason, type RequestAttentionReason } from '@/lib/requestAttention';
 import type { AccessMatrix } from '@/lib/permissions';
 import type { Feature } from '@/lib/features';
+import { placeLabel } from '@/lib/places';
 import { getHouseholdFeatures } from '@/server/services/serverAdminService';
 
 const ACTIVE_STATUSES = ['pending', 'in_progress'];
@@ -18,7 +19,22 @@ const taskSelect = {
   dueDate: true,
   type: true,
   assignee: { select: { id: true, name: true } },
+  room: { select: { name: true, floor: { select: { name: true } } } },
+  floor: { select: { name: true } },
 } as const;
+
+type SelectedTask = {
+  room: { name: string; floor: { name: string } | null } | null;
+  floor: { name: string } | null;
+};
+
+/** Each task with `place` ("Upstairs · Bedroom") instead of its raw room/floor. */
+function withPlace<T extends SelectedTask>(tasks: T[]) {
+  return tasks.map(({ room, floor, ...t }) => ({
+    ...t,
+    place: placeLabel({ room, floor: room ? room.floor : floor }),
+  }));
+}
 
 /**
  * Requests that may wait on `userId` (attentionReason makes the final call):
@@ -205,17 +221,17 @@ export async function getDashboard(
       openShopping: on('shopping') ? openShoppingCount : 0,
       billsDue: on('bills') ? billsDueCount : 0,
     },
-    overdue: tasksOn ? overdueNow : [],
-    upcoming: tasksOn ? upcoming : [],
+    overdue: tasksOn ? withPlace(overdueNow) : [],
+    upcoming: tasksOn ? withPlace(upcoming) : [],
     upcomingBills: on('bills') ? upcomingBills : [],
     upcomingEvents: on('calendar') ? upcomingEvents.slice(0, 6) : [],
     me: {
       /** Mine, overdue or due today. */
-      today: tasksOn ? myTasks.filter((t) => t.dueDate && t.dueDate < endOfToday) : [],
+      today: tasksOn ? withPlace(myTasks.filter((t) => t.dueDate && t.dueDate < endOfToday)) : [],
       /** Mine, due later this week. */
-      later: tasksOn ? myTasks.filter((t) => t.dueDate && t.dueDate >= endOfToday) : [],
+      later: tasksOn ? withPlace(myTasks.filter((t) => t.dueDate && t.dueDate >= endOfToday)) : [],
       /** Unassigned, overdue or due today. */
-      openToAnyone: tasksOn ? openTasks : [],
+      openToAnyone: tasksOn ? withPlace(openTasks) : [],
       requests: on('requests')
         ? requests.flatMap((r) => {
             const reason = attentionReason(r, user.id, access.requests.approve, endOfToday);

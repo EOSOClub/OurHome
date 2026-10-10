@@ -97,6 +97,9 @@ export const createTaskSchema = z.object({
   points: pointsSchema.optional().nullable(),
   pointsFollowTime: z.boolean().optional(),
   categoryId: z.string().cuid().optional().nullable(),
+  // Where: a room, or a whole floor (a room wins if both are sent).
+  roomId: z.string().cuid().optional().nullable(),
+  floorId: z.string().cuid().optional().nullable(),
   assigneeId: z.string().cuid().optional().nullable(),
   rotationUserIds: rotationSchema.optional().nullable(),
   recurrence: recurrenceInputSchema.optional(),
@@ -104,6 +107,15 @@ export const createTaskSchema = z.object({
 });
 
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;
+
+/**
+ * The full new order of the tasks in one place (a room, a whole floor, or
+ * the whole house); positions become the array index.
+ */
+export const reorderTasksSchema = z.object({
+  taskIds: z.array(z.string().cuid()).min(1).max(500),
+});
+export type ReorderTasksInput = z.infer<typeof reorderTasksSchema>;
 
 export const updateTaskSchema = z.object({
   taskId: z.string().cuid(),
@@ -119,6 +131,10 @@ export const updateTaskSchema = z.object({
   points: pointsSchema.optional().nullable(),
   pointsFollowTime: z.boolean().optional(),
   categoryId: z.string().cuid().optional().nullable(),
+  // When either is present the place is replaced: a room, else a whole
+  // floor, else (both null) the whole house. Both absent = unchanged.
+  roomId: z.string().cuid().optional().nullable(),
+  floorId: z.string().cuid().optional().nullable(),
   assigneeId: z.string().cuid().optional().nullable(),
   // When present, replaces the rotation; `null` or [] clears it.
   rotationUserIds: rotationSchema.optional().nullable(),

@@ -8,6 +8,7 @@ import { listNfcTags } from '@/server/services/nfcService';
 import { listIntegrations } from '@/server/services/integrationService';
 import { listCategories } from '@/server/services/categoryService';
 import { getPointsSettings } from '@/server/services/pointsService';
+import { listPlaces } from '@/server/services/placeService';
 import { SettingsView } from '@/components/settings/settings-view';
 
 export default async function SettingsPage() {
@@ -29,7 +30,7 @@ export default async function SettingsPage() {
   const isHead = can(user.role, 'household:manage');
   // "HTTPS only" and contact-form messages are server-wide: they're on the
   // server admin's Server page now.
-  const [integrations, tags, items, categories, points] =
+  const [integrations, tags, items, categories, points, places] =
     await Promise.all([
       listIntegrations(householdId),
       listNfcTags(householdId),
@@ -37,6 +38,7 @@ export default async function SettingsPage() {
       listCategories(householdId),
       // Points rate / time zone / week start: the head's.
       isHead ? getPointsSettings(householdId) : null,
+      listPlaces(householdId),
     ]);
 
   return (
@@ -45,6 +47,7 @@ export default async function SettingsPage() {
       initialTags={tags}
       initialCategories={categories}
       initialPoints={points}
+      initialPlaces={places}
       canExport={isHead}
       items={items.map(itemToDTO).map((i) => ({ id: i.id, name: i.name }))}
     />

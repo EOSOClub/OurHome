@@ -137,6 +137,31 @@ export interface PointsSummaryDTO {
   averagePerPersonPerDay: number;
 }
 
+export interface PlaceRefDTO {
+  id: string;
+  name: string;
+}
+
+export interface FloorDTO {
+  id: string;
+  name: string;
+  position: number;
+}
+
+export interface RoomDTO {
+  id: string;
+  name: string;
+  /** null = not on any floor. */
+  floorId: string | null;
+  position: number;
+}
+
+/** GET /api/places: every floor and room, each in its hand-set order. */
+export interface PlacesDTO {
+  floors: FloorDTO[];
+  rooms: RoomDTO[];
+}
+
 export interface TaskDTO {
   id: string;
   /** Who created it (user id); null = nobody recorded. Drives own vs others' access. */
@@ -163,6 +188,12 @@ export interface TaskDTO {
   cycleStartedAt: string | null;
   cycleEndsAt: string | null;
   category: CategoryDTO | null;
+  /** Where it's done (src/lib/places.ts). Both null = the whole house. */
+  room: PlaceRefDTO | null;
+  /** The whole floor it covers, or its room's floor. */
+  floor: PlaceRefDTO | null;
+  /** Hand-set order within its place (null = by due date, after the ordered ones). */
+  position: number | null;
   assignee: MemberDTO | null;
   /** Rotating assignees in turn order ([] = no rotation; src/lib/taskRotation.ts). */
   rotation: MemberDTO[];

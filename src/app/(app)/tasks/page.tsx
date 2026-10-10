@@ -3,6 +3,7 @@ import { prisma } from '@/server/db/prisma';
 import { getUserAccess } from '@/server/services/permissionService';
 import { getPointsSettings } from '@/server/services/pointsService';
 import { listTasks, taskDTOs } from '@/server/services/taskService';
+import { listPlaces } from '@/server/services/placeService';
 import { TasksView } from '@/components/tasks/tasks-view';
 
 export default async function TasksPage() {
@@ -10,7 +11,7 @@ export default async function TasksPage() {
   const access = await getUserAccess(user);
   const householdId = user.householdId!;
 
-  const [tasks, categories, members, settings] = await Promise.all([
+  const [tasks, categories, members, settings, places] = await Promise.all([
     listTasks(householdId, {}),
     prisma.category.findMany({
       where: { householdId, kind: 'task' },
@@ -23,12 +24,14 @@ export default async function TasksPage() {
       orderBy: { name: 'asc' },
     }),
     getPointsSettings(householdId),
+    listPlaces(householdId),
   ]);
 
   return (
     <TasksView
       initialTasks={await taskDTOs(householdId, tasks)}
       categories={categories}
+      places={places}
       members={members}
       access={access.tasks}
       userId={user.id}

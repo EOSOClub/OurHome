@@ -16,6 +16,23 @@ export async function assertMemberRef(db: Db, householdId: string, userId: strin
   if (!found) throw new NotFoundError('That member is not in this household.');
 }
 
+/** Throws unless [roomId] / [floorId] (when given) are the household's. */
+export async function assertPlaceRef(
+  db: Db,
+  householdId: string,
+  roomId: string | null | undefined,
+  floorId: string | null | undefined,
+): Promise<void> {
+  if (roomId) {
+    const found = await db.room.findFirst({ where: { id: roomId, householdId }, select: { id: true } });
+    if (!found) throw new NotFoundError('That room is not in this household.');
+  }
+  if (floorId) {
+    const found = await db.floor.findFirst({ where: { id: floorId, householdId }, select: { id: true } });
+    if (!found) throw new NotFoundError('That floor is not in this household.');
+  }
+}
+
 /** Throws unless [categoryId] (when given) is one of the household's categories. */
 export async function assertCategoryRef(db: Db, householdId: string, categoryId: string | null | undefined): Promise<void> {
   if (!categoryId) return;

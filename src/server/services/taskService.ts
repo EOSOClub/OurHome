@@ -9,12 +9,13 @@ import type {
   ListTasksQuery,
   RecurrenceInput,
   ReorderSubtasksInput,
+  ReorderTasksInput,
   SubtaskInput,
   UpdateSubtaskInput,
   UpdateTaskInput,
 } from '@/lib/validation/task';
 import { logActivity } from '@/server/services/activityService';
-import { assertCategoryRef, assertMemberRef } from '@/server/services/householdRefs';
+import { assertCategoryRef, assertMemberRef, assertPlaceRef } from '@/server/services/householdRefs';
 import {
   ConflictError,
   ForbiddenError,
@@ -66,6 +67,8 @@ import {
 
 const taskInclude = {
   category: { select: { id: true, name: true, color: true, icon: true } },
+  room: { select: { id: true, name: true, floor: { select: { id: true, name: true } } } },
+  floor: { select: { id: true, name: true } },
   assignee: { select: { id: true, name: true } },
   recurrence: true,
   subtasks: { orderBy: { position: 'asc' } },
@@ -139,6 +142,16 @@ export function taskToDTO(task: TaskWithRelations, ctx: TaskContext): TaskDTO {
     category: task.category
       ? { id: task.category.id, name: task.category.name, color: task.category.color }
       : null,
+    room: task.room ? { id: task.room.id, name: task.room.name } : null,
+    // A room's floor comes from the room, so moving the room moves its tasks.
+    floor: task.room
+      ? task.room.floor
+        ? { id: task.room.floor.id, name: task.room.floor.name }
+        : null
+      : task.floor
+        ? { id: task.floor.id, name: task.floor.name }
+        : null,
+    position: task.position ?? null,
     assignee: task.assignee
       ? { id: task.assignee.id, name: task.assignee.name }
       : null,
@@ -474,6 +487,23 @@ async function writePoints(tx: Tx, taskId: string, ids: string[], state: PointsS
 
 // --- Tasks --------------------------------------------------------------------------
 
+/** A room, else a whole floor, else neither (the whole house). */
+function placeColumns(roomId: string | null | undefined, floorId: string | null | undefined) {
+  return roomId ? { roomId, floorId: null } : { roomId: null, floorId: floorId ?? null };
+}
+
+/**
+ * Hand-set order of the tasks in one place: positions = array index. Ids
+ * outside the household are ignored.
+ */
+export async function reorderTasks(householdId: string, input: ReorderTasksInput): Promise<void> {
+  await prisma.$transaction(
+    input.taskIds.map((id, position) =>
+      prisma.task.updateMany({ where: { id, householdId }, data: { position } }),
+    ),
+  );
+}
+
 export async function createTask(
   householdId: string,
   userId: string,
@@ -487,6 +517,7 @@ export async function createTask(
   const created = await prisma.$transaction(async (tx) => {
     await assertMemberRef(tx, householdId, input.assigneeId);
     await assertCategoryRef(tx, householdId, input.categoryId);
+    await assertPlaceRef(tx, householdId, input.roomId, input.floorId);
     const rotation = await rotationColumns(tx, householdId, input.rotationUserIds ?? null, input.assigneeId ?? null, null);
     let rule: RuleRow | null = null;
     if (input.recurrence) {
@@ -506,6 +537,7 @@ export async function createTask(
         ...taskPointsColumns(state),
         ...cycleWindow(rule, settings.timezone, now),
         categoryId: input.categoryId ?? null,
+        ...placeColumns(input.roomId, input.floorId),
         assigneeId: rotation.assigneeId ?? null,
         rotationUserIds: rotation.rotationUserIds,
         createdById: userId,
@@ -634,7 +666,7 @@ export async function updateTask(
   userId: string,
   input: UpdateTaskInput,
 ): Promise<TaskWithRelations> {
-  const { taskId, recurrence, subtasks, rotationUserIds, ...rest } = input;
+  const { taskId, recurrence, subtasks, rotationUserIds, roomId, floorId, ...rest } = input;
   const settings = await getPointsSettings(householdId);
   const now = new Date();
 
@@ -648,6 +680,13 @@ export async function updateTask(
     if (!existing) throw new TaskNotFoundError(taskId);
     await assertMemberRef(tx, householdId, rest.assigneeId);
     await assertCategoryRef(tx, householdId, rest.categoryId);
+    await assertPlaceRef(tx, householdId, roomId, floorId);
+    // Either key sent = a new place; a task moving to another place starts
+    // at the end of that place's order.
+    const place =
+      roomId !== undefined || floorId !== undefined ? placeColumns(roomId, floorId) : undefined;
+    const placeChanged =
+      !!place && (place.roomId !== (existing.roomId ?? null) || place.floorId !== (existing.floorId ?? null));
 
     // Completing pays points and reopening must take them back, so neither
     // can happen through an edit: Complete and Undo (task history) do that.
@@ -770,6 +809,8 @@ export async function updateTask(
         status: rest.status,
         dueDate: rest.dueDate,
         categoryId: rest.categoryId,
+        ...(place ?? {}),
+        ...(placeChanged ? { position: null } : {}),
         ...assignment,
         recurrenceId,
         ...(cycle ?? {}),

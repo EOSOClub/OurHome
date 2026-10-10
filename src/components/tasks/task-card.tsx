@@ -2,12 +2,15 @@
 
 import { useEffect, useState } from 'react';
 import {
+  ArrowDown,
+  ArrowUp,
   Check,
   ChevronDown,
   ChevronUp,
   Clock,
   ListChecks,
   Loader2,
+  MapPin,
   Pencil,
   Plus,
   Repeat,
@@ -17,6 +20,7 @@ import {
 } from 'lucide-react';
 import type { TaskDTO } from '@/lib/types';
 import { formatPoints, toCenti } from '@/lib/taskPoints';
+import { placeLabel } from '@/lib/places';
 import { canModify, type PageAccess } from '@/lib/permissions';
 import { TASK_TYPE_LABELS, type TaskType } from '@/lib/enums';
 import { cn } from '@/lib/utils';
@@ -67,6 +71,8 @@ export function TaskCard({
   completing,
   deleting,
   focused = false,
+  move,
+  hidePlace = false,
 }: {
   task: TaskDTO;
   /** The viewer's Tasks access; own = tasks they created. */
@@ -88,6 +94,10 @@ export function TaskCard({
   deleting: boolean;
   /** Opened from a link to this task (?task=<id>, e.g. a notification). */
   focused?: boolean;
+  /** Up/down within its place (grouped by room, for those who may reorder). */
+  move?: { up: boolean; down: boolean; onMove: (direction: -1 | 1) => void };
+  /** Under a room heading, the place label would only repeat it. */
+  hidePlace?: boolean;
 }) {
   const timeZone = useHouseholdZone();
   const done = task.status === 'completed';
@@ -152,6 +162,30 @@ export function TaskCard({
               <Badge variant={priorityVariant(task.priority)}>
                 {task.priority}
               </Badge>
+              {move ? (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 text-muted-foreground hover:text-foreground"
+                    onClick={() => move.onMove(-1)}
+                    disabled={!move.up}
+                    aria-label="Move up"
+                  >
+                    <ArrowUp />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 text-muted-foreground hover:text-foreground"
+                    onClick={() => move.onMove(1)}
+                    disabled={!move.down}
+                    aria-label="Move down"
+                  >
+                    <ArrowDown />
+                  </Button>
+                </>
+              ) : null}
               {canEdit ? (
                 <Button
                   variant="ghost"
@@ -198,6 +232,13 @@ export function TaskCard({
                 {formatDueDate(task.dueDate, timeZone)}
               </span>
             )}
+            {/* Grouped by room the heading already says where. */}
+            {!hidePlace && placeLabel(task) ? (
+              <span className="inline-flex items-center gap-1 text-muted-foreground">
+                <MapPin className="size-3" />
+                {placeLabel(task)}
+              </span>
+            ) : null}
             {task.points > 0 ? (
               <span
                 className="inline-flex items-center gap-1 text-muted-foreground"

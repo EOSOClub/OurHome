@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
-import type { CategoryDTO, MemberDTO, TaskDTO } from '@/lib/types';
+import type { CategoryDTO, MemberDTO, PlacesDTO, TaskDTO } from '@/lib/types';
 import {
   TASK_PRIORITIES,
   TASK_TYPES,
@@ -49,6 +49,9 @@ export interface TaskFormPayload {
   points?: number | null;
   pointsFollowTime: boolean;
   categoryId?: string | null;
+  // Where: a room or a whole floor; both null = the whole house.
+  roomId: string | null;
+  floorId: string | null;
   assigneeId?: string | null;
   // Rotating assignees in turn order; [] clears (src/lib/taskRotation.ts).
   rotationUserIds: string[];
@@ -88,6 +91,7 @@ function splitDateTime(iso: string | null): { date: string; time: string } {
 
 export function CreateTaskForm({
   categories,
+  places,
   members,
   initial,
   submitting,
@@ -96,6 +100,8 @@ export function CreateTaskForm({
   minutesPerPoint,
 }: {
   categories: CategoryDTO[];
+  /** Floors and rooms (Settings → Rooms & floors) for the Location picker. */
+  places: PlacesDTO;
   members: MemberDTO[];
   initial?: TaskDTO;
   submitting: boolean;
@@ -116,6 +122,10 @@ export function CreateTaskForm({
   const [dueTime, setDueTime] = useState(initialDue.time);
   const [points, setPoints] = useState<PointsDraft>(() => draftFromTask(initial));
   const [categoryId, setCategoryId] = useState(initial?.category?.id ?? '');
+  // "room:<id>", "floor:<id>" or "" (the whole house).
+  const [location, setLocation] = useState(
+    initial?.room ? `room:${initial.room.id}` : initial?.floor ? `floor:${initial.floor.id}` : '',
+  );
   const [assigneeId, setAssigneeId] = useState(initial?.assignee?.id ?? '');
   const [rotation, setRotation] = useState<string[]>(
     () => initial?.rotation?.map((m) => m.id) ?? [],
@@ -174,6 +184,8 @@ export function CreateTaskForm({
       points: points.task.pointsFollowTime || points.task.basePointsCenti === null ? null : points.task.basePointsCenti / 100,
       pointsFollowTime: points.task.pointsFollowTime,
       categoryId: categoryId || null,
+      roomId: location.startsWith('room:') ? location.slice(5) : null,
+      floorId: location.startsWith('floor:') ? location.slice(6) : null,
       assigneeId: currentTurn || null,
       rotationUserIds: rotating ? rotation : [],
       subtasks: points.steps
@@ -318,6 +330,38 @@ export function CreateTaskForm({
                 ))}
               </Select>
             </div>
+            {places.floors.length || places.rooms.length ? (
+              <div className="space-y-2">
+                <Label htmlFor="location">Location</Label>
+                <Select id="location" value={location} onChange={(e) => setLocation(e.target.value)}>
+                  <option value="">Whole house</option>
+                  {/* Each floor: the whole floor, then its rooms. */}
+                  {places.floors.map((f) => (
+                    <optgroup key={f.id} label={f.name}>
+                      <option value={`floor:${f.id}`}>All of {f.name}</option>
+                      {places.rooms
+                        .filter((r) => r.floorId === f.id)
+                        .map((r) => (
+                          <option key={r.id} value={`room:${r.id}`}>
+                            {r.name}
+                          </option>
+                        ))}
+                    </optgroup>
+                  ))}
+                  {places.rooms.some((r) => !r.floorId || !places.floors.some((f) => f.id === r.floorId)) ? (
+                    <optgroup label={places.floors.length ? 'Other rooms' : 'Rooms'}>
+                      {places.rooms
+                        .filter((r) => !r.floorId || !places.floors.some((f) => f.id === r.floorId))
+                        .map((r) => (
+                          <option key={r.id} value={`room:${r.id}`}>
+                            {r.name}
+                          </option>
+                        ))}
+                    </optgroup>
+                  ) : null}
+                </Select>
+              </div>
+            ) : null}
           </div>
 
           {isRecurring ? (

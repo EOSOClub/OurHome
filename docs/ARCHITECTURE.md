@@ -134,6 +134,20 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
   sees no other household's data. First-run setup makes the first account the
   server admin; on older installs the oldest household's head becomes it on
   first use.
+- **Rooms & floors** (`lib/places.ts` pure rules, mirrored in the app's
+  `data/Places.kt`; `placeService`; added 2026-10-10). `Floor` and `Room`
+  (room on a floor, or none), each with a hand-set `position`. A task points
+  at one room *or* a whole floor (`Task.roomId` / `floorId`, never both;
+  neither = whole house); its DTO `floor` is the room's floor, so moving a
+  room moves its tasks. `Task.position` is a hand-set order within its place
+  (`POST /api/tasks/reorder`, needs "Edit others'" on Tasks; changing a
+  task's place clears it). Tasks page sort "By room" groups Floor → Room in
+  that order (whole-floor tasks first, rooms on no floor, then whole house).
+  Settings → Rooms & floors (settings:manage; `/api/places*`) adds, renames,
+  moves, reorders and removes them — removing a room moves its tasks to its
+  floor, removing a floor keeps its rooms. Exported under `places`, restored
+  with ids rewired. Next steps (inventory rooms, NFC location tags) in
+  `TODO.md`.
 - **Household features** (`lib/features.ts`; added 2026-10-10). The server
   admin chooses per household which of Tasks, Points, Calendar, Shopping,
   Inventory (incl. NFC), Bills (incl. Paperless) and Requests it uses (Server →

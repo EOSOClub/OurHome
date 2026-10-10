@@ -18,6 +18,8 @@ import { apiFetch } from '@/lib/api';
 import { CategoriesCard } from '@/components/settings/categories-card';
 import { PaperlessCard } from '@/components/settings/paperless-card';
 import { useHouseholdFeatures } from '@/components/household-features';
+import { PlacesCard } from '@/components/settings/places-card';
+import type { PlacesDTO } from '@/lib/types';
 import { ExportCard } from '@/components/settings/export-card';
 import { PointsCard } from '@/components/settings/points-card';
 import { Button, type ButtonProps } from '@/components/ui/button';
@@ -83,8 +85,10 @@ export function SettingsView({
   initialTags,
   initialCategories,
   initialPoints,
+  initialPlaces,
   items,
 }: {
+  initialPlaces: PlacesDTO;
   /** Head of House: may download the household export. */
   canExport: boolean;
   /** null unless the viewer is the Head of House. */
@@ -106,6 +110,8 @@ export function SettingsView({
         </p>
       </div>
       {initialPoints ? <PointsCard initial={initialPoints} /> : null}
+      {/* Rooms are where tasks are done: hidden with Tasks. */}
+      {features.includes('tasks') ? <PlacesCard initial={initialPlaces} /> : null}
       <CategoriesCard initialCategories={initialCategories} />
       {features.includes('bills') ? <PaperlessCard /> : null}
       <HomeAssistantCard initialIntegrations={initialIntegrations} />

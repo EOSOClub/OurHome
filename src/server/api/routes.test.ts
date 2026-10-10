@@ -33,10 +33,10 @@ describe('API routes', () => {
     expect(files.length).toBeGreaterThan(50);
   });
 
-  it('authenticate with withAuth unless listed as public', () => {
+  it('authenticate with withAuth / withServerAdmin unless listed as public', () => {
     const unguarded = files
       .filter((f) => !PUBLIC_ROUTES.has(f.path))
-      .filter((f) => /export const (GET|POST|PUT|PATCH|DELETE)\s*=/.test(f.source) && !f.source.includes('withAuth('))
+      .filter((f) => /export const (GET|POST|PUT|PATCH|DELETE)\s*=/.test(f.source) && !f.source.includes('withAuth(') && !f.source.includes('withServerAdmin('))
       .map((f) => f.path);
     expect(unguarded).toEqual([]);
   });

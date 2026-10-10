@@ -1,18 +1,17 @@
 import { headers } from 'next/headers';
-import { redirect } from 'next/navigation';
-import { requireUser } from '@/server/auth/session';
+import { getServerSession } from '@/server/auth/session';
 import { getAccessSettings } from '@/server/services/accessService';
 import { listContactMessages } from '@/server/services/contactService';
-import { isServerAdmin, listHouseholds } from '@/server/services/serverAdminService';
+import { listHouseholds } from '@/server/services/serverAdminService';
 import { AccessCard } from '@/components/settings/access-settings';
 import { ContactMessagesCard } from '@/components/settings/contact-messages-card';
 import { HouseholdsCard } from '@/components/server/households-card';
 
 // The server admin's page: households on this server and the settings that
-// apply to all of them. Nobody else gets here.
+// apply to all of them. The layout lets only the server admin in.
 export default async function ServerPage() {
-  const user = await requireUser();
-  if (!(await isServerAdmin(user.id))) redirect('/dashboard');
+  const session = await getServerSession();
+  const user = session!.user;
 
   const [households, access, messages] = await Promise.all([
     listHouseholds(user.id),

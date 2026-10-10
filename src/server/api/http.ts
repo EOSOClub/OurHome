@@ -17,7 +17,7 @@ import {
   ForbiddenError,
   NotFoundError,
 } from '@/server/services/errors';
-import { HOUSEHOLD_DISABLED_MESSAGE, isHouseholdDisabled } from '@/server/services/serverAdminService';
+import { HOUSEHOLD_DISABLED_MESSAGE, isHouseholdDisabled, isServerAdmin } from '@/server/services/serverAdminService';
 
 // Thin, reusable HTTP layer so route handlers contain no business logic:
 //   route handler -> withAuth -> parse (Zod) -> service.
@@ -64,6 +64,30 @@ export function withAuth(handler: Handler) {
     }
 
     try {
+      const res = await handler({ user, req });
+      recordAudit(user, req, res.status);
+      return res;
+    } catch (err) {
+      return handleError(err, user, req);
+    }
+  };
+}
+
+/**
+ * Like withAuth, for the server admin's endpoints (households, HTTPS only,
+ * contact messages): the caller needn't belong to a household — a server
+ * admin may have none — but must be the server admin.
+ */
+export function withServerAdmin(handler: Handler) {
+  return async (req: NextRequest): Promise<Response> => {
+    if (!allowRequest(req)) {
+      return fail('Too many requests', 429);
+    }
+    const session = await getServerSession();
+    if (!session?.user) return fail('Unauthorized', 401);
+    const user = session.user as unknown as AuthUser;
+    try {
+      if (!(await isServerAdmin(user.id))) return fail('Only the server admin can do that.', 403);
       const res = await handler({ user, req });
       recordAudit(user, req, res.status);
       return res;

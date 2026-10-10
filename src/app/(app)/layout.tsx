@@ -1,22 +1,22 @@
 import Link from 'next/link';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { History, Home, ServerCog, Settings, Users, UserRound } from 'lucide-react';
+import { Home } from 'lucide-react';
 import { requireUser } from '@/server/auth/session';
 import { prisma } from '@/server/db/prisma';
 import { getAccessSettings } from '@/server/services/accessService';
 import { isServerAdmin } from '@/server/services/serverAdminService';
+import { getUserAccess } from '@/server/services/permissionService';
+import { countRequestsWaitingOn } from '@/server/services/dashboardService';
 import { AccessPrompt } from '@/components/settings/access-settings';
 import { can } from '@/lib/permissions';
+import { USER_ROLE_LABELS, type UserRole } from '@/lib/enums';
+import { isProfileColor } from '@/lib/profile';
 import { AppNav } from '@/components/app-nav';
 import { KeyboardShortcuts } from '@/components/keyboard-shortcuts';
 import { NotificationBell } from '@/components/notifications/notification-bell';
-import { ReportBugButton } from '@/components/report-bug-button';
-import { ThemeToggle } from '@/components/theme-toggle';
-import { SignOutButton } from '@/components/sign-out-button';
-import { buttonVariants } from '@/components/ui/button';
+import { UserMenu } from '@/components/user-menu';
 import { Tooltip } from '@/components/ui/tooltip';
-import { cn } from '@/lib/utils';
 import { getPointsSettings } from '@/server/services/pointsService';
 import { HouseholdZoneProvider } from '@/components/household-zone';
 
@@ -45,6 +45,20 @@ export default async function AppLayout({
   // Every date on the pages is shown in the household's zone (see
   // HouseholdZoneProvider), so server and browser render the same text.
   const { timezone } = await getPointsSettings(user.householdId!);
+  // The avatar isn't on the session; the badge mirrors the dashboard's
+  // "Needs you" requests and refreshes on every navigation.
+  const [profile, pageAccess] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: user.id },
+      select: { avatarEmoji: true, profileColor: true },
+    }),
+    getUserAccess(user),
+  ]);
+  const requestsWaiting = await countRequestsWaitingOn(
+    { id: user.id, householdId: user.householdId! },
+    pageAccess.requests.approve,
+    timezone,
+  );
 
   return (
     <HouseholdZoneProvider timeZone={timezone}>
@@ -64,91 +78,20 @@ export default async function AppLayout({
             <span className="hidden sm:inline">Household</span>
           </Link>
           <div className="ml-2">
-            <AppNav variant="top" />
+            <AppNav variant="top" requestsWaiting={requestsWaiting} />
           </div>
           <div className="ml-auto flex items-center gap-1">
-            <Link
-              href="/profile"
-              className="mr-1 hidden text-sm text-muted-foreground hover:text-foreground sm:inline"
-            >
-              {user.name}
-            </Link>
             <Tooltip label="Notifications">
               <NotificationBell />
             </Tooltip>
-            <Tooltip label="Activity">
-              <Link
-                href="/activity"
-                aria-label="Activity"
-                className={cn(
-                  buttonVariants({ variant: 'ghost', size: 'icon' }),
-                  'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                <History />
-              </Link>
-            </Tooltip>
-            <Tooltip label="Profile">
-              <Link
-                href="/profile"
-                aria-label="Profile"
-                className={cn(
-                  buttonVariants({ variant: 'ghost', size: 'icon' }),
-                  'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                <UserRound />
-              </Link>
-            </Tooltip>
-            {serverAdmin ? (
-              <Tooltip label="Server">
-                <Link
-                  href="/server"
-                  aria-label="Server"
-                  className={cn(
-                    buttonVariants({ variant: 'ghost', size: 'icon' }),
-                    'text-muted-foreground hover:text-foreground',
-                  )}
-                >
-                  <ServerCog />
-                </Link>
-              </Tooltip>
-            ) : null}
-            {can(user.role, 'members:manage') ? (
-              <Tooltip label="Household members">
-                <Link
-                  href="/members"
-                  aria-label="Household members"
-                  className={cn(
-                    buttonVariants({ variant: 'ghost', size: 'icon' }),
-                    'text-muted-foreground hover:text-foreground',
-                  )}
-                >
-                  <Users />
-                </Link>
-              </Tooltip>
-            ) : null}
-            <Tooltip label="Settings">
-              <Link
-                href="/settings"
-                aria-label="Settings"
-                className={cn(
-                  buttonVariants({ variant: 'ghost', size: 'icon' }),
-                  'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                <Settings />
-              </Link>
-            </Tooltip>
-            <Tooltip label="Report a bug">
-              <ReportBugButton />
-            </Tooltip>
-            <Tooltip label="Toggle theme">
-              <ThemeToggle />
-            </Tooltip>
-            <Tooltip label="Sign out">
-              <SignOutButton />
-            </Tooltip>
+            <UserMenu
+              name={user.name}
+              roleLabel={USER_ROLE_LABELS[user.role as UserRole] ?? user.role}
+              emoji={profile?.avatarEmoji ?? null}
+              color={isProfileColor(profile?.profileColor) ? profile.profileColor : null}
+              canManageMembers={can(user.role, 'members:manage')}
+              serverAdmin={serverAdmin}
+            />
           </div>
         </div>
       </header>
@@ -160,7 +103,7 @@ export default async function AppLayout({
         {children}
       </main>
 
-      <AppNav variant="bottom" />
+      <AppNav variant="bottom" requestsWaiting={requestsWaiting} />
       <KeyboardShortcuts />
       {access && !access.reviewed ? <AccessPrompt settings={access} /> : null}
     </div>

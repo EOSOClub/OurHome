@@ -406,7 +406,7 @@ export function TasksView({
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {/* Phones have no Points tab in the bottom bar; this is the way in. */}
+          {/* Points has no tab of its own (account menu / More); this is the quick way in. */}
           <Button variant="outline" onClick={() => router.push('/points')}>
             <Trophy /> Points
           </Button>

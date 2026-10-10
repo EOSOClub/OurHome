@@ -6,16 +6,23 @@ import { Loader2, LogOut } from 'lucide-react';
 import { signOut } from '@/lib/auth-client';
 import { Button } from '@/components/ui/button';
 
-export function SignOutButton() {
+/** Signs out and returns to the login page; shared with the user menu. */
+export function useSignOut() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
 
-  async function onClick() {
+  async function run() {
     setLoading(true);
     await signOut();
     router.push('/login');
     router.refresh();
   }
+
+  return { signOut: run, loading };
+}
+
+export function SignOutButton() {
+  const { signOut: onClick, loading } = useSignOut();
 
   return (
     <Button

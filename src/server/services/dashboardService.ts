@@ -19,6 +19,40 @@ const taskSelect = {
 } as const;
 
 /**
+ * Requests that may wait on `userId` (attentionReason makes the final call):
+ * open media for those who mark media added, plus maintenance assigned to them.
+ */
+function waitingRequestsWhere(householdId: string, userId: string, approvesMedia: boolean) {
+  return {
+    householdId,
+    OR: [
+      ...(approvesMedia
+        ? [{ category: 'media', OR: [{ status: null }, { status: { isSet: false } }, { status: { in: ['pending', 'accepted'] } }] }]
+        : []),
+      { category: 'maintenance', assigneeId: userId, status: { in: ['pending', 'accepted'] } },
+    ],
+  };
+}
+
+/**
+ * How many requests wait on the user right now: the dashboard's "Needs you"
+ * rule, shown as the badge on the phone nav's "More" button (Requests lives
+ * there).
+ */
+export async function countRequestsWaitingOn(
+  user: { id: string; householdId: string },
+  approvesMedia: boolean,
+  timezone: string,
+) {
+  const endOfToday = startOfLocalDate(addDays(localDateOf(new Date(), timezone), 1), timezone);
+  const rows = await prisma.request.findMany({
+    where: waitingRequestsWhere(user.householdId, user.id, approvesMedia),
+    select: { category: true, status: true, assigneeId: true, dueAt: true },
+  });
+  return rows.filter((r) => attentionReason(r, user.id, approvesMedia, endOfToday)).length;
+}
+
+/**
  * Everything the dashboard renders, from the viewer's side: "me" is what is on
  * them today (their tasks, requests waiting on them, their points), the rest
  * is a short household glance. The activity log lives on its own page now
@@ -120,15 +154,7 @@ export async function getDashboard(
       take: 10,
     }),
     prisma.request.findMany({
-      where: {
-        householdId,
-        OR: [
-          ...(access.requests.approve
-            ? [{ category: 'media', OR: [{ status: null }, { status: { isSet: false } }, { status: { in: ['pending', 'accepted'] } }] }]
-            : []),
-          { category: 'maintenance', assigneeId: user.id, status: { in: ['pending', 'accepted'] } },
-        ],
-      },
+      where: waitingRequestsWhere(householdId, user.id, access.requests.approve),
       select: {
         id: true,
         category: true,

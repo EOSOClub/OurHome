@@ -22,6 +22,9 @@ const navShortcuts = [
   { key: 'i', href: '/inventory', label: 'Inventory' },
   { key: 'b', href: '/bills', label: 'Bills' },
   { key: 'c', href: '/calendar', label: 'Calendar' },
+  { key: 'r', href: '/requests', label: 'Requests' },
+  { key: 'p', href: '/points', label: 'Points' },
+  { key: 'a', href: '/activity', label: 'Activity' },
   { key: 'n', href: '/notifications', label: 'Notifications' },
 ] as const;
 

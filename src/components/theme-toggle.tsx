@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react';
 import { Moon, Sun } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-function applyTheme(theme: 'light' | 'dark') {
+type Theme = 'light' | 'dark';
+
+function applyTheme(theme: Theme) {
   const root = document.documentElement;
   root.classList.toggle('dark', theme === 'dark');
   try {
@@ -15,15 +17,20 @@ function applyTheme(theme: 'light' | 'dark') {
   }
 }
 
-export function ThemeToggle() {
-  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
+/** The painted theme and a toggle; shared by ThemeToggle and the user menu. */
+export function useTheme(): [Theme, () => void] {
+  const [theme, setTheme] = useState<Theme>('dark');
 
   useEffect(() => {
     // Dark is the default; only an explicit 'light' choice steps it down. This
     // matches the server-rendered default and the bootstrap script in the root
     // layout, so the icon never disagrees with the painted theme.
-    const initial: 'light' | 'dark' =
-      localStorage.getItem('theme') === 'light' ? 'light' : 'dark';
+    let initial: Theme = 'dark';
+    try {
+      if (localStorage.getItem('theme') === 'light') initial = 'light';
+    } catch {
+      // Unreadable storage: keep the default.
+    }
     // One-time sync of initial theme from persisted storage.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setTheme(initial);
@@ -34,6 +41,12 @@ export function ThemeToggle() {
     setTheme(next);
     applyTheme(next);
   }
+
+  return [theme, toggle];
+}
+
+export function ThemeToggle() {
+  const [theme, toggle] = useTheme();
 
   return (
     <Button

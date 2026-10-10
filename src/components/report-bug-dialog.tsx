@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { useMutation } from '@tanstack/react-query';
-import { Bug, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { toast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
@@ -13,17 +13,16 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 
 /**
- * Header button that opens a "Report a bug" form. The current page path is
- * sent as context; the head is notified and support is emailed server-side.
+ * The "Report a bug" form, opened from the user menu. The current page path
+ * is sent as context; the head is notified and support is emailed server-side.
  */
-export function ReportBugButton() {
+export function ReportBugDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const pathname = usePathname();
-  const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
 
   const close = () => {
-    setOpen(false);
+    onClose();
     setTitle('');
     setDescription('');
   };
@@ -50,15 +49,6 @@ export function ReportBugButton() {
 
   return (
     <>
-      <Button
-        variant="ghost"
-        size="icon"
-        aria-label="Report a bug"
-        className="text-muted-foreground hover:text-foreground"
-        onClick={() => setOpen(true)}
-      >
-        <Bug />
-      </Button>
       <Dialog
         open={open}
         onClose={close}

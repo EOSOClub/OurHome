@@ -30,7 +30,9 @@ export function LoginForm({ appName }: { appName: string }) {
     e.preventDefault();
     setError(null);
     setLoading(true);
-    const { error } = await signIn.username({ username, password });
+    // Better Auth validates the characters before normalising, so a stray
+    // space (autofill, phone keyboards) fails as "Invalid username".
+    const { error } = await signIn.username({ username: username.trim(), password });
     setLoading(false);
     if (error) {
       setError(error.message || 'Invalid username or password.');

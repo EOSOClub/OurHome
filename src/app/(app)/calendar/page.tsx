@@ -1,4 +1,4 @@
-import { requireUser } from '@/server/auth/session';
+import { requireFeature } from '@/server/auth/session';
 import { prisma } from '@/server/db/prisma';
 import { getUserAccess } from '@/server/services/permissionService';
 import { listOccurrences } from '@/server/services/calendarService';
@@ -12,7 +12,7 @@ export default async function CalendarPage({
 }: {
   searchParams: Promise<{ ym?: string | string[]; d?: string | string[] }>;
 }) {
-  const user = await requireUser();
+  const user = await requireFeature('calendar');
   const access = await getUserAccess(user);
   const householdId = user.householdId!;
 

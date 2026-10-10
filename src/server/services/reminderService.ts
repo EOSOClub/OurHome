@@ -8,6 +8,7 @@ import type { AccessPage } from '@/lib/permissions';
 import type { NotificationType } from '@/lib/enums';
 import { isOverdue } from '@/lib/format';
 import { getPointsSettings } from '@/server/services/pointsService';
+import { getHouseholdFeatures } from '@/server/services/serverAdminService';
 
 // Turns current household state (overdue tasks, low / soon-depleted inventory,
 // upcoming/overdue unpaid bills) into notifications. The *selection* logic is
@@ -269,9 +270,13 @@ export async function generateReminders(
 ): Promise<void> {
   const now = new Date();
   const horizon = new Date(now.getTime() + REORDER_WINDOW_DAYS * 86_400_000);
+  // A feature the server admin turned off has no reminders; its old rows are
+  // cleared below like any other condition that no longer holds.
+  const features = await getHouseholdFeatures(householdId);
+  const none = Promise.resolve([]);
 
   const [tasks, items, bills] = await Promise.all([
-    prisma.task.findMany({
+    !features.includes('tasks') ? none : prisma.task.findMany({
       where: {
         householdId,
         status: { in: ACTIVE_STATUSES },
@@ -286,7 +291,7 @@ export async function generateReminders(
         createdById: true,
       },
     }),
-    prisma.inventoryItem.findMany({
+    !features.includes('inventory') ? none : prisma.inventoryItem.findMany({
       where: {
         householdId,
         OR: [{ isLow: true }, { predictedDepletionAt: dateOnOrBefore(horizon) }],
@@ -301,7 +306,7 @@ export async function generateReminders(
         createdById: true,
       },
     }),
-    prisma.bill.findMany({
+    !features.includes('bills') ? none : prisma.bill.findMany({
       where: {
         householdId,
         status: 'unpaid',

@@ -1,11 +1,11 @@
-import { requireUser } from '@/server/auth/session';
+import { requireFeature } from '@/server/auth/session';
 import { prisma } from '@/server/db/prisma';
 import { getUserAccess } from '@/server/services/permissionService';
 import { listBills } from '@/server/services/billService';
 import { BillsView } from '@/components/bills/bills-view';
 
 export default async function BillsPage() {
-  const user = await requireUser();
+  const user = await requireFeature('bills');
   const access = await getUserAccess(user);
   const householdId = user.householdId!;
 

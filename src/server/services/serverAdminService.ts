@@ -3,6 +3,7 @@ import { prisma } from '@/server/db/prisma';
 import { auth } from '@/server/auth/auth';
 import { logActivity } from '@/server/services/activityService';
 import { ConflictError, ForbiddenError, NotFoundError } from '@/server/services/errors';
+import { FEATURES, FEATURE_LABELS, enabledFeatures, type Feature } from '@/lib/features';
 import type {
   CreateHouseholdInput,
   ResetHeadPasswordInput,
@@ -77,6 +78,58 @@ export const HOUSEHOLD_DISABLED_MESSAGE =
 /** Forget cached household state (after a household is turned off/on or deleted). */
 export function clearHouseholdCaches(): void {
   disabledCache = null;
+  featuresCache.clear();
+}
+
+// --- Features ---------------------------------------------------------------------
+
+// Also read on every request (API guard, layout), so cached like the above.
+const featuresCache = new Map<string, { features: Feature[]; at: number }>();
+
+/** The features a household has on (the server admin turns the rest off). */
+export async function getHouseholdFeatures(householdId: string): Promise<Feature[]> {
+  const cached = featuresCache.get(householdId);
+  if (cached && Date.now() - cached.at <= DISABLED_TTL_MS) return cached.features;
+  const row = await prisma.household.findUnique({
+    where: { id: householdId },
+    select: { disabledFeatures: true },
+  });
+  // Older documents have no field at all: everything on.
+  const features = enabledFeatures(row?.disabledFeatures ?? []);
+  featuresCache.set(householdId, { features, at: Date.now() });
+  return features;
+}
+
+export async function isFeatureEnabled(householdId: string, feature: Feature): Promise<boolean> {
+  return (await getHouseholdFeatures(householdId)).includes(feature);
+}
+
+/**
+ * Choose which features a household uses. Nothing is deleted: turning one
+ * back on brings its data back as it was.
+ */
+export async function setHouseholdFeatures(
+  adminId: string,
+  householdId: string,
+  enabled: Feature[],
+): Promise<void> {
+  await assertServerAdmin(adminId);
+  const household = await prisma.household.findUnique({ where: { id: householdId }, select: { id: true } });
+  if (!household) throw new NotFoundError('Household not found.');
+  const on = new Set(enabled);
+  const disabled = FEATURES.filter((f) => !on.has(f));
+  await prisma.household.update({ where: { id: householdId }, data: { disabledFeatures: disabled } });
+  featuresCache.delete(householdId);
+  await logActivity({
+    householdId,
+    actorId: null,
+    verb: 'updated',
+    subjectType: 'household',
+    subjectId: householdId,
+    message: disabled.length
+      ? `features changed by the server admin (off: ${disabled.map((f) => FEATURE_LABELS[f]).join(', ')})`
+      : 'all features turned on by the server admin',
+  });
 }
 
 export async function isHouseholdDisabled(householdId: string): Promise<boolean> {
@@ -109,6 +162,8 @@ export interface HouseholdSummaryDTO {
   /** Where its Paperless import comes from: its own connection (Settings), the
    *  server-wide settings.yml one, or none. */
   paperless: 'household' | 'server' | null;
+  /** The features it has on (Points is off whenever Tasks is). */
+  features: Feature[];
 }
 
 export async function listHouseholds(adminId: string): Promise<HouseholdSummaryDTO[]> {
@@ -138,6 +193,7 @@ export async function listHouseholds(adminId: string): Promise<HouseholdSummaryD
       isOwn: h.id === admin?.householdId,
       paperlessPrivateNetwork: h.id === admin?.householdId || h.paperlessPrivateNetwork === true,
       paperless: paperless.get(h.id) ?? null,
+      features: enabledFeatures(h.disabledFeatures ?? []),
     };
   });
 }

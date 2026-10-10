@@ -17,7 +17,13 @@ import {
   ForbiddenError,
   NotFoundError,
 } from '@/server/services/errors';
-import { HOUSEHOLD_DISABLED_MESSAGE, isHouseholdDisabled, isServerAdmin } from '@/server/services/serverAdminService';
+import {
+  HOUSEHOLD_DISABLED_MESSAGE,
+  isFeatureEnabled,
+  isHouseholdDisabled,
+  isServerAdmin,
+} from '@/server/services/serverAdminService';
+import { FEATURE_LABELS, featureForPath } from '@/lib/features';
 
 // Thin, reusable HTTP layer so route handlers contain no business logic:
 //   route handler -> withAuth -> parse (Zod) -> service.
@@ -61,6 +67,15 @@ export function withAuth(handler: Handler) {
     // `code` lets the app sign out with this message instead of erroring everywhere.
     if (await isHouseholdDisabled(user.householdId)) {
       return fail(HOUSEHOLD_DISABLED_MESSAGE, 403, { code: 'household_disabled' });
+    }
+    // A feature the server admin turned off for this household: its whole API
+    // is refused, whatever the page-access grid says.
+    const feature = featureForPath(new URL(req.url).pathname);
+    if (feature && !(await isFeatureEnabled(user.householdId, feature))) {
+      return fail(`${FEATURE_LABELS[feature]} is turned off for this household.`, 403, {
+        code: 'feature_disabled',
+        feature,
+      });
     }
 
     try {

@@ -16,6 +16,7 @@ import {
   Trophy,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useHrefEnabled } from '@/components/household-features';
 
 type NavItem = {
   href: string;
@@ -41,9 +42,28 @@ const items: NavItem[] = [
   { href: '/activity', label: 'Activity', short: 'Activity', icon: History, menuOnly: true },
 ];
 
-const topItems = items.filter((i) => !i.menuOnly);
-const bottomItems = items.filter((i) => i.primary);
-const moreItems = items.filter((i) => !i.primary);
+const BOTTOM_TABS = 4;
+
+/**
+ * Only the pages this household has on (the server admin can turn features
+ * off). On phones, a turned-off tab's slot goes to the next page from More,
+ * so the bar stays full; More disappears when nothing is left in it.
+ */
+function useNavItems() {
+  const enabled = useHrefEnabled();
+  const on = items.filter((i) => enabled(i.href));
+  const bottom = on.filter((i) => i.primary);
+  for (const i of on) {
+    if (bottom.length >= BOTTOM_TABS) break;
+    if (!i.primary && !i.menuOnly) bottom.push(i);
+  }
+  bottom.sort((a, b) => items.indexOf(a) - items.indexOf(b));
+  return {
+    topItems: on.filter((i) => !i.menuOnly),
+    bottomItems: bottom,
+    moreItems: on.filter((i) => !bottom.includes(i)),
+  };
+}
 
 function CountBadge({ count, className }: { count: number; className?: string }) {
   if (count <= 0) return null;
@@ -72,6 +92,7 @@ export function AppNav({
   requestsWaiting?: number;
 }) {
   const pathname = usePathname();
+  const { topItems } = useNavItems();
   const isActive = (href: string) =>
     pathname === href || pathname.startsWith(`${href}/`);
   const badgeFor = (href: string) => (href === '/requests' ? requestsWaiting : 0);
@@ -109,6 +130,7 @@ function BottomNav({
   badgeFor: (href: string) => number;
 }) {
   const pathname = usePathname();
+  const { bottomItems, moreItems } = useNavItems();
   const [moreOpen, setMoreOpen] = React.useState(false);
   const moreRef = React.useRef<HTMLButtonElement>(null);
   const sheetRef = React.useRef<HTMLDivElement>(null);
@@ -184,7 +206,7 @@ function BottomNav({
         <nav
           className="grid border-t border-border bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur"
           style={{
-            gridTemplateColumns: `repeat(${bottomItems.length + 1}, minmax(0, 1fr))`,
+            gridTemplateColumns: `repeat(${bottomItems.length + (moreItems.length ? 1 : 0)}, minmax(0, 1fr))`,
           }}
         >
           {bottomItems.map(({ href, short, icon: Icon }) => (
@@ -198,6 +220,7 @@ function BottomNav({
               {short}
             </Link>
           ))}
+          {moreItems.length ? (
           <button
             ref={moreRef}
             type="button"
@@ -211,6 +234,7 @@ function BottomNav({
             More
             <CountBadge count={moreBadge} className="absolute left-1/2 top-1 ml-1.5" />
           </button>
+          ) : null}
         </nav>
       </div>
     </>

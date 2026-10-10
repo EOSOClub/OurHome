@@ -17,6 +17,7 @@ import {
 import { apiFetch } from '@/lib/api';
 import { CategoriesCard } from '@/components/settings/categories-card';
 import { PaperlessCard } from '@/components/settings/paperless-card';
+import { useHouseholdFeatures } from '@/components/household-features';
 import { ExportCard } from '@/components/settings/export-card';
 import { PointsCard } from '@/components/settings/points-card';
 import { Button, type ButtonProps } from '@/components/ui/button';
@@ -94,6 +95,8 @@ export function SettingsView({
   initialCategories: CategoryAdminDTO[];
   items: ItemRef[];
 }) {
+  // Paperless feeds Bills and NFC tags drive Inventory: hidden with them.
+  const features = useHouseholdFeatures();
   return (
     <div className="space-y-6">
       <div>
@@ -104,9 +107,9 @@ export function SettingsView({
       </div>
       {initialPoints ? <PointsCard initial={initialPoints} /> : null}
       <CategoriesCard initialCategories={initialCategories} />
-      <PaperlessCard />
+      {features.includes('bills') ? <PaperlessCard /> : null}
       <HomeAssistantCard initialIntegrations={initialIntegrations} />
-      <NfcTagsCard initialTags={initialTags} items={items} />
+      {features.includes('inventory') ? <NfcTagsCard initialTags={initialTags} items={items} /> : null}
       {canExport ? <ExportCard /> : null}
     </div>
   );

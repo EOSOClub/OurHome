@@ -4,6 +4,7 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { Dialog } from '@/components/ui/dialog';
 import { CommandPalette } from '@/components/command-palette';
+import { useHrefEnabled } from '@/components/household-features';
 
 /**
  * Global keyboard shortcuts, mounted once in the app layout. `g` followed by a
@@ -45,10 +46,18 @@ function Key({ children }: { children: React.ReactNode }) {
 
 export function KeyboardShortcuts() {
   const router = useRouter();
+  const hrefEnabled = useHrefEnabled();
+  // Turned-off features (server admin) have no page to jump to.
+  const shortcuts = navShortcuts.filter((s) => hrefEnabled(s.href));
   const [helpOpen, setHelpOpen] = React.useState(false);
   const [paletteOpen, setPaletteOpen] = React.useState(false);
   const pendingChord = React.useRef(false);
   const chordTimer = React.useRef<number | null>(null);
+  // Read by the key handler without re-subscribing it on every render.
+  const shortcutsRef = React.useRef(shortcuts);
+  React.useEffect(() => {
+    shortcutsRef.current = shortcuts;
+  });
 
   React.useEffect(() => {
     const clearChord = () => {
@@ -90,7 +99,7 @@ export function KeyboardShortcuts() {
         const key = e.key.toLowerCase();
         const match = e.shiftKey
           ? undefined
-          : navShortcuts.find((s) => s.key === key);
+          : shortcutsRef.current.find((s) => s.key === key);
         clearChord();
         if (match) {
           e.preventDefault();
@@ -132,7 +141,7 @@ export function KeyboardShortcuts() {
         description="These work anywhere in the app, except while typing in a field."
       >
         <ul className="space-y-1">
-          {navShortcuts.map(({ key, label }) => (
+          {shortcuts.map(({ key, label }) => (
             <li
               key={key}
               className="flex items-center justify-between gap-3 py-1.5"

@@ -1,4 +1,4 @@
-import { ensureServerAdmin, isHouseholdDisabled } from '@/server/services/serverAdminService';
+import { ensureServerAdmin, isFeatureEnabled, isHouseholdDisabled } from '@/server/services/serverAdminService';
 import { ConflictError } from '@/server/services/errors';
 import { decryptSecret, encryptSecret } from '@/server/security/secrets';
 import { prisma } from '@/server/db/prisma';
@@ -225,7 +225,10 @@ export async function runPaperlessSync(householdId?: string): Promise<PaperlessS
   const ids = new Set(saved.map((c) => c.householdId));
   if (legacy) ids.add(legacy);
   for (const id of ids) {
+    // Turned-off households, and ones whose Bills the server admin turned off
+    // (the import only makes bills), are left alone.
     if (await isHouseholdDisabled(id)) continue;
+    if (!(await isFeatureEnabled(id, 'bills'))) continue;
     await runFor(id).catch((err) => {
       console.warn(`[paperless] import for household ${id} failed; retrying next sweep:`, err instanceof Error ? err.message : err);
     });

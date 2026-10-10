@@ -6,6 +6,8 @@ import { getPointsSettings, pointsSummary } from '@/server/services/pointsServic
 import { addDays, localDateOf, startOfLocalDate } from '@/lib/taskCycles';
 import { attentionReason, type RequestAttentionReason } from '@/lib/requestAttention';
 import type { AccessMatrix } from '@/lib/permissions';
+import type { Feature } from '@/lib/features';
+import { getHouseholdFeatures } from '@/server/services/serverAdminService';
 
 const ACTIVE_STATUSES = ['pending', 'in_progress'];
 
@@ -70,7 +72,10 @@ export async function getDashboard(
   const now = new Date();
   const inSevenDays = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
   // "Today" is the household's day (Points settings), not the server's.
-  const { timezone } = await getPointsSettings(householdId);
+  const [{ timezone }, features] = await Promise.all([
+    getPointsSettings(householdId),
+    getHouseholdFeatures(householdId),
+  ]);
   const today = localDateOf(now, timezone);
   const startOfToday = startOfLocalDate(today, timezone);
   const endOfToday = startOfLocalDate(addDays(today, 1), timezone);
@@ -183,42 +188,53 @@ export async function getDashboard(
   const myRow = points.members.find((m) => m.userId === user.id);
   const myRank = myRow && myRow.points > 0 ? points.members.indexOf(myRow) + 1 : null;
 
+  // Features the server admin turned off show nothing here — also for app
+  // builds that don't know about `features` yet (they just see empty lists).
+  const on = (f: Feature) => features.includes(f);
+  const tasksOn = on('tasks');
+
   return {
     timezone,
+    /** The features the household has on, so clients can drop whole cards. */
+    features,
     counts: {
-      pending: pendingCount,
-      overdue: overdueNow.length,
-      recurring: recurringCount,
-      lowInventory: lowInventoryCount,
-      openShopping: openShoppingCount,
-      billsDue: billsDueCount,
+      pending: tasksOn ? pendingCount : 0,
+      overdue: tasksOn ? overdueNow.length : 0,
+      recurring: tasksOn ? recurringCount : 0,
+      lowInventory: on('inventory') ? lowInventoryCount : 0,
+      openShopping: on('shopping') ? openShoppingCount : 0,
+      billsDue: on('bills') ? billsDueCount : 0,
     },
-    overdue: overdueNow,
-    upcoming,
-    upcomingBills,
-    upcomingEvents: upcomingEvents.slice(0, 6),
+    overdue: tasksOn ? overdueNow : [],
+    upcoming: tasksOn ? upcoming : [],
+    upcomingBills: on('bills') ? upcomingBills : [],
+    upcomingEvents: on('calendar') ? upcomingEvents.slice(0, 6) : [],
     me: {
       /** Mine, overdue or due today. */
-      today: myTasks.filter((t) => t.dueDate && t.dueDate < endOfToday),
+      today: tasksOn ? myTasks.filter((t) => t.dueDate && t.dueDate < endOfToday) : [],
       /** Mine, due later this week. */
-      later: myTasks.filter((t) => t.dueDate && t.dueDate >= endOfToday),
+      later: tasksOn ? myTasks.filter((t) => t.dueDate && t.dueDate >= endOfToday) : [],
       /** Unassigned, overdue or due today. */
-      openToAnyone: openTasks,
-      requests: requests.flatMap((r) => {
-        const reason = attentionReason(r, user.id, access.requests.approve, endOfToday);
-        return reason ? [{ ...r, reason: reason satisfies RequestAttentionReason }] : [];
-      }),
+      openToAnyone: tasksOn ? openTasks : [],
+      requests: on('requests')
+        ? requests.flatMap((r) => {
+            const reason = attentionReason(r, user.id, access.requests.approve, endOfToday);
+            return reason ? [{ ...r, reason: reason satisfies RequestAttentionReason }] : [];
+          })
+        : [],
       points: {
-        week: myRow?.points ?? 0,
-        queued: myRow?.queued ?? 0,
-        rank: myRank,
-        leaders: points.members
-          .filter((m) => m.points > 0)
-          .slice(0, 3)
-          .map((m) => ({ userId: m.userId, name: m.name, points: m.points })),
+        week: on('points') ? (myRow?.points ?? 0) : 0,
+        queued: on('points') ? (myRow?.queued ?? 0) : 0,
+        rank: on('points') ? myRank : null,
+        leaders: on('points')
+          ? points.members
+              .filter((m) => m.points > 0)
+              .slice(0, 3)
+              .map((m) => ({ userId: m.userId, name: m.name, points: m.points }))
+          : [],
       },
     },
-    doneToday: { total: doneToday, mine: doneTodayByMe },
+    doneToday: tasksOn ? { total: doneToday, mine: doneTodayByMe } : { total: 0, mine: 0 },
   };
 }
 

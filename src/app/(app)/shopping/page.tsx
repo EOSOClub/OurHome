@@ -1,4 +1,4 @@
-import { requireUser } from '@/server/auth/session';
+import { requireFeature } from '@/server/auth/session';
 import { prisma } from '@/server/db/prisma';
 import { getUserAccess } from '@/server/services/permissionService';
 import {
@@ -8,7 +8,7 @@ import {
 import { ShoppingView } from '@/components/shopping/shopping-view';
 
 export default async function ShoppingPage() {
-  const user = await requireUser();
+  const user = await requireFeature('shopping');
   const access = await getUserAccess(user);
   const householdId = user.householdId!;
 

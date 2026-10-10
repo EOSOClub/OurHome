@@ -1,4 +1,4 @@
-import { requireUser } from '@/server/auth/session';
+import { requireFeature } from '@/server/auth/session';
 import { prisma } from '@/server/db/prisma';
 import { getUserAccess } from '@/server/services/permissionService';
 import { getPointsSettings } from '@/server/services/pointsService';
@@ -6,7 +6,7 @@ import { listTasks, taskDTOs } from '@/server/services/taskService';
 import { TasksView } from '@/components/tasks/tasks-view';
 
 export default async function TasksPage() {
-  const user = await requireUser();
+  const user = await requireFeature('tasks');
   const access = await getUserAccess(user);
   const householdId = user.householdId!;
 

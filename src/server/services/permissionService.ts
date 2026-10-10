@@ -18,6 +18,8 @@ import {
   type RoleAccessOverrides,
 } from '@/lib/permissions';
 import type { AccessSettingsMatrixDTO } from '@/lib/types';
+import { ACCESS_PAGE_FEATURE, maskAccess } from '@/lib/features';
+import { getHouseholdFeatures } from '@/server/services/serverAdminService';
 
 // Page access (add / edit / delete per page) — loading someone's effective grid
 // and the head's editor for role defaults and per-member overrides. The pure
@@ -46,11 +48,14 @@ export async function getUserAccess(user: {
     select: { role: true, accessOverrides: true, householdId: true },
   });
   if (!row?.householdId) return resolveAccess('', null, null);
-  const roleOverrides = await loadRoleOverrides(row.householdId);
-  return resolveAccess(
-    row.role,
-    roleOverrides,
-    parseStoredJson(row.accessOverrides, accessOverridesSchema),
+  const [roleOverrides, features] = await Promise.all([
+    loadRoleOverrides(row.householdId),
+    getHouseholdFeatures(row.householdId),
+  ]);
+  // A feature the server admin turned off grants nothing, even to the head.
+  return maskAccess(
+    resolveAccess(row.role, roleOverrides, parseStoredJson(row.accessOverrides, accessOverridesSchema)),
+    features,
   );
 }
 
@@ -60,13 +65,15 @@ export async function membersWithAccess(
   page: AccessPage,
   action: AccessAction,
 ): Promise<string[]> {
-  const [roleOverrides, users] = await Promise.all([
+  const [roleOverrides, users, features] = await Promise.all([
     loadRoleOverrides(householdId),
     prisma.user.findMany({
       where: { householdId },
       select: { id: true, role: true, accessOverrides: true },
     }),
+    getHouseholdFeatures(householdId),
   ]);
+  if (!features.includes(ACCESS_PAGE_FEATURE[page])) return [];
   return users
     .filter(
       (u) =>

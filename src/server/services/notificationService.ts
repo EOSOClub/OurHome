@@ -7,6 +7,8 @@ import type {
 } from '@/lib/validation/notification';
 import { NotFoundError } from '@/server/services/errors';
 import { MANAGED_TYPES } from '@/server/services/reminderService';
+import { getHouseholdFeatures } from '@/server/services/serverAdminService';
+import { hiddenSubjectTypes } from '@/lib/features';
 
 /**
  * Matches notifications [userId] hasn't read. Read state is per person
@@ -36,9 +38,16 @@ function unreadBy(userId: string): Prisma.NotificationWhereInput {
  * app version). Unset is matched alongside null for the same Mongo reason as
  * in [unreadBy].
  */
-export function visibleTo(householdId: string, userId: string): Prisma.NotificationWhereInput {
+export function visibleTo(
+  householdId: string,
+  userId: string,
+  /** Subjects of features the server admin turned off (hiddenSubjectTypes). */
+  hiddenSubjects: string[] = [],
+): Prisma.NotificationWhereInput {
   return {
     householdId,
+    // NOT-in rather than notIn: rows with no subjectType must still match.
+    ...(hiddenSubjects.length ? { NOT: { subjectType: { in: hiddenSubjects } } } : {}),
     OR: [
       { userId },
       {
@@ -54,6 +63,11 @@ export function visibleTo(householdId: string, userId: string): Prisma.Notificat
       },
     ],
   };
+}
+
+/** Bell rows about turned-off features stay in the database but out of sight. */
+async function hiddenSubjectsFor(householdId: string): Promise<string[]> {
+  return hiddenSubjectTypes(await getHouseholdFeatures(householdId));
 }
 
 /** Map a Prisma notification to the serializable client DTO, as [userId] sees it. */
@@ -88,7 +102,7 @@ export async function listNotifications(
   userId: string,
   query: ListNotificationsQuery & { before?: string },
 ): Promise<NotificationList> {
-  const visible = visibleTo(householdId, userId);
+  const visible = visibleTo(householdId, userId, await hiddenSubjectsFor(householdId));
   const unread = unreadBy(userId);
   const [rows, unreadCount] = await Promise.all([
     prisma.notification.findMany({
@@ -122,7 +136,7 @@ export async function markRead(
   userId: string,
   input: MarkReadInput,
 ): Promise<{ updated: number }> {
-  const visible = visibleTo(householdId, userId);
+  const visible = visibleTo(householdId, userId, await hiddenSubjectsFor(householdId));
   const unread = unreadBy(userId);
   const data = { readByUserIds: { push: userId } };
 

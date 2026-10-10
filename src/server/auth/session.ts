@@ -3,7 +3,8 @@ import { redirect } from 'next/navigation';
 import { cache } from 'react';
 import { auth } from '@/server/auth/auth';
 import { isRefusedPlainHttp } from '@/server/services/accessService';
-import { isHouseholdDisabled, isServerAdmin } from '@/server/services/serverAdminService';
+import { isFeatureEnabled, isHouseholdDisabled, isServerAdmin } from '@/server/services/serverAdminService';
+import type { Feature } from '@/lib/features';
 
 export type AuthUser = {
   id: string;
@@ -48,5 +49,15 @@ export async function requireUser(): Promise<AuthUser> {
   if (await isHouseholdDisabled(user.householdId)) {
     redirect('/no-household?disabled=1');
   }
+  return user;
+}
+
+/**
+ * requireUser for a feature's page: when the server admin turned the feature
+ * off for this household (an old link or bookmark), go to the dashboard.
+ */
+export async function requireFeature(feature: Feature): Promise<AuthUser> {
+  const user = await requireUser();
+  if (!(await isFeatureEnabled(user.householdId!, feature))) redirect('/dashboard');
   return user;
 }

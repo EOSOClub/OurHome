@@ -147,7 +147,16 @@ restore a household from an export file (as a new household), set
 nothing inside other households — it can't export them either; a household's
 Head of House exports their own (Settings → Export household data).
 
+It also chooses each household's **features** (Server → Features): Tasks,
+Points, Calendar, Shopping, Inventory, Bills, Requests. A turned-off feature
+sits above the page-access grid: nobody — not even the Head of House — gets
+its page, API, reminders or bell notifications, and its grid rows are hidden.
+Nothing is deleted; turning it back on restores everything as it was.
+
 ## Changelog
+
+- **2026-10-10** — Server admin can turn features off per household
+  (`lib/features.ts`, `Household.disabledFeatures`).
 
 - **2026-10-10** — Several households per server: the **server admin** role
   (above). "HTTPS only" and contact-form messages moved from the Head of House

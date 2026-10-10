@@ -40,6 +40,9 @@ model Household {
   // are allowed, so a household can't make the server probe its own network.
   // The server admin's household is always allowed.
   paperlessPrivateNetwork Boolean?
+  // Set by the server admin: features this household doesn't use (Feature in
+  // src/lib/features.ts). Empty = everything on.
+  disabledFeatures String[] @default([])
   // The head's edits to each role's page-access grid, as JSON text
   // (RoleAccessOverrides in src/lib/permissions.ts). null = built-in defaults.
   roleAccess       String?

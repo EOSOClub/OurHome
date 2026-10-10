@@ -21,6 +21,7 @@ import { ReportBugDialog } from '@/components/report-bug-dialog';
 import { useSignOut } from '@/components/sign-out-button';
 import { useTheme } from '@/components/theme-toggle';
 import { cn } from '@/lib/utils';
+import { useHrefEnabled } from '@/components/household-features';
 
 const itemClass =
   'flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm text-foreground outline-none hover:bg-accent focus-visible:bg-accent disabled:opacity-60';
@@ -46,6 +47,7 @@ export function UserMenu({
   serverAdmin: boolean;
 }) {
   const pathname = usePathname();
+  const hrefEnabled = useHrefEnabled();
   const [open, setOpen] = React.useState(false);
   const [bugOpen, setBugOpen] = React.useState(false);
   const [theme, toggleTheme] = useTheme();
@@ -137,7 +139,7 @@ export function UserMenu({
 
           <div role="separator" className="my-1 h-px bg-border" />
           {link('/activity', 'Activity', History)}
-          {link('/points', 'Points', Trophy)}
+          {hrefEnabled('/points') ? link('/points', 'Points', Trophy) : null}
 
           <div role="separator" className="my-1 h-px bg-border" />
           {canManageMembers ? link('/members', 'Household members', Users) : null}

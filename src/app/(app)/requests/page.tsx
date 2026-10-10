@@ -1,11 +1,11 @@
-import { requireUser } from '@/server/auth/session';
+import { requireFeature } from '@/server/auth/session';
 import { prisma } from '@/server/db/prisma';
 import { listRequests, requestToDTO } from '@/server/services/requestService';
 import { getUserAccess } from '@/server/services/permissionService';
 import { RequestsView } from '@/components/requests/requests-view';
 
 export default async function RequestsPage() {
-  const user = await requireUser();
+  const user = await requireFeature('requests');
   const access = await getUserAccess(user);
   const householdId = user.householdId!;
 

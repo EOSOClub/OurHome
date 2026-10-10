@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { requireUser } from '@/server/auth/session';
+import { requireFeature } from '@/server/auth/session';
 import { prisma } from '@/server/db/prisma';
 import { getUserAccess } from '@/server/services/permissionService';
 import { getBillDetail } from '@/server/services/billService';
@@ -13,7 +13,7 @@ export default async function BillDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const user = await requireUser();
+  const user = await requireFeature('bills');
   const access = await getUserAccess(user);
   const householdId = user.householdId!;
 

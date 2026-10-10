@@ -16,6 +16,8 @@ import {
   type EditableRole,
 } from '@/lib/permissions';
 import { apiFetch, ApiError } from '@/lib/api';
+import { ACCESS_PAGE_FEATURE } from '@/lib/features';
+import { useHouseholdFeatures } from '@/components/household-features';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -43,6 +45,7 @@ function roleLabel(role: string): string {
 
 export function PermissionsCard({ membersVersion }: { membersVersion: string }) {
   const queryClient = useQueryClient();
+  const features = useHouseholdFeatures();
   const [selected, setTarget] = useState<Target>('role:member');
   // Unsaved edits, tagged with the selection + saved grid they were made on, so
   // switching who you're editing (or a save landing) drops them automatically.
@@ -184,7 +187,8 @@ export function PermissionsCard({ membersVersion }: { membersVersion: string }) 
                 </tr>
               </thead>
               <tbody>
-                {ACCESS_PAGES.map((p) => (
+                {/* Pages of features the server admin turned off aren't offered. */}
+                {ACCESS_PAGES.filter((p) => features.includes(ACCESS_PAGE_FEATURE[p])).map((p) => (
                   <tr key={p} className="border-t border-border">
                     <th scope="row" className="py-2 pr-2 text-left font-medium">
                       {ACCESS_PAGE_LABELS[p]}

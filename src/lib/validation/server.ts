@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { FEATURES } from '@/lib/features';
 import { nameSchema, passwordSchema, usernameSchema } from '@/lib/validation/user';
 
 // Server admin (Server page): households on this server. Only the server
@@ -35,6 +36,13 @@ export const setPaperlessNetworkSchema = z.object({
   id: z.string().cuid(),
   allowed: z.boolean(),
 });
+
+// The features a household has on (the rest are turned off).
+export const setHouseholdFeaturesSchema = z.object({
+  id: z.string().cuid(),
+  enabled: z.array(z.enum(FEATURES)),
+});
+export type SetHouseholdFeaturesInput = z.infer<typeof setHouseholdFeaturesSchema>;
 
 // Delete a household for good: its exact name, typed, confirms it.
 export const deleteHouseholdSchema = z.object({

@@ -2,6 +2,7 @@
 // (Dates are ISO strings, matching JSON serialization.)
 
 import type { AccessMatrix, EditableRole } from '@/lib/permissions';
+import type { Feature } from '@/lib/features';
 
 export interface CategoryDTO {
   id: string;
@@ -451,5 +452,8 @@ export interface AccessSettingsMatrixDTO {
 export interface MyAccessDTO {
   userId: string;
   role: string;
+  /** Already empty on the pages of turned-off features. */
   access: AccessMatrix;
+  /** The features the household has on (the server admin turns the rest off). */
+  features: Feature[];
 }

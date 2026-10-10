@@ -3,6 +3,7 @@ import { generateReminders } from '@/server/services/reminderService';
 import { resetDueSubtasks, rollTaskCycles } from '@/server/services/taskService';
 import { runPaperlessSync } from '@/server/services/paperlessSync';
 import { announceAppRelease } from '@/server/services/appReleaseService';
+import { isFeatureEnabled } from '@/server/services/serverAdminService';
 
 // One reminder sweep over every household. Runs every 15 minutes inside the
 // production server (startReminderSchedule, from src/instrumentation.ts) and on
@@ -29,9 +30,15 @@ export async function runReminderSweep(): Promise<{ households: number }> {
     // points dropped), then flip recurring checklist items back, so this
     // sweep's reminders see the current state. Each step stands alone: one
     // household's (or one step's) failure is logged and the sweep goes on.
+    // With Tasks turned off (server admin) the tasks are left as they are.
+    const tasksOn = await isFeatureEnabled(id, 'tasks').catch(() => true);
     for (const [step, run] of [
-      ['task cycles', () => rollTaskCycles(id)],
-      ['step resets', () => resetDueSubtasks(id)],
+      ...(tasksOn
+        ? ([
+            ['task cycles', () => rollTaskCycles(id)],
+            ['step resets', () => resetDueSubtasks(id)],
+          ] as const)
+        : []),
       ['reminders', () => generateReminders(id)],
     ] as const) {
       try {

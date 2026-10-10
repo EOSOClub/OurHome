@@ -2,9 +2,21 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Building2, KeyRound, Loader2, Network, Plus, Power, Trash2, Upload } from 'lucide-react';
+import {
+  Building2,
+  KeyRound,
+  Loader2,
+  Network,
+  Plus,
+  Power,
+  SlidersHorizontal,
+  Trash2,
+  Upload,
+} from 'lucide-react';
 import type { HouseholdSummaryDTO } from '@/server/services/serverAdminService';
 import { apiFetch } from '@/lib/api';
+import { FEATURES, FEATURE_DESCRIPTIONS, FEATURE_LABELS, type Feature } from '@/lib/features';
+import { cn } from '@/lib/utils';
 import { formatDate } from '@/lib/format';
 import { useHouseholdZone } from '@/components/household-zone';
 import { Badge } from '@/components/ui/badge';
@@ -37,6 +49,7 @@ export function HouseholdsCard({ initial }: { initial: HouseholdSummaryDTO[] }) 
   const [resetting, setResetting] = useState<HouseholdSummaryDTO | null>(null);
   const [turningOff, setTurningOff] = useState<HouseholdSummaryDTO | null>(null);
   const [deleting, setDeleting] = useState<HouseholdSummaryDTO | null>(null);
+  const [editingFeatures, setEditingFeatures] = useState<HouseholdSummaryDTO | null>(null);
 
   const { data: households = initial } = useQuery({
     queryKey: KEY,
@@ -108,27 +121,45 @@ export function HouseholdsCard({ initial }: { initial: HouseholdSummaryDTO[] }) 
                   ].join(' · ')}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Paperless:{' '}
-                  {h.paperless === 'household'
-                    ? 'connected (its own)'
-                    : h.paperless === 'server'
-                      ? 'connected (server settings)'
-                      : 'not connected'}{' '}
-                  ·{' '}
-                  {h.paperlessPrivateNetwork ? 'may use this server’s network' : 'public addresses only'}
+                  Features:{' '}
+                  {h.features.length === FEATURES.length
+                    ? 'all on'
+                    : `off: ${FEATURES.filter((f) => !h.features.includes(f))
+                        .map((f) => FEATURE_LABELS[f])
+                        .join(', ')}`}
                 </p>
+                {/* Paperless only feeds Bills: nothing to show (or import) without it. */}
+                {h.features.includes('bills') ? (
+                  <p className="text-xs text-muted-foreground">
+                    Paperless:{' '}
+                    {h.paperless === 'household'
+                      ? 'connected (its own)'
+                      : h.paperless === 'server'
+                        ? 'connected (server settings)'
+                        : 'not connected'}{' '}
+                    ·{' '}
+                    {h.paperlessPrivateNetwork ? 'may use this server’s network' : 'public addresses only'}
+                  </p>
+                ) : null}
               </div>
+              <div className="flex flex-wrap gap-1">
+                {/* Your own household too: you might not use every feature either. */}
+                <Button variant="ghost" size="sm" onClick={() => setEditingFeatures(h)}>
+                  <SlidersHorizontal /> Features
+                </Button>
               {!h.isOwn ? (
-                <div className="flex flex-wrap gap-1">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={setPaperlessNetwork.isPending}
-                    title="Whether this household's Paperless may be on this server's private network (Docker, LAN). Only allow households you trust."
-                    onClick={() => setPaperlessNetwork.mutate({ id: h.id, allowed: !h.paperlessPrivateNetwork })}
-                  >
-                    <Network /> {h.paperlessPrivateNetwork ? 'Paperless: public only' : 'Paperless: allow local'}
-                  </Button>
+                <>
+                  {h.features.includes('bills') ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={setPaperlessNetwork.isPending}
+                      title="Whether this household's Paperless may be on this server's private network (Docker, LAN). Only allow households you trust."
+                      onClick={() => setPaperlessNetwork.mutate({ id: h.id, allowed: !h.paperlessPrivateNetwork })}
+                    >
+                      <Network /> {h.paperlessPrivateNetwork ? 'Paperless: public only' : 'Paperless: allow local'}
+                    </Button>
+                  ) : null}
                   {h.head ? (
                     <Button variant="ghost" size="sm" onClick={() => setResetting(h)}>
                       <KeyRound /> Reset head’s password
@@ -149,8 +180,9 @@ export function HouseholdsCard({ initial }: { initial: HouseholdSummaryDTO[] }) 
                       <Trash2 /> Delete
                     </Button>
                   ) : null}
-                </div>
+                </>
               ) : null}
+              </div>
             </li>
           ))}
         </ul>
@@ -166,6 +198,16 @@ export function HouseholdsCard({ initial }: { initial: HouseholdSummaryDTO[] }) 
         />
       ) : null}
       {resetting ? <ResetHeadDialog household={resetting} onClose={() => setResetting(null)} /> : null}
+      {editingFeatures ? (
+        <FeaturesDialog
+          household={editingFeatures}
+          onClose={() => setEditingFeatures(null)}
+          onSaved={() => {
+            setEditingFeatures(null);
+            invalidate();
+          }}
+        />
+      ) : null}
       {restoring ? (
         <RestoreHouseholdDialog
           onClose={() => setRestoring(false)}
@@ -285,6 +327,95 @@ function CreateHouseholdDialog({ onClose, onCreated }: { onClose: () => void; on
           <Button type="submit" disabled={!valid || create.isPending}>
             {create.isPending ? <Loader2 className="animate-spin" /> : null}
             Create household
+          </Button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+/**
+ * Which features a household uses. Turned-off ones vanish from its site and
+ * app (their API refuses too) but nothing is deleted: turning one back on
+ * brings its data back.
+ */
+function FeaturesDialog({
+  household,
+  onClose,
+  onSaved,
+}: {
+  household: HouseholdSummaryDTO;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [enabled, setEnabled] = useState<Feature[]>(household.features);
+  const save = useMutation({
+    mutationFn: () =>
+      apiFetch('/api/server/households/features', {
+        method: 'POST',
+        body: JSON.stringify({ id: household.id, enabled }),
+      }),
+    onSuccess: () => {
+      toast.success(`Features saved for “${household.name}”`);
+      onSaved();
+    },
+  });
+  const toggle = (f: Feature) =>
+    setEnabled((prev) => (prev.includes(f) ? prev.filter((x) => x !== f) : [...prev, f]));
+  const tasksOff = !enabled.includes('tasks');
+
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={`Features for “${household.name}”`}
+      description="Turned-off features disappear from this household’s website and app. Nothing is deleted; turn one back on and its data is still there."
+    >
+      <form
+        className="space-y-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!save.isPending) save.mutate();
+        }}
+      >
+        <ul className="divide-y divide-border rounded-lg border border-border">
+          {FEATURES.map((f) => {
+            // Points need Tasks: shown off (and locked) while Tasks is off.
+            const locked = f === 'points' && tasksOff;
+            return (
+              <li key={f}>
+                <label
+                  className={cn(
+                    'flex cursor-pointer items-start gap-3 px-3 py-2.5',
+                    locked && 'cursor-not-allowed opacity-60',
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 size-4 rounded border-input"
+                    checked={enabled.includes(f) && !locked}
+                    disabled={locked || save.isPending}
+                    onChange={() => toggle(f)}
+                  />
+                  <span>
+                    <span className="block text-sm font-medium">{FEATURE_LABELS[f]}</span>
+                    <span className="block text-xs text-muted-foreground">{FEATURE_DESCRIPTIONS[f]}</span>
+                  </span>
+                </label>
+              </li>
+            );
+          })}
+        </ul>
+        <p className="text-xs text-muted-foreground">
+          Home, activity, notifications, profiles, members and settings are always on.
+        </p>
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={save.isPending}>
+            {save.isPending ? <Loader2 className="animate-spin" /> : null}
+            Save
           </Button>
         </div>
       </form>

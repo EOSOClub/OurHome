@@ -1,10 +1,8 @@
 import Link from 'next/link';
 import {
   AlertTriangle,
-  ArrowRight,
   CalendarDays,
   CheckCircle2,
-  History,
   Inbox,
   ListTodo,
   Package,
@@ -24,6 +22,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatDueDate, formatMoney, isOverdue } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { AccessPage } from '@/lib/permissions';
+import type { Feature } from '@/lib/features';
 
 // Each shows only to people who may add on that page (Members → Permissions).
 const quickActions: { href: string; label: string; icon: typeof ListTodo; page: AccessPage }[] = [
@@ -44,6 +43,11 @@ export default async function DashboardPage() {
     new Intl.DateTimeFormat('en-US', { hour: 'numeric', hourCycle: 'h23', timeZone: data.timezone }).format(now),
   );
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+  // Cards for features the server admin turned off aren't shown at all.
+  const on = (f: Feature) => data.features.includes(f);
+  const showNeedsYou = on('tasks') || on('requests');
+  const showComingUp = on('calendar') || on('bills');
+  const showHousehold = on('tasks') || on('inventory') || on('shopping') || on('bills');
 
   return (
     <div className="space-y-6">
@@ -60,7 +64,7 @@ export default async function DashboardPage() {
           <h1 className="text-2xl font-semibold">
             {greeting}, {user.name.split(' ')[0]}
           </h1>
-          <DoneToday done={data.doneToday} />
+          {on('tasks') ? <DoneToday done={data.doneToday} /> : null}
         </div>
         {actions.length > 0 ? (
           <div className="flex flex-wrap gap-2">
@@ -75,21 +79,14 @@ export default async function DashboardPage() {
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
-          <NeedsYouCard me={data.me} timeZone={data.timezone} />
-          <ComingUpCard data={data} />
+          {showNeedsYou ? <NeedsYouCard me={data.me} timeZone={data.timezone} /> : null}
+          {showComingUp ? <ComingUpCard data={data} /> : null}
         </div>
         <div className="space-y-6">
-          <PointsCard points={data.me.points} userId={user.id} />
-          <HouseholdCard counts={data.counts} />
+          {on('points') ? <PointsCard points={data.me.points} userId={user.id} /> : null}
+          {showHousehold ? <HouseholdCard counts={data.counts} features={data.features} /> : null}
         </div>
       </div>
-
-      <Link
-        href="/activity"
-        className="flex items-center justify-center gap-2 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <History className="size-4" /> Household activity <ArrowRight className="size-4" />
-      </Link>
     </div>
   );
 }
@@ -271,7 +268,7 @@ function formatPoints(n: number): string {
   return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
-function HouseholdCard({ counts }: { counts: DashboardData['counts'] }) {
+function HouseholdCard({ counts, features }: { counts: DashboardData['counts']; features: Feature[] }) {
   return (
     <Card>
       <CardHeader>
@@ -280,28 +277,36 @@ function HouseholdCard({ counts }: { counts: DashboardData['counts'] }) {
         </CardTitle>
       </CardHeader>
       <CardContent className="grid grid-cols-2 gap-3 pt-0">
-        <StatCard
-          label="Overdue tasks"
-          value={counts.overdue}
-          icon={AlertTriangle}
-          tone={counts.overdue > 0 ? 'danger' : 'default'}
-          href="/tasks"
-        />
-        <StatCard
-          label="Low stock"
-          value={counts.lowInventory}
-          icon={Package}
-          tone={counts.lowInventory > 0 ? 'warning' : 'default'}
-          href="/inventory"
-        />
-        <StatCard label="To buy" value={counts.openShopping} icon={ShoppingCart} href="/shopping" />
-        <StatCard
-          label="Bills due (7d)"
-          value={counts.billsDue}
-          icon={Receipt}
-          tone={counts.billsDue > 0 ? 'warning' : 'default'}
-          href="/bills"
-        />
+        {features.includes('tasks') ? (
+          <StatCard
+            label="Overdue tasks"
+            value={counts.overdue}
+            icon={AlertTriangle}
+            tone={counts.overdue > 0 ? 'danger' : 'default'}
+            href="/tasks"
+          />
+        ) : null}
+        {features.includes('inventory') ? (
+          <StatCard
+            label="Low stock"
+            value={counts.lowInventory}
+            icon={Package}
+            tone={counts.lowInventory > 0 ? 'warning' : 'default'}
+            href="/inventory"
+          />
+        ) : null}
+        {features.includes('shopping') ? (
+          <StatCard label="To buy" value={counts.openShopping} icon={ShoppingCart} href="/shopping" />
+        ) : null}
+        {features.includes('bills') ? (
+          <StatCard
+            label="Bills due (7d)"
+            value={counts.billsDue}
+            icon={Receipt}
+            tone={counts.billsDue > 0 ? 'warning' : 'default'}
+            href="/bills"
+          />
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -362,7 +367,13 @@ function ComingUpCard({ data }: { data: DashboardData }) {
       </CardHeader>
       <CardContent className="pt-0">
         {rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No events this week and no unpaid bills.</p>
+          <p className="text-sm text-muted-foreground">
+            {data.features.includes('calendar') && data.features.includes('bills')
+              ? 'No events this week and no unpaid bills.'
+              : data.features.includes('calendar')
+                ? 'No events this week.'
+                : 'No unpaid bills.'}
+          </p>
         ) : (
           <ul className="divide-y divide-border">
             {rows.map(({ key, href, icon: Icon, title, detail, late, trailing }) => (

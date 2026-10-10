@@ -5,7 +5,8 @@ import { Home } from 'lucide-react';
 import { requireUser } from '@/server/auth/session';
 import { prisma } from '@/server/db/prisma';
 import { getAccessSettings } from '@/server/services/accessService';
-import { isServerAdmin } from '@/server/services/serverAdminService';
+import { getHouseholdFeatures, isServerAdmin } from '@/server/services/serverAdminService';
+import { HouseholdFeaturesProvider } from '@/components/household-features';
 import { getUserAccess } from '@/server/services/permissionService';
 import { countRequestsWaitingOn } from '@/server/services/dashboardService';
 import { AccessPrompt } from '@/components/settings/access-settings';
@@ -47,21 +48,25 @@ export default async function AppLayout({
   const { timezone } = await getPointsSettings(user.householdId!);
   // The avatar isn't on the session; the badge mirrors the dashboard's
   // "Needs you" requests and refreshes on every navigation.
-  const [profile, pageAccess] = await Promise.all([
+  const [profile, pageAccess, features] = await Promise.all([
     prisma.user.findUnique({
       where: { id: user.id },
       select: { avatarEmoji: true, profileColor: true },
     }),
     getUserAccess(user),
+    getHouseholdFeatures(user.householdId!),
   ]);
-  const requestsWaiting = await countRequestsWaitingOn(
-    { id: user.id, householdId: user.householdId! },
-    pageAccess.requests.approve,
-    timezone,
-  );
+  const requestsWaiting = features.includes('requests')
+    ? await countRequestsWaitingOn(
+        { id: user.id, householdId: user.householdId! },
+        pageAccess.requests.approve,
+        timezone,
+      )
+    : 0;
 
   return (
     <HouseholdZoneProvider timeZone={timezone}>
+    <HouseholdFeaturesProvider features={features}>
     <div className="flex min-h-dvh flex-col">
       <a
         href="#main-content"
@@ -107,6 +112,7 @@ export default async function AppLayout({
       <KeyboardShortcuts />
       {access && !access.reviewed ? <AccessPrompt settings={access} /> : null}
     </div>
+    </HouseholdFeaturesProvider>
     </HouseholdZoneProvider>
   );
 }

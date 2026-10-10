@@ -134,6 +134,24 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
   sees no other household's data. First-run setup makes the first account the
   server admin; on older installs the oldest household's head becomes it on
   first use.
+- **Household features** (`lib/features.ts`; added 2026-10-10). The server
+  admin chooses per household which of Tasks, Points, Calendar, Shopping,
+  Inventory (incl. NFC), Bills (incl. Paperless) and Requests it uses (Server →
+  Households → Features; `POST /api/server/households/features`). Stored as
+  the turned-off list `Household.disabledFeatures` (empty/missing = all on);
+  Points is off whenever Tasks is. Enforced in one place per layer: `withAuth`
+  maps the API path to a feature (`featureForPath`) and answers 403
+  `{code:"feature_disabled"}`; feature pages call `requireFeature` (redirect to
+  the dashboard); `getUserAccess` / `membersWithAccess` mask the access grid
+  (`maskAccess`), so quick actions and managers' alerts go too; the reminder
+  sweep skips their reminders (old rows are cleared), task rollovers and,
+  with Bills off, the Paperless import (its `/api/integrations/paperless/*`
+  is refused and its Settings / Server-page controls are hidden); the
+  bell hides their notifications (`hiddenSubjectTypes`); the dashboard data
+  blanks them. Clients get the list from the layout
+  (`HouseholdFeaturesProvider` → nav, menus, shortcuts, palette, permissions
+  grid, Settings cards) and `GET /api/permissions/me` `features` (the app).
+  Nothing is deleted; not part of exports (a restore starts with all on).
 - **Household export and delete** (`householdDataService`). The Head of
   House downloads everything the household stores as one JSON file (Settings →
   Export; `GET /api/household/export`), without credentials (passwords,

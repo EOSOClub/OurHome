@@ -23,6 +23,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useHrefEnabled } from '@/components/household-features';
 
 /**
  * Command palette — a purpose-built lightweight overlay (Ctrl/⌘+K, opened by
@@ -85,12 +86,14 @@ function PalettePanel({ onClose }: { onClose: () => void }) {
   const [selectedIndex, setSelectedIndex] = React.useState(0);
   const inputRef = React.useRef<HTMLInputElement>(null);
   const listId = React.useId();
+  const hrefEnabled = useHrefEnabled();
 
   const q = query.trim().toLowerCase();
   const matches = (c: Command) =>
-    q.length === 0 ||
+    hrefEnabled(c.href) &&
+    (q.length === 0 ||
     c.name.toLowerCase().includes(q) ||
-    c.keywords.some((k) => k.includes(q));
+      c.keywords.some((k) => k.includes(q)));
 
   const groups = [
     { label: 'Navigation', items: NAVIGATION.filter(matches) },

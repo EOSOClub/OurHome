@@ -190,6 +190,20 @@ async function connectionFor(
   return null;
 }
 
+/**
+ * Where each household's import comes from: its own saved connection, or the
+ * server-wide settings.yml/.env one. Households missing from the map have none.
+ */
+export async function paperlessSources(): Promise<Map<string, ConnectionSource>> {
+  const [saved, legacy] = await Promise.all([
+    prisma.paperlessConnection.findMany({ select: { householdId: true } }),
+    legacyHousehold().catch(() => null),
+  ]);
+  const out = new Map<string, ConnectionSource>(saved.map((c) => [c.householdId, 'household']));
+  if (legacy && !out.has(legacy)) out.set(legacy, 'server');
+  return out;
+}
+
 // --- Import runs -------------------------------------------------------------------
 
 // One run at a time per household: the 15-minute sweep and "Check now" can overlap.

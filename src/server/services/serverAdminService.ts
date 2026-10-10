@@ -106,8 +106,9 @@ export interface HouseholdSummaryDTO {
   isOwn: boolean;
   /** Its Paperless may be on the server's private network (own household: always). */
   paperlessPrivateNetwork: boolean;
-  /** It has saved its own Paperless connection. */
-  hasPaperless: boolean;
+  /** Where its Paperless import comes from: its own connection (Settings), the
+   *  server-wide settings.yml one, or none. */
+  paperless: 'household' | 'server' | null;
 }
 
 export async function listHouseholds(adminId: string): Promise<HouseholdSummaryDTO[]> {
@@ -119,9 +120,9 @@ export async function listHouseholds(adminId: string): Promise<HouseholdSummaryD
     }),
     prisma.activityEntry.groupBy({ by: ['householdId'], _max: { createdAt: true } }),
     prisma.user.findUnique({ where: { id: adminId }, select: { householdId: true } }),
-    prisma.paperlessConnection.findMany({ select: { householdId: true } }),
+    // Imported here, not at the top: paperlessSync itself uses this module.
+    import('@/server/services/paperlessSync').then((m) => m.paperlessSources()),
   ]);
-  const withPaperless = new Set(paperless.map((p) => p.householdId));
   const last = new Map(activity.map((a) => [a.householdId, a._max.createdAt]));
   return households.map((h) => {
     const members = users.filter((u) => u.householdId === h.id);
@@ -136,7 +137,7 @@ export async function listHouseholds(adminId: string): Promise<HouseholdSummaryD
       lastActivityAt: last.get(h.id)?.toISOString() ?? null,
       isOwn: h.id === admin?.householdId,
       paperlessPrivateNetwork: h.id === admin?.householdId || h.paperlessPrivateNetwork === true,
-      hasPaperless: withPaperless.has(h.id),
+      paperless: paperless.get(h.id) ?? null,
     };
   });
 }

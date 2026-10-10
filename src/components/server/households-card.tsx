@@ -108,7 +108,13 @@ export function HouseholdsCard({ initial }: { initial: HouseholdSummaryDTO[] }) 
                   ].join(' · ')}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Paperless: {h.hasPaperless ? 'connected' : 'not connected'} ·{' '}
+                  Paperless:{' '}
+                  {h.paperless === 'household'
+                    ? 'connected (its own)'
+                    : h.paperless === 'server'
+                      ? 'connected (server settings)'
+                      : 'not connected'}{' '}
+                  ·{' '}
                   {h.paperlessPrivateNetwork ? 'may use this server’s network' : 'public addresses only'}
                 </p>
               </div>

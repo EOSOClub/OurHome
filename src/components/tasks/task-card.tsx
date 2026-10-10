@@ -27,6 +27,7 @@ import { Input } from '@/components/ui/input';
 import { CompletionHistory } from '@/components/tasks/completion-history';
 import { SubtaskRow } from '@/components/tasks/subtask-row';
 import { formatDueDate, isOverdue } from '@/lib/format';
+import { useHouseholdZone } from '@/components/household-zone';
 
 function priorityVariant(
   priority: string,
@@ -88,6 +89,7 @@ export function TaskCard({
   /** Opened from a link to this task (?task=<id>, e.g. a notification). */
   focused?: boolean;
 }) {
+  const timeZone = useHouseholdZone();
   const done = task.status === 'completed';
   // A cycle task completed inside its window waits for the next cycle.
   const doneThisCycle = done && !!task.cycleEndsAt;
@@ -183,17 +185,17 @@ export function TaskCard({
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
             {doneThisCycle ? (
               <span className="font-medium text-emerald-600 dark:text-emerald-400">
-                Done this cycle · reopens {formatUntil(task.cycleEndsAt!)}
+                Done this cycle · reopens {formatUntil(task.cycleEndsAt!, timeZone)}
               </span>
             ) : (
               <span
                 className={
-                  isOverdue(task.dueDate) && !done
+                  isOverdue(task.dueDate, timeZone) && !done
                     ? 'text-destructive'
                     : 'text-muted-foreground'
                 }
               >
-                {formatDueDate(task.dueDate)}
+                {formatDueDate(task.dueDate, timeZone)}
               </span>
             )}
             {task.points > 0 ? (
@@ -328,8 +330,9 @@ function baseRecurrenceLabel(r: NonNullable<TaskDTO['recurrence']>): string {
   }
 }
 
-function formatUntil(iso: string): string {
+function formatUntil(iso: string, timeZone?: string): string {
   return new Date(iso).toLocaleDateString(undefined, {
+    timeZone,
     month: 'short',
     day: 'numeric',
   });

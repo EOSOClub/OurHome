@@ -46,6 +46,8 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { EmptyState } from '@/components/empty-state';
+import { useHouseholdZone } from '@/components/household-zone';
+import { isOverdue } from '@/lib/format';
 
 export type RequestPayload =
   | {
@@ -64,8 +66,9 @@ export type RequestPayload =
 
 const MEDIA_ICONS: Record<MediaType, typeof Film> = { movie: Film, tv: Tv };
 
-const shortDate = (iso: string) =>
-  new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+// In the household's zone, so the server render and the browser agree.
+const shortDate = (iso: string, timeZone?: string) =>
+  new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric', timeZone });
 
 /** A date-input value ("YYYY-MM-DD") → noon local, matching the other forms. */
 const noonIso = (date: string) => new Date(`${date}T12:00`).toISOString();
@@ -91,6 +94,7 @@ export function RequestsView({
   /** The Requests "Approve" switch: marks media requests added. */
   canManageMedia: boolean;
 }) {
+  const timeZone = useHouseholdZone();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<RequestDTO | null>(null);
   const [accepting, setAccepting] = useState<RequestDTO | null>(null);
@@ -146,7 +150,7 @@ export function RequestsView({
   const acceptMutation = useMutation({
     mutationFn: (input: { id: string; dueAt: string }) => post<RequestDTO>('/api/requests/accept', input),
     onSuccess: (r) => {
-      toast.success(r.dueAt ? `Done by ${shortDate(r.dueAt)} — got it` : `Accepted “${r.title}”`);
+      toast.success(r.dueAt ? `Done by ${shortDate(r.dueAt, timeZone)} — got it` : `Accepted “${r.title}”`);
       setAccepting(null);
       invalidate();
     },
@@ -363,6 +367,7 @@ function MediaRow({
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const timeZone = useHouseholdZone();
   // Requests from before statuses existed have none, and "accepted" is left
   // over from the older accept → available flow: both are still waiting.
   const status: MaintenanceStatus = r.status === 'completed' ? 'completed' : 'pending';
@@ -377,7 +382,7 @@ function MediaRow({
           <Badge variant={MEDIA_STATUS_BADGE[status]}>{MEDIA_STATUS_LABELS[status]}</Badge>
         </p>
         <p className="text-xs text-muted-foreground">
-          Requested by {isOwn ? 'you' : r.requester.name} · {shortDate(r.createdAt)}
+          Requested by {isOwn ? 'you' : r.requester.name} · {shortDate(r.createdAt, timeZone)}
         </p>
       </div>
       <div className="flex shrink-0 flex-wrap items-center gap-1">
@@ -409,9 +414,10 @@ function MaintenanceRow({
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const timeZone = useHouseholdZone();
   const isRequester = r.requester.id === currentUserId;
   const isAssignee = r.assignee?.id === currentUserId;
-  const overdue = r.status === 'accepted' && r.dueAt !== null && new Date(r.dueAt) < startOfToday();
+  const overdue = r.status === 'accepted' && isOverdue(r.dueAt, timeZone);
   const who = (m: { id: string; name: string } | null) =>
     !m ? 'someone' : m.id === currentUserId ? 'you' : m.name;
 
@@ -425,16 +431,16 @@ function MaintenanceRow({
           {r.status === 'accepted' && r.dueAt ? (
             <Badge variant={overdue ? 'destructive' : 'default'}>
               <CalendarClock className="size-3" /> {overdue ? 'Overdue · ' : 'Done by '}
-              {shortDate(r.dueAt)}
+              {shortDate(r.dueAt, timeZone)}
             </Badge>
           ) : null}
           {r.status === 'completed' && r.completedAt ? (
-            <Badge variant="success">Done {shortDate(r.completedAt)}</Badge>
+            <Badge variant="success">Done {shortDate(r.completedAt, timeZone)}</Badge>
           ) : null}
         </p>
         {r.details ? <p className="text-sm text-muted-foreground">{r.details}</p> : null}
         <p className="text-xs text-muted-foreground">
-          {isRequester ? 'You' : who(r.requester)} asked {who(r.assignee)} · {shortDate(r.createdAt)}
+          {isRequester ? 'You' : who(r.requester)} asked {who(r.assignee)} · {shortDate(r.createdAt, timeZone)}
         </p>
       </div>
       <div className="flex shrink-0 flex-wrap items-center gap-1">
@@ -457,12 +463,6 @@ function MaintenanceRow({
       </div>
     </li>
   );
-}
-
-function startOfToday() {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
 }
 
 /** Assignee picks the date they'll have it done by — the request's deadline. */

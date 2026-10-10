@@ -33,6 +33,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from '@/components/ui/toast';
+import { useHouseholdZone } from '@/components/household-zone';
 
 const STAT_LINK_CLASS =
   'block rounded-lg transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
@@ -101,6 +102,7 @@ export function ProfileView({
 }
 
 function OverviewCard({ overview }: { overview: ProfileOverview }) {
+  const timeZone = useHouseholdZone();
   const rows: { label: string; value: string }[] = [
     { label: 'Email', value: overview.email },
     {
@@ -115,6 +117,7 @@ function OverviewCard({ overview }: { overview: ProfileOverview }) {
     {
       label: 'Member since',
       value: new Date(overview.memberSince).toLocaleDateString(undefined, {
+        timeZone,
         year: 'numeric',
         month: 'long',
         day: 'numeric',

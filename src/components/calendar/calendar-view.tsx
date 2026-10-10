@@ -29,6 +29,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Dialog } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { toast } from '@/components/ui/toast';
+import { useHouseholdZone } from '@/components/household-zone';
+import { dateKey } from '@/lib/format';
 
 type YearMonth = { year: number; month: number };
 type Repeat = 'none' | 'daily' | 'weekly' | 'monthly';
@@ -70,10 +72,13 @@ function monthMatrix({ year, month }: YearMonth): Date[][] {
   return rows;
 }
 
-function timeLabel(iso: string) {
+// Event times in the household's zone, so the server render and the browser
+// agree (see HouseholdZoneProvider).
+function timeLabel(iso: string, timeZone?: string) {
   return new Date(iso).toLocaleTimeString(undefined, {
     hour: 'numeric',
     minute: '2-digit',
+    timeZone,
   });
 }
 
@@ -106,6 +111,7 @@ export function CalendarView({
   access: PageAccess;
   userId: string;
 }) {
+  const timeZone = useHouseholdZone();
   // Clicking a day / "New event" creates, so it follows the Add permission.
   const canWrite = access.create;
   const queryClient = useQueryClient();
@@ -120,7 +126,7 @@ export function CalendarView({
   // Anchor day for week view (?d=YYYY-MM-DD); defaults to today.
   const [anchor, setAnchor] = useState<string>(() => {
     const d = searchParams.get('d');
-    return d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : dateValue(new Date());
+    return d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : dateKey(new Date(), timeZone);
   });
   const [editing, setEditing] = useState<EventOccurrenceDTO | null>(null);
   const [creatingDate, setCreatingDate] = useState<string | null>(null);
@@ -176,27 +182,29 @@ export function CalendarView({
       (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
     );
     for (const o of sorted) {
-      const key = dateValue(new Date(o.start));
+      // The event's day in the household zone (same on server and browser).
+      const key = dateKey(o.start, timeZone);
       const list = map.get(key);
       if (list) list.push(o);
       else map.set(key, [o]);
     }
     return map;
-  }, [weekOccurrences]);
+  }, [weekOccurrences, timeZone]);
 
   const byDay = useMemo(() => {
     const map = new Map<string, EventOccurrenceDTO[]>();
     for (const o of occurrences) {
-      const key = dateValue(new Date(o.start));
+      // The event's day in the household zone (same on server and browser).
+      const key = dateKey(o.start, timeZone);
       const list = map.get(key);
       if (list) list.push(o);
       else map.set(key, [o]);
     }
     return map;
-  }, [occurrences]);
+  }, [occurrences, timeZone]);
 
   const matrix = useMemo(() => monthMatrix(ym), [ym]);
-  const todayKey = dateValue(new Date());
+  const todayKey = dateKey(new Date(), timeZone);
 
   // Chronological [dayKey, events] pairs for the agenda list.
   const agendaDays = useMemo(() => {
@@ -205,13 +213,14 @@ export function CalendarView({
     );
     const map = new Map<string, EventOccurrenceDTO[]>();
     for (const o of sorted) {
-      const key = dateValue(new Date(o.start));
+      // The event's day in the household zone (same on server and browser).
+      const key = dateKey(o.start, timeZone);
       const list = map.get(key);
       if (list) list.push(o);
       else map.set(key, [o]);
     }
     return [...map.entries()];
-  }, [occurrences]);
+  }, [occurrences, timeZone]);
 
   // Mirror month + view into the URL so the view can be linked/restored.
   // Month view is the default, so it stays out of the query string; the ?d
@@ -246,10 +255,10 @@ export function CalendarView({
       // viewed month is the current one, otherwise the 1st of that month.
       const a = new Date(`${anchor}T00:00`);
       if (a.getFullYear() !== ym.year || a.getMonth() !== ym.month) {
-        const today = new Date();
+        const today = dateKey(new Date(), timeZone);
         nextAnchor =
-          today.getFullYear() === ym.year && today.getMonth() === ym.month
-            ? dateValue(today)
+          today.startsWith(`${ym.year}-${pad(ym.month + 1)}-`)
+            ? today
             : dateValue(new Date(ym.year, ym.month, 1));
         setAnchor(nextAnchor);
       }
@@ -423,7 +432,7 @@ export function CalendarView({
                     >
                       {o.recurring ? <Repeat className="size-2.5 shrink-0" /> : null}
                       <span className="truncate">
-                        {o.allDay ? '' : `${timeLabel(o.start)} `}
+                        {o.allDay ? '' : `${timeLabel(o.start, timeZone)} `}
                         {o.title}
                       </span>
                     </button>
@@ -510,7 +519,7 @@ export function CalendarView({
                           <Repeat className="size-2.5 shrink-0" />
                         ) : null}
                         <span className="truncate">
-                          {o.allDay ? '' : `${timeLabel(o.start)} `}
+                          {o.allDay ? '' : `${timeLabel(o.start, timeZone)} `}
                           {o.title}
                         </span>
                       </button>
@@ -553,7 +562,7 @@ export function CalendarView({
                       className="flex w-full items-center gap-2 rounded-md border border-border px-3 py-2 text-left text-sm hover:bg-accent/40"
                     >
                       <span className="w-16 shrink-0 text-xs text-muted-foreground">
-                        {o.allDay ? 'All day' : timeLabel(o.start)}
+                        {o.allDay ? 'All day' : timeLabel(o.start, timeZone)}
                       </span>
                       {o.recurring ? (
                         <Repeat className="size-3 shrink-0 text-muted-foreground" />
@@ -611,6 +620,7 @@ function DayDialog({
   onClose: () => void;
   onOpen: (o: EventOccurrenceDTO) => void;
 }) {
+  const timeZone = useHouseholdZone();
   const day = new Date(`${dayKey}T00:00`);
   return (
     <Dialog
@@ -633,7 +643,7 @@ function DayDialog({
             className="flex w-full items-center gap-2 rounded-md border border-border px-3 py-2 text-left text-sm hover:bg-accent/40"
           >
             <span className="w-16 shrink-0 text-xs text-muted-foreground">
-              {o.allDay ? 'All day' : timeLabel(o.start)}
+              {o.allDay ? 'All day' : timeLabel(o.start, timeZone)}
             </span>
             {o.recurring ? (
               <Repeat className="size-3 shrink-0 text-muted-foreground" />

@@ -118,6 +118,51 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
 
 ## Feature systems
 
+- **Households and the server admin.** One server can hold several
+  households. Every household row carries `householdId`, every route gets the
+  household from the session (never the request — `src/server/api/routes.test.ts`
+  checks), and one person belongs to one household. Usernames and emails are
+  unique across the server, so sign-in has no household picker.
+  `User.isServerAdmin` (`serverAdminService`) owns the server: the **Server**
+  page (`/server`) lists households, creates one with its Head of House
+  (temporary password, forced change), resets a head's password, and turns a
+  household off (`Household.disabledAt`: members signed out, pages redirect to
+  `/no-household?disabled=1`, the API answers 403, token webhooks and the
+  reminder sweep skip it; nothing deleted). It also holds the server-wide
+  settings: **HTTPS only** (`ServerSettings.allowHttp`; until first saved, the
+  old per-household value applies) and contact-form messages. The server admin
+  sees no other household's data. First-run setup makes the first account the
+  server admin; on older installs the oldest household's head becomes it on
+  first use.
+- **Household export and delete** (`householdDataService`). The Head of
+  House downloads everything the household stores as one JSON file (Settings →
+  Export; `GET /api/household/export`), without credentials (passwords,
+  sessions, Home Assistant/Paperless/push tokens) or the request log. The
+  server admin deletes a household for good (Server page; only when turned
+  off, never their own, exact name typed): an explicit, ordered delete of every
+  model in one transaction — not cascades, since several models link by a
+  plain id. `HOUSEHOLD_MODELS` / `SERVER_MODELS` list every schema model, and a
+  test fails when a new model isn't covered. **Restore** (`householdRestore`,
+  Server page → Restore from export) loads an export as a *new* household:
+  every record gets a fresh id and every reference is rewired, including ids
+  inside text (rotation lists, undo snapshots, notification keys) — a pure,
+  unit-tested `planRestore` — and only fields the current schema knows are
+  written (Prisma DMMF), so older/newer exports load. Refused when a member's
+  username or email is taken on the server. The head gets the admin's
+  temporary password; other members get theirs from the head. Home Assistant
+  and Paperless must be reconnected (their tokens aren't exported). One
+  transaction.
+- **Paperless per household** (`paperlessSync`, `PaperlessConnection`). Each
+  household connects its own Paperless (Head of House, Settings); the token is
+  encrypted (`security/secrets.ts`, AES-GCM, key from `BETTER_AUTH_SECRET`).
+  The settings.yml/.env connection is a fallback for `PAPERLESS_HOUSEHOLD_ID`
+  or the server admin's household. Each household has its own cursor/status
+  (`PaperlessSync`) and runs separately in the sweep. Outbound calls for a
+  household not trusted with the server's private network
+  (`Household.paperlessPrivateNetwork`, server admin's household always) pass
+  the link-preview SSRF guard (`isPublicFetchTarget`) and never follow
+  redirects. Runbook: `docs/paperless-import.md`.
+
 - **Rotating assignees.** `Task.rotationUserIds` holds member ids in turn
   order (comma-separated; fewer than two = no rotation). Pure rules in
   `lib/taskRotation.ts` (+ test); `taskService` applies them: completing a

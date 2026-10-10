@@ -1,24 +1,12 @@
 import { prisma } from '@/server/db/prisma';
-import { auth } from '@/server/auth/auth';
-import { logActivity } from '@/server/services/activityService';
 import { ConflictError } from '@/server/services/errors';
+import { createHouseholdWithHead } from '@/server/services/serverAdminService';
 import { isHttpsRequest } from '@/server/security/network';
 import type { SetupInput } from '@/lib/validation/setup';
 
 // First-run setup: the first visitor to a fresh install creates the household
-// and its Head of House, then adds members from
+// and its Head of House (also the server admin), then adds members from
 // the second setup step (which reuses the regular Members API).
-
-/** Starter categories, so the task, shopping and inventory pickers aren't empty. */
-const DEFAULT_CATEGORIES = [
-  { name: 'Cleaning', kind: 'task', color: '#38bdf8' },
-  { name: 'Pets', kind: 'task', color: '#f472b6' },
-  { name: 'Maintenance', kind: 'task', color: '#fbbf24' },
-  { name: 'Yard', kind: 'task', color: '#34d399' },
-  { name: 'Grocery', kind: 'shopping', color: '#a78bfa' },
-  { name: 'Supplies', kind: 'shopping', color: '#f87171' },
-  { name: 'Pantry', kind: 'inventory', color: '#fb923c' },
-];
 
 // Once any account exists, setup is over for the life of the process.
 let setupDone = false;
@@ -60,51 +48,15 @@ async function runSetup(input: SetupInput): Promise<{ username: string }> {
     throw new ConflictError('Setup is already complete. Sign in instead.');
   }
 
-  const displayUsername = input.username.trim();
-  const username = displayUsername.toLowerCase();
-  const email = (input.email?.trim() || `${username}@household.local`).toLowerCase();
-
-  const authCtx = await auth.$context;
-  const hashed = await authCtx.password.hash(input.password);
-
-  await prisma.$transaction(async (tx) => {
-    const household = await tx.household.create({
-      data: { name: input.householdName.trim() },
-    });
-    await tx.category.createMany({
-      data: DEFAULT_CATEGORIES.map((c) => ({ ...c, householdId: household.id })),
-    });
-    const head = await tx.user.create({
-      data: {
-        name: displayUsername,
-        email,
-        emailVerified: false,
-        username,
-        displayUsername,
-        role: 'head',
-        householdId: household.id,
-      },
-    });
-    await tx.account.create({
-      data: {
-        accountId: head.id,
-        providerId: 'credential',
-        userId: head.id,
-        password: hashed,
-      },
-    });
-    await logActivity(
-      {
-        householdId: household.id,
-        actorId: head.id,
-        verb: 'created',
-        subjectType: 'household',
-        subjectId: household.id,
-        message: `set up the household “${household.name}”`,
-      },
-      tx,
-    );
-  });
+  // The first account is the household's Head of House and the server admin
+  // (who can add more households later, from the Server page).
+  const { username } = await prisma.$transaction((tx) =>
+    createHouseholdWithHead(tx, {
+      householdName: input.householdName,
+      head: { name: input.username, username: input.username, email: input.email, password: input.password },
+      serverAdmin: true,
+    }),
+  );
 
   setupDone = true;
   return { username };

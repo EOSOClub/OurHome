@@ -3,6 +3,7 @@ import { prisma } from '@/server/db/prisma';
 import type { IntegrationDTO } from '@/lib/types';
 import { logActivity } from '@/server/services/activityService';
 import { NotFoundError } from '@/server/services/errors';
+import { isHouseholdDisabled } from '@/server/services/serverAdminService';
 
 // Webhook tokens are high-entropy random strings; we only store their SHA-256
 // hash. The plaintext is shown to the user exactly once at creation time.
@@ -106,5 +107,7 @@ export async function resolveHouseholdByToken(
     select: { id: true, householdId: true },
   });
   if (!integration) return null;
+  // A turned-off household's webhooks and feeds stop too.
+  if (await isHouseholdDisabled(integration.householdId)) return null;
   return { householdId: integration.householdId, integrationId: integration.id };
 }

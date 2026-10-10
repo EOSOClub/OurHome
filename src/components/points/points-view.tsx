@@ -7,13 +7,14 @@ import type { PointAwardDTO, PointsSummaryDTO } from '@/lib/types';
 import { apiFetch } from '@/lib/api';
 import { addDays, parseLocalDate, type LocalDate } from '@/lib/taskCycles';
 import { cn } from '@/lib/utils';
-import { formatRelativeTime } from '@/lib/format';
+
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { toast } from '@/components/ui/toast';
+import { RelativeTime } from '@/components/household-zone';
 
 type Period = PointsSummaryDTO['period'];
 const PERIODS: { value: Period; label: string }[] = [
@@ -224,7 +225,7 @@ export function PointsView({
                     {a.stepTitle ? <span className="text-muted-foreground"> — {a.stepTitle}</span> : null}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {KIND_LABELS[a.kind] ?? a.kind} · {formatRelativeTime(a.awardedAt)}
+                    {KIND_LABELS[a.kind] ?? a.kind} · <RelativeTime date={a.awardedAt} />
                     {a.voided ? ` · voided${a.voidReason ? `: ${a.voidReason}` : ''}` : ''}
                   </p>
                 </div>

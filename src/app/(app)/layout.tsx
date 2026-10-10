@@ -1,10 +1,11 @@
 import Link from 'next/link';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { History, Home, Settings, Users, UserRound } from 'lucide-react';
+import { History, Home, ServerCog, Settings, Users, UserRound } from 'lucide-react';
 import { requireUser } from '@/server/auth/session';
 import { prisma } from '@/server/db/prisma';
 import { getAccessSettings } from '@/server/services/accessService';
+import { isServerAdmin } from '@/server/services/serverAdminService';
 import { AccessPrompt } from '@/components/settings/access-settings';
 import { can } from '@/lib/permissions';
 import { AppNav } from '@/components/app-nav';
@@ -16,6 +17,8 @@ import { SignOutButton } from '@/components/sign-out-button';
 import { buttonVariants } from '@/components/ui/button';
 import { Tooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { getPointsSettings } from '@/server/services/pointsService';
+import { HouseholdZoneProvider } from '@/components/household-zone';
 
 export default async function AppLayout({
   children,
@@ -35,13 +38,16 @@ export default async function AppLayout({
     if (fresh?.mustChangePassword) redirect('/change-password');
   }
 
-  // Until the Head of House chooses how the site may be reached, ask them on
+  // Until the server admin chooses how the site may be reached, ask them on
   // every page (first shown right after setup).
-  const access = can(user.role, 'household:manage')
-    ? await getAccessSettings(user.householdId!, await headers())
-    : null;
+  const serverAdmin = await isServerAdmin(user.id);
+  const access = serverAdmin ? await getAccessSettings(await headers()) : null;
+  // Every date on the pages is shown in the household's zone (see
+  // HouseholdZoneProvider), so server and browser render the same text.
+  const { timezone } = await getPointsSettings(user.householdId!);
 
   return (
+    <HouseholdZoneProvider timeZone={timezone}>
     <div className="flex min-h-dvh flex-col">
       <a
         href="#main-content"
@@ -94,6 +100,20 @@ export default async function AppLayout({
                 <UserRound />
               </Link>
             </Tooltip>
+            {serverAdmin ? (
+              <Tooltip label="Server">
+                <Link
+                  href="/server"
+                  aria-label="Server"
+                  className={cn(
+                    buttonVariants({ variant: 'ghost', size: 'icon' }),
+                    'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  <ServerCog />
+                </Link>
+              </Tooltip>
+            ) : null}
             {can(user.role, 'members:manage') ? (
               <Tooltip label="Household members">
                 <Link
@@ -144,5 +164,6 @@ export default async function AppLayout({
       <KeyboardShortcuts />
       {access && !access.reviewed ? <AccessPrompt settings={access} /> : null}
     </div>
+    </HouseholdZoneProvider>
   );
 }

@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { cache } from 'react';
 import { auth } from '@/server/auth/auth';
 import { isRefusedPlainHttp } from '@/server/services/accessService';
+import { isHouseholdDisabled } from '@/server/services/serverAdminService';
 
 export type AuthUser = {
   id: string;
@@ -42,6 +43,9 @@ export async function requireUser(): Promise<AuthUser> {
   if (!user.householdId) {
     // A user without a household can't operate the app yet.
     redirect('/no-household');
+  }
+  if (await isHouseholdDisabled(user.householdId)) {
+    redirect('/no-household?disabled=1');
   }
   return user;
 }

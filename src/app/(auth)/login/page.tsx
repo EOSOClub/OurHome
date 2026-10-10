@@ -1,6 +1,7 @@
 import { Suspense } from 'react';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { connection } from 'next/server';
 import { getServerSession } from '@/server/auth/session';
 import { APP_NAME } from '@/server/config';
 import { needsSetup } from '@/server/services/setupService';
@@ -39,6 +40,9 @@ export default async function LoginPage({
   // (proxy bounced /login -> /dashboard, then requireUser() bounced it back).
   // Validating the real session here breaks that cycle.
   // A fresh install has no one to sign in as: send the first visitor to setup.
+  // Per request: setup state lives in the database, which the build can't
+  // (and shouldn't) reach while prerendering.
+  await connection();
   if (await needsSetup()) redirect('/setup');
 
   // "HTTPS only": don't offer a form whose password would cross the network

@@ -33,6 +33,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { StatCard } from '@/components/dashboard/stat-card';
 import { EmptyState } from '@/components/empty-state';
 import { PaymentDialog } from '@/components/bills/payment-dialog';
+import { useHouseholdZone } from '@/components/household-zone';
 
 const KEY = ['bills'];
 // 'interval' = every N days (the API allows it; imported bills can use it).
@@ -115,6 +116,7 @@ export function BillsView({
   userId: string;
   paidThisMonth: number;
 }) {
+  const timeZone = useHouseholdZone();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<'new' | null>(null);
   const [showPaid, setShowPaid] = useState(false);
@@ -130,8 +132,8 @@ export function BillsView({
 
   const unpaid = bills.filter((b) => b.status === 'unpaid');
   const paid = bills.filter((b) => b.status === 'paid');
-  const overdue = unpaid.filter((b) => isOverdue(b.dueDate));
-  const upcoming = unpaid.filter((b) => !isOverdue(b.dueDate));
+  const overdue = unpaid.filter((b) => isOverdue(b.dueDate, timeZone));
+  const upcoming = unpaid.filter((b) => !isOverdue(b.dueDate, timeZone));
 
   const dueThisWeek = upcoming.filter((b) => isDueWithinDays(b.dueDate, 7));
 
@@ -348,6 +350,7 @@ function BillRow({
   access: PageAccess;
   userId: string;
 }) {
+  const timeZone = useHouseholdZone();
   const router = useRouter();
   // Paying and duplicating add records (Add); deleting follows own vs others'.
   const canDelete = canModify(access, 'delete', bill.createdById, userId);
@@ -386,7 +389,7 @@ function BillRow({
     },
   });
 
-  const overdue = bill.status === 'unpaid' && isOverdue(bill.dueDate);
+  const overdue = bill.status === 'unpaid' && isOverdue(bill.dueDate, timeZone);
   const partial =
     bill.status === 'unpaid' && bill.paidTotal > 0 && bill.paidTotal < bill.amount;
   const statusVariant =
@@ -427,7 +430,7 @@ function BillRow({
         </div>
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <CalendarClock className="size-3.5" />
-          {bill.dueDate ? formatDueDate(bill.dueDate) : 'No due date'}
+          {bill.dueDate ? formatDueDate(bill.dueDate, timeZone) : 'No due date'}
           {bill.category ? ` · ${bill.category}` : ''}
           {bill.assignee ? ` · ${bill.assignee.name}` : ''}
         </p>

@@ -28,11 +28,18 @@ generator client {
 model Household {
   id        String   @id @default(cuid()) @map("_id")
   name      String
-  // Sign-in over plain HTTP on the home network. null = allowed (households
-  // created before this field existed); false = HTTPS only, plus http://localhost.
+  // Legacy: "HTTPS only" used to live here (false = refuse plain HTTP). It is
+  // server-wide now (ServerSettings); read only until the server admin saves it.
   allowHttp        Boolean?
-  // When the Head of House answered the post-setup access prompt; null = not yet.
   accessReviewedAt DateTime?
+  // Set by the server admin to shut the household out (its members can't use
+  // the site or app) without deleting anything. null = active.
+  disabledAt       DateTime?
+  // Set by the server admin: this household's Paperless may be on the
+  // server's private network (Docker, LAN). Without it only public addresses
+  // are allowed, so a household can't make the server probe its own network.
+  // The server admin's household is always allowed.
+  paperlessPrivateNetwork Boolean?
   // The head's edits to each role's page-access grid, as JSON text
   // (RoleAccessOverrides in src/lib/permissions.ts). null = built-in defaults.
   roleAccess       String?
@@ -62,6 +69,7 @@ model Household {
   bugReports     BugReport[]
   pushDevices    PushDevice[]
   paperlessSync  PaperlessSync?
+  paperless      PaperlessConnection?
 }
 
 model User {
@@ -79,6 +87,10 @@ model User {
   // Set when an admin provisions an account with a temporary password; the app
   // forces a password change on next sign-in, then clears this.
   mustChangePassword Boolean @default(false)
+  // Owns the server itself: creates and disables households, and the
+  // server-wide settings (HTTPS only, contact-form messages). Doesn't grant
+  // access to other households' data. null = no. See serverAdminService.
+  isServerAdmin Boolean?
   // Per-member page-access overrides on top of the role's grid, as JSON text
   // (AccessOverrides in src/lib/permissions.ts). null = role defaults only.
   accessOverrides String?
@@ -760,6 +772,24 @@ model PaperlessSync {
   household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
 }
 
+// A household's own Paperless-ngx (one per household; Settings → Paperless,
+// set by its Head of House). Without one, the server's settings.yml/.env
+// connection still serves the household it's assigned to (paperlessSync).
+model PaperlessConnection {
+  id          String   @id @default(cuid()) @map("_id")
+  householdId String   @unique
+  // How this server reaches it, e.g. http://paperless:8000 or https://docs.example.com
+  url         String
+  // How people open it in a browser, for links; null = no links.
+  publicUrl   String?
+  // API token of a read-only Paperless user, encrypted (security/secrets.ts).
+  tokenEnc    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+}
+
 // A phone that receives Firebase Cloud Messaging pushes for a signed-in user
 // (pushService). Registered by the Android app after sign-in. The token is the
 // FCM registration token: unique per app install, so a phone that signs in as
@@ -854,4 +884,19 @@ model ContactMessage {
   createdAt   DateTime @default(now())
 
   @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Server-wide settings (one row, id "server"; serverAdminService)
+// ---------------------------------------------------------------------------
+
+model ServerSettings {
+  id               String    @id @map("_id")
+  // Sign-in over plain HTTP from other devices. null/true = allowed; false =
+  // HTTPS only (plus http://localhost on the server itself). Checked before
+  // anyone signs in, so it can't belong to a household.
+  allowHttp        Boolean?
+  // When the server admin answered the access prompt; null = not yet.
+  accessReviewedAt DateTime?
+  updatedAt        DateTime  @updatedAt
 }

@@ -360,6 +360,15 @@ export interface PaperlessSyncResultDTO {
 
 export interface PaperlessStatusDTO {
   configured: boolean;
+  /**
+   * Where this household imports from: its own saved Paperless, or the
+   * server-wide settings.yml/.env one. null = none. The token is never sent.
+   */
+  connection: { source: 'household' | 'server'; url: string; publicUrl: string | null } | null;
+  /** The viewer may change the connection (Head of House). */
+  canEdit: boolean;
+  /** Its Paperless may be on the server's private network (else public addresses only). */
+  privateNetworkAllowed: boolean;
   /** When the import was switched on; nothing older is imported. */
   since: string | null;
   lastRunAt: string | null;

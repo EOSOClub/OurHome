@@ -29,6 +29,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/empty-state';
 import { BillDialog, duplicateBillPayload } from '@/components/bills/bills-view';
 import { PaymentDialog } from '@/components/bills/payment-dialog';
+import { useHouseholdZone } from '@/components/household-zone';
 
 const KEY = ['bills'];
 
@@ -61,6 +62,7 @@ export function BillDetailView({
   /** Viewer may add calendar events (Calendar "Add"). */
   canAddToCalendar: boolean;
 }) {
+  const timeZone = useHouseholdZone();
   // Paying and duplicating add records (Add); edit/delete follow own vs others'.
   const canEdit = canModify(access, 'edit', bill.createdById, userId);
   const canDelete = canModify(access, 'delete', bill.createdById, userId);
@@ -125,7 +127,7 @@ export function BillDetailView({
     },
   });
 
-  const overdue = bill.status === 'unpaid' && isOverdue(bill.dueDate);
+  const overdue = bill.status === 'unpaid' && isOverdue(bill.dueDate, timeZone);
   const partial =
     bill.status === 'unpaid' && bill.paidTotal > 0 && bill.paidTotal < bill.amount;
   const statusVariant =
@@ -168,7 +170,7 @@ export function BillDetailView({
               </div>
               <p className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
                 <CalendarClock className="size-4" />
-                {bill.dueDate ? formatDueDate(bill.dueDate) : 'No due date'}
+                {bill.dueDate ? formatDueDate(bill.dueDate, timeZone) : 'No due date'}
               </p>
             </div>
             <div className="text-right">
@@ -407,6 +409,7 @@ function PaymentRow({
   userId: string;
   onChanged: () => void;
 }) {
+  const timeZone = useHouseholdZone();
   // Own = payments the viewer recorded (not who paid).
   const canEdit = canModify(access, 'edit', payment.createdById, userId);
   const canDelete = canModify(access, 'delete', payment.createdById, userId);
@@ -434,7 +437,7 @@ function PaymentRow({
           ) : null}
         </p>
         <p className="truncate text-xs text-muted-foreground">
-          {formatDate(payment.paidAt)}
+          {formatDate(payment.paidAt, timeZone)}
           {payment.paidBy ? ` · ${payment.paidBy.name}` : ''}
           {payment.notes ? ` · ${payment.notes}` : ''}
         </p>

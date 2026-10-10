@@ -47,9 +47,11 @@ turnstile:
 # Documents tagged "bill" / "bill-payment" in Paperless become bills and
 # payments, checked every 15 minutes. Setup: docs/paperless-import.md
 paperless:
-  # How the web container reaches Paperless (shared Docker network). The token
-  # of a read-only Paperless user is PAPERLESS_TOKEN in .env. Either empty =
-  # import off.
+  # The server admin's household's Paperless (or the household in
+  # PAPERLESS_HOUSEHOLD_ID). Any household can instead connect its own in
+  # Settings → Paperless bill import. How the web container reaches Paperless
+  # (shared Docker network); the token of a read-only Paperless user is
+  # PAPERLESS_TOKEN in .env. Either empty = no server-wide connection.
   url:
   # Address you open Paperless at in a browser, for "Open in Paperless" links.
   public_url:

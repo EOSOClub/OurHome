@@ -1,3 +1,6 @@
+import { ensureServerAdmin, isHouseholdDisabled } from '@/server/services/serverAdminService';
+import { ConflictError } from '@/server/services/errors';
+import { decryptSecret, encryptSecret } from '@/server/security/secrets';
 import { prisma } from '@/server/db/prisma';
 import { PaperlessClient, paperlessConfig, type PaperlessConfig } from '@/server/paperless/client';
 import {
@@ -16,7 +19,8 @@ import type { PaperlessStatusDTO, PaperlessSyncResultDTO } from '@/lib/types';
 // Each run asks Paperless for documents tagged `bill` / `bill-payment` that
 // changed since the last run (the stored cursor) and hands each finished one to
 // billIngestService. Runs from the in-app reminder sweep (every 15 minutes)
-// and from Settings → "Check now". Read-only towards Paperless.
+// and from Settings → "Check now". Read-only towards Paperless. Each household
+// has its own Paperless, cursor and status (see "Which Paperless" below).
 //
 //  - Starts fresh: the first run only records "now", so documents already in
 //    Paperless are never imported in bulk.
@@ -116,19 +120,6 @@ async function fetchDocuments(
   });
 }
 
-/** The household Paperless feeds: PAPERLESS_HOUSEHOLD_ID, or the only one there is. */
-async function targetHousehold(): Promise<string> {
-  const configured = process.env.PAPERLESS_HOUSEHOLD_ID?.trim();
-  if (configured) return configured;
-  const households = await prisma.household.findMany({ select: { id: true }, take: 2 });
-  if (households.length === 1) return households[0].id;
-  throw new Error(
-    households.length === 0
-      ? 'No household exists yet.'
-      : 'More than one household exists; set PAPERLESS_HOUSEHOLD_ID to the one Paperless belongs to.',
-  );
-}
-
 function docUrl(cfg: PaperlessConfig, id: number): string | null {
   return cfg.publicUrl ? `${cfg.publicUrl.replace(/\/+$/, '')}/documents/${id}/details` : null;
 }
@@ -142,32 +133,117 @@ function parseResult(text: string | null): PaperlessSyncResult | null {
   }
 }
 
-// One run at a time per process: the 15-minute sweep and "Check now" can overlap.
-let running: Promise<PaperlessSyncResult | null> | null = null;
+// --- Which Paperless each household uses ---------------------------------------
+//
+// One Paperless per household. A household's own saved connection
+// (PaperlessConnection, Settings → Paperless) comes first. The server-wide one
+// from settings.yml/.env (paperlessConfig) is kept for the household it was
+// set up for — PAPERLESS_HOUSEHOLD_ID, else the server admin's — so existing
+// installs keep importing without re-entering anything.
 
-/**
- * One import pass. Returns null when the import is off, or on the very first
- * run (which only records the starting point). Errors are stored on the sync
- * record and re-thrown for the caller to report.
- */
-export function runPaperlessSync(): Promise<PaperlessSyncResult | null> {
-  running ??= syncOnce().finally(() => {
-    running = null;
+/** The household the server-wide settings.yml/.env connection belongs to. */
+async function legacyHousehold(): Promise<string | null> {
+  if (!paperlessConfig()) return null;
+  const configured = process.env.PAPERLESS_HOUSEHOLD_ID?.trim();
+  if (configured) return configured;
+  await ensureServerAdmin();
+  const admin = await prisma.user.findFirst({
+    where: { isServerAdmin: true, householdId: { not: null } },
+    orderBy: { createdAt: 'asc' },
+    select: { householdId: true },
   });
-  return running;
+  if (admin?.householdId) return admin.householdId;
+  const first = await prisma.household.findFirst({ orderBy: { createdAt: 'asc' }, select: { id: true } });
+  return first?.id ?? null;
 }
 
-async function syncOnce(): Promise<PaperlessSyncResult | null> {
-  const cfg = paperlessConfig();
-  if (!cfg) return null;
-  const householdId = await targetHousehold();
+/**
+ * May this household's Paperless be on the server's private network? The
+ * server admin's own household may (its Paperless usually runs next to the
+ * app); others only when the server admin allowed it on the Server page.
+ */
+export async function paperlessMayUsePrivateNetwork(householdId: string): Promise<boolean> {
+  const [household, admin] = await Promise.all([
+    prisma.household.findUnique({ where: { id: householdId }, select: { paperlessPrivateNetwork: true } }),
+    prisma.user.findFirst({ where: { householdId, isServerAdmin: true }, select: { id: true } }),
+  ]);
+  return household?.paperlessPrivateNetwork === true || !!admin;
+}
+
+type ConnectionSource = 'household' | 'server';
+
+/** The connection a household imports from, or null when it has none. */
+async function connectionFor(
+  householdId: string,
+): Promise<{ cfg: PaperlessConfig; source: ConnectionSource } | null> {
+  const saved = await prisma.paperlessConnection.findUnique({ where: { householdId } });
+  if (saved) {
+    const token = decryptSecret(saved.tokenEnc);
+    if (!token) {
+      throw new Error('The saved Paperless token can’t be read (the server’s secret changed). Enter the token again in Settings.');
+    }
+    const publicOnly = !(await paperlessMayUsePrivateNetwork(householdId));
+    return { cfg: { url: saved.url, token, publicUrl: saved.publicUrl, publicOnly }, source: 'household' };
+  }
+  const legacy = paperlessConfig();
+  if (legacy && (await legacyHousehold()) === householdId) return { cfg: legacy, source: 'server' };
+  return null;
+}
+
+// --- Import runs -------------------------------------------------------------------
+
+// One run at a time per household: the 15-minute sweep and "Check now" can overlap.
+const running = new Map<string, Promise<PaperlessSyncResult | null>>();
+
+/**
+ * Import for one household, or (no id) for every active household with a
+ * Paperless, each on its own so one household's broken Paperless doesn't stop
+ * the rest. Returns the one household's result (null when it has no Paperless
+ * or on its very first run, which only records the starting point). Errors are
+ * stored on the household's sync record; a single-household run re-throws.
+ */
+export async function runPaperlessSync(householdId?: string): Promise<PaperlessSyncResult | null> {
+  if (householdId) return runFor(householdId);
+  const [saved, legacy] = await Promise.all([
+    prisma.paperlessConnection.findMany({ select: { householdId: true } }),
+    legacyHousehold(),
+  ]);
+  const ids = new Set(saved.map((c) => c.householdId));
+  if (legacy) ids.add(legacy);
+  for (const id of ids) {
+    if (await isHouseholdDisabled(id)) continue;
+    await runFor(id).catch((err) => {
+      console.warn(`[paperless] import for household ${id} failed; retrying next sweep:`, err instanceof Error ? err.message : err);
+    });
+  }
+  return null;
+}
+
+function runFor(householdId: string): Promise<PaperlessSyncResult | null> {
+  let run = running.get(householdId);
+  if (!run) {
+    run = syncOnce(householdId).finally(() => running.delete(householdId));
+    running.set(householdId, run);
+  }
+  return run;
+}
+
+async function syncOnce(householdId: string): Promise<PaperlessSyncResult | null> {
+  const connection = await connectionFor(householdId).catch(async (err: unknown) => {
+    // A connection that can't be used (unreadable token) is shown on the card.
+    const message = err instanceof Error ? err.message : String(err);
+    await prisma.paperlessSync.updateMany({ where: { householdId }, data: { lastRunAt: new Date(), lastError: message } });
+    throw err;
+  });
+  if (!connection) return null;
+  const { cfg } = connection;
   const now = new Date();
 
   const state = await prisma.paperlessSync.findUnique({ where: { householdId } });
   if (!state) {
     // Start fresh: nothing already in Paperless is imported.
     await prisma.paperlessSync.create({ data: { householdId, cursor: now, lastRunAt: now } });
-    console.log(`[paperless] import switched on; importing documents changed after ${now.toISOString()}`);
+    console.log(`[paperless] import switched on for household ${householdId}; importing documents changed after ${now.toISOString()}`);
     return null;
   }
 
@@ -211,7 +287,7 @@ async function syncOnce(): Promise<PaperlessSyncResult | null> {
       data: { cursor, lastRunAt: now, lastResult: JSON.stringify(result), lastError: null },
     });
     const counts = Object.entries(result.imported).map(([k, v]) => `${v} ${k}`).join(', ') || 'nothing new';
-    console.log(`[paperless] checked ${result.checked} document(s): ${counts}`);
+    console.log(`[paperless] household ${householdId}: checked ${result.checked} document(s): ${counts}`);
     return result;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -223,15 +299,83 @@ async function syncOnce(): Promise<PaperlessSyncResult | null> {
   }
 }
 
-export async function getPaperlessStatus(householdId: string): Promise<PaperlessStatusDTO> {
-  const state = await prisma.paperlessSync.findUnique({ where: { householdId } });
+// --- Status and the household's connection ------------------------------------------
+
+export async function getPaperlessStatus(householdId: string, canEdit = false): Promise<PaperlessStatusDTO> {
+  const [state, saved, legacy, privateOk] = await Promise.all([
+    prisma.paperlessSync.findUnique({ where: { householdId } }),
+    prisma.paperlessConnection.findUnique({ where: { householdId }, select: { url: true, publicUrl: true } }),
+    legacyHousehold().catch(() => null),
+    paperlessMayUsePrivateNetwork(householdId),
+  ]);
+  const serverCfg = !saved && legacy === householdId ? paperlessConfig() : null;
+  const connection = saved
+    ? { source: 'household' as const, url: saved.url, publicUrl: saved.publicUrl }
+    : serverCfg
+      ? { source: 'server' as const, url: serverCfg.url, publicUrl: serverCfg.publicUrl }
+      : null;
   return {
-    configured: isPaperlessConfigured(),
+    configured: connection !== null,
+    connection,
+    canEdit,
+    privateNetworkAllowed: privateOk,
     since: state?.createdAt.toISOString() ?? null,
     lastRunAt: state?.lastRunAt?.toISOString() ?? null,
     lastError: state?.lastError ?? null,
     lastResult: parseResult(state?.lastResult ?? null),
   };
+}
+
+/** True when the household imports from some Paperless (its own or the server's). */
+export async function hasPaperless(householdId: string): Promise<boolean> {
+  return (await getPaperlessStatus(householdId)).configured;
+}
+
+function cleanUrl(raw: string): string {
+  return raw.trim().replace(/\/+$/, '');
+}
+
+/**
+ * Save the household's own Paperless (Head of House). The connection is tried
+ * first — address allowed, token accepted, the bill tags and Amount field
+ * present — and nothing is saved if that fails. A blank token keeps the saved
+ * one. Pointing at a different Paperless starts the import fresh.
+ */
+export async function savePaperlessConnection(
+  householdId: string,
+  input: { url: string; publicUrl?: string | null; token?: string | null },
+): Promise<PaperlessStatusDTO> {
+  const url = cleanUrl(input.url);
+  const publicUrl = input.publicUrl ? cleanUrl(input.publicUrl) : null;
+  const existing = await prisma.paperlessConnection.findUnique({ where: { householdId } });
+  let token = input.token?.trim() || null;
+  if (!token && existing) token = decryptSecret(existing.tokenEnc);
+  if (!token) throw new ConflictError('Enter the API token of a read-only Paperless user.');
+
+  const publicOnly = !(await paperlessMayUsePrivateNetwork(householdId));
+  const cfg: PaperlessConfig = { url, token, publicUrl, publicOnly };
+  try {
+    await resolveSetup(new PaperlessClient(cfg), cfg);
+  } catch (err) {
+    throw new ConflictError(`Couldn’t use that Paperless: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  const data = { url, publicUrl, tokenEnc: encryptSecret(token) };
+  await prisma.$transaction(async (tx) => {
+    await tx.paperlessConnection.upsert({ where: { householdId }, create: { householdId, ...data }, update: data });
+    // A different Paperless (or the first own one) starts from now, like a new install.
+    if (!existing || existing.url !== url) await tx.paperlessSync.deleteMany({ where: { householdId } });
+  });
+  return getPaperlessStatus(householdId, true);
+}
+
+/** Forget the household's own Paperless (and its import progress). */
+export async function removePaperlessConnection(householdId: string): Promise<PaperlessStatusDTO> {
+  await prisma.$transaction([
+    prisma.paperlessConnection.deleteMany({ where: { householdId } }),
+    prisma.paperlessSync.deleteMany({ where: { householdId } }),
+  ]);
+  return getPaperlessStatus(householdId, true);
 }
 
 export interface PreviewRow {
@@ -243,7 +387,8 @@ export interface PreviewRow {
 
 /**
  * Read-only dry run for scripts/paperless-preview.ts: what the import would do
- * with documents changed in the last `days`. Writes nothing anywhere.
+ * with documents changed in the last `days`, using the server-wide
+ * settings.yml/.env connection. Writes nothing anywhere.
  */
 export async function previewPaperless(days: number): Promise<{ found: Record<string, string>; rows: PreviewRow[] }> {
   const cfg = paperlessConfig();

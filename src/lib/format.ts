@@ -17,12 +17,13 @@ export function formatMoney(
 }
 
 /** Absolute calendar date label, e.g. "Jul 2, 2026". */
-export function formatDate(date: Date | string | null | undefined): string {
+export function formatDate(date: Date | string | null | undefined, timeZone?: string): string {
   if (!date) return '—';
   return new Date(date).toLocaleDateString(undefined, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
+    timeZone,
   });
 }
 
@@ -49,6 +50,11 @@ function zoned(d: Date, timeZone?: string) {
     minute: get('minute'),
     second: get('second'),
   };
+}
+
+/** "YYYY-MM-DD" of `date` in `timeZone` (default: wherever this runs). */
+export function dateKey(date: Date | string, timeZone?: string): string {
+  return new Date(zoned(new Date(date), timeZone).day).toISOString().slice(0, 10);
 }
 
 /** Human-friendly due-date label relative to today. */
@@ -107,7 +113,7 @@ export function isDueWithinDays(
 }
 
 /** Compact "time ago" label for the activity feed. */
-export function formatRelativeTime(date: Date | string): string {
+export function formatRelativeTime(date: Date | string, timeZone?: string): string {
   const then = new Date(date).getTime();
   const diff = Date.now() - then;
   const mins = Math.round(diff / 60000);
@@ -120,5 +126,6 @@ export function formatRelativeTime(date: Date | string): string {
   return new Date(date).toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
+    timeZone,
   });
 }

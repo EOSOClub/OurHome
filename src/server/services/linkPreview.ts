@@ -58,7 +58,7 @@ async function safeFetch(initial: URL): Promise<Response | null> {
   let url = initial;
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    if (!(await isAllowedTarget(url))) return null;
+    if (!(await isPublicFetchTarget(url))) return null;
 
     const res = await fetch(url, {
       redirect: 'manual',
@@ -86,11 +86,12 @@ async function safeFetch(initial: URL): Promise<Response | null> {
 }
 
 /**
- * True when `url` is safe to fetch: http(s) only, not an obvious internal name,
+ * True when `url` is safe to fetch from the server on someone's behalf (also
+ * used for a household's Paperless address): http(s) only, not an obvious internal name,
  * and every DNS-resolved address is outside the loopback / private / link-local
  * (incl. 169.254.169.254 metadata) and CGNAT ranges.
  */
-async function isAllowedTarget(url: URL): Promise<boolean> {
+export async function isPublicFetchTarget(url: URL): Promise<boolean> {
   if (!isFetchableUrl(url)) return false;
   try {
     const addrs = await lookup(normalizeHost(url.hostname), { all: true });

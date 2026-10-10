@@ -5,6 +5,28 @@ Bills and bill payments you collect in [Paperless-ngx](https://docs.paperless-ng
 page on their own. Paperless runs as its own stack; see
 [OurHomeServices](https://github.com/EOSOClub/OurHomeServices/tree/main/paperless).
 
+## One Paperless per household
+
+Each household on the server imports from **its own** Paperless. Its Head of
+House connects it in **Settings → Paperless bill import → Connect your
+Paperless**: the address the server reaches it at, optionally the address
+people open it at (for links), and the API token of a read-only Paperless
+user. Saving tries the connection first (address allowed, token accepted, the
+`bill` / `bill-payment` tags and **Amount** field present) and saves nothing
+if that fails. The token is stored encrypted (key derived from
+`BETTER_AUTH_SECRET`; changing that secret means entering the token again).
+Connecting a different Paperless starts the import fresh from that moment.
+
+- **Address rules.** A household's Paperless must be a public internet
+  address, so no household can make the server connect to its own network.
+  The server admin's household may use a local one (`http://paperless:8000`),
+  and the server admin can allow it for another household on the **Server**
+  page ("Paperless: allow local").
+- **The `settings.yml` / `.env` connection below** still works: it serves the
+  household in `PAPERLESS_HOUSEHOLD_ID`, or else the server admin's, until that
+  household saves its own. Existing installs keep importing with no changes.
+- One household's Paperless being down never stops the others' imports.
+
 ## How it works
 
 Every 15 minutes (with the reminder sweep), and on **Settings → Paperless bill
@@ -135,9 +157,11 @@ with your billers in place of `biller one|biller two`:
 - Reminders and second notices still read as bills; remove the `bill` tag if one
   duplicates a bill you already have.
 
-### 2. In Our Home's `settings.yml` and `.env`
+### 2. Connect it
 
-The address goes in `settings.yml`:
+Either in **Settings → Paperless bill import** (any household; see "One
+Paperless per household" above), or — for the server admin's household — in
+Our Home's `settings.yml` and `.env` as below. The address goes in `settings.yml`:
 
 ```yaml
 paperless:

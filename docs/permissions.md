@@ -136,7 +136,22 @@ follows the Tasks grid like any other edit. Everyone sees the `/points` stats.
 
 Rules: `docs/points.md`.
 
+## Server admin
+
+Separate from household roles: one account per server (`User.isServerAdmin`),
+normally the person who set the server up. It can create households (each
+with its own Head of House), reset a head's password, turn a household off or
+on, delete a turned-off household for good (its name typed to confirm),
+restore a household from an export file (as a new household), set
+**HTTPS only** for the whole server, and read contact-form messages. It grants
+nothing inside other households — it can't export them either; a household's
+Head of House exports their own (Settings → Export household data).
+
 ## Changelog
+
+- **2026-10-10** — Several households per server: the **server admin** role
+  (above). "HTTPS only" and contact-form messages moved from the Head of House
+  to the server admin.
 
 - **2026-10-10** — Messages from the public contact form are Head of House only
   (`household:manage`; were `settings:manage`). Role changes and removals apply

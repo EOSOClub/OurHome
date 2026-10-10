@@ -5,8 +5,9 @@ import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, ChevronUp, History, Loader2 } from 'lucide-react';
 import type { TaskCompletionDTO } from '@/lib/types';
 import { apiFetch } from '@/lib/api';
-import { formatDate, formatRelativeTime } from '@/lib/format';
+import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { RelativeTime, useHouseholdZone } from '@/components/household-zone';
 
 /** Show at most this many entries; the rest collapse into a "+N more" line. */
 const MAX_VISIBLE = 10;
@@ -76,6 +77,7 @@ function CompletionList({
   isError: boolean;
   onUndo: (completionId: string) => void;
 }) {
+  const timeZone = useHouseholdZone();
   if (isError) {
     return (
       <p className="mt-1.5 text-xs text-destructive">
@@ -109,8 +111,8 @@ function CompletionList({
           key={c.id}
           className={cn('flex flex-wrap items-baseline gap-x-2', c.undoneAt && 'line-through opacity-70')}
         >
-          <span title={formatDate(c.completedAt)}>
-            {formatRelativeTime(c.completedAt)}
+          <span>
+            <RelativeTime date={c.completedAt} title={formatDate(c.completedAt, timeZone)} />
           </span>
           {c.outcome === 'missed' ? (
             <span className="text-destructive">· missed (cycle ran out)</span>

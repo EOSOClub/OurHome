@@ -14,6 +14,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { EmptyState } from '@/components/empty-state';
+import { useHouseholdZone } from '@/components/household-zone';
 
 const MESSAGES_KEY = ['contact-messages'];
 
@@ -73,6 +74,7 @@ export function ContactMessagesCard({
 }
 
 function MessageRow({ message }: { message: ContactMessageDTO }) {
+  const timeZone = useHouseholdZone();
   const [expanded, setExpanded] = useState(false);
   const badge = STATUS_BADGES[message.status] ?? {
     label: message.status,
@@ -96,7 +98,7 @@ function MessageRow({ message }: { message: ContactMessageDTO }) {
         <div className="flex shrink-0 items-center gap-2">
           <Badge variant={badge.variant}>{badge.label}</Badge>
           <span className="text-xs text-muted-foreground">
-            {new Date(message.createdAt).toLocaleString()}
+            {new Date(message.createdAt).toLocaleString(undefined, { timeZone })}
           </span>
         </div>
       </div>

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { formatDueDate, isDateOnly, isOverdue } from '@/lib/format';
+import { dateKey, formatDueDate, isDateOnly, isOverdue } from '@/lib/format';
 
 // Chicago is UTC-5 in March 2026 (after the DST change on Mar 8).
 const tz = 'America/Chicago';
@@ -35,5 +35,13 @@ describe('formatDueDate in a zone', () => {
     vi.setSystemTime(at('2026-03-11T01:00:00Z'));
     expect(formatDueDate(at('2026-03-10T17:00:00Z'), tz)).toBe('Due today');
     expect(formatDueDate(at('2026-03-11T17:00:00Z'), tz)).toBe('Due tomorrow');
+  });
+});
+
+describe('dateKey', () => {
+  it('gives the calendar day in the zone', () => {
+    // 8 pm Chicago on Mar 10 is Mar 11 in UTC.
+    expect(dateKey(at('2026-03-11T01:00:00Z'), tz)).toBe('2026-03-10');
+    expect(dateKey(at('2026-03-11T01:00:00Z'), 'UTC')).toBe('2026-03-11');
   });
 });

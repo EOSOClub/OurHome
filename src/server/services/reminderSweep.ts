@@ -20,7 +20,10 @@ export async function runReminderSweep(): Promise<{ households: number }> {
     console.warn('[app] announcing the new app failed; retrying next sweep:', err instanceof Error ? err.message : err);
   });
 
-  const households = await prisma.household.findMany({ select: { id: true } });
+  // Turned-off households are left alone (no rollovers, reminders or email).
+  const households = (await prisma.household.findMany({ select: { id: true, disabledAt: true } })).filter(
+    (h) => !h.disabledAt,
+  );
   for (const { id } of households) {
     // Roll finished task cycles over (missed ones are recorded and their queued
     // points dropped), then flip recurring checklist items back, so this

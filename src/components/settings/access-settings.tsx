@@ -29,7 +29,7 @@ const OPTIONS = [
   {
     allowHttp: false,
     title: 'HTTPS only',
-    body: 'Sign-in only works at your https:// address. http://localhost on the server itself still works, as a way back in. Everyone else is signed out once.',
+    body: 'Sign-in only works at your https:// address. http://localhost on the server itself still works, as a way back in. Everyone else on the server, in every household, is signed out once.',
   },
 ] as const;
 
@@ -111,7 +111,7 @@ function useSaveAccess(onSaved: (next: AccessSettingsDTO) => void) {
   return { save, saving };
 }
 
-/** One-time prompt for the Head of House after setup, until they choose. */
+/** One-time prompt for the server admin after setup, until they choose. */
 export function AccessPrompt({ settings }: { settings: AccessSettingsDTO }) {
   // Read after hydration: the server renders it closed, the browser decides.
   const postponed = useSyncExternalStore(

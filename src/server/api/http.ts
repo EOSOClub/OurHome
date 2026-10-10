@@ -17,6 +17,7 @@ import {
   ForbiddenError,
   NotFoundError,
 } from '@/server/services/errors';
+import { HOUSEHOLD_DISABLED_MESSAGE, isHouseholdDisabled } from '@/server/services/serverAdminService';
 
 // Thin, reusable HTTP layer so route handlers contain no business logic:
 //   route handler -> withAuth -> parse (Zod) -> service.
@@ -56,6 +57,11 @@ export function withAuth(handler: Handler) {
 
     const user = session.user as unknown as AuthUser;
     if (!user.householdId) return fail('No household assigned', 403);
+    // A household the server admin turned off: refused until it's back on.
+    // `code` lets the app sign out with this message instead of erroring everywhere.
+    if (await isHouseholdDisabled(user.householdId)) {
+      return fail(HOUSEHOLD_DISABLED_MESSAGE, 403, { code: 'household_disabled' });
+    }
 
     try {
       const res = await handler({ user, req });

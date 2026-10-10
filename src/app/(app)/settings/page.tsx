@@ -1,6 +1,4 @@
-import { headers } from 'next/headers';
 import { requireUser } from '@/server/auth/session';
-import { getAccessSettings } from '@/server/services/accessService';
 import { can } from '@/lib/permissions';
 import {
   itemToDTO,
@@ -9,7 +7,6 @@ import {
 import { listNfcTags } from '@/server/services/nfcService';
 import { listIntegrations } from '@/server/services/integrationService';
 import { listCategories } from '@/server/services/categoryService';
-import { listContactMessages } from '@/server/services/contactService';
 import { getPointsSettings } from '@/server/services/pointsService';
 import { SettingsView } from '@/components/settings/settings-view';
 
@@ -30,29 +27,25 @@ export default async function SettingsPage() {
 
   const householdId = user.householdId!;
   const isHead = can(user.role, 'household:manage');
-  const [integrations, tags, items, categories, contactMessages, access, points] =
+  // "HTTPS only" and contact-form messages are server-wide: they're on the
+  // server admin's Server page now.
+  const [integrations, tags, items, categories, points] =
     await Promise.all([
       listIntegrations(householdId),
       listNfcTags(householdId),
       listInventoryItems(householdId),
       listCategories(householdId),
-      // Messages from the public contact form aren't tied to a household
-      // (strangers' names and emails), so only the Head of House reads them.
-      isHead ? listContactMessages() : null,
-      // Security is the Head of House's alone (household:manage).
-      isHead ? getAccessSettings(householdId, await headers()) : null,
-      // Points rate / time zone / week start: also the head's.
+      // Points rate / time zone / week start: the head's.
       isHead ? getPointsSettings(householdId) : null,
     ]);
 
   return (
     <SettingsView
-      initialAccess={access}
       initialIntegrations={integrations}
       initialTags={tags}
       initialCategories={categories}
-      initialContactMessages={contactMessages}
       initialPoints={points}
+      canExport={isHead}
       items={items.map(itemToDTO).map((i) => ({ id: i.id, name: i.name }))}
     />
   );

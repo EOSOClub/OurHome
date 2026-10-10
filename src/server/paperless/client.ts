@@ -2,6 +2,8 @@
 // version pinned to 9 (`created` is a plain date there; current Paperless
 // serves 9 and 10), and list endpoints followed page by page.
 
+import { isPublicFetchTarget } from '@/server/services/linkPreview';
+
 const API_VERSION = 9;
 const TIMEOUT_MS = 20_000;
 
@@ -11,9 +13,18 @@ export interface PaperlessConfig {
   token: string;
   /** How people open Paperless in a browser; used only for links. */
   publicUrl: string | null;
+  /**
+   * Only public internet addresses may be reached (a household not allowed
+   * on the server's private network): checked, DNS included, before every call.
+   */
+  publicOnly?: boolean;
 }
 
-/** From `paperless.url` (settings.yml) and PAPERLESS_TOKEN (.env). Unset → import off. */
+/**
+ * The server-wide connection from `paperless.url` (settings.yml) and
+ * PAPERLESS_TOKEN (.env), for the household it's assigned to (paperlessSync).
+ * Households can save their own instead. Unset → none.
+ */
 export function paperlessConfig(): PaperlessConfig | null {
   const url = process.env.PAPERLESS_URL?.trim().replace(/\/+$/, '');
   const token = process.env.PAPERLESS_TOKEN?.trim();
@@ -34,6 +45,11 @@ export class PaperlessClient {
 
   async get<T>(pathAndQuery: string): Promise<T> {
     const url = `${this.cfg.url}${pathAndQuery}`;
+    if (this.cfg.publicOnly && !(await isPublicFetchTarget(new URL(url)))) {
+      throw new PaperlessError(
+        `${this.cfg.url} isn't a public internet address. Ask the server admin to allow this household's Paperless on the server's network.`,
+      );
+    }
     let res: Response;
     try {
       res = await fetch(url, {
@@ -41,13 +57,16 @@ export class PaperlessClient {
           Authorization: `Token ${this.cfg.token}`,
           Accept: `application/json; version=${API_VERSION}`,
         },
+        // Never follow a redirect: it could lead somewhere the check above
+        // didn't allow (and Paperless's API doesn't redirect).
+        redirect: 'error',
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
     } catch (err) {
       throw new PaperlessError(`Can't reach Paperless at ${this.cfg.url} (${(err as Error).message}).`);
     }
     if (res.status === 401 || res.status === 403) {
-      throw new PaperlessError('Paperless rejected the API token (check PAPERLESS_TOKEN and that user’s permissions).');
+      throw new PaperlessError('Paperless rejected the API token (check the token and that user’s permissions).');
     }
     if (res.status === 406) {
       throw new PaperlessError(`This Paperless doesn't support API version ${API_VERSION}; update Paperless.`);

@@ -1,9 +1,10 @@
-import { ok, requirePermission, withAuth } from '@/server/api/http';
+import { ok, withAuth } from '@/server/api/http';
 import { listContactMessages } from '@/server/services/contactService';
+import { assertServerAdmin } from '@/server/services/serverAdminService';
 
+// Public contact-form submissions aren't any household's data: server admin only.
 export const GET = withAuth(async (ctx) => {
-  // Public-form submissions (not household data): Head of House only.
-  requirePermission(ctx, 'household:manage');
+  await assertServerAdmin(ctx.user.id);
   const messages = await listContactMessages();
   return ok(messages);
 });

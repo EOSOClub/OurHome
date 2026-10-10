@@ -27,11 +27,12 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { EmptyState } from '@/components/empty-state';
-import { formatRelativeTime } from '@/lib/format';
+
 import {
   NOTIFICATIONS_KEY,
   type NotificationList,
 } from '@/components/notifications/notification-bell';
+import { RelativeTime } from '@/components/household-zone';
 
 const TYPE_ICON: Record<NotificationType, LucideIcon> = {
   overdue: AlertTriangle,
@@ -368,7 +369,7 @@ function NotificationRow({
         <Badge variant={TYPE_VARIANT[type] ?? 'secondary'}>
           {NOTIFICATION_TYPE_LABELS[type] ?? n.type}
         </Badge>
-        {formatRelativeTime(n.createdAt)}
+        <RelativeTime date={n.createdAt} />
       </p>
     </>
   );

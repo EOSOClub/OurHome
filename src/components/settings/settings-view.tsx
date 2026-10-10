@@ -4,9 +4,7 @@ import { useState, useSyncExternalStore } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Copy, KeyRound, Loader2, Plus, Tag, Trash2 } from 'lucide-react';
 import type {
-  AccessSettingsDTO,
   CategoryAdminDTO,
-  ContactMessageDTO,
   IntegrationDTO,
   NfcTagDTO,
   PointsSettingsDTO,
@@ -17,10 +15,9 @@ import {
   type NfcRepresents,
 } from '@/lib/enums';
 import { apiFetch } from '@/lib/api';
-import { AccessCard } from '@/components/settings/access-settings';
 import { CategoriesCard } from '@/components/settings/categories-card';
-import { ContactMessagesCard } from '@/components/settings/contact-messages-card';
 import { PaperlessCard } from '@/components/settings/paperless-card';
+import { ExportCard } from '@/components/settings/export-card';
 import { PointsCard } from '@/components/settings/points-card';
 import { Button, type ButtonProps } from '@/components/ui/button';
 import {
@@ -36,6 +33,7 @@ import { Select } from '@/components/ui/select';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { toast } from '@/components/ui/toast';
 import { EmptyState } from '@/components/empty-state';
+import { useHouseholdZone } from '@/components/household-zone';
 
 type ItemRef = { id: string; name: string };
 
@@ -79,23 +77,21 @@ function CopyButton({
 }
 
 export function SettingsView({
-  initialAccess,
+  canExport,
   initialIntegrations,
   initialTags,
   initialCategories,
-  initialContactMessages,
   initialPoints,
   items,
 }: {
+  /** Head of House: may download the household export. */
+  canExport: boolean;
   /** null unless the viewer is the Head of House. */
-  initialAccess: AccessSettingsDTO | null;
   /** null unless the viewer is the Head of House. */
   initialPoints: PointsSettingsDTO | null;
   initialIntegrations: IntegrationDTO[];
   initialTags: NfcTagDTO[];
   initialCategories: CategoryAdminDTO[];
-  /** Head only (null for managers). */
-  initialContactMessages: ContactMessageDTO[] | null;
   items: ItemRef[];
 }) {
   return (
@@ -106,13 +102,12 @@ export function SettingsView({
           Manage categories, connect Home Assistant, and map NFC tags.
         </p>
       </div>
-      {initialAccess ? <AccessCard initialSettings={initialAccess} /> : null}
       {initialPoints ? <PointsCard initial={initialPoints} /> : null}
       <CategoriesCard initialCategories={initialCategories} />
       <PaperlessCard />
       <HomeAssistantCard initialIntegrations={initialIntegrations} />
       <NfcTagsCard initialTags={initialTags} items={items} />
-      {initialContactMessages ? <ContactMessagesCard initialMessages={initialContactMessages} /> : null}
+      {canExport ? <ExportCard /> : null}
     </div>
   );
 }
@@ -122,6 +117,7 @@ function HomeAssistantCard({
 }: {
   initialIntegrations: IntegrationDTO[];
 }) {
+  const timeZone = useHouseholdZone();
   const queryClient = useQueryClient();
   const [name, setName] = useState('');
   const [newToken, setNewToken] = useState<string | null>(null);
@@ -244,7 +240,7 @@ function HomeAssistantCard({
                   <p className="truncate text-sm font-medium">{i.name}</p>
                   <p className="text-xs text-muted-foreground">
                     {i.active ? 'Active' : 'Inactive'} · created{' '}
-                    {new Date(i.createdAt).toLocaleDateString()}
+                    {new Date(i.createdAt).toLocaleDateString(undefined, { timeZone })}
                   </p>
                 </div>
                 <Button

@@ -56,6 +56,8 @@ export async function submitBugReport(
         channel: 'in_app',
         subjectType: 'bug_report',
         subjectId: report.id,
+        // One row per recipient; the unique index needs a key on every row.
+        dedupeKey: `bug_report:${report.id}:${r.id}`,
         readAt: null,
       })),
     });

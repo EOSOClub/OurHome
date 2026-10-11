@@ -103,8 +103,10 @@ app). The head's editor uses `GET /api/permissions`,
 (`access: null` resets a member to the role default).
 
 **Rooms & floors:** everyone sees them; setting them up (Settings → Rooms &
-floors) takes `settings:manage` (head and managers). Putting a task in a room
-is part of editing the task. Reordering tasks within a place is the
+floors) takes `settings:manage` (head and managers). Putting a task or an
+inventory item in a room is part of editing it. Pointing a location NFC tag at
+a room is like its other scan settings: any Inventory access in the app,
+`settings:manage` on the web Settings card. Reordering tasks within a place is the
 household's shared list, so it takes Tasks **Edit others'** (head only by
 default).
 

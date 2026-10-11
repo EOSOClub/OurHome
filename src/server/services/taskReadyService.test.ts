@@ -1,5 +1,17 @@
-import { describe, expect, it } from 'vitest';
-import { taskReadyBody } from '@/server/services/taskReadyService';
+import { describe, expect, it, vi } from 'vitest';
+import type { Prisma } from '@prisma/client';
+import { announceTaskReady, taskReadyBody } from '@/server/services/taskReadyService';
+
+describe('announceTaskReady', () => {
+  it('gives each notice a per-task dedupeKey (the unique index rejects a second keyless row)', async () => {
+    const create = vi.fn();
+    const db = { notification: { create, deleteMany: vi.fn() } } as unknown as Prisma.TransactionClient;
+    const task = { id: 't1', title: 'Bins', assigneeId: 'u', dueDate: null };
+    await announceTaskReady(db, 'h', task, null);
+    await announceTaskReady(db, 'h', { ...task, id: 't2' }, null);
+    expect(create.mock.calls.map((c) => c[0].data.dedupeKey)).toEqual(['task_ready:task:t1', 'task_ready:task:t2']);
+  });
+});
 
 describe('taskReadyBody', () => {
   const base = { id: 't', title: 'Bins', assigneeId: 'u' };

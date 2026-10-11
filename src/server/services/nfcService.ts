@@ -1,5 +1,6 @@
-import type { NfcTag } from '@prisma/client';
+import type { NfcTag, Prisma } from '@prisma/client';
 import { prisma } from '@/server/db/prisma';
+import { assertPlaceRef } from '@/server/services/householdRefs';
 import type { NfcLookupDTO, NfcTagDTO } from '@/lib/types';
 import type { NfcScanAction } from '@/lib/enums';
 import type {
@@ -14,7 +15,7 @@ import {
   findItemInHousehold,
   itemToDTO,
 } from '@/server/services/inventoryService';
-import { NotFoundError } from '@/server/services/errors';
+import { ConflictError, NotFoundError } from '@/server/services/errors';
 
 /** Everything a tag stores as JSON text in `config`. */
 export interface TagConfig {
@@ -44,9 +45,14 @@ export function parseTagItemId(tag: Pick<NfcTag, 'config'>): string | null {
   return parseTagConfig(tag).itemId ?? null;
 }
 
+// A location tag's room, for its DTO.
+const tagInclude = { room: { select: { id: true, name: true } } } satisfies Prisma.NfcTagInclude;
+type TagWithRoom = Prisma.NfcTagGetPayload<{ include: typeof tagInclude }>;
+
 export async function listNfcTags(householdId: string): Promise<NfcTagDTO[]> {
   const tags = await prisma.nfcTag.findMany({
     where: { householdId },
+    include: tagInclude,
     orderBy: { label: 'asc' },
   });
 
@@ -66,7 +72,7 @@ export async function listNfcTags(householdId: string): Promise<NfcTagDTO[]> {
 }
 
 function tagToDTO(
-  tag: NfcTag,
+  tag: TagWithRoom,
   itemsById: Map<string, { id: string; name: string }>,
 ): NfcTagDTO {
   const config = parseTagConfig(tag);
@@ -77,6 +83,7 @@ function tagToDTO(
     label: tag.label,
     represents: tag.represents,
     item,
+    room: tag.room ? { id: tag.room.id, name: tag.room.name } : null,
     scanAction: config.scanAction ?? 'open',
     shoppingListId: config.shoppingListId ?? null,
   };
@@ -93,31 +100,39 @@ export async function registerNfcTag(
   userId: string | null,
   input: RegisterNfcTagInput,
 ): Promise<NfcTagDTO> {
-  // Only allow binding to an item that exists in this household.
-  const item = await findItemInHousehold(input.itemId, householdId);
+  // Location tags open a room and have no item; every other kind is bound to
+  // an item. Only refs in this household are allowed.
+  const isLocation = input.represents === 'location';
+  const item = isLocation ? null : await findItemInHousehold(input.itemId!, householdId);
+  const roomId = isLocation ? input.roomId! : null;
+  if (isLocation) await assertPlaceRef(prisma, householdId, roomId, null);
   await assertShoppingList(householdId, input.shoppingListId);
   // Re-binding keeps the tag's app settings unless new ones are given.
   const existing = await prisma.nfcTag.findUnique({
     where: { householdId_tagId: { householdId, tagId: input.tagId } },
     select: { config: true },
   });
+  const kept = parseTagConfig(existing);
+  delete kept.itemId;
   const config = JSON.stringify({
-    ...parseTagConfig(existing),
-    itemId: item.id,
+    ...kept,
+    ...(item ? { itemId: item.id } : {}),
     ...(input.scanAction ? { scanAction: input.scanAction } : {}),
     ...(input.shoppingListId !== undefined ? { shoppingListId: input.shoppingListId } : {}),
   } satisfies TagConfig);
 
   const tag = await prisma.nfcTag.upsert({
     where: { householdId_tagId: { householdId, tagId: input.tagId } },
-    update: { label: input.label, represents: input.represents, config },
+    update: { label: input.label, represents: input.represents, roomId, config },
     create: {
       householdId,
       tagId: input.tagId,
       label: input.label,
       represents: input.represents,
+      roomId,
       config,
     },
+    include: tagInclude,
   });
 
   await logActivity({
@@ -126,10 +141,12 @@ export async function registerNfcTag(
     verb: 'updated',
     subjectType: 'nfc_tag',
     subjectId: tag.id,
-    message: `mapped tag “${tag.label}” to “${item.name}”`,
+    message: item
+      ? `mapped tag “${tag.label}” to “${item.name}”`
+      : `set tag “${tag.label}” to open the room “${tag.room?.name ?? ''}”`,
   });
 
-  return tagToDTO(tag, new Map([[item.id, item]]));
+  return tagToDTO(tag, new Map(item ? [[item.id, item]] : []));
 }
 
 /**
@@ -139,6 +156,7 @@ export async function registerNfcTag(
 export async function lookupNfcTag(householdId: string, tagId: string): Promise<NfcLookupDTO> {
   const tag = await prisma.nfcTag.findUnique({
     where: { householdId_tagId: { householdId, tagId } },
+    include: tagInclude,
   });
   if (!tag) return { tagId, tag: null, item: null };
 
@@ -154,14 +172,37 @@ export async function lookupNfcTag(householdId: string, tagId: string): Promise<
 
 /**
  * Set up a tag from the Android app in one step: bind it to an existing item,
- * or create the item first. Re-running it re-binds the tag (the upsert in
- * registerNfcTag). Recorded as an `nfc_register` event for the scan history.
+ * create the item first, or make it a location tag for a room. Re-running it
+ * re-binds the tag (the upsert in registerNfcTag). Recorded as an
+ * `nfc_register` event for the scan history.
  */
 export async function setupNfcTag(
   householdId: string,
   userId: string,
   input: NfcSetupInput,
 ): Promise<NfcLookupDTO> {
+  if (input.roomId) {
+    const room = await prisma.room.findFirst({ where: { id: input.roomId, householdId }, select: { name: true } });
+    if (!room) throw new NotFoundError('That room is not in this household.');
+    await registerNfcTag(householdId, userId, {
+      tagId: input.tagId,
+      label: input.label ?? room.name,
+      roomId: input.roomId,
+      represents: 'location',
+      scanAction: input.scanAction,
+    });
+    await prisma.eventLog.create({
+      data: {
+        householdId,
+        eventType: 'nfc_register',
+        source: 'nfc',
+        payload: JSON.stringify({ tagId: input.tagId, roomId: input.roomId, actorId: userId }),
+        processedAt: new Date(),
+      },
+    });
+    return lookupNfcTag(householdId, input.tagId);
+  }
+
   const item = input.newItem
     ? await createInventoryItem(householdId, userId, {
         name: input.newItem.name,
@@ -170,6 +211,8 @@ export async function setupNfcTag(
         lowThreshold: input.newItem.lowThreshold,
         reorderIntervalDays: null,
         categoryId: null,
+        roomId: input.newItem.roomId,
+        floorId: input.newItem.floorId,
       })
     : await findItemInHousehold(input.itemId!, householdId);
 
@@ -201,7 +244,8 @@ export async function setupNfcTag(
   return lookupNfcTag(householdId, input.tagId);
 }
 
-/** Change how the Android app treats a scan of [input.tagId]. */
+/** Change how the Android app treats a scan of [input.tagId], or which room a
+ *  location tag opens. */
 export async function updateTagSettings(
   householdId: string,
   input: NfcTagSettingsInput,
@@ -210,13 +254,20 @@ export async function updateTagSettings(
     where: { householdId_tagId: { householdId, tagId: input.tagId } },
   });
   if (!tag) throw new NotFoundError(`No NFC tag registered for “${input.tagId}”.`);
+  if (input.roomId !== undefined && tag.represents !== 'location') {
+    throw new ConflictError('Only location tags open a room.');
+  }
   await assertShoppingList(householdId, input.shoppingListId);
+  await assertPlaceRef(prisma, householdId, input.roomId, null);
   const config: TagConfig = {
     ...parseTagConfig(tag),
-    scanAction: input.scanAction,
+    ...(input.scanAction ? { scanAction: input.scanAction } : {}),
     ...(input.shoppingListId !== undefined ? { shoppingListId: input.shoppingListId } : {}),
   };
-  await prisma.nfcTag.update({ where: { id: tag.id }, data: { config: JSON.stringify(config) } });
+  await prisma.nfcTag.update({
+    where: { id: tag.id },
+    data: { config: JSON.stringify(config), ...(input.roomId !== undefined ? { roomId: input.roomId } : {}) },
+  });
   return lookupNfcTag(householdId, input.tagId);
 }
 

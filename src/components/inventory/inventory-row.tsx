@@ -11,9 +11,11 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import type { CategoryDTO, InventoryItemDTO } from '@/lib/types';
+import type { CategoryDTO, InventoryItemDTO, PlacesDTO } from '@/lib/types';
 import { canModify, hasAnyAccess, type PageAccess } from '@/lib/permissions';
 import type { UpdateItemPayload } from '@/components/inventory/inventory-view';
+import { LocationSelect, placeIds, placeValue } from '@/components/location-select';
+import { placeLabel } from '@/lib/places';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -24,6 +26,8 @@ import { Select } from '@/components/ui/select';
 export function InventoryRow({
   item,
   categories,
+  places,
+  hidePlace = false,
   busy,
   access,
   userId,
@@ -37,6 +41,9 @@ export function InventoryRow({
 }: {
   item: InventoryItemDTO;
   categories: CategoryDTO[];
+  places: PlacesDTO;
+  /** Under its room's heading already ("By room"): don't repeat the place. */
+  hidePlace?: boolean;
   busy: boolean;
   /** The viewer's Inventory access; own = items they added. */
   access: PageAccess;
@@ -69,6 +76,7 @@ export function InventoryRow({
       <EditForm
         item={item}
         categories={categories}
+        places={places}
         busy={busy}
         onCancel={() => setEditing(false)}
         onSave={(payload) => {
@@ -80,6 +88,7 @@ export function InventoryRow({
   }
 
   const unit = item.unit ? ` ${item.unit}` : '';
+  const place = hidePlace ? null : placeLabel(item);
 
   return (
     <div className="flex flex-wrap items-center gap-3 py-2.5">
@@ -126,6 +135,7 @@ export function InventoryRow({
           {item.quantity}
           {unit}
           {item.lowThreshold > 0 ? ` · low at ${item.lowThreshold}${unit}` : ''}
+          {place ? ` · ${place}` : ''}
         </p>
       </div>
 
@@ -225,12 +235,14 @@ export function InventoryRow({
 function EditForm({
   item,
   categories,
+  places,
   busy,
   onCancel,
   onSave,
 }: {
   item: InventoryItemDTO;
   categories: CategoryDTO[];
+  places: PlacesDTO;
   busy: boolean;
   onCancel: () => void;
   onSave: (payload: UpdateItemPayload) => void;
@@ -242,6 +254,8 @@ function EditForm({
     item.reorderIntervalDays !== null ? String(item.reorderIntervalDays) : '',
   );
   const [categoryId, setCategoryId] = useState(item.category?.id ?? '');
+  const [location, setLocation] = useState(placeValue(item));
+  const hasPlaces = places.floors.length > 0 || places.rooms.length > 0;
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -256,6 +270,8 @@ function EditForm({
       reorderIntervalDays:
         Number.isFinite(interval) && interval > 0 ? interval : null,
       categoryId: categoryId || null,
+      // Without places there's no picker: leave the stored place alone.
+      ...(hasPlaces ? placeIds(location) : {}),
     });
   }
 
@@ -326,6 +342,18 @@ function EditForm({
             ))}
           </Select>
         </div>
+        {hasPlaces ? (
+          <div className="space-y-1.5">
+            <Label htmlFor={`edit-location-${item.id}`}>Kept in</Label>
+            <LocationSelect
+              id={`edit-location-${item.id}`}
+              places={places}
+              value={location}
+              onChange={setLocation}
+              emptyLabel="Not set"
+            />
+          </div>
+        ) : null}
       </div>
       <div className="flex items-end gap-2 sm:col-span-2">
         <Button type="submit" size="icon" disabled={busy || !name.trim()} aria-label="Save">

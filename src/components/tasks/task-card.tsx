@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import {
+  Archive,
+  ArchiveRestore,
   ArrowDown,
   ArrowUp,
   Check,
@@ -22,7 +24,7 @@ import type { TaskDTO } from '@/lib/types';
 import { formatPoints, toCenti } from '@/lib/taskPoints';
 import { placeLabel } from '@/lib/places';
 import { canModify, type PageAccess } from '@/lib/permissions';
-import { TASK_TYPE_LABELS, type TaskType } from '@/lib/enums';
+import { PRIORITY_LABELS, TASK_TYPE_LABELS, type TaskPriority, type TaskType } from '@/lib/enums';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -62,6 +64,7 @@ export function TaskCard({
   onComplete,
   onDelete,
   onEdit,
+  onArchive,
   onToggleSubtask,
   onAddSubtask,
   onDeleteSubtask,
@@ -81,6 +84,8 @@ export function TaskCard({
   onComplete: (id: string) => void;
   onDelete: (id: string) => void;
   onEdit: (task: TaskDTO) => void;
+  /** Park the task out of the active list (true) or bring it back (false). */
+  onArchive: (taskId: string, archived: boolean) => void;
   onToggleSubtask: (subtaskId: string, done: boolean) => void;
   onAddSubtask: (taskId: string, title: string) => void;
   onDeleteSubtask: (subtaskId: string) => void;
@@ -101,6 +106,7 @@ export function TaskCard({
 }) {
   const timeZone = useHouseholdZone();
   const done = task.status === 'completed';
+  const archived = task.status === 'archived';
   // A cycle task completed inside its window waits for the next cycle.
   const doneThisCycle = done && !!task.cycleEndsAt;
   const canEdit = canModify(access, 'edit', task.createdById, userId);
@@ -132,8 +138,9 @@ export function TaskCard({
           size="icon"
           className="size-9 shrink-0 rounded-full"
           onClick={() => onComplete(task.id)}
-          disabled={completing || done}
-          aria-label={done ? 'Completed' : 'Mark complete'}
+          // The server refuses to complete an archived task; restore it first.
+          disabled={completing || done || archived}
+          aria-label={done ? 'Completed' : archived ? 'Archived' : 'Mark complete'}
         >
           {completing ? (
             <Loader2 className="animate-spin" />
@@ -160,7 +167,7 @@ export function TaskCard({
             </p>
             <div className="flex shrink-0 items-center gap-1">
               <Badge variant={priorityVariant(task.priority)}>
-                {task.priority}
+                {PRIORITY_LABELS[task.priority as TaskPriority] ?? task.priority}
               </Badge>
               {move ? (
                 <>
@@ -195,6 +202,18 @@ export function TaskCard({
                   aria-label="Edit task"
                 >
                   <Pencil />
+                </Button>
+              ) : null}
+              {canEdit && (archived || !done) ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 text-muted-foreground hover:text-foreground"
+                  onClick={() => onArchive(task.id, !archived)}
+                  aria-label={archived ? 'Restore task' : 'Archive task'}
+                  title={archived ? 'Restore task' : 'Archive task'}
+                >
+                  {archived ? <ArchiveRestore /> : <Archive />}
                 </Button>
               ) : null}
               {canDelete ? (

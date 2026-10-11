@@ -5,8 +5,18 @@ import {
   featureForPath,
   hiddenSubjectTypes,
   maskAccess,
+  placesEnabled,
 } from '@/lib/features';
 import { FULL_ACCESS } from '@/lib/permissions';
+
+describe('placesEnabled', () => {
+  it('is on while Tasks or Inventory is on', () => {
+    expect(placesEnabled(enabledFeatures([]))).toBe(true);
+    expect(placesEnabled(enabledFeatures(['tasks']))).toBe(true);
+    expect(placesEnabled(enabledFeatures(['inventory']))).toBe(true);
+    expect(placesEnabled(enabledFeatures(['tasks', 'inventory']))).toBe(false);
+  });
+});
 
 describe('enabledFeatures', () => {
   it('has everything on when nothing is stored', () => {

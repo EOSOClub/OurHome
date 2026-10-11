@@ -11,7 +11,7 @@ import {
 import { ChevronDown, ListChecks, Loader2, Plus, Trophy } from 'lucide-react';
 import type { CategoryDTO, MemberDTO, PlacesDTO, TaskDTO } from '@/lib/types';
 import { groupByPlace, moveId } from '@/lib/places';
-import { TASK_STATUSES, TASK_TYPES, TASK_TYPE_LABELS } from '@/lib/enums';
+import { TASK_STATUSES, TASK_STATUS_LABELS, TASK_TYPES, TASK_TYPE_LABELS } from '@/lib/enums';
 import { cn } from '@/lib/utils';
 import { apiFetch } from '@/lib/api';
 import { toast } from '@/components/ui/toast';
@@ -271,6 +271,20 @@ export function TasksView({
     },
   });
 
+  // Archiving parks a task out of the active list (and stops its cycle clock);
+  // restoring puts it back to do. Both are plain status edits on the server.
+  const archiveMutation = useMutation({
+    mutationFn: ({ taskId, archived }: { taskId: string; archived: boolean }) =>
+      apiFetch<TaskDTO>('/api/tasks/update', {
+        method: 'POST',
+        body: JSON.stringify({ taskId, status: archived ? 'archived' : 'pending' }),
+      }),
+    onSuccess: (task, { archived }) => {
+      toast.success(archived ? `Archived “${task.title}”` : `Restored “${task.title}”`);
+      invalidate();
+    },
+  });
+
   const addSubtaskMutation = useMutation({
     mutationFn: (vars: { taskId: string; title: string }) =>
       apiFetch<TaskDTO>('/api/subtasks', {
@@ -480,6 +494,8 @@ export function TasksView({
       setEditing(task);
       setShowForm(false);
     },
+    onArchive: (taskId: string, archived: boolean) =>
+      archiveMutation.mutate({ taskId, archived }),
     onToggleSubtask: (subtaskId: string, done: boolean) =>
       toggleSubtaskMutation.mutate({ subtaskId, done }),
     onUndoCompletion: (completionId: string) => undoMutation.mutate(completionId),
@@ -580,7 +596,7 @@ export function TasksView({
               <option value="">All active</option>
               {TASK_STATUSES.map((s) => (
                 <option key={s} value={s}>
-                  {s.replace('_', ' ')}
+                  {TASK_STATUS_LABELS[s]}
                 </option>
               ))}
             </Select>

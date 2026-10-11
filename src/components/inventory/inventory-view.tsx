@@ -6,11 +6,16 @@ import { Boxes, Loader2, Plus, Search, Tag, X } from 'lucide-react';
 import type {
   CategoryDTO,
   InventoryItemDTO,
+  PlacesDTO,
   ShoppingItemDTO,
   ShoppingListDTO,
 } from '@/lib/types';
 import type { PageAccess } from '@/lib/permissions';
 import { apiFetch } from '@/lib/api';
+import { groupByPlace } from '@/lib/places';
+import { cn } from '@/lib/utils';
+import { LocationSelect, placeIds } from '@/components/location-select';
+import { PLACES_KEY } from '@/components/settings/places-card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -39,6 +44,8 @@ interface AddItemPayload {
   lowThreshold: number;
   reorderIntervalDays?: number;
   categoryId?: string;
+  roomId?: string | null;
+  floorId?: string | null;
 }
 
 export interface UpdateItemPayload {
@@ -48,26 +55,38 @@ export interface UpdateItemPayload {
   lowThreshold?: number;
   reorderIntervalDays?: number | null;
   categoryId?: string | null;
+  roomId?: string | null;
+  floorId?: string | null;
 }
 
 interface ItemGroup {
   key: string;
   label: string;
   color: string | null;
+  /** 'floor' headings sit above their rooms ('room', indented) in "By room". */
+  level?: 'floor' | 'room';
   items: InventoryItemDTO[];
+  /** Shown count when it isn't items.length (a floor counts its rooms too). */
+  count?: number;
 }
+
+// 'room' groups by Floor → Room in the household's order (src/lib/places.ts).
+type GroupBy = 'category' | 'room';
 
 const ADJUST_KEY = ['inventory', 'adjust'] as const;
 
 export function InventoryView({
   initialItems,
   categories: initialCategories,
+  places: initialPlaces,
   access,
   userId,
   canAddToShopping,
 }: {
   initialItems: InventoryItemDTO[];
   categories: CategoryDTO[];
+  /** Floors and rooms (Settings → Rooms & floors), each in the household's order. */
+  places: PlacesDTO;
   /** The viewer's Inventory access (Members → Permissions). */
   access: PageAccess;
   userId: string;
@@ -107,6 +126,14 @@ export function InventoryView({
     queryFn: () => apiFetch<CategoryDTO[]>('/api/inventory/categories'),
     initialData: initialCategories,
   });
+
+  const { data: places = initialPlaces } = useQuery({
+    queryKey: PLACES_KEY,
+    queryFn: () => apiFetch<PlacesDTO>('/api/places'),
+    initialData: initialPlaces,
+  });
+  const hasPlaces = places.floors.length > 0 || places.rooms.length > 0;
+  const [groupBy, setGroupBy] = useState<GroupBy>('category');
 
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: ITEMS_KEY });
@@ -285,29 +312,56 @@ export function InventoryView({
       (query === '' || i.name.toLowerCase().includes(query)),
   );
 
-  // Group by category (alphabetical, matching the categories query order),
-  // with uncategorized items last. Server order within a group is preserved.
-  const byCategory = new Map<string, InventoryItemDTO[]>();
-  for (const item of visible) {
-    const key = item.category?.id ?? '';
-    const bucket = byCategory.get(key);
-    if (bucket) bucket.push(item);
-    else byCategory.set(key, [item]);
-  }
   const groups: ItemGroup[] = [];
-  for (const c of categories) {
-    const bucket = byCategory.get(c.id);
-    if (bucket)
-      groups.push({ key: c.id, label: c.name, color: c.color, items: bucket });
-  }
-  const uncategorized = byCategory.get('');
-  if (uncategorized) {
-    groups.push({
-      key: 'uncategorized',
-      label: 'Uncategorized',
-      color: null,
-      items: uncategorized,
-    });
+  if (groupBy === 'room' && hasPlaces) {
+    // Floor → Room in the household's order, then items kept nowhere in
+    // particular. Server order (low first, then name) is kept within a room.
+    const placed = groupByPlace(
+      visible.map((item) => ({ ...item, position: null })),
+      places.floors,
+      places.rooms,
+    );
+    for (const g of placed.floors) {
+      const floorKey = `floor:${g.floor?.id ?? 'none'}`;
+      groups.push({
+        key: floorKey,
+        label: g.floor?.name ?? 'Other rooms',
+        color: null,
+        level: 'floor',
+        items: g.tasks,
+        count: g.tasks.length + g.rooms.reduce((n, r) => n + r.tasks.length, 0),
+      });
+      for (const r of g.rooms) {
+        groups.push({ key: `room:${r.room.id}`, label: r.room.name, color: null, level: 'room', items: r.tasks });
+      }
+    }
+    if (placed.house.length) {
+      groups.push({ key: 'house', label: 'No room set', color: null, level: 'floor', items: placed.house });
+    }
+  } else {
+    // Group by category (alphabetical, matching the categories query order),
+    // with uncategorized items last. Server order within a group is preserved.
+    const byCategory = new Map<string, InventoryItemDTO[]>();
+    for (const item of visible) {
+      const key = item.category?.id ?? '';
+      const bucket = byCategory.get(key);
+      if (bucket) bucket.push(item);
+      else byCategory.set(key, [item]);
+    }
+    for (const c of categories) {
+      const bucket = byCategory.get(c.id);
+      if (bucket)
+        groups.push({ key: c.id, label: c.name, color: c.color, items: bucket });
+    }
+    const uncategorized = byCategory.get('');
+    if (uncategorized) {
+      groups.push({
+        key: 'uncategorized',
+        label: 'Uncategorized',
+        color: null,
+        items: uncategorized,
+      });
+    }
   }
 
   const affectedByCategoryDelete = categoryToDelete
@@ -330,6 +384,7 @@ export function InventoryView({
       {access.create ? (
         <QuickAddItem
           categories={categories}
+          places={places}
           submitting={addItem.isPending}
           onAdd={(payload, onSuccess) => addItem.mutate(payload, { onSuccess })}
         />
@@ -385,6 +440,17 @@ export function InventoryView({
             >
               Low only{lowCount > 0 ? ` (${lowCount})` : ''}
             </Button>
+            {hasPlaces ? (
+              <Select
+                aria-label="Group items"
+                value={groupBy}
+                onChange={(e) => setGroupBy(e.target.value as GroupBy)}
+                className="w-auto shrink-0"
+              >
+                <option value="category">By category</option>
+                <option value="room">By room</option>
+              </Select>
+            ) : null}
           </div>
 
           {visible.length === 0 ? (
@@ -396,8 +462,20 @@ export function InventoryView({
           ) : (
             <div className="space-y-4">
               {groups.map((group) => (
-                <section key={group.key} aria-label={group.label}>
-                  <h2 className="mb-1.5 flex items-center gap-1.5 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <section
+                  key={group.key}
+                  aria-label={group.label}
+                  className={cn(group.level === 'room' && 'border-l-2 border-border pl-3')}
+                >
+                  <h2
+                    className={cn(
+                      'flex items-center gap-1.5 px-1',
+                      group.items.length > 0 && 'mb-1.5',
+                      group.level === 'room'
+                        ? 'text-sm font-medium'
+                        : 'text-xs font-semibold uppercase tracking-wide text-muted-foreground',
+                    )}
+                  >
                     {group.color ? (
                       <span
                         className="inline-block size-2.5 shrink-0 rounded-full"
@@ -405,14 +483,19 @@ export function InventoryView({
                       />
                     ) : null}
                     {group.label}
-                    <span className="font-normal">({group.items.length})</span>
+                    <span className="font-normal text-muted-foreground">
+                      ({group.count ?? group.items.length})
+                    </span>
                   </h2>
+                  {group.items.length > 0 ? (
                   <ul className="divide-y divide-border rounded-lg border border-border bg-card px-4">
                     {group.items.map((item) => (
                       <li key={item.id}>
                         <InventoryRow
                           item={item}
                           categories={categories}
+                          places={places}
+                          hidePlace={groupBy === 'room' && hasPlaces}
                           busy={busyItemId === item.id}
                           access={access}
                           userId={userId}
@@ -435,6 +518,7 @@ export function InventoryView({
                       </li>
                     ))}
                   </ul>
+                  ) : null}
                 </section>
               ))}
             </div>
@@ -637,10 +721,12 @@ function CategoryManager({
 
 function QuickAddItem({
   categories,
+  places,
   submitting,
   onAdd,
 }: {
   categories: CategoryDTO[];
+  places: PlacesDTO;
   submitting: boolean;
   onAdd: (payload: AddItemPayload, onSuccess: () => void) => void;
 }) {
@@ -650,7 +736,10 @@ function QuickAddItem({
   const [lowThreshold, setLowThreshold] = useState('0');
   const [reorderIntervalDays, setReorderIntervalDays] = useState('');
   const [categoryId, setCategoryId] = useState('');
+  // "room:<id>", "floor:<id>" or "" (not set).
+  const [location, setLocation] = useState('');
   const [showDetails, setShowDetails] = useState(false);
+  const hasPlaces = places.floors.length > 0 || places.rooms.length > 0;
 
   function reset() {
     setName('');
@@ -659,6 +748,7 @@ function QuickAddItem({
     setLowThreshold('0');
     setReorderIntervalDays('');
     setCategoryId('');
+    // The location stays: items are often added a room at a time.
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -676,6 +766,7 @@ function QuickAddItem({
     if (Number.isFinite(interval) && interval > 0)
       payload.reorderIntervalDays = interval;
     if (categoryId) payload.categoryId = categoryId;
+    if (location) Object.assign(payload, placeIds(location));
     // The form keeps its values until the server confirms the save, so a
     // failed request doesn't throw the input away.
     onAdd(payload, reset);
@@ -775,6 +866,18 @@ function QuickAddItem({
               ))}
             </Select>
           </div>
+          {hasPlaces ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="qa-location">Kept in</Label>
+              <LocationSelect
+                id="qa-location"
+                places={places}
+                value={location}
+                onChange={setLocation}
+                emptyLabel="Not set"
+              />
+            </div>
+          ) : null}
         </div>
       ) : null}
     </form>

@@ -31,6 +31,11 @@ export function taskReadyBody(task: ReadyTask, timeZone?: string): string {
   return `${lead} — due ${due}.`;
 }
 
+/** The notice's dedupeKey: one per task, as the unique index needs a key on every row. */
+export function taskReadyKey(taskId: string): string {
+  return `task_ready:task:${taskId}`;
+}
+
 /** Removes the task's "your turn" notice, if any. */
 export async function clearTaskReady(db: Db, householdId: string, taskId: string): Promise<void> {
   await db.notification.deleteMany({ where: { householdId, type: 'task_ready', subjectId: taskId } });
@@ -60,6 +65,7 @@ export async function announceTaskReady(
       channel: 'in_app',
       subjectType: 'task',
       subjectId: task.id,
+      dedupeKey: taskReadyKey(task.id),
       // Explicit null so unread filters match (see notificationService).
       readAt: null,
     },

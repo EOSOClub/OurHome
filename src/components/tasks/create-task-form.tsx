@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { LocationSelect, placeIds, placeValue } from '@/components/location-select';
 import {
   PointsEditor,
   draftFromTask,
@@ -123,9 +124,7 @@ export function CreateTaskForm({
   const [points, setPoints] = useState<PointsDraft>(() => draftFromTask(initial));
   const [categoryId, setCategoryId] = useState(initial?.category?.id ?? '');
   // "room:<id>", "floor:<id>" or "" (the whole house).
-  const [location, setLocation] = useState(
-    initial?.room ? `room:${initial.room.id}` : initial?.floor ? `floor:${initial.floor.id}` : '',
-  );
+  const [location, setLocation] = useState(placeValue(initial));
   const [assigneeId, setAssigneeId] = useState(initial?.assignee?.id ?? '');
   const [rotation, setRotation] = useState<string[]>(
     () => initial?.rotation?.map((m) => m.id) ?? [],
@@ -184,8 +183,7 @@ export function CreateTaskForm({
       points: points.task.pointsFollowTime || points.task.basePointsCenti === null ? null : points.task.basePointsCenti / 100,
       pointsFollowTime: points.task.pointsFollowTime,
       categoryId: categoryId || null,
-      roomId: location.startsWith('room:') ? location.slice(5) : null,
-      floorId: location.startsWith('floor:') ? location.slice(6) : null,
+      ...placeIds(location),
       assigneeId: currentTurn || null,
       rotationUserIds: rotating ? rotation : [],
       subtasks: points.steps
@@ -333,33 +331,13 @@ export function CreateTaskForm({
             {places.floors.length || places.rooms.length ? (
               <div className="space-y-2">
                 <Label htmlFor="location">Location</Label>
-                <Select id="location" value={location} onChange={(e) => setLocation(e.target.value)}>
-                  <option value="">Whole house</option>
-                  {/* Each floor: the whole floor, then its rooms. */}
-                  {places.floors.map((f) => (
-                    <optgroup key={f.id} label={f.name}>
-                      <option value={`floor:${f.id}`}>All of {f.name}</option>
-                      {places.rooms
-                        .filter((r) => r.floorId === f.id)
-                        .map((r) => (
-                          <option key={r.id} value={`room:${r.id}`}>
-                            {r.name}
-                          </option>
-                        ))}
-                    </optgroup>
-                  ))}
-                  {places.rooms.some((r) => !r.floorId || !places.floors.some((f) => f.id === r.floorId)) ? (
-                    <optgroup label={places.floors.length ? 'Other rooms' : 'Rooms'}>
-                      {places.rooms
-                        .filter((r) => !r.floorId || !places.floors.some((f) => f.id === r.floorId))
-                        .map((r) => (
-                          <option key={r.id} value={`room:${r.id}`}>
-                            {r.name}
-                          </option>
-                        ))}
-                    </optgroup>
-                  ) : null}
-                </Select>
+                <LocationSelect
+                  id="location"
+                  places={places}
+                  value={location}
+                  onChange={setLocation}
+                  emptyLabel="Whole house"
+                />
               </div>
             ) : null}
           </div>

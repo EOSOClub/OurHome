@@ -18,7 +18,9 @@ import { apiFetch } from '@/lib/api';
 import { CategoriesCard } from '@/components/settings/categories-card';
 import { PaperlessCard } from '@/components/settings/paperless-card';
 import { useHouseholdFeatures } from '@/components/household-features';
-import { PlacesCard } from '@/components/settings/places-card';
+import { PLACES_KEY, PlacesCard } from '@/components/settings/places-card';
+import { LocationSelect } from '@/components/location-select';
+import { placesEnabled } from '@/lib/features';
 import type { PlacesDTO } from '@/lib/types';
 import { ExportCard } from '@/components/settings/export-card';
 import { PointsCard } from '@/components/settings/points-card';
@@ -110,12 +112,14 @@ export function SettingsView({
         </p>
       </div>
       {initialPoints ? <PointsCard initial={initialPoints} /> : null}
-      {/* Rooms are where tasks are done: hidden with Tasks. */}
-      {features.includes('tasks') ? <PlacesCard initial={initialPlaces} /> : null}
+      {/* Rooms are where tasks are done and stock is kept: shown while either is on. */}
+      {placesEnabled(features) ? <PlacesCard initial={initialPlaces} /> : null}
       <CategoriesCard initialCategories={initialCategories} />
       {features.includes('bills') ? <PaperlessCard /> : null}
       <HomeAssistantCard initialIntegrations={initialIntegrations} />
-      {features.includes('inventory') ? <NfcTagsCard initialTags={initialTags} items={items} /> : null}
+      {features.includes('inventory') ? (
+        <NfcTagsCard initialTags={initialTags} items={items} initialPlaces={initialPlaces} />
+      ) : null}
       {canExport ? <ExportCard /> : null}
     </div>
   );
@@ -295,14 +299,18 @@ function HomeAssistantCard({
 function NfcTagsCard({
   initialTags,
   items,
+  initialPlaces,
 }: {
   initialTags: NfcTagDTO[];
   items: ItemRef[];
+  initialPlaces: PlacesDTO;
 }) {
   const queryClient = useQueryClient();
   const [tagId, setTagId] = useState('');
   const [label, setLabel] = useState('');
   const [itemId, setItemId] = useState(items[0]?.id ?? '');
+  // "room:<id>" or "" — the room a location tag opens.
+  const [room, setRoom] = useState('');
   const [represents, setRepresents] = useState<NfcRepresents>('consumable');
   const [pendingDelete, setPendingDelete] = useState<NfcTagDTO | null>(null);
 
@@ -311,6 +319,14 @@ function NfcTagsCard({
     queryFn: () => apiFetch<NfcTagDTO[]>('/api/nfc/tags'),
     initialData: initialTags,
   });
+  // Shared with Rooms & floors above, so a new room shows here at once.
+  const { data: places = initialPlaces } = useQuery({
+    queryKey: PLACES_KEY,
+    queryFn: () => apiFetch<PlacesDTO>('/api/places'),
+    initialData: initialPlaces,
+  });
+  // Location tags open a room; every other kind is bound to an item.
+  const isLocation = represents === 'location';
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: TAGS_KEY });
 
@@ -318,7 +334,8 @@ function NfcTagsCard({
     mutationFn: (payload: {
       tagId: string;
       label: string;
-      itemId: string;
+      itemId?: string;
+      roomId?: string;
       represents: NfcRepresents;
     }) =>
       apiFetch<NfcTagDTO>('/api/nfc/tags', {
@@ -345,7 +362,9 @@ function NfcTagsCard({
     },
   });
 
-  const canSubmit = tagId.trim() && label.trim() && itemId;
+  const roomId = room.startsWith('room:') ? room.slice(5) : '';
+  const canSubmit = tagId.trim() && label.trim() && (isLocation ? roomId : itemId);
+  const hasRooms = places.rooms.length > 0;
 
   return (
     <Card>
@@ -354,14 +373,16 @@ function NfcTagsCard({
           <Tag className="size-4" /> NFC tags
         </CardTitle>
         <CardDescription>
-          Bind each scanned tag id to an inventory item. The scan amount comes
-          from Home Assistant each time.
+          Bind each scanned tag id to an inventory item (the scan amount comes
+          from Home Assistant each time), or make it a location tag: scanning
+          it with the Android app opens that room&apos;s tasks.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {items.length === 0 ? (
+        {items.length === 0 && !hasRooms ? (
           <p className="text-sm text-muted-foreground">
-            Add inventory items first, then map tags to them here.
+            Add inventory items (or rooms, in Rooms &amp; floors) first, then
+            map tags to them here.
           </p>
         ) : (
           <form
@@ -371,7 +392,7 @@ function NfcTagsCard({
                 register.mutate({
                   tagId: tagId.trim(),
                   label: label.trim(),
-                  itemId,
+                  ...(isLocation ? { roomId } : { itemId }),
                   represents,
                 });
             }}
@@ -395,20 +416,46 @@ function NfcTagsCard({
                 placeholder="e.g. Coffee shelf"
               />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="tag-item">Inventory item</Label>
-              <Select
-                id="tag-item"
-                value={itemId}
-                onChange={(e) => setItemId(e.target.value)}
-              >
-                {items.map((i) => (
-                  <option key={i.id} value={i.id}>
-                    {i.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
+            {isLocation ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="tag-room">Opens room</Label>
+                {hasRooms ? (
+                  <LocationSelect
+                    id="tag-room"
+                    places={places}
+                    value={room}
+                    onChange={setRoom}
+                    emptyLabel="Choose a room…"
+                    roomsOnly
+                  />
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Add a room in Rooms &amp; floors first.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <Label htmlFor="tag-item">Inventory item</Label>
+                {items.length ? (
+                  <Select
+                    id="tag-item"
+                    value={itemId}
+                    onChange={(e) => setItemId(e.target.value)}
+                  >
+                    {items.map((i) => (
+                      <option key={i.id} value={i.id}>
+                        {i.name}
+                      </option>
+                    ))}
+                  </Select>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Add an inventory item first.
+                  </p>
+                )}
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="tag-represents">Represents</Label>
               <Select
@@ -452,7 +499,13 @@ function NfcTagsCard({
                   <p className="truncate text-xs text-muted-foreground">
                     <code className="rounded bg-muted px-1">{tag.tagId}</code>
                     {' → '}
-                    {tag.item ? tag.item.name : 'unbound'}
+                    {tag.represents === 'location'
+                      ? tag.room
+                        ? `opens ${tag.room.name}`
+                        : 'no room'
+                      : tag.item
+                        ? tag.item.name
+                        : 'unbound'}
                     {' · '}
                     {NFC_REPRESENTS_LABELS[
                       tag.represents as (typeof NFC_REPRESENTS)[number]

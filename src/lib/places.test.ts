@@ -1,5 +1,36 @@
 import { describe, expect, it } from 'vitest';
-import { groupByPlace, moveId, orderTasks, placeLabel, type PlacedTask } from '@/lib/places';
+import {
+  groupByPlace,
+  moveId,
+  orderTasks,
+  placeColumns,
+  placeLabel,
+  placeRefs,
+  type PlacedTask,
+} from '@/lib/places';
+
+describe('placeColumns', () => {
+  it('stores a room, else a whole floor, else neither', () => {
+    expect(placeColumns('r1', 'f1')).toEqual({ roomId: 'r1', floorId: null });
+    expect(placeColumns(null, 'f1')).toEqual({ roomId: null, floorId: 'f1' });
+    expect(placeColumns(undefined, undefined)).toEqual({ roomId: null, floorId: null });
+  });
+});
+
+describe('placeRefs', () => {
+  const up = { id: 'f1', name: 'Upstairs' };
+  it("takes a room's floor from the room", () => {
+    expect(placeRefs({ room: { id: 'r1', name: 'Bath', floor: up }, floor: { id: 'f2', name: 'Old' } })).toEqual({
+      room: { id: 'r1', name: 'Bath' },
+      floor: up,
+    });
+    expect(placeRefs({ room: { id: 'r1', name: 'Bath', floor: null }, floor: null })).toEqual({
+      room: { id: 'r1', name: 'Bath' },
+      floor: null,
+    });
+    expect(placeRefs({ room: null, floor: up })).toEqual({ room: null, floor: up });
+  });
+});
 
 // Same cases as the app's PlacesTest.kt.
 

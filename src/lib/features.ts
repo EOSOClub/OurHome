@@ -53,6 +53,14 @@ export function enabledFeatures(disabled: readonly string[] | null | undefined):
   return FEATURES.filter((f) => !off.has(f));
 }
 
+/** Features that use floors and rooms (tasks are done there, stock is kept
+ *  there). Settings → Rooms & floors shows while any of them is on. */
+export const PLACE_FEATURES: readonly Feature[] = ['tasks', 'inventory'];
+
+export function placesEnabled(features: readonly Feature[]): boolean {
+  return PLACE_FEATURES.some((f) => features.includes(f));
+}
+
 /** Which feature each access-grid page belongs to. */
 export const ACCESS_PAGE_FEATURE: Record<AccessPage, Feature> = {
   tasks: 'tasks',

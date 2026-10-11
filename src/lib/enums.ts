@@ -274,6 +274,13 @@ export const PRIORITY_LABELS: Record<TaskPriority, string> = {
   urgent: 'Urgent',
 };
 
+export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
+  pending: 'To do',
+  in_progress: 'In progress',
+  completed: 'Completed',
+  archived: 'Archived',
+};
+
 export const TASK_TYPE_LABELS: Record<TaskType, string> = {
   one_time: 'One-time',
   recurring: 'Recurring',

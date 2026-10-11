@@ -18,14 +18,20 @@ const scanSettings = {
   shoppingListId: z.string().cuid().optional().nullable(),
 };
 
-// Register (or re-bind) a tag to a single inventory item.
-export const registerNfcTagSchema = z.object({
-  tagId: tagIdSchema,
-  label: z.string().trim().min(1).max(120),
-  itemId: z.string().cuid(),
-  represents: z.enum(NFC_REPRESENTS).default('consumable'),
-  ...scanSettings,
-});
+// Register (or re-bind) a tag: a location tag to a room, any other kind to a
+// single inventory item.
+export const registerNfcTagSchema = z
+  .object({
+    tagId: tagIdSchema,
+    label: z.string().trim().min(1).max(120),
+    itemId: z.string().cuid().optional().nullable(),
+    roomId: z.string().cuid().optional().nullable(),
+    represents: z.enum(NFC_REPRESENTS).default('consumable'),
+    ...scanSettings,
+  })
+  .refine((v) => (v.represents === 'location' ? Boolean(v.roomId) : Boolean(v.itemId)), {
+    message: 'A location tag needs a room; any other tag needs an item.',
+  });
 
 export type RegisterNfcTagInput = z.infer<typeof registerNfcTagSchema>;
 
@@ -49,34 +55,41 @@ export type NfcAppScanInput = z.infer<typeof nfcAppScanSchema>;
 
 const quantity = z.number().finite().min(0).max(1_000_000);
 
-// Set up a tag in one step: bind it to an existing item, or create the item.
+// Set up a tag in one step: bind it to an existing item, create the item, or
+// make it a location tag for a room.
 export const nfcSetupSchema = z
   .object({
     tagId: tagIdSchema,
-    // Defaults to the item's name.
+    // Defaults to the item's (or room's) name.
     label: z.string().trim().min(1).max(120).optional().nullable(),
     itemId: z.string().cuid().optional().nullable(),
+    roomId: z.string().cuid().optional().nullable(),
     newItem: z
       .object({
         name: z.string().trim().min(1).max(200),
         unit: z.string().trim().max(40).optional().nullable(),
         quantity: quantity.default(0),
         lowThreshold: quantity.default(0),
+        // Where it's kept: a room, or a whole floor.
+        roomId: z.string().cuid().optional().nullable(),
+        floorId: z.string().cuid().optional().nullable(),
       })
       .optional()
       .nullable(),
     ...scanSettings,
   })
-  .refine((v) => Boolean(v.itemId) !== Boolean(v.newItem), {
-    message: 'Pick an existing item or describe a new one (not both).',
+  .refine((v) => [v.itemId, v.newItem, v.roomId].filter(Boolean).length === 1, {
+    message: 'Pick an existing item, describe a new one, or pick a room (just one).',
   });
 export type NfcSetupInput = z.infer<typeof nfcSetupSchema>;
 
-// Change how the app treats a scan of an existing tag.
+// Change how the app treats a scan of an existing tag. Omitted fields keep
+// what the tag has; `roomId` only applies to location tags.
 export const nfcTagSettingsSchema = z.object({
   tagId: tagIdSchema,
-  scanAction: z.enum(NFC_SCAN_ACTIONS),
+  scanAction: z.enum(NFC_SCAN_ACTIONS).optional(),
   shoppingListId: z.string().cuid().optional().nullable(),
+  roomId: z.string().cuid().optional().nullable(),
 });
 export type NfcTagSettingsInput = z.infer<typeof nfcTagSettingsSchema>;
 

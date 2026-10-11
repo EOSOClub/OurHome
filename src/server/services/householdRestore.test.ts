@@ -13,6 +13,10 @@ const DONE = id(6);
 const RULE = id(7);
 const LIST = id(8);
 const ITEM = id(9);
+const FLOOR = id(12);
+const ROOM = id(13);
+const STOCK = id(14);
+const TAG = id(15);
 
 function sampleExport() {
   return {
@@ -49,11 +53,12 @@ function sampleExport() {
     shoppingLists: [{ id: LIST, householdId: H, name: 'Groceries', items: [{ id: ITEM, listId: LIST, name: 'Milk' }] }],
     requests: [],
     bugReports: [],
-    inventory: { items: [], purchases: [] },
+    places: { floors: [{ id: FLOOR, householdId: H, name: 'Ground' }], rooms: [{ id: ROOM, householdId: H, floorId: FLOOR, name: 'Garage' }] },
+    inventory: { items: [{ id: STOCK, householdId: H, name: 'Ice', roomId: ROOM, floorId: null }], purchases: [] },
     notifications: [
       { id: id(10), householdId: H, dedupeKey: `overdue:task:${TASK}`, audienceUserIds: [KID, HEAD], subjectId: TASK },
     ],
-    nfcTags: [],
+    nfcTags: [{ id: TAG, householdId: H, tagId: 'garage_door', represents: 'location', roomId: ROOM }],
     homeAssistant: [{ id: id(11), name: 'HA' }],
     paperless: { url: 'http://paperless:8000' },
   };
@@ -76,12 +81,16 @@ const FIELDS: Record<string, string[]> = {
   ShoppingList: ['id', 'householdId', 'name'],
   ShoppingItem: ['id', 'listId', 'name'],
   Notification: ['id', 'householdId', 'dedupeKey', 'audienceUserIds', 'subjectId'],
+  Floor: ['id', 'householdId', 'name'],
+  Room: ['id', 'householdId', 'floorId', 'name'],
+  InventoryItem: ['id', 'householdId', 'name', 'roomId', 'floorId'],
+  NfcTag: ['id', 'householdId', 'tagId', 'represents', 'roomId'],
 };
 const fields = (model: string) => new Set(FIELDS[model] ?? ['id']);
 
 describe('planRestore', () => {
   const plan = planRestore(sampleExport(), { newId: newIds(), fields });
-  const old = new Set([H, HEAD, KID, TASK, STEP, DONE, RULE, LIST, ITEM]);
+  const old = new Set([H, HEAD, KID, TASK, STEP, DONE, RULE, LIST, ITEM, FLOOR, ROOM, STOCK, TAG]);
   const containsOld = (v: unknown) => [...old].some((o) => JSON.stringify(v).includes(o));
 
   it('gives every record a new id and leaves no old id anywhere', () => {
@@ -103,6 +112,13 @@ describe('planRestore', () => {
     const note = plan.rows.Notification[0];
     expect(note.dedupeKey).toBe(`overdue:task:${task.id}`);
     expect(note.audienceUserIds).toEqual([kid.id, head.id]);
+  });
+
+  it('keeps where stock is kept and which room a location tag opens', () => {
+    const room = plan.rows.Room[0];
+    expect(room.floorId).toBe(plan.rows.Floor[0].id);
+    expect(plan.rows.InventoryItem[0].roomId).toBe(room.id);
+    expect(plan.rows.NfcTag[0].roomId).toBe(room.id);
   });
 
   it('drops relation objects and fields the schema lacks', () => {

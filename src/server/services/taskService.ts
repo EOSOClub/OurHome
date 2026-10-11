@@ -16,6 +16,7 @@ import type {
 } from '@/lib/validation/task';
 import { logActivity } from '@/server/services/activityService';
 import { assertCategoryRef, assertMemberRef, assertPlaceRef } from '@/server/services/householdRefs';
+import { placeColumns } from '@/lib/places';
 import {
   ConflictError,
   ForbiddenError,
@@ -486,11 +487,6 @@ async function writePoints(tx: Tx, taskId: string, ids: string[], state: PointsS
 }
 
 // --- Tasks --------------------------------------------------------------------------
-
-/** A room, else a whole floor, else neither (the whole house). */
-function placeColumns(roomId: string | null | undefined, floorId: string | null | undefined) {
-  return roomId ? { roomId, floorId: null } : { roomId: null, floorId: floorId ?? null };
-}
 
 /**
  * Hand-set order of the tasks in one place: positions = array index. Ids

@@ -54,7 +54,11 @@ export async function ingestNfcScan(
 
   const itemId = parseTagItemId(tag);
   if (!itemId) {
-    throw new NotFoundError(`Tag “${tag.tagId}” is not bound to an item.`);
+    throw new NotFoundError(
+      tag.represents === 'location'
+        ? `Tag “${tag.tagId}” opens a room in the app; it doesn't change stock.`
+        : `Tag “${tag.tagId}” is not bound to an item.`,
+    );
   }
 
   const item = await adjustQuantity(householdId, actorId, itemId, input.amount, {

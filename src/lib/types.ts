@@ -254,6 +254,10 @@ export interface InventoryItemDTO {
   lastRestockedAt: string | null;
   predictedDepletionAt: string | null;
   category: CategoryDTO | null;
+  /** Where it's kept (src/lib/places.ts). Both null = not set. */
+  room: PlaceRefDTO | null;
+  /** The whole floor it's kept on, or its room's floor. */
+  floor: PlaceRefDTO | null;
 }
 
 export interface NfcTagDTO {
@@ -262,6 +266,8 @@ export interface NfcTagDTO {
   label: string;
   represents: string;
   item: { id: string; name: string } | null;
+  /** Location tags: the room a scan opens (null = none set). */
+  room: PlaceRefDTO | null;
   /** Android app behaviour on scan: "open" | "notify" (NFC_SCAN_ACTIONS). */
   scanAction: string;
   /** Where "Add to shopping list" puts the item; null = first grocery list. */

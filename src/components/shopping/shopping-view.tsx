@@ -44,6 +44,48 @@ interface AddItemPayload {
   imageUrl?: string;
 }
 
+// Removing an item waits out its Undo toast (5s) before reaching the server,
+// so Undo just cancels: the original item keeps its creator, place in the list
+// and purchase history. Module-level so a removal still lands after the user
+// navigates to another page mid-window.
+const UNDO_WINDOW_MS = 5500;
+const pendingRemovals = new Map<string, ReturnType<typeof setTimeout>>();
+
+function sendRemoval(itemId: string, keepalive = false) {
+  return apiFetch<{ id: string }>('/api/shopping/items/delete', {
+    method: 'POST',
+    body: JSON.stringify({ itemId }),
+    keepalive,
+  });
+}
+
+// Closing the tab mid-window still removes what was removed.
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', () => {
+    for (const [itemId, timer] of pendingRemovals) {
+      clearTimeout(timer);
+      sendRemoval(itemId, true).catch(() => {});
+    }
+    pendingRemovals.clear();
+  });
+}
+
+/** A refetch mid-window would bring a removed item back; keep it hidden. */
+function hidePendingRemovals(lists: ShoppingListDTO[]): ShoppingListDTO[] {
+  if (pendingRemovals.size === 0) return lists;
+  return lists.map((list) => {
+    const gone = list.items.filter((i) => pendingRemovals.has(i.id));
+    if (gone.length === 0) return list;
+    const goneBought = gone.filter((i) => i.purchased).length;
+    return {
+      ...list,
+      openCount: list.openCount - (gone.length - goneBought),
+      purchasedCount: list.purchasedCount - goneBought,
+      items: list.items.filter((i) => !pendingRemovals.has(i.id)),
+    };
+  });
+}
+
 function plural(n: number): string {
   return n === 1 ? '' : 's';
 }
@@ -79,6 +121,7 @@ export function ShoppingView({
     queryKey: LISTS_KEY,
     queryFn: () => apiFetch<ShoppingListDTO[]>('/api/shopping/lists'),
     initialData: initialLists,
+    select: hidePendingRemovals,
   });
 
   // Derive the active list during render: honour the explicit selection when it
@@ -193,85 +236,32 @@ export function ShoppingView({
     onSettled: () => invalidate(),
   });
 
-  // Re-creates a deleted item via the regular add endpoint (the new item gets
-  // a fresh id), back in the cart if it was there. No local onError: the
-  // global MutationCache toast covers a failed undo, and mutate() swallows the
-  // rejection. Offered only to people who may add items (see deleteItem).
-  const undoDelete = useMutation({
-    mutationFn: async (item: ShoppingItemDTO) => {
-      const payload: AddItemPayload = {
-        listId: item.listId,
-        name: item.name,
-        quantity: item.quantity,
-        priority: item.priority,
-        recurring: item.recurring,
-      };
-      if (item.category) payload.categoryId = item.category.id;
-      if (item.notes) payload.notes = item.notes;
-      if (item.url) payload.url = item.url;
-      if (item.url && item.imageUrl) payload.imageUrl = item.imageUrl;
-      if (item.estimatedPrice != null) {
-        payload.estimatedPrice = item.estimatedPrice;
-      }
-      const restored = await apiFetch<ShoppingItemDTO>('/api/shopping/items', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-      if (item.purchased) {
-        await apiFetch<ShoppingItemDTO>('/api/shopping/items/purchase', {
-          method: 'POST',
-          body: JSON.stringify({ itemId: restored.id, purchased: true }),
-        });
-      }
-      return restored;
-    },
-    onSuccess: () => invalidate(),
-  });
-
-  const deleteItem = useMutation({
-    mutationFn: (item: ShoppingItemDTO) =>
-      apiFetch<{ id: string }>('/api/shopping/items/delete', {
-        method: 'POST',
-        body: JSON.stringify({ itemId: item.id }),
-      }),
-    // Deleting a single item is low-stakes, so skip the confirm dialog: drop
-    // it from the cache instantly and offer an Undo toast instead.
-    onMutate: async (item) => {
-      await queryClient.cancelQueries({ queryKey: LISTS_KEY });
-      const previous = queryClient.getQueryData<ShoppingListDTO[]>(LISTS_KEY);
-      queryClient.setQueryData<ShoppingListDTO[]>(LISTS_KEY, (old) =>
-        old?.map((list) =>
-          list.id === item.listId
-            ? {
-                ...list,
-                openCount: list.openCount - (item.purchased ? 0 : 1),
-                purchasedCount:
-                  list.purchasedCount - (item.purchased ? 1 : 0),
-                items: list.items.filter((i) => i.id !== item.id),
-              }
-            : list,
-        ),
-      );
-      // Undo adds the item back, so only someone who may add items gets it.
-      const toastId = toast.info(
-        `Removed “${item.name}”`,
-        access.create ? { label: 'Undo', onClick: () => undoDelete.mutate(item) } : undefined,
-      );
-      return { previous, toastId };
-    },
-    onError: (error, _item, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(LISTS_KEY, context.previous);
-      }
-      // The item is back, so the Undo offer no longer applies.
-      if (context) toast.dismiss(context.toastId);
-      // A local onError suppresses the global MutationCache toast; re-surface.
-      toast.error(
-        error instanceof Error ? error.message : 'Something went wrong.',
-      );
-    },
-    onSettled: () => invalidate(),
-  });
+  // Deleting a single item is low-stakes, so skip the confirm dialog: hide it
+  // at once and only send the delete once the Undo window has passed.
+  function removeItem(item: ShoppingItemDTO) {
+    if (pendingRemovals.has(item.id)) return;
+    const timer = setTimeout(() => {
+      pendingRemovals.delete(item.id);
+      sendRemoval(item.id)
+        .catch((error) => {
+          // The refetch below brings the item back.
+          toast.error(error instanceof Error ? error.message : 'Something went wrong.');
+        })
+        .finally(() => invalidate());
+    }, UNDO_WINDOW_MS);
+    pendingRemovals.set(item.id, timer);
+    queryClient.setQueryData<ShoppingListDTO[]>(LISTS_KEY, (old) => old && [...old]);
+    toast.info(`Removed “${item.name}”`, {
+      label: 'Undo',
+      onClick: () => {
+        const pending = pendingRemovals.get(item.id);
+        if (!pending) return;
+        clearTimeout(pending);
+        pendingRemovals.delete(item.id);
+        queryClient.setQueryData<ShoppingListDTO[]>(LISTS_KEY, (old) => old && [...old]);
+      },
+    });
+  }
 
   const clearPurchased = useMutation({
     mutationFn: (payload: { listId: string; count: number }) =>
@@ -304,7 +294,8 @@ export function ShoppingView({
     (updateItem.isPending ? updateItem.variables?.itemId : undefined) ?? null;
 
   const openItems = selected?.items.filter((i) => !i.purchased) ?? [];
-  const estTotal = openItems.reduce((sum, i) => sum + (i.estimatedPrice ?? 0), 0);
+  // Est. price is per item (a fetched product page gives a unit price).
+  const estTotal = openItems.reduce((sum, i) => sum + (i.estimatedPrice ?? 0) * i.quantity, 0);
   const unpricedCount = openItems.filter((i) => i.estimatedPrice == null).length;
 
   return (
@@ -398,7 +389,7 @@ export function ShoppingView({
             addItem.mutateAsync({ ...payload, listId: selected.id })
           }
           onToggle={(item) => togglePurchased.mutate(item)}
-          onDelete={(item) => deleteItem.mutate(item)}
+          onDelete={removeItem}
           onUpdate={(payload) => updateItem.mutateAsync(payload)}
           onClear={() => setConfirmClear(true)}
         />

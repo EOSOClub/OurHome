@@ -144,10 +144,21 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
   task's place clears it). Tasks page sort "By room" groups Floor → Room in
   that order (whole-floor tasks first, rooms on no floor, then whole house).
   Settings → Rooms & floors (settings:manage; `/api/places*`) adds, renames,
-  moves, reorders and removes them — removing a room moves its tasks to its
-  floor, removing a floor keeps its rooms. Exported under `places`, restored
-  with ids rewired. Next steps (inventory rooms, NFC location tags) in
-  `TODO.md`.
+  moves, reorders and removes them — removing a room moves its tasks and
+  items to its floor, removing a floor keeps its rooms. The card shows while
+  Tasks *or* Inventory is on (`placesEnabled`). Exported under `places`,
+  restored with ids rewired.
+  - **Stock locations** (2026-10-10): `InventoryItem.roomId` / `floorId`, same
+    rules as tasks (no hand-set position). The Inventory page groups
+    "By category" or "By room" (`groupByPlace`); add/edit have a "Kept in"
+    picker (`components/location-select.tsx`, shared with the task form).
+  - **NFC location tags** (2026-10-10): `NfcTag.roomId`. A tag with
+    `represents: "location"` opens a room and has no item; every other kind
+    is bound to an item (`registerNfcTagSchema`). Set up from web Settings →
+    NFC tags, or in the app (`/api/nfc/setup` with `roomId`, room changed via
+    `/api/nfc/tags/settings`). The app opens Tasks "By room" at that room
+    (or Stock "By room" when Tasks is off); the HA webhook refuses them, as
+    they change no stock.
 - **Household features** (`lib/features.ts`; added 2026-10-10). The server
   admin chooses per household which of Tasks, Points, Calendar, Shopping,
   Inventory (incl. NFC), Bills (incl. Paperless) and Requests it uses (Server →

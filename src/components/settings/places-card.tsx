@@ -15,7 +15,7 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { toast } from '@/components/ui/toast';
 
-const KEY = ['places'];
+export const PLACES_KEY = ['places'];
 
 type Editing =
   | { kind: 'floor'; floor?: FloorDTO }
@@ -25,9 +25,10 @@ type Editing =
 type Deleting = { kind: 'floor'; floor: FloorDTO } | { kind: 'room'; room: RoomDTO } | null;
 
 /**
- * Settings → Rooms & floors: the places tasks are done in. Floors are
- * optional (a one-storey home just has rooms). Order here is the order on the
- * Tasks page's "By room" view and in every picker.
+ * Settings → Rooms & floors: where tasks are done and stock is kept (shown
+ * while Tasks or Inventory is on). Floors are optional (a one-storey home just
+ * has rooms). Order here is the order of the Tasks and Inventory "By room"
+ * views and of every picker.
  */
 export function PlacesCard({ initial }: { initial: PlacesDTO }) {
   const queryClient = useQueryClient();
@@ -35,14 +36,16 @@ export function PlacesCard({ initial }: { initial: PlacesDTO }) {
   const [deleting, setDeleting] = useState<Deleting>(null);
 
   const { data: places = initial } = useQuery({
-    queryKey: KEY,
+    queryKey: PLACES_KEY,
     queryFn: () => apiFetch<PlacesDTO>('/api/places'),
     initialData: initial,
   });
   // Every call answers with the whole new list.
   const apply = (next: PlacesDTO) => {
-    queryClient.setQueryData(KEY, next);
+    queryClient.setQueryData(PLACES_KEY, next);
     queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    queryClient.invalidateQueries({ queryKey: ['inventory-items'] });
+    queryClient.invalidateQueries({ queryKey: ['nfc-tags'] });
   };
 
   const reorder = useMutation({
@@ -133,8 +136,8 @@ export function PlacesCard({ initial }: { initial: PlacesDTO }) {
             <Building className="size-4" /> Rooms &amp; floors
           </CardTitle>
           <CardDescription>
-            Where tasks are done. Tasks can belong to a room or a whole floor; the Tasks page groups them in
-            this order.
+            Where tasks are done and stock is kept. Tasks and inventory items can belong to a room or a whole
+            floor; the Tasks and Inventory pages group them in this order.
           </CardDescription>
         </div>
         <div className="flex shrink-0 gap-2">
@@ -217,8 +220,8 @@ export function PlacesCard({ initial }: { initial: PlacesDTO }) {
         title={deleting?.kind === 'floor' ? `Remove “${deleting.floor.name}”?` : `Remove “${deleting?.room.name ?? ''}”?`}
         description={
           deleting?.kind === 'floor'
-            ? 'Its rooms are kept (on no floor), and its whole-floor tasks move to the whole house.'
-            : 'Its tasks move to its floor (or the whole house). No tasks are deleted.'
+            ? 'Its rooms are kept (on no floor), and its whole-floor tasks and items move to the whole house.'
+            : 'Its tasks and items move to its floor (or the whole house), and NFC tags that open it point nowhere. Nothing is deleted.'
         }
         confirmLabel="Remove"
         destructive

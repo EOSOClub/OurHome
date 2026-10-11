@@ -12,8 +12,9 @@ import type {
 } from '@/lib/validation/place';
 
 // Floors and the rooms on them, set up in Settings → Rooms & floors. Tasks
-// point at one room or a whole floor (taskService); grouping and order rules
-// are in src/lib/places.ts.
+// and inventory items point at one room or a whole floor (taskService,
+// inventoryService); NFC location tags at a room (nfcService). Grouping and
+// order rules are in src/lib/places.ts.
 
 export async function listPlaces(householdId: string): Promise<PlacesDTO> {
   const [floors, rooms] = await Promise.all([
@@ -121,8 +122,9 @@ export async function saveRoom(householdId: string, actorId: string, input: Save
 }
 
 /**
- * Delete a room: its tasks move up to its floor (or the whole house). Delete
- * a floor: its rooms stay, on no floor; its whole-floor tasks go to the whole
+ * Delete a room: its tasks and items move up to its floor (or the whole
+ * house), and location tags that opened it point at no room. Delete a floor:
+ * its rooms stay, on no floor; its whole-floor tasks and items go to the whole
  * house. Nothing else is lost.
  */
 export async function deletePlace(householdId: string, actorId: string, input: DeletePlaceInput): Promise<PlacesDTO> {
@@ -134,6 +136,11 @@ export async function deletePlace(householdId: string, actorId: string, input: D
         where: { householdId, roomId: room.id },
         data: { roomId: null, floorId: room.floorId ?? null },
       }),
+      prisma.inventoryItem.updateMany({
+        where: { householdId, roomId: room.id },
+        data: { roomId: null, floorId: room.floorId ?? null },
+      }),
+      prisma.nfcTag.updateMany({ where: { householdId, roomId: room.id }, data: { roomId: null } }),
       prisma.room.delete({ where: { id: room.id } }),
     ]);
     await logActivity({
@@ -149,6 +156,7 @@ export async function deletePlace(householdId: string, actorId: string, input: D
     if (!floor) throw new NotFoundError('Floor not found.');
     await prisma.$transaction([
       prisma.task.updateMany({ where: { householdId, floorId: floor.id }, data: { floorId: null } }),
+      prisma.inventoryItem.updateMany({ where: { householdId, floorId: floor.id }, data: { floorId: null } }),
       prisma.room.updateMany({ where: { householdId, floorId: floor.id }, data: { floorId: null } }),
       prisma.floor.delete({ where: { id: floor.id } }),
     ]);

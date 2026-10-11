@@ -10,6 +10,9 @@ export const createInventoryItemSchema = z.object({
   lowThreshold: quantity.default(0),
   reorderIntervalDays: z.number().int().min(1).max(3650).optional().nullable(),
   categoryId: z.string().cuid().optional().nullable(),
+  // Where it's kept: a room, or a whole floor (a room wins if both are sent).
+  roomId: z.string().cuid().optional().nullable(),
+  floorId: z.string().cuid().optional().nullable(),
 });
 
 export type CreateInventoryItemInput = z.infer<typeof createInventoryItemSchema>;
@@ -22,6 +25,10 @@ export const updateInventoryItemSchema = z.object({
   lowThreshold: quantity.optional(),
   reorderIntervalDays: z.number().int().min(1).max(3650).optional().nullable(),
   categoryId: z.string().cuid().optional().nullable(),
+  // When either is present the place is replaced: a room, else a whole
+  // floor, else (both null) none. Both absent = unchanged.
+  roomId: z.string().cuid().optional().nullable(),
+  floorId: z.string().cuid().optional().nullable(),
 });
 
 export type UpdateInventoryItemInput = z.infer<typeof updateInventoryItemSchema>;

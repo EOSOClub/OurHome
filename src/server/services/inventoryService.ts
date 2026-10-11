@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
-import { assertCategoryRef } from '@/server/services/householdRefs';
+import { assertCategoryRef, assertPlaceRef } from '@/server/services/householdRefs';
 import { prisma } from '@/server/db/prisma';
+import { placeColumns, placeRefs } from '@/lib/places';
 import type { CategoryDTO, InventoryItemDTO } from '@/lib/types';
 import type {
   CreateInventoryCategoryInput,
@@ -14,6 +15,8 @@ type Db = typeof prisma | Prisma.TransactionClient;
 
 const itemInclude = {
   category: { select: { id: true, name: true, color: true } },
+  room: { select: { id: true, name: true, floor: { select: { id: true, name: true } } } },
+  floor: { select: { id: true, name: true } },
 } satisfies Prisma.InventoryItemInclude;
 
 export type InventoryItemWithRelations = Prisma.InventoryItemGetPayload<{
@@ -63,6 +66,7 @@ export function itemToDTO(item: InventoryItemWithRelations): InventoryItemDTO {
     category: item.category
       ? { id: item.category.id, name: item.category.name, color: item.category.color }
       : null,
+    ...placeRefs(item),
   };
 }
 
@@ -164,6 +168,7 @@ export async function createInventoryItem(
   input: CreateInventoryItemInput,
 ): Promise<InventoryItemWithRelations> {
   await assertCategoryRef(prisma, householdId, input.categoryId);
+  await assertPlaceRef(prisma, householdId, input.roomId, input.floorId);
   const item = await prisma.inventoryItem.create({
     data: {
       householdId,
@@ -179,6 +184,7 @@ export async function createInventoryItem(
         null,
       ),
       categoryId: input.categoryId ?? null,
+      ...placeColumns(input.roomId, input.floorId),
       createdById: userId,
     },
     include: itemInclude,
@@ -201,9 +207,12 @@ export async function updateInventoryItem(
   userId: string,
   input: UpdateInventoryItemInput,
 ): Promise<InventoryItemWithRelations> {
-  const { itemId, ...rest } = input;
+  const { itemId, roomId, floorId, ...rest } = input;
   const existing = await findItemInHousehold(itemId, householdId);
   await assertCategoryRef(prisma, householdId, rest.categoryId);
+  await assertPlaceRef(prisma, householdId, roomId, floorId);
+  // Either key sent = a new place; both absent = unchanged.
+  const place = roomId !== undefined || floorId !== undefined ? placeColumns(roomId, floorId) : undefined;
 
   // Recompute the low flag against whichever of quantity/threshold changed.
   const nextQuantity = rest.quantity ?? existing.quantity;
@@ -234,6 +243,7 @@ export async function updateInventoryItem(
           }
         : {}),
       categoryId: rest.categoryId,
+      ...(place ?? {}),
     },
     include: itemInclude,
   });

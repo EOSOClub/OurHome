@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { nfcAppScanSchema, nfcSetupSchema, tagIdSchema } from '@/lib/validation/nfc';
+import { nfcAppScanSchema, nfcSetupSchema, registerNfcTagSchema, tagIdSchema } from '@/lib/validation/nfc';
+
+const itemId = 'cmabcdefghijklmnopqrstuvw';
+const roomId = 'cmzyxwvutsrqponmlkjihgfed';
 
 describe('tagIdSchema', () => {
   it('accepts HA tag UUIDs and the app\'s hardware-uid ids', () => {
@@ -22,7 +25,6 @@ describe('nfcAppScanSchema', () => {
 
 describe('nfcSetupSchema', () => {
   const tagId = 'uid:04a1b2c3';
-  const itemId = 'cmabcdefghijklmnopqrstuvw';
 
   it('binds to an existing item or creates a new one', () => {
     expect(nfcSetupSchema.safeParse({ tagId, itemId }).success).toBe(true);
@@ -31,10 +33,31 @@ describe('nfcSetupSchema', () => {
     ).toBe(true);
   });
 
-  it('needs exactly one of itemId / newItem', () => {
+  it('makes a location tag for a room', () => {
+    expect(nfcSetupSchema.safeParse({ tagId, roomId }).success).toBe(true);
+  });
+
+  it('needs exactly one of itemId / newItem / roomId', () => {
     expect(nfcSetupSchema.safeParse({ tagId }).success).toBe(false);
     expect(
       nfcSetupSchema.safeParse({ tagId, itemId, newItem: { name: 'Coffee beans' } }).success,
     ).toBe(false);
+    expect(nfcSetupSchema.safeParse({ tagId, itemId, roomId }).success).toBe(false);
+  });
+});
+
+describe('registerNfcTagSchema', () => {
+  const base = { tagId: 'garage_door', label: 'Garage' };
+
+  it('binds a location tag to a room and any other tag to an item', () => {
+    expect(registerNfcTagSchema.safeParse({ ...base, represents: 'location', roomId }).success).toBe(true);
+    expect(registerNfcTagSchema.safeParse({ ...base, represents: 'consumable', itemId }).success).toBe(true);
+    // Represents defaults to consumable, which needs an item.
+    expect(registerNfcTagSchema.safeParse({ ...base, itemId }).success).toBe(true);
+  });
+
+  it('refuses a location tag without a room, or another tag without an item', () => {
+    expect(registerNfcTagSchema.safeParse({ ...base, represents: 'location', itemId }).success).toBe(false);
+    expect(registerNfcTagSchema.safeParse({ ...base, represents: 'action', roomId }).success).toBe(false);
   });
 });

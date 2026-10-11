@@ -204,7 +204,8 @@ model Category {
 
 // ---------------------------------------------------------------------------
 // Places: floors and the rooms on them (src/server/services/placeService.ts).
-// Tasks point at a room or a whole floor; both are ordered by hand.
+// Tasks and inventory items point at a room or a whole floor; NFC location
+// tags point at a room. Floors and rooms are ordered by hand.
 // ---------------------------------------------------------------------------
 
 model Floor {
@@ -215,9 +216,10 @@ model Floor {
   position    Int      @default(0)
   createdAt   DateTime @default(now())
 
-  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
-  rooms     Room[]
-  tasks     Task[]
+  household      Household       @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  rooms          Room[]
+  tasks          Task[]
+  inventoryItems InventoryItem[]
 
   @@index([householdId])
 }
@@ -232,9 +234,11 @@ model Room {
   position    Int      @default(0)
   createdAt   DateTime @default(now())
 
-  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
-  floor     Floor?    @relation(fields: [floorId], references: [id], onDelete: SetNull)
-  tasks     Task[]
+  household      Household       @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  floor          Floor?          @relation(fields: [floorId], references: [id], onDelete: SetNull)
+  tasks          Task[]
+  inventoryItems InventoryItem[]
+  nfcTags        NfcTag[]
 
   @@index([householdId])
 }
@@ -736,6 +740,10 @@ model InventoryItem {
   reorderIntervalDays Int?
   lastRestockedAt DateTime?
   predictedDepletionAt DateTime?
+  // Where it's kept: one room ("Garage freezer"), or a whole floor (never
+  // both; neither = not set). Same rules as Task.roomId / floorId.
+  roomId          String?
+  floorId         String?
   // Plain user id (no relation): decides "own" vs "others'" for page access.
   createdById     String?
   createdAt       DateTime  @default(now())
@@ -743,6 +751,8 @@ model InventoryItem {
 
   household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
   category  Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  room      Room?     @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  floor     Floor?    @relation(fields: [floorId], references: [id], onDelete: SetNull)
 
   @@index([householdId])
 }
@@ -785,6 +795,8 @@ model Notification {
   subjectId   String?
   // Stable key for idempotent generation, e.g. "overdue:task:<id>". Lets the
   // reminder generator upsert instead of creating duplicates on every run.
+  // Set it on EVERY row: MongoDB's unique index counts a missing key as a
+  // value, so a second row without one fails the insert.
   dedupeKey   String?
   // Generated reminders only: who sees it — the people tied to the subject
   // (assignee, creator) plus that page's managers (grid "edit others").
@@ -889,12 +901,16 @@ model NfcTag {
   label       String
   // represents: "location" | "action" | "consumable" | "maintenance_point" | "process"
   represents  String   @default("action")
+  // Location tags: the room a scan opens (the Android app shows its tasks).
+  // Location tags have no item; every other kind is bound to one (config).
+  roomId      String?
   // Optional default action config as JSON text.
   config      String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  room      Room?     @relation(fields: [roomId], references: [id], onDelete: SetNull)
 
   @@unique([householdId, tagId])
   @@index([householdId])

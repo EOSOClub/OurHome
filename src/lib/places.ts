@@ -1,5 +1,6 @@
-// Floors and rooms: how tasks are grouped by place and kept in the order the
-// household set. Pure, shared by the Tasks page and mirrored in the Android
+// Floors and rooms: how tasks (and inventory items, which have no hand-set
+// position) are grouped by place and kept in the order the household set.
+// Pure, shared by the Tasks and Inventory pages and mirrored in the Android
 // app (data/Places.kt) — change both together.
 
 export interface FloorRef {
@@ -116,6 +117,20 @@ export function moveId(ids: string[], id: string, direction: -1 | 1): string[] {
   const next = [...ids];
   [next[from], next[to]] = [next[to], next[from]];
   return next;
+}
+
+/** The stored columns for a place: a room, else a whole floor, else neither. */
+export function placeColumns(roomId: string | null | undefined, floorId: string | null | undefined) {
+  return roomId ? { roomId, floorId: null } : { roomId: null, floorId: floorId ?? null };
+}
+
+/** A room's floor comes from the room, so moving a room moves what's in it. */
+export function placeRefs(row: {
+  room: { id: string; name: string; floor: { id: string; name: string } | null } | null;
+  floor: { id: string; name: string } | null;
+}): { room: { id: string; name: string } | null; floor: { id: string; name: string } | null } {
+  const ref = (p: { id: string; name: string } | null) => (p ? { id: p.id, name: p.name } : null);
+  return { room: ref(row.room), floor: row.room ? ref(row.room.floor) : ref(row.floor) };
 }
 
 /** "Upstairs · Bedroom", "Upstairs", "Kitchen" — a task's place as one label. */

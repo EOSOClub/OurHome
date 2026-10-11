@@ -1,0 +1,8 @@
+# Generated: screenshots, contact sheets, logs, installed packages.
+shots/out/
+shots/survey/
+shots/*.png
+shots/node_modules/
+*.log
+# Ids and signed-in session cookies from seeding.
+demo/seed/state.json

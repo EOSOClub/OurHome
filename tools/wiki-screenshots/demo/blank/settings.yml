@@ -1,0 +1,7 @@
+app:
+  name: Our Home
+better_auth:
+  url: http://localhost:3100
+  trusted_origins: []
+csp:
+  report_only: false

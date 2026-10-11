@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Standalone scripts for the wiki's screenshots (plain Node, not app code).
+    "tools/**",
   ]),
 ]);
 

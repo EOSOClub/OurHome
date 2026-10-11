@@ -97,6 +97,31 @@ const shots = {
     await el(p, 'request-create-form.png', card(p, 'New request')); },
   'request-media-list.png': async p => { await go(p, 'requests'); await el(p, 'request-media-list.png', p.locator('main section').filter({ has: p.locator('h1,h2,h3', { hasText: 'Media' }) }).last()); },
   'request-maintenance-accept.png': async p => { await go(p, 'requests'); await openDialog(p, 'Accept'); await el(p, 'request-maintenance-accept.png', dialog(p)); },
+  'home-dashboard.png': async p => { await p.setViewportSize({ width: 1280, height: 1000 }); await go(p, 'dashboard'); await view(p, 'home-dashboard.png'); },
+  'home-account-menu.png': async p => {
+    await go(p, 'dashboard'); await btn(p, 'Account menu').click(); await p.waitForTimeout(500);
+    const menu = p.locator('[role=menu]').first();
+    if (await menu.isVisible().catch(() => false)) await el(p, 'home-account-menu.png', menu);
+    else await p.screenshot({ path: path.join(OUT, 'home-account-menu.png'), clip: { x: 760, y: 0, width: 520, height: 640 } });
+  },
+  'home-phone.png': async p => { await p.setViewportSize({ width: 390, height: 844 }); await go(p, 'dashboard'); await view(p, 'home-phone.png'); },
+  'tasks-overview.png': async p => { await go(p, 'tasks'); await view(p, 'tasks-overview.png'); },
+  'task-details-checklist.png': async p => {
+    await go(p, 'tasks'); await btn(p, '0/5').click(); await p.waitForTimeout(500);
+    const taskCard = btn(p, '0/5').locator('xpath=ancestor::div[contains(@class,"bg-card")][1]');
+    await taskCard.getByRole('button', { name: 'History' }).click(); await p.waitForTimeout(1200);
+    await el(p, 'task-details-checklist.png', taskCard);
+  },
+  'task-create-form.png': async p => {
+    await p.setViewportSize(TALL); await go(p, 'tasks'); await btn(p, 'New task').click(); await p.waitForTimeout(500);
+    await p.fill('#title', 'Mow the lawn'); await p.selectOption('#type', { label: 'Recurring' }); await p.waitForTimeout(500);
+    await el(p, 'task-create-form.png', p.locator('form').filter({ has: btn(p, 'Add task') }).first());
+  },
+  'shopping-overview.png': async p => { await p.setViewportSize({ width: 1280, height: 1100 }); await go(p, 'shopping'); await view(p, 'shopping-overview.png'); },
+  'shopping-add-options.png': async p => {
+    await go(p, 'shopping'); await btn(p, 'More options').click(); await p.waitForTimeout(500);
+    await el(p, 'shopping-add-options.png', p.locator('form').filter({ has: p.getByPlaceholder('Add an item…') }).first());
+  },
   'rooms-grouped-view.png': async p => {
     await go(p, 'tasks'); await p.selectOption('#f-sort', 'room'); await p.waitForTimeout(600);
     await view(p, 'rooms-grouped-view.png');

@@ -34,6 +34,7 @@ import { CompletionHistory } from '@/components/tasks/completion-history';
 import { SubtaskRow } from '@/components/tasks/subtask-row';
 import { formatDueDate, isOverdue } from '@/lib/format';
 import { useHouseholdZone } from '@/components/household-zone';
+import { usePointsShown } from '@/components/household-features';
 
 function priorityVariant(
   priority: string,
@@ -105,6 +106,7 @@ export function TaskCard({
   hidePlace?: boolean;
 }) {
   const timeZone = useHouseholdZone();
+  const showPoints = usePointsShown();
   const done = task.status === 'completed';
   const archived = task.status === 'archived';
   // A cycle task completed inside its window waits for the next cycle.
@@ -258,7 +260,7 @@ export function TaskCard({
                 {placeLabel(task)}
               </span>
             ) : null}
-            {task.points > 0 ? (
+            {showPoints && task.points > 0 ? (
               <span
                 className="inline-flex items-center gap-1 text-muted-foreground"
                 title="Points are paid when the task is completed"

@@ -26,7 +26,7 @@ export type ShoppingItemWithRelations = Prisma.ShoppingItemGetPayload<{
 const listInclude = {
   items: {
     include: itemInclude,
-    // Open items first, then by priority, oldest first within each group.
+    // Open items first, then oldest first. Priority doesn't affect the order.
     orderBy: [{ purchased: 'asc' }, { createdAt: 'asc' }] as const,
   },
 } satisfies Prisma.ShoppingListInclude;

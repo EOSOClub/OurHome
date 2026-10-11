@@ -25,6 +25,7 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { usePointsShown } from '@/components/household-features';
 
 // The task editor's time-to-complete / points section and checklist. All the
 // arithmetic is src/lib/taskPoints.ts (also what the server applies); this
@@ -150,6 +151,8 @@ export function PointsEditor({
   const [snapshot, setSnapshot] = useState<PointsDraft | null>(null);
   const [pending, setPending] = useState<PendingTotal | null>(null);
   const [draftTitle, setDraftTitle] = useState('');
+  // Points off: only time is edited; points still follow it, unseen.
+  const showPoints = usePointsShown();
 
   const live = liveTotals(value);
   const custom = customisedCount(value.steps);
@@ -208,6 +211,8 @@ export function PointsEditor({
             }}
           />
         </div>
+        {showPoints ? (
+        <>
         <div className="space-y-2">
           <Label htmlFor="points">Points</Label>
           <NumberField
@@ -239,13 +244,17 @@ export function PointsEditor({
             <span className="block text-xs text-muted-foreground">{rateLabel}</span>
           </span>
         </label>
+        </>
+        ) : null}
       </div>
 
       {custom > 0 ? (
         <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
           Totals influenced by {custom} customised step{custom === 1 ? '' : 's'}
           {value.task.baseMinutes !== null || value.task.basePointsCenti !== null
-            ? ` (task set to ${formatMinutes(value.task.baseMinutes ?? 0)} · ${formatPoints(value.task.basePointsCenti ?? 0)} pts)`
+            ? ` (task set to ${formatMinutes(value.task.baseMinutes ?? 0)}${
+                showPoints ? ` · ${formatPoints(value.task.basePointsCenti ?? 0)} pts` : ''
+              })`
             : ''}
           . Changing a total rescales every step and clears their custom values.
         </p>
@@ -255,17 +264,25 @@ export function PointsEditor({
         <Label>Checklist{value.steps.length ? '' : ' (optional)'}</Label>
         {value.steps.length > 0 ? (
           <div className="space-y-2">
-            <div className="hidden grid-cols-[1fr_5rem_5.5rem_4.5rem_auto] gap-2 px-1 text-xs text-muted-foreground sm:grid">
+            <div
+              className={cn(
+                'hidden gap-2 px-1 text-xs text-muted-foreground sm:grid',
+                showPoints ? 'grid-cols-[1fr_5rem_5.5rem_4.5rem_auto]' : 'grid-cols-[1fr_5rem_4.5rem_auto]',
+              )}
+            >
               <span>Step</span>
               <span>Minutes</span>
-              <span>Points</span>
+              {showPoints ? <span>Points</span> : null}
               <span>Resets</span>
               <span />
             </div>
             {value.steps.map((s, i) => (
               <div
                 key={s.key}
-                className="grid grid-cols-2 gap-2 rounded-md border border-border p-2 sm:grid-cols-[1fr_5rem_5.5rem_4.5rem_auto] sm:items-center sm:border-0 sm:p-0"
+                className={cn(
+                  'grid grid-cols-2 gap-2 rounded-md border border-border p-2 sm:items-center sm:border-0 sm:p-0',
+                  showPoints ? 'sm:grid-cols-[1fr_5rem_5.5rem_4.5rem_auto]' : 'sm:grid-cols-[1fr_5rem_4.5rem_auto]',
+                )}
               >
                 <Input
                   value={s.title}
@@ -283,6 +300,7 @@ export function PointsEditor({
                   marked={s.minutesCustom}
                   onValue={(v) => v !== null && onChange(setStepMinutes(value, i, v, minutesPerPoint))}
                 />
+                {showPoints ? (
                 <div className="flex items-center gap-1">
                   <NumberField
                     aria-label="Step points"
@@ -306,6 +324,7 @@ export function PointsEditor({
                     <Repeat className="size-3.5" />
                   </button>
                 </div>
+                ) : null}
                 <NumberField
                   aria-label="Unchecks every N days"
                   title="Unchecks itself every N days (empty = only with the task)"

@@ -458,7 +458,7 @@ export interface NotificationDTO {
   createdAt: string;
 }
 
-/** How the site may be reached (Settings → Security, and the post-setup prompt). */
+/** How the site may be reached (Server → Security, and the post-setup prompt). */
 export interface AccessSettingsDTO {
   /** Sign-in over plain HTTP on the home network is allowed. */
   allowHttp: boolean;

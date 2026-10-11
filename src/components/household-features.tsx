@@ -23,6 +23,11 @@ export function useHouseholdFeatures(): readonly Feature[] {
   return useContext(HouseholdFeaturesContext);
 }
 
+/** Whether this household shows points. Off: tasks still record them, unseen. */
+export function usePointsShown(): boolean {
+  return useHouseholdFeatures().includes('points');
+}
+
 /** Whether a link to `href` leads somewhere this household has on. */
 export function useHrefEnabled(): (href: string) => boolean {
   const features = useHouseholdFeatures();

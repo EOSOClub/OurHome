@@ -22,6 +22,7 @@ import { Select } from '@/components/ui/select';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
 import { TaskCard } from '@/components/tasks/task-card';
+import { usePointsShown } from '@/components/household-features';
 import type { PageAccess } from '@/lib/permissions';
 import {
   CreateTaskForm,
@@ -114,6 +115,7 @@ export function TasksView({
 }) {
   const queryClient = useQueryClient();
   const router = useRouter();
+  const showPoints = usePointsShown();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [showForm, setShowForm] = useState(false);
@@ -249,7 +251,7 @@ export function TasksView({
         body: JSON.stringify({ completionId }),
       }),
     onSuccess: () => {
-      toast.success('Completion undone; its points were taken back');
+      toast.success(showPoints ? 'Completion undone; its points were taken back' : 'Completion undone');
       invalidate();
       queryClient.invalidateQueries({ queryKey: ['points'] });
       queryClient.invalidateQueries({ queryKey: ['task-completions'] });
@@ -528,9 +530,11 @@ export function TasksView({
         </div>
         <div className="flex items-center gap-2">
           {/* Points has no tab of its own (account menu / More); this is the quick way in. */}
-          <Button variant="outline" onClick={() => router.push('/points')}>
-            <Trophy /> Points
-          </Button>
+          {showPoints ? (
+            <Button variant="outline" onClick={() => router.push('/points')}>
+              <Trophy /> Points
+            </Button>
+          ) : null}
           {access.create && !showForm && !editing ? (
             <Button onClick={() => setShowForm(true)}>
               <Plus /> New task

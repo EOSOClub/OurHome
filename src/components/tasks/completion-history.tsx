@@ -8,6 +8,7 @@ import { apiFetch } from '@/lib/api';
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { RelativeTime, useHouseholdZone } from '@/components/household-zone';
+import { usePointsShown } from '@/components/household-features';
 
 /** Show at most this many entries; the rest collapse into a "+N more" line. */
 const MAX_VISIBLE = 10;
@@ -78,6 +79,7 @@ function CompletionList({
   onUndo: (completionId: string) => void;
 }) {
   const timeZone = useHouseholdZone();
+  const showPoints = usePointsShown();
   if (isError) {
     return (
       <p className="mt-1.5 text-xs text-destructive">
@@ -118,7 +120,7 @@ function CompletionList({
             <span className="text-destructive">· missed (cycle ran out)</span>
           ) : null}
           {c.user ? <span>· {c.user.name}</span> : null}
-          {c.points > 0 ? <span>· {c.points} pts</span> : null}
+          {showPoints && c.points > 0 ? <span>· {c.points} pts</span> : null}
           {c.note ? <span className="italic">“{c.note}”</span> : null}
           {c.undoneAt ? <span className="no-underline">· undone</span> : null}
           {c.canUndo ? (

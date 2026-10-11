@@ -144,7 +144,7 @@ export function AccessPrompt({ settings }: { settings: AccessSettingsDTO }) {
       open={open}
       onClose={later}
       title="Secure your home"
-      description="How will people reach the site? You can change this later under Settings → Security."
+      description="How will people reach the site? You can change this later under Server → Security."
       footer={
         <>
           <Button variant="ghost" onClick={later} disabled={saving}>
@@ -162,7 +162,7 @@ export function AccessPrompt({ settings }: { settings: AccessSettingsDTO }) {
   );
 }
 
-/** Settings → Security: the same choice, any time. */
+/** Server → Security: the same choice, any time. */
 export function AccessCard({ initialSettings }: { initialSettings: AccessSettingsDTO }) {
   const [settings, setSettings] = useState(initialSettings);
   const [allowHttp, setAllowHttp] = useState(initialSettings.allowHttp);

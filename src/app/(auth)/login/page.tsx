@@ -71,8 +71,8 @@ export default async function LoginPage({
               </a>
             ) : null}
             <p className="text-muted-foreground">
-              On the server itself, <code>http://localhost</code> still works. Your
-              Head of House can change this under Settings → Security.
+              On the server itself, <code>http://localhost</code> still works. Whoever
+              runs the server can change this under Server → Security.
             </p>
           </CardContent>
         </Card>

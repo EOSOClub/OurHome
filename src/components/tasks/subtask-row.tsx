@@ -5,6 +5,7 @@ import { Check, ChevronDown, ChevronUp, Pencil, Repeat, X } from 'lucide-react';
 import type { SubtaskDTO } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { formatPoints, toCenti } from '@/lib/taskPoints';
+import { usePointsShown } from '@/components/household-features';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
@@ -42,6 +43,7 @@ export function SubtaskRow({
   ) => void;
   onMove: (subtaskId: string, direction: -1 | 1) => void;
 }) {
+  const showPoints = usePointsShown();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [editing, setEditing] = useState(false);
   const [titleDraft, setTitleDraft] = useState(subtask.title);
@@ -154,15 +156,17 @@ export function SubtaskRow({
         <span
           className="shrink-0 text-xs text-muted-foreground"
           title={
-            subtask.queuedFor
+            showPoints && subtask.queuedFor
               ? `${subtask.queuedFor.name}'s points are queued until the task is completed`
               : undefined
           }
         >
-          {subtask.queuedFor ? `queued · ${subtask.queuedFor.name}` : subtask.doneBy?.name}
+          {showPoints && subtask.queuedFor
+            ? `queued · ${subtask.queuedFor.name}`
+            : (subtask.queuedFor ?? subtask.doneBy)?.name}
         </span>
       ) : null}
-      {subtask.points > 0 ? (
+      {showPoints && subtask.points > 0 ? (
         <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
           {formatPoints(toCenti(subtask.points))} pts
         </span>

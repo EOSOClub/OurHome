@@ -297,6 +297,12 @@ export function ShoppingView({
   // Est. price is per item (a fetched product page gives a unit price).
   const estTotal = openItems.reduce((sum, i) => sum + (i.estimatedPrice ?? 0) * i.quantity, 0);
   const unpricedCount = openItems.filter((i) => i.estimatedPrice == null).length;
+  // What Clear bought will actually clear: recurring items (un-checked) plus the
+  // one-off items the viewer may delete, as the clear route decides.
+  const clearable =
+    selected?.items.filter(
+      (i) => i.purchased && (i.recurring || canModify(access, 'delete', i.createdById, userId)),
+    ).length ?? 0;
 
   return (
     <div className="space-y-5">
@@ -436,11 +442,16 @@ export function ShoppingView({
           onConfirm={() =>
             clearPurchased.mutate({
               listId: selected.id,
-              count: selected.purchasedCount,
+              count: clearable,
             })
           }
-          title={`Clear ${selected.purchasedCount} bought item${plural(selected.purchasedCount)}?`}
-          description="One-off items are removed for good; recurring items are un-checked and stay on the list."
+          title={`Clear ${clearable} bought item${plural(clearable)}?`}
+          description={
+            'One-off items are removed for good; recurring items are un-checked and stay on the list.' +
+            (clearable < selected.purchasedCount
+              ? ` ${selected.purchasedCount - clearable} you can't remove will stay in the cart.`
+              : '')
+          }
           confirmLabel="Clear"
           destructive
           pending={clearPurchased.isPending}

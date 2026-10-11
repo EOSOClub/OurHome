@@ -7,7 +7,7 @@ import { assertServerAdmin, clearHouseholdCaches } from '@/server/services/serve
 // point at their household or parent by a plain id (points ledger, pending
 // credits, notification subjects), so both walk an explicit list instead of
 // trusting cascades. `HOUSEHOLD_MODELS` / `SERVER_MODELS` must name every
-// model in the schema — src/server/services/householdDataService.test.ts
+// model in the schema - src/server/services/householdDataService.test.ts
 // fails when a new one is added without deciding how it's exported and deleted.
 
 /** Every model that belongs to a household, directly or through a parent. */

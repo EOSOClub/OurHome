@@ -62,7 +62,7 @@ export function ForcedPasswordChange({ userName }: { userName: string }) {
         </div>
         <CardTitle className="text-xl">Choose your password</CardTitle>
         <CardDescription>
-          Welcome, {userName}. You signed in with a temporary password — set your
+          Welcome, {userName}. You signed in with a temporary password - set your
           own to continue.
         </CardDescription>
       </CardHeader>

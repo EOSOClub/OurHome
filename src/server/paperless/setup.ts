@@ -60,7 +60,7 @@ export const SETUP_NAMES = {
 const PAYMENT_WORDING =
   String.raw`payment (was |has been )?(\w+ )?(processed|posted|confirm|received)|thank you for your payment`;
 
-/** Biller names from "City Water, Electric Co" — trimmed, de-duplicated. */
+/** Biller names from "City Water, Electric Co" - trimmed, de-duplicated. */
 export function parseBillers(text: string): string[] {
   const seen = new Set<string>();
   const out: string[] = [];

@@ -222,7 +222,7 @@ export function TasksView({
   });
 
   // Deliberately not optimistic: completing a recurring task doesn't flip its
-  // status — the server resets it to pending with a recurrence-computed next
+  // status - the server resets it to pending with a recurrence-computed next
   // due date (or finalizes it when the rule has ended), which the client can't
   // predict. The `completingId` spinner covers the wait instead.
   const completeMutation = useMutation({

@@ -3,7 +3,7 @@
 > **Recommended now: scan in the "Our Home" Android app, and use HA only as a
 > display.** The app reads the same tags (it uses the tag id HA wrote, so
 > existing mappings keep working), applies the amount, and sets up new tags on
-> the spot — no per-tag HA or site config. See
+> the spot - no per-tag HA or site config. See
 > [`adding-nfc-tags.md`](./adding-nfc-tags.md).
 >
 > **Display-only mode:** HA polls a read-only feed,
@@ -15,7 +15,7 @@
 > The webhook flow below still works unchanged if you keep using HA for scans.
 
 Home Assistant (HA) and this app run on the same LAN, so HA can call the app
-directly — nothing needs to be exposed to the public internet.
+directly - nothing needs to be exposed to the public internet.
 
 When an NFC tag is scanned, HA prompts you for a **number** and POSTs it to the
 app. The number is a **signed delta**: negative removes stock, positive
@@ -29,22 +29,22 @@ clamped at `0`. Each tag is bound to exactly one inventory item in the app
 ## 1. Create a token
 
 In the app: **Settings → Home Assistant connection → Create token**. Copy the
-token immediately — it is shown only once. Only the hash is stored.
+token immediately - it is shown only once. Only the hash is stored.
 
 ## 2. Map your tags
 
 In the app: **Settings → NFC tags**. For each physical tag, enter:
 
-- **Tag id** — the stable id HA reports for the tag (e.g. `pantry_coffee`).
-- **Label** — a human name (e.g. "Coffee shelf").
-- **Inventory item** — the item this tag adjusts.
+- **Tag id** - the stable id HA reports for the tag (e.g. `pantry_coffee`).
+- **Label** - a human name (e.g. "Coffee shelf").
+- **Inventory item** - the item this tag adjusts.
 
 ## 3. Configure Home Assistant
 
 Replace `APP_HOST` with the app's LAN address and `YOUR_TOKEN` with the token
 from step 1.
 
-`configuration.yaml` — a reusable REST command:
+`configuration.yaml` - a reusable REST command:
 
 ```yaml
 rest_command:
@@ -59,13 +59,13 @@ rest_command:
 
 `name` is the HA tag's friendly name. It is optional and only used the **first**
 time an unknown tag is scanned: the app auto-creates an inventory item with that
-name, seeds its quantity from the scanned amount, and binds the tag — no app
+name, seeds its quantity from the scanned amount, and binds the tag - no app
 config needed. Once a tag is bound, `name` is ignored. A scan with no friendly
 name on an unknown tag still returns 404 (so a stray/misscanned tag can't create
 a junk item).
 
-`actor` is the app **username** of the person who scanned. It is optional — an
-empty or unknown value just logs the change as "System" — and is supplied by the
+`actor` is the app **username** of the person who scanned. It is optional - an
+empty or unknown value just logs the change as "System" - and is supplied by the
 automation via a per-phone map (see [Per-phone notifications](#per-phone-notifications)
 and `actor_by_device` in `HomeAssistant/automation.yml`).
 
@@ -107,7 +107,7 @@ automation:
 ```
 
 > **One automation for every tag.** Because the app resolves the scanned
-> `tag_id` to its bound item, this single automation handles all tags — there's
+> `tag_id` to its bound item, this single automation handles all tags - there's
 > no need to clone it per item. Trigger on `tag_scanned` with **no** `tag_id`
 > filter, set the notification title from `trigger.event.data.name` (the HA
 > tag's friendly name), and run it in `mode: parallel` so concurrent scans don't

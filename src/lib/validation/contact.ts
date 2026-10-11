@@ -11,7 +11,7 @@ export const contactSchema = z.object({
   email: z.string().trim().email().max(254),
   description: z.string().trim().min(10).max(5000),
   // Honeypot: rendered hidden, so a real user never fills it. Capped, not
-  // rejected here — the route treats any non-empty value as a bot and silently
+  // rejected here - the route treats any non-empty value as a bot and silently
   // drops it (returning success so the bot learns nothing).
   company: z.string().max(100).optional(),
   elapsedMs: z.number().int().nonnegative().optional(),

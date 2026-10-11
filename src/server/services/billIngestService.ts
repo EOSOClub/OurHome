@@ -87,7 +87,7 @@ function billName(doc: BillIngestInput): string {
 /**
  * The cross-document link key: a real invoice or confirmation number when the
  * email has one (so a bill and its later receipt share it), otherwise a stable
- * generated id derived from the Message-ID (unique per email — used only for
+ * generated id derived from the Message-ID (unique per email - used only for
  * dedup, never cross-links).
  */
 function resolveReference(doc: BillIngestInput): string {
@@ -163,7 +163,7 @@ export async function ingestFinancialDoc(
     createUnmatchedReceipts: options.createUnmatchedReceipts ?? true,
   };
 
-  // Statements are "your statement is available" pointers with no amount — nothing
+  // Statements are "your statement is available" pointers with no amount - nothing
   // actionable to record as a bill or payment.
   if (doc.kind === 'statement') {
     return { status: 'skipped', kind: doc.kind, reference, reason: 'statement' };
@@ -271,7 +271,7 @@ async function ingestReceipt(
 
     // Match to an existing bill, strongest signal first:
     //   1. a shared real invoice/confirmation number (reference),
-    //   2. the same account number — a strong identifier; amounts may legitimately
+    //   2. the same account number - a strong identifier; amounts may legitimately
     //      differ (partial payments, or a payment toward a past-due balance),
     //   3. biller + timing: the newest still-unpaid bill from the same biller
     //      whose amount matches within a card-fee band. This is the "the next
@@ -284,7 +284,7 @@ async function ingestReceipt(
       include: { recurrence: true },
     });
     if (!match && doc.accountNo) {
-      // Only open bills — a payment clears what's still owed. (Ordering by status
+      // Only open bills - a payment clears what's still owed. (Ordering by status
       // here is a trap: "paid" sorts before "unpaid", which would misroute the
       // payment onto an already-settled bill sharing the account number.)
       match = await tx.bill.findFirst({
@@ -356,7 +356,7 @@ async function ingestReceipt(
         select: { id: true },
       });
 
-      // Paid only once payments cover the balance — a smaller payment leaves the
+      // Paid only once payments cover the balance - a smaller payment leaves the
       // bill unpaid (a partial payment / still behind), not falsely "paid".
       const paidTotal = prior + applied;
       const fullyPaid = paidTotal + 0.005 >= match.amount; // cent tolerance

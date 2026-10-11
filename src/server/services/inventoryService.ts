@@ -35,7 +35,7 @@ function computeIsLow(quantity: number, lowThreshold: number): boolean {
  *
  * Heuristic: `reorderIntervalDays` means "we restock this roughly every N
  * days", so the stock on hand is expected to last N days from the most recent
- * restock — `lastRestockedAt + N days`, falling back to `from` (now) when the
+ * restock - `lastRestockedAt + N days`, falling back to `from` (now) when the
  * item has never been restocked. Refreshed on every restock (positive
  * adjustment) and whenever the interval changes; returns null when no interval
  * is configured. Pure so it's trivially unit-testable.

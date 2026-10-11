@@ -1,6 +1,6 @@
 /**
  * Segment-level loading skeleton shown while server components for a route
- * under (app) render. Pure markup — mirrors the card layout most pages use.
+ * under (app) render. Pure markup - mirrors the card layout most pages use.
  */
 export default function Loading() {
   return (

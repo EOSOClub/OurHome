@@ -131,7 +131,7 @@ export function billToDTO(
 export async function listBills(householdId: string): Promise<BillDTO[]> {
   const [rows, paymentGroups] = await Promise.all([
     prisma.bill.findMany({ where: { householdId }, include: billInclude }),
-    // One grouped query for all payment totals — avoids an aggregate per bill.
+    // One grouped query for all payment totals - avoids an aggregate per bill.
     prisma.billPayment.groupBy({
       by: ['billId'],
       where: { householdId },
@@ -288,8 +288,8 @@ export async function updateBill(
         : await validAssignee(householdId, assignedUserId);
 
     // A one-off bill's paid/unpaid follows its payments: a new amount can
-    // leave it owing (or settle it). Only when it has payments — a bill marked
-    // paid by hand has nothing to recompute from — and the edit didn't set a
+    // leave it owing (or settle it). Only when it has payments - a bill marked
+    // paid by hand has nothing to recompute from - and the edit didn't set a
     // status itself.
     let status = rest.status;
     if (rest.amount !== undefined && status === undefined && !existing.recurrenceId && recurrenceId === undefined && !recurrence) {
@@ -357,7 +357,7 @@ export async function updateBill(
  *
  * One-off bills are partial-payment aware: a payment smaller than the remaining
  * balance leaves the bill unpaid; the bill flips to "paid" only once the summed
- * payments cover its amount (cent tolerance) — matching the email-ingest logic.
+ * payments cover its amount (cent tolerance) - matching the email-ingest logic.
  * `amount` defaults to the remaining balance, and an optional `fee` records a card
  * surcharge without counting toward the balance.
  */
@@ -453,7 +453,7 @@ export async function markBillPaid(
  * Edit a recorded payment and recompute the linked bill's status from the new
  * totals: one-off bills flip between paid/unpaid as the summed payments cross
  * the balance (cent tolerance, same rule as markBillPaid/deletePayment).
- * Recurring bills are left as-is — their status tracks the cycle, not the totals.
+ * Recurring bills are left as-is - their status tracks the cycle, not the totals.
  */
 export async function updatePayment(
   householdId: string,
@@ -514,7 +514,7 @@ export async function updatePayment(
 /**
  * Delete a recorded payment and recompute the linked bill's status (one-off bills
  * revert to unpaid if the remaining payments no longer cover the balance).
- * Recurring bills are left as-is — their status tracks the cycle, not the totals.
+ * Recurring bills are left as-is - their status tracks the cycle, not the totals.
  */
 export async function deletePayment(
   householdId: string,

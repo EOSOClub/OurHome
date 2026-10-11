@@ -1,4 +1,4 @@
-# Next.js household platform — build + run, with the Prisma CLI kept in the
+# Next.js household platform - build + run, with the Prisma CLI kept in the
 # runtime image so the entrypoint can `prisma db push` against a fresh Mongo.
 # Debian-slim (not alpine) to match the Prisma engine binaryTarget
 # debian-openssl-3.0.x declared in prisma/schema/models.prisma.

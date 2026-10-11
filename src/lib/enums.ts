@@ -1,6 +1,6 @@
 // Single source of truth for the string "enums" used across the schema, Zod
-// validation, and UI. (The MongoDB schema stores these as plain strings —
-// validated here and in src/lib/validation — see prisma/schema/models.prisma.)
+// validation, and UI. (The MongoDB schema stores these as plain strings -
+// validated here and in src/lib/validation - see prisma/schema/models.prisma.)
 
 // Household roles, highest authority first. There is exactly one `head` per
 // household (the "Head of House"); see src/server/services/userService.ts.
@@ -18,7 +18,7 @@ export const USER_ROLE_LABELS: Record<UserRole, string> = {
   guest: 'Guest',
 };
 
-// Authority ranking — higher outranks lower. Used to decide who may manage whom.
+// Authority ranking - higher outranks lower. Used to decide who may manage whom.
 export const ROLE_RANK: Record<UserRole, number> = {
   head: 6,
   manager: 5,
@@ -187,7 +187,7 @@ export const MAINTENANCE_STATUS_LABELS: Record<MaintenanceStatus, string> = {
 // Media requests are one step: whoever may approve them (the Requests "Approve"
 // switch in the page-access grid) marks them added, which completes them.
 // "accepted" only exists on rows from the older accept → available flow and
-// still counts as waiting. Requests made before statuses existed have none —
+// still counts as waiting. Requests made before statuses existed have none -
 // treat a missing status as pending.
 export const MEDIA_STATUS_LABELS: Record<MaintenanceStatus, string> = {
   pending: 'Waiting',

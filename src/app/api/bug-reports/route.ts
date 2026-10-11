@@ -9,7 +9,7 @@ export const POST = withAuth(async (ctx) => {
   // Each report can send an email; keep a tight per-user budget on top of the
   // generic per-IP limit in withAuth.
   if (!rateLimit(`bug-report:${ctx.user.id}`, 60 * 60_000, 10)) {
-    return fail('Too many bug reports — try again later.', 429);
+    return fail('Too many bug reports - try again later.', 429);
   }
   const input = await parseBody(ctx.req, submitBugReportSchema);
   const result = await submitBugReport(

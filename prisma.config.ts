@@ -7,7 +7,7 @@ import { loadSettings } from './src/server/settings';
 // the `dev:` values everywhere else.
 loadSettings();
 
-// MongoDB has no SQL migrations — the schema is applied with `prisma db push`
+// MongoDB has no SQL migrations - the schema is applied with `prisma db push`
 // (see the db:* scripts in package.json). This config also points Prisma at the
 // schema folder (models.prisma + datasource.prisma).
 export default defineConfig({

@@ -21,7 +21,7 @@ export const metadata: Metadata = {
 };
 
 // The app is dark by default: `<html>` ships with the `dark` class already on
-// it (below), so the correct theme is painted immediately — even if this script
+// it (below), so the correct theme is painted immediately - even if this script
 // is delayed or blocked. The only job here is to step DOWN to light before the
 // first paint when the user has explicitly chosen it, avoiding a dark flash.
 const themeInitScript = `

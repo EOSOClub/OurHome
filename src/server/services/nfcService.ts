@@ -151,7 +151,7 @@ export async function registerNfcTag(
 
 /**
  * What a scanned tag resolves to, for the Android app: the tag (or null if it
- * isn't set up yet) and its bound item. Read-only — nothing is recorded.
+ * isn't set up yet) and its bound item. Read-only - nothing is recorded.
  */
 export async function lookupNfcTag(householdId: string, tagId: string): Promise<NfcLookupDTO> {
   const tag = await prisma.nfcTag.findUnique({

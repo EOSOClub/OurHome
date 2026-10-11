@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 
 /**
- * Branded confirmation modal — a drop-in replacement for `window.confirm()`.
+ * Branded confirmation modal - a drop-in replacement for `window.confirm()`.
  * Built on the app's {@link Dialog} so it matches the rest of the UI (Escape /
  * backdrop click cancel, scroll lock) instead of the native "{website} says…"
  * browser popup. Controlled via `open`; call `onConfirm` for the action and

@@ -191,7 +191,7 @@ export function PointsView({
                   <td className="px-4 py-2 text-right font-medium tabular-nums">{m.points}</td>
                   <td className="px-4 py-2 text-right tabular-nums">{m.perDay}</td>
                   <td className="hidden px-4 py-2 text-right tabular-nums sm:table-cell">{m.awards}</td>
-                  <td className="px-4 py-2 text-right tabular-nums text-muted-foreground">{m.queued || '—'}</td>
+                  <td className="px-4 py-2 text-right tabular-nums text-muted-foreground">{m.queued || '-'}</td>
                 </tr>
               ))}
             </tbody>
@@ -222,7 +222,7 @@ export function PointsView({
                 <div className="min-w-0 flex-1">
                   <p className={cn('truncate', a.voided && 'line-through')}>
                     <span className="font-medium">{a.userName ?? 'Former member'}</span> · {a.taskTitle}
-                    {a.stepTitle ? <span className="text-muted-foreground"> — {a.stepTitle}</span> : null}
+                    {a.stepTitle ? <span className="text-muted-foreground"> - {a.stepTitle}</span> : null}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {KIND_LABELS[a.kind] ?? a.kind} · <RelativeTime date={a.awardedAt} />

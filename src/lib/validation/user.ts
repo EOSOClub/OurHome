@@ -7,7 +7,7 @@ import {
   type ProfileColor,
 } from '@/lib/profile';
 
-// Mirrors the Better Auth username plugin defaults (3–30 chars). Letters,
+// Mirrors the Better Auth username plugin defaults (3-30 chars). Letters,
 // numbers, and . _ - so display names like "jane.d" work.
 export const usernameSchema = z
   .string()

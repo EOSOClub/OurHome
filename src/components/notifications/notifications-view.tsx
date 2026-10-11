@@ -125,7 +125,7 @@ export function NotificationsView({ initial }: { initial: NotificationList }) {
         method: 'POST',
         body: JSON.stringify({ id }),
       }),
-    // Optimistically mark it read — the bell shares this cache, so its badge
+    // Optimistically mark it read - the bell shares this cache, so its badge
     // updates instantly too; onSettled re-syncs with the server either way.
     // The row may live in the cached first page or a locally loaded older
     // page, so patch (and roll back) both.
@@ -208,7 +208,7 @@ export function NotificationsView({ initial }: { initial: NotificationList }) {
 
   // First page (cache) + accumulated older pages. Refetches can shift the
   // first-page window into already-loaded rows, so drop duplicates by id
-  // (the cached copy wins — it is fresher).
+  // (the cached copy wins - it is fresher).
   const seen = new Set<string>();
   const items = [...(data?.items ?? []), ...older].filter((n) => {
     if (seen.has(n.id)) return false;

@@ -99,7 +99,7 @@ function DoneToday({ done }: { done: DashboardData['doneToday'] }) {
   return (
     <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
       <PartyPopper className="size-4 text-[var(--color-success)]" />
-      {chores} done today{done.mine > 0 ? ` — ${done.mine === done.total ? 'all' : done.mine} by you` : ''}.
+      {chores} done today{done.mine > 0 ? ` - ${done.mine === done.total ? 'all' : done.mine} by you` : ''}.
     </p>
   );
 }

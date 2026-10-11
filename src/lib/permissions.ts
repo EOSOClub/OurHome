@@ -18,7 +18,7 @@ export const PERMISSIONS = [
   // Add/edit/delete on the feature pages (tasks, calendar, shopping, inventory,
   // bills) is NOT a role permission: it is the per-page access grid below
   // (resolveAccess), which the head edits per role and per member.
-  // Mark a task done. Guests may only complete tasks assigned to them — that
+  // Mark a task done. Guests may only complete tasks assigned to them - that
   // narrower scope is enforced in taskService.completeTask, not here.
   'tasks:complete',
   // Work with requests: edit/delete your own (requestService), accept and
@@ -74,7 +74,7 @@ export function canManageMember(
 /**
  * Whether an actor may assign `targetRole` to a member. The head may assign any
  * role; a manager may only assign the ranks below their own. Assigning `head`
- * is never done here — headship moves via transferHeadship to preserve the
+ * is never done here - headship moves via transferHeadship to preserve the
  * single-head invariant.
  */
 export function canAssignRole(actorRole: string, targetRole: string): boolean {
@@ -137,7 +137,7 @@ export const ACCESS_ACTION_LABELS: Record<AccessAction, string> = {
   approve: 'Approve',
 };
 
-/** Add / edit / delete — what every record page offers. */
+/** Add / edit / delete - what every record page offers. */
 const RECORD_ACTIONS = [
   'create',
   'editOwn',
@@ -279,7 +279,7 @@ export function hasAnyAccess(access: PageAccess): boolean {
 }
 
 /**
- * The cells of `next` that differ from `base` — what gets stored, so later
+ * The cells of `next` that differ from `base` - what gets stored, so later
  * changes to the layer below still flow through to untouched cells.
  */
 export function diffAccess(

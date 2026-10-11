@@ -139,7 +139,7 @@ function HomeAssistantCard({
   );
 
   // Resolve the absolute webhook URL on the client; falls back to the relative
-  // path during SSR (no hydration mismatch — see useSyncExternalStore docs).
+  // path during SSR (no hydration mismatch - see useSyncExternalStore docs).
   const webhookUrl = useSyncExternalStore(
     () => () => {},
     () => `${window.location.origin}/api/webhooks/nfc`,
@@ -203,7 +203,7 @@ function HomeAssistantCard({
         {newToken ? (
           <div className="space-y-2 rounded-md border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 p-3">
             <p className="text-xs font-medium text-foreground">
-              Copy this token now — it won’t be shown again:
+              Copy this token now - it won’t be shown again:
             </p>
             <code className="block break-all rounded bg-background px-2 py-1.5 text-xs">
               {newToken}
@@ -309,7 +309,7 @@ function NfcTagsCard({
   const [tagId, setTagId] = useState('');
   const [label, setLabel] = useState('');
   const [itemId, setItemId] = useState(items[0]?.id ?? '');
-  // "room:<id>" or "" — the room a location tag opens.
+  // "room:<id>" or "" - the room a location tag opens.
   const [room, setRoom] = useState('');
   const [represents, setRepresents] = useState<NfcRepresents>('consumable');
   const [pendingDelete, setPendingDelete] = useState<NfcTagDTO | null>(null);

@@ -42,7 +42,7 @@ export function LinkField({
       );
       onPreview(preview);
       if (!preview.title && !preview.imageUrl && preview.price == null) {
-        setNote("Couldn't read that link — fill the details in manually.");
+        setNote("Couldn't read that link - fill the details in manually.");
       }
     } catch (err) {
       setNote(
@@ -81,7 +81,7 @@ export function LinkField({
       </div>
       {imageUrl ? (
         <div className="flex items-center gap-2 pt-1">
-          {/* Remote OG image from an arbitrary host — plain <img> avoids having
+          {/* Remote OG image from an arbitrary host - plain <img> avoids having
               to allowlist every retailer's CDN in next.config. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img

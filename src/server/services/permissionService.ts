@@ -21,7 +21,7 @@ import type { AccessSettingsMatrixDTO } from '@/lib/types';
 import { ACCESS_PAGE_FEATURE, maskAccess } from '@/lib/features';
 import { getHouseholdFeatures } from '@/server/services/serverAdminService';
 
-// Page access (add / edit / delete per page) — loading someone's effective grid
+// Page access (add / edit / delete per page) - loading someone's effective grid
 // and the head's editor for role defaults and per-member overrides. The pure
 // resolution rules live in src/lib/permissions.ts.
 

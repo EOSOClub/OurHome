@@ -1,8 +1,8 @@
 import type { Prisma } from '@prisma/client';
 import { pushSync } from '@/server/services/pushService';
 
-// "Your turn" notices: when a task becomes someone's to do — assigned to them,
-// passed to them by a rotation, or reopened for a new cycle/occurrence — its
+// "Your turn" notices: when a task becomes someone's to do - assigned to them,
+// passed to them by a rotation, or reopened for a new cycle/occurrence - its
 // assignee gets a bell row (addressed to them alone) and a phone alert. At
 // most one per task: a newer one replaces it, and completing, archiving or
 // deleting the task removes it. Whoever caused the change (assigning a task to
@@ -18,7 +18,7 @@ export interface ReadyTask {
   rotationUserIds?: string | null;
 }
 
-/** The notice text, e.g. "It's your turn — due Fri, Oct 10." */
+/** The notice text, e.g. "It's your turn - due Fri, Oct 10." */
 export function taskReadyBody(task: ReadyTask, timeZone?: string): string {
   const lead = task.rotationUserIds ? 'It’s your turn' : 'Ready for you';
   if (!task.dueDate) return `${lead}.`;
@@ -28,7 +28,7 @@ export function taskReadyBody(task: ReadyTask, timeZone?: string): string {
     day: 'numeric',
     ...(timeZone ? { timeZone } : {}),
   });
-  return `${lead} — due ${due}.`;
+  return `${lead} - due ${due}.`;
 }
 
 /** The notice's dedupeKey: one per task, as the unique index needs a key on every row. */

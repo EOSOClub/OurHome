@@ -10,7 +10,7 @@ import {
 // Shared by tasks, bills and calendar events (see validation/bills.ts and
 // validation/calendar.ts). 'cron' stays in RECURRENCE_KINDS as a reserved
 // value, but the recurrence engine can't advance it yet, so accepting it would
-// create rules that silently never recur — reject it at the boundary instead.
+// create rules that silently never recur - reject it at the boundary instead.
 export const recurrenceInputSchema = z
   .object({
     kind: z.enum(RECURRENCE_KINDS),
@@ -26,7 +26,7 @@ export const recurrenceInputSchema = z
     // Tasks only: run in cycles that roll over at local midnight. Weekly
     // needs cycleWeekdays and monthly needs cycleMonthdays; daily/interval
     // cycles follow the rule itself. Month days past a month's end start on
-    // its last day, so only 1–31 are accepted.
+    // its last day, so only 1-31 are accepted.
     rollover: z.boolean().optional(),
     cycleWeekdays: z.array(z.number().int().min(0).max(6)).max(7).optional().nullable(),
     cycleMonthdays: z.array(z.number().int().min(1).max(31)).max(31).optional().nullable(),

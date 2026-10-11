@@ -218,7 +218,7 @@ function RenameHouseholdDialog({
           maxLength={80}
           onChange={(e) => setName(e.target.value)}
         />
-        <p className="text-xs text-muted-foreground">1–80 characters.</p>
+        <p className="text-xs text-muted-foreground">1-80 characters.</p>
       </form>
     </Dialog>
   );

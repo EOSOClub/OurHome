@@ -328,7 +328,7 @@ export function PointsEditor({
                 <NumberField
                   aria-label="Unchecks every N days"
                   title="Unchecks itself every N days (empty = only with the task)"
-                  placeholder="—"
+                  placeholder="-"
                   className="h-9"
                   value={s.resetIntervalDays}
                   onValue={(v) =>

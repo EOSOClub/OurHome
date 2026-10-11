@@ -107,13 +107,13 @@ function OverviewCard({ overview }: { overview: ProfileOverview }) {
     { label: 'Email', value: overview.email },
     {
       label: 'Username',
-      value: overview.username ?? '—',
+      value: overview.username ?? '-',
     },
     {
       label: 'Role',
       value: USER_ROLE_LABELS[overview.role as UserRole] ?? overview.role,
     },
-    { label: 'Household', value: overview.householdName ?? '—' },
+    { label: 'Household', value: overview.householdName ?? '-' },
     {
       label: 'Member since',
       value: new Date(overview.memberSince).toLocaleDateString(undefined, {

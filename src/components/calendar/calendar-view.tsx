@@ -308,8 +308,8 @@ export function CalendarView({
         <h2 className="text-lg font-medium">
           {view === 'week'
             ? weekDays[0].getMonth() === weekDays[6].getMonth()
-              ? `${MONTHS[weekDays[0].getMonth()]} ${weekDays[0].getDate()} – ${weekDays[6].getDate()}, ${weekDays[6].getFullYear()}`
-              : `${MONTHS[weekDays[0].getMonth()]} ${weekDays[0].getDate()} – ${MONTHS[weekDays[6].getMonth()]} ${weekDays[6].getDate()}, ${weekDays[6].getFullYear()}`
+              ? `${MONTHS[weekDays[0].getMonth()]} ${weekDays[0].getDate()} - ${weekDays[6].getDate()}, ${weekDays[6].getFullYear()}`
+              : `${MONTHS[weekDays[0].getMonth()]} ${weekDays[0].getDate()} - ${MONTHS[weekDays[6].getMonth()]} ${weekDays[6].getDate()}, ${weekDays[6].getFullYear()}`
             : `${MONTHS[ym.month]} ${ym.year}`}
         </h2>
         <div className="flex items-center gap-1">
@@ -506,7 +506,7 @@ export function CalendarView({
                 </div>
                 <div className="space-y-1 p-1.5">
                   {events.length === 0 ? (
-                    <p className="px-1.5 text-xs text-muted-foreground">—</p>
+                    <p className="px-1.5 text-xs text-muted-foreground">-</p>
                   ) : (
                     events.map((o, j) => (
                       <button
@@ -898,7 +898,7 @@ function EventDialog({
         </label>
         {allDay ? (
           <p className="text-xs text-muted-foreground">
-            Times are set automatically — starts at 00:00
+            Times are set automatically - starts at 00:00
             {endDate ? ' and ends at 23:59' : ''}.
           </p>
         ) : null}

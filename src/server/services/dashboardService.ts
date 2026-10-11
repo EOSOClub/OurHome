@@ -204,7 +204,7 @@ export async function getDashboard(
   const myRow = points.members.find((m) => m.userId === user.id);
   const myRank = myRow && myRow.points > 0 ? points.members.indexOf(myRow) + 1 : null;
 
-  // Features the server admin turned off show nothing here — also for app
+  // Features the server admin turned off show nothing here - also for app
   // builds that don't know about `features` yet (they just see empty lists).
   const on = (f: Feature) => features.includes(f);
   const tasksOn = on('tasks');

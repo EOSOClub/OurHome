@@ -2,7 +2,7 @@
 
 ## Easiest: the "Our Home" Android app
 
-**New (blank) tag:** scan it — Android offers Our Home (or open the app first
+**New (blank) tag:** scan it - Android offers Our Home (or open the app first
 and scan). Then:
 
 1. **New item** (name, unit, how many you have, "low at") or **Existing item**.
@@ -35,7 +35,7 @@ Every button asks you to unlock first; the lock screen shows no item details.
 This is the repeatable runbook for putting a new NFC tag into service: scan it
 with a phone to add/remove stock of one inventory item.
 
-It assumes the **one-time** Home Assistant setup is already done — the webhook
+It assumes the **one-time** Home Assistant setup is already done - the webhook
 token, the `rest_command.inventory_scan`, the firewall rule, the **single
 generic scan automation** (`HomeAssistant/automation.yml`), and (optionally)
 per-phone routing. If not, do [`home-assistant.md`](./home-assistant.md) first.
@@ -43,7 +43,7 @@ per-phone routing. If not, do [`home-assistant.md`](./home-assistant.md) first.
 There is **no automation to create per tag.** One generic automation handles
 every tag: the app resolves the scanned `tag_id` to its bound item, so adding a
 tag is just app config plus naming the tag in HA. Each tag still maps to exactly
-**one** inventory item. The amount (a signed decimal — negative removes, positive
+**one** inventory item. The amount (a signed decimal - negative removes, positive
 restocks, fractions allowed) is entered on the phone at scan time.
 
 ---
@@ -51,10 +51,10 @@ restocks, fractions allowed) is entered on the phone at scan time.
 ## Fast track: auto-register on first scan
 
 You can skip the app config entirely. If the generic automation forwards the HA
-tag's friendly `name` (it does — see `name: "{{ trigger.event.data.name }}"` in
+tag's friendly `name` (it does - see `name: "{{ trigger.event.data.name }}"` in
 `HomeAssistant/automation.yml`), then the **first scan of an unknown tag**
 auto-creates the inventory item named after the tag, seeds its quantity from the
-amount you type, and binds the tag — all in one scan.
+amount you type, and binds the tag - all in one scan.
 
 So the minimal flow for a brand-new item is:
 
@@ -62,7 +62,7 @@ So the minimal flow for a brand-new item is:
    `Coffee beans`). This becomes both the prompt title and the new item's name.
 2. **Scan it** and reply with a starting amount (e.g. `3`).
 
-That's it — the item appears in Inventory at quantity 3, already bound to the
+That's it - the item appears in Inventory at quantity 3, already bound to the
 tag. Re-scan any time to adjust the amount.
 
 > A scan on an unknown tag with **no** friendly name still returns 404, so a
@@ -85,7 +85,7 @@ Gather these before you start. Most come from two HA screens and one app screen.
 | **Webhook token** | App → Settings → Home Assistant connection | `kq3V…` (43 characters) |
 | **App webhook URL** | The app host's LAN IP + `:3000/api/webhooks/nfc` | `http://APP_HOST:3000/api/webhooks/nfc` |
 
-> The token and webhook URL are **shared across all tags** — they come from the
+> The token and webhook URL are **shared across all tags** - they come from the
 > one-time setup and don't change when you add a tag. You only need them when
 > wiring the `rest_command`, which is also one-time.
 
@@ -98,12 +98,12 @@ Gather these before you start. Most come from two HA screens and one app screen.
 App → **Inventory** → add the item. Set:
 
 - **Name** (and optional **unit**, e.g. `bags`, `rolls`, `oz`).
-- **Low at** — the threshold below which it shows a "Low" badge. Leave `0` to
+- **Low at** - the threshold below which it shows a "Low" badge. Leave `0` to
   disable the low flag.
 
 Skip this step if the item already exists.
 
-### 2. Get the tag id (and scanner device id) — HA
+### 2. Get the tag id (and scanner device id) - HA
 
 HA → **Developer Tools → Events**. Under "Listen to events" enter `tag_scanned`,
 click **Start listening**, then **scan the physical tag** with the phone. You'll
@@ -125,15 +125,15 @@ Record the **`tag_id`**. If you route notifications per phone (see
 
 > A friendly tag name in HA (e.g. "Test site") is **not** the `tag_id`. Always
 > take the `tag_id` from the event. The friendly name *is* used as the scan
-> notification's title, though — see step 4.
+> notification's title, though - see step 4.
 
 ### 3. Map the tag to the item (app)
 
 App → **Settings → NFC tags → Map tag**:
 
-- **Tag id** — the `tag_id` from step 2.
-- **Label** — a human name, e.g. `Coffee shelf`.
-- **Inventory item** — the item from step 1.
+- **Tag id** - the `tag_id` from step 2.
+- **Label** - a human name, e.g. `Coffee shelf`.
+- **Inventory item** - the item from step 1.
 
 Re-mapping the same tag id later just updates the binding (it's an upsert), so a
 tag is easy to repoint at a different item.
@@ -147,7 +147,7 @@ name, e.g. `Paper Towels`. Unnamed tags just fall back to the generic title
 `Inventory`.
 
 > No automation step. The one generic automation
-> (`HomeAssistant/automation.yml`, set up once) already handles this tag — it
+> (`HomeAssistant/automation.yml`, set up once) already handles this tag - it
 > triggers on *any* `tag_scanned`, forwards `trigger.event.data.tag_id` to the
 > app, and the app maps it to the item you bound in step 3.
 
@@ -170,8 +170,8 @@ feed should credit that user; an empty/unknown `actor` shows as "System".
 These are configured **once** in the generic automation
 (`HomeAssistant/automation.yml`), not per tag. Two `device_id → …` maps drive it:
 
-- `notify_by_device` — sends the prompt only to the phone that scanned.
-- `actor_by_device` — credits the scan to that person in the activity feed. The
+- `notify_by_device` - sends the prompt only to the phone that scanned.
+- `actor_by_device` - credits the scan to that person in the activity feed. The
   value is the **app username**; the webhook resolves it to a household member,
   so the feed shows their real name instead of "System". Unknown/empty → System.
 
@@ -195,7 +195,7 @@ scan any tag and read it from the `tag_scanned` event (step 2).
 > Concurrency: the generic automation runs in `mode: parallel`, so scanning a
 > second tag won't cancel a prompt already in flight. The `wait_for_trigger`
 > still matches *any* `INV_REPLY`, so if two people reply to different prompts at
-> the exact same moment the replies could cross — fine for a single scanner. For
+> the exact same moment the replies could cross - fine for a single scanner. For
 > strict multi-user handling, add a `context: user_id:` filter on the
 > `wait_for_trigger` so each reply maps to its own scan.
 
@@ -208,7 +208,7 @@ Fast track (auto-register on first scan):
 ```
 [ ] HA tag given a friendly name (becomes the item name + prompt title)
 [ ] Scanned + replied with a starting amount; item created & bound in the app
-[ ] (no app config, no per-tag automation — the one generic automation handles it)
+[ ] (no app config, no per-tag automation - the one generic automation handles it)
 ```
 
 Manual mapping (only if the item name differs from the HA tag, or you want a
@@ -220,7 +220,7 @@ unit/low threshold set up front):
 [ ] Tag mapped to the item in Settings → NFC tags
 [ ] HA tag given a friendly name (becomes the prompt title)
 [ ] Scanned + replied with a number; quantity updated in the app
-[ ] (no per-tag automation — the one generic automation handles it)
+[ ] (no per-tag automation - the one generic automation handles it)
 ```
 
 ---
@@ -231,10 +231,10 @@ unit/low threshold set up front):
 | ------- | ------------ |
 | Notification never arrives | Wrong `notify.mobile_app_*` name, or companion app notifications disabled. Verify in Developer Tools → Actions. |
 | Reply does nothing | Automation timed out (>2 min), or the `action` id in the notification doesn't match the `wait_for_trigger` (`INV_REPLY`). Check the automation **Trace**. |
-| App returns **404** | The scanned `tag_id` isn't mapped, or isn't bound to an item — re-check Settings → NFC tags. |
+| App returns **404** | The scanned `tag_id` isn't mapped, or isn't bound to an item - re-check Settings → NFC tags. |
 | App returns **401** | Wrong/expired webhook token in `rest_command`. |
 | App returns **422** | `amount` was `0`, missing, or non-numeric (a bad reply text). |
-| HA can't reach the app at all | Firewall rule missing, app not running, or VPN blocking LAN — see [`home-assistant.md`](./home-assistant.md). |
+| HA can't reach the app at all | Firewall rule missing, app not running, or VPN blocking LAN - see [`home-assistant.md`](./home-assistant.md). |
 
 Diagnostics live in HA at **Settings → Automations → (this automation) → Traces**
 and **Settings → System → Logs**.

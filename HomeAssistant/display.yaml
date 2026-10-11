@@ -1,4 +1,4 @@
-# Home Assistant — display-only inventory (scanning now happens in the
+# Home Assistant - display-only inventory (scanning now happens in the
 # "Our Home" Android app; see docs/home-assistant.md → "Display-only mode").
 #
 # HA polls a read-only feed and shows the numbers. Nothing here changes stock,
@@ -41,5 +41,5 @@ rest:
 # title: Inventory
 # content: >-
 #   {% for i in state_attr('sensor.inventory_low_items', 'items') or [] %}
-#   {{ '⚠️' if i.is_low else '•' }} **{{ i.name }}** — {{ i.quantity }} {{ i.unit or '' }}
+#   {{ '⚠️' if i.is_low else '•' }} **{{ i.name }}** - {{ i.quantity }} {{ i.unit or '' }}
 #   {% endfor %}

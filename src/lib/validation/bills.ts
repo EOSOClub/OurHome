@@ -7,7 +7,7 @@ const amountSchema = z.number().nonnegative().max(1_000_000);
 export const createBillSchema = z.object({
   name: z.string().trim().min(1).max(160),
   amount: amountSchema,
-  // Optional — omitted by the bill form (server default "USD"); sent by the
+  // Optional - omitted by the bill form (server default "USD"); sent by the
   // Duplicate action so copies keep the source bill's currency.
   currency: z.string().trim().min(1).max(10).optional().nullable(),
   dueDate: z.coerce.date().optional().nullable(),

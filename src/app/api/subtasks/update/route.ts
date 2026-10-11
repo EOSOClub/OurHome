@@ -13,7 +13,7 @@ export const POST = withAuth(async (ctx) => {
   const householdId = ctx.user.householdId!;
   const input = await parseBody(ctx.req, updateSubtaskSchema);
   // Checking an item off is part of completing a task, so a bare done-toggle
-  // only needs tasks:complete (guests included — the service scopes them to
+  // only needs tasks:complete (guests included - the service scopes them to
   // their own assignments). Anything else edits the task's checklist.
   const doneToggleOnly =
     input.done !== undefined &&

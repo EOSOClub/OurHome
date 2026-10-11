@@ -5,7 +5,7 @@
 // Mirrors the mailer's graceful fallback: if TURNSTILE_SECRET_KEY is unset in
 // local dev, verification is skipped and returns true, so the contact flow stays
 // testable without provisioning keys. In production a missing secret fails
-// CLOSED — silently skipping verification there would disable bot protection.
+// CLOSED - silently skipping verification there would disable bot protection.
 
 const SITEVERIFY_URL =
   'https://challenges.cloudflare.com/turnstile/v0/siteverify';

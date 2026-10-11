@@ -127,7 +127,7 @@ export async function listNotifications(
 
 /**
  * Mark a single notification (by id) or all of the notifications [userId] can
- * see as read — for [userId] only. Scoped to what they can see, so members
+ * see as read - for [userId] only. Scoped to what they can see, so members
  * can't touch other households' rows or notifications addressed to someone
  * else.
  */

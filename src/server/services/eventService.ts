@@ -132,7 +132,7 @@ async function autoRegisterFromScan(
 
 /**
  * Recent tag scans and setups, newest first, from either Home Assistant or the
- * Android app — "what was scanned, when, by whom". Item and actor names are
+ * Android app - "what was scanned, when, by whom". Item and actor names are
  * resolved in two queries; a deleted item/member just shows as null.
  */
 export async function listRecentScans(householdId: string, limit = 30): Promise<NfcScanDTO[]> {

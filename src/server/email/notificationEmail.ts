@@ -34,7 +34,7 @@ const SUBJECT_PATH: Record<string, string> = {
 /**
  * Build the subject/body for a reminder email. `baseUrl` defaults to the
  * site's public URL (BETTER_AUTH_URL, `better_auth.url` in settings.yml);
- * pass `null` — or leave the env unset — to omit the link.
+ * pass `null` - or leave the env unset - to omit the link.
  */
 export function buildReminderEmail(
   candidate: ReminderEmailInput,
@@ -48,7 +48,7 @@ export function buildReminderEmail(
     const path = SUBJECT_PATH[candidate.subjectType] ?? '/notifications';
     lines.push('', `View in the app: ${baseUrl.replace(/\/$/, '')}${path}`);
   }
-  lines.push('', `— ${APP_NAME}`);
+  lines.push('', `- ${APP_NAME}`);
   return {
     subject: `${prefix}: ${candidate.title}`,
     text: lines.join('\n'),

@@ -18,7 +18,7 @@ interface Reporter {
  * File a bug report: store it, notify everyone holding bugs:manage (the head)
  * with an in-app notification addressed to them, then email a copy to
  * SUPPORT_TO. The row and notification are written first, so an unconfigured
- * or failing mailer never loses a report — the outcome is logged and recorded
+ * or failing mailer never loses a report - the outcome is logged and recorded
  * in `emailStatus`, and the caller still gets success.
  */
 export async function submitBugReport(

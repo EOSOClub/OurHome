@@ -12,7 +12,7 @@ import { contactSchema } from '@/lib/validation/contact';
 // Budget: 5 submissions per hour per IP.
 const RATE_WINDOW_MS = 60 * 60 * 1000;
 const RATE_MAX = 5;
-// Reject submissions faster than this — humans don't fill a form in under 3s.
+// Reject submissions faster than this - humans don't fill a form in under 3s.
 const MIN_ELAPSED_MS = 3000;
 
 export async function POST(req: NextRequest): Promise<Response> {

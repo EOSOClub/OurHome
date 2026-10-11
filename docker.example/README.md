@@ -179,10 +179,10 @@ The deploy script's walkthrough does this for you. By hand: secrets go in
 `.env` ([`.env.example`](../.env.example)); everything else in
 `settings.yml` ([`settings.example.yml`](../settings.example.yml)). At minimum:
 
-- `.env`: `DATABASE_URL` — your MongoDB replica set.
-- `.env`: `BETTER_AUTH_SECRET` and `CRON_SECRET`
-  — random hex: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
-- `settings.yml`: `docker.network` — the network your MongoDB container is on
+- `.env`: `DATABASE_URL` - your MongoDB replica set.
+- `.env`: `BETTER_AUTH_SECRET` and `CRON_SECRET`, each a
+  random hex string: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
+- `settings.yml`: `docker.network` - the network your MongoDB container is on
   (if it is one).
 
 No accounts go in either file; the setup page creates them.
@@ -274,21 +274,21 @@ afterwards (`./deploy.sh -s`), as long as the tunnel runs on the same machine.
 
 ## Optional
 
-- **Email** — fill in `smtp:` in `settings.yml` and `SMTP_PASS` in `.env` (any
+- **Email** - fill in `smtp:` in `settings.yml` and `SMTP_PASS` in `.env` (any
   SMTP provider). `contact.forward_to` receives contact-form messages;
   `bug_report.email` receives bug reports. Unset = stored in the app but not
   emailed.
-- **Contact-form CAPTCHA** — `turnstile.site_key` in `settings.yml` and
+- **Contact-form CAPTCHA** - `turnstile.site_key` in `settings.yml` and
   `TURNSTILE_SECRET_KEY` in `.env` (Cloudflare Turnstile).
-- **Paperless-ngx bill import** — the walkthrough can set Paperless up for you
+- **Paperless-ngx bill import** - the walkthrough can set Paperless up for you
   (tags, fields, a read-only user and token, starter workflows and dashboard
   views) with an admin login used once. See [bill import](../docs/paperless-import.md).
-- **Instant phone alerts** — a free Firebase project of your own; the
+- **Instant phone alerts** - a free Firebase project of your own; the
   walkthrough (`./deploy.sh -s`) asks for your app id, links each Firebase page
   and takes the server key. See [push notifications](../docs/push-notifications.md).
-- **Home Assistant display** — create a token on the site (Settings → Home
+- **Home Assistant display** - create a token on the site (Settings → Home
   Assistant connection), then see `../HomeAssistant/display.yaml`.
-- **Trigger a reminder sweep now** — with `CRON_SECRET` from `.env`:
+- **Trigger a reminder sweep now** - with `CRON_SECRET` from `.env`:
   `curl -X POST -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/reminders`
 
 ## Backups

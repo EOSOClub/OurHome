@@ -138,7 +138,7 @@ function parseResult(text: string | null): PaperlessSyncResult | null {
 // One Paperless per household. A household's own saved connection
 // (PaperlessConnection, Settings → Paperless) comes first. The server-wide one
 // from settings.yml/.env (paperlessConfig) is kept for the household it was
-// set up for — PAPERLESS_HOUSEHOLD_ID, else the server admin's — so existing
+// set up for - PAPERLESS_HOUSEHOLD_ID, else the server admin's - so existing
 // installs keep importing without re-entering anything.
 
 /** The household the server-wide settings.yml/.env connection belongs to. */
@@ -354,8 +354,8 @@ function cleanUrl(raw: string): string {
 
 /**
  * Save the household's own Paperless (Head of House). The connection is tried
- * first — address allowed, token accepted, the bill tags and Amount field
- * present — and nothing is saved if that fails. A blank token keeps the saved
+ * first - address allowed, token accepted, the bill tags and Amount field
+ * present - and nothing is saved if that fails. A blank token keeps the saved
  * one. Pointing at a different Paperless starts the import fresh.
  */
 export async function savePaperlessConnection(

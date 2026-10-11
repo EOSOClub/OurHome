@@ -257,7 +257,7 @@ export async function updateRequest(
 
 /**
  * Maintenance: the assignee accepts, committing to (or moving) a done-by date
- * — the deadline. Media has no accept step any more; app builds from before
+ * - the deadline. Media has no accept step any more; app builds from before
  * the one-step flow still call this, so it marks the request added instead.
  */
 export async function acceptRequest(

@@ -18,7 +18,7 @@ export function formatMoney(
 
 /** Absolute calendar date label, e.g. "Jul 2, 2026". */
 export function formatDate(date: Date | string | null | undefined, timeZone?: string): string {
-  if (!date) return '—';
+  if (!date) return '-';
   return new Date(date).toLocaleDateString(undefined, {
     year: 'numeric',
     month: 'short',
@@ -87,7 +87,7 @@ export function isDateOnly(date: Date | string, timeZone?: string): boolean {
 
 /**
  * Past due: a date-only due date from the next day on (not from noon on the
- * day itself — that showed "Overdue" next to "Due today"); a timed one once
+ * day itself - that showed "Overdue" next to "Due today"); a timed one once
  * its time has passed.
  */
 export function isOverdue(

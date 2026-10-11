@@ -12,8 +12,8 @@ interface SendEmailArgs {
   text: string;
   html?: string;
   // Optional Reply-To. The envelope `from` always stays SMTP_FROM (Proton only
-  // lets you send as an address you own), so to route replies elsewhere — e.g. a
-  // contact-form forward that should reply to the visitor — set replyTo.
+  // lets you send as an address you own), so to route replies elsewhere - e.g. a
+  // contact-form forward that should reply to the visitor - set replyTo.
   replyTo?: string;
 }
 

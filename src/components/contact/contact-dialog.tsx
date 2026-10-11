@@ -167,7 +167,7 @@ export function ContactDialog({
         {sent ? (
           <div className="flex flex-col items-center gap-3 py-4 text-center">
             <CheckCircle2 className="size-10 text-primary" />
-            <p className="font-medium">Thanks — we&apos;ll be in touch.</p>
+            <p className="font-medium">Thanks - we&apos;ll be in touch.</p>
             <p className="text-sm text-muted-foreground">
               A confirmation has been sent to your email.
             </p>

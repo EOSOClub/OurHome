@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# deploy.sh — set up, build and start the Our Home web app, and wait until it
+# deploy.sh - set up, build and start the Our Home web app, and wait until it
 # responds.
 #
 # First run: creates the repo-root settings.yml and .env from their templates
@@ -67,7 +67,7 @@ TIMEOUT=180
 
 usage() {
   cat <<EOF
-${BOLD}Our Home — Docker deploy (web app)${RESET}
+${BOLD}Our Home - Docker deploy (web app)${RESET}
 
 Sets up settings on the first run, builds the web app from GitHub, starts it,
 then waits until it responds.
@@ -108,7 +108,7 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
-# Colours — disabled when NO_COLOR is set or stdout is not a TTY.
+# Colours - disabled when NO_COLOR is set or stdout is not a TTY.
 # ---------------------------------------------------------------------------
 if [ -z "${NO_COLOR:-}" ] && [ -t 1 ]; then
   RESET=$'\033[0m'; BOLD=$'\033[1m'; DIM=$'\033[2m'; REV=$'\033[7m'
@@ -175,7 +175,7 @@ vlen() {
 }
 rep() { local s='' i; for ((i = 0; i < $2; i++)); do s+=$1; done; printf '%s' "$s"; }
 
-# wrap "first-line prefix" "next-lines prefix" text… — word-wraps to WIDTH.
+# wrap "first-line prefix" "next-lines prefix" text… - word-wraps to WIDTH.
 # Each line ends with RESET, so a colour in the prefix covers just that line.
 wrap() {
   local p1=$1 p2=$2 prefix line='' ll=0 room w words
@@ -456,7 +456,7 @@ example()   { wrap "    ${DIM}e.g.${RESET} " "         " "$*"; }
 hint()      { wrap "    $DIM" "    $DIM" "$*"; }
 link()      { printf '    %s→%s %s%s%s\n' "$CYAN" "$RESET" "$BOLD" "$1" "$RESET"; }   # URLs never wrap
 
-# panel text… — a section's introduction, framed in the interactive UI.
+# panel text… - a section's introduction, framed in the interactive UI.
 panel() {
   local inner saved=$WIDTH out line pad
   if [ "$FANCY" != 1 ]; then say "$@"; return 0; fi
@@ -532,7 +532,7 @@ _tui_buttons() {  # the buttons on one line (no newline); TUI_X1/TUI_X2 = their 
   printf '\r\033[2K%s%s←→ Enter · click%s' "$line" "$DIM" "$RESET"
 }
 
-# tui_choose VAR list|buttons "option"… — a menu (one option per line) or a
+# tui_choose VAR list|buttons "option"… - a menu (one option per line) or a
 # row of buttons. VAR holds the choice to start on (1…) and gets the picked
 # one. Arrow keys / Tab move, Enter picks, 1-9 pick directly, y/n answer
 # Yes/No buttons, and a mouse click picks. Afterwards it folds into one line
@@ -588,7 +588,7 @@ tui_choose() {
 # question. Nothing has been written yet.
 no_input() { printf '\n'; fail "Input ended; no settings were changed."; }
 
-# ask VAR "Question" [default] — Enter keeps the default, "-" clears it. In
+# ask VAR "Question" [default] - Enter keeps the default, "-" clears it. In
 # the interactive UI (bash 4+) the default is already typed in, to keep or
 # edit, and Tab completes file paths; emptying the line clears it too.
 ask() {
@@ -614,7 +614,7 @@ ask() {
   printf -v "$1" '%s' "$__a"
 }
 
-# ask_yn "Question" y|n — returns 0 for yes. Interactive: Yes / No buttons.
+# ask_yn "Question" y|n - returns 0 for yes. Interactive: Yes / No buttons.
 ask_yn() {
   local a prompt='y/N' pick
   if [ "$FANCY" = 1 ]; then
@@ -645,7 +645,7 @@ hidden_prompt() {
   fi
 }
 
-# ask_hidden VAR "Question" — hidden typing, nothing kept or shown back (for a
+# ask_hidden VAR "Question" - hidden typing, nothing kept or shown back (for a
 # one-time admin password).
 ask_hidden() {
   local __a
@@ -666,7 +666,7 @@ masked() {  # $1 name  $2 value
   fi
 }
 
-# ask_secret VAR NAME "Question" — hidden typing/pasting; Enter keeps the
+# ask_secret VAR NAME "Question" - hidden typing/pasting; Enter keeps the
 # current value, "-" clears it.
 ask_secret() {
   local __a cur
@@ -681,7 +681,7 @@ ask_secret() {
   printf -v "$1" '%s' "$__a"
 }
 
-# ready "What to have ready" — returns 1 if the user types skip (interactive:
+# ready "What to have ready" - returns 1 if the user types skip (interactive:
 # Ready / Skip for now buttons).
 ready() {
   local a pick=1
@@ -709,7 +709,7 @@ find_firebase_key() {
   printf '%s' "$best"
 }
 
-# ask_menu VAR "Question" DEFAULT "option 1" "option 2" … — VAR gets the number.
+# ask_menu VAR "Question" DEFAULT "option 1" "option 2" … - VAR gets the number.
 ask_menu() {
   local __var=$1 __q=$2 __def=$3 __a __i=1
   shift 3
@@ -1309,7 +1309,7 @@ setup_mail() {
   sput services.mail_folder "$v"
 }
 
-# ask_fork REPO_KEY BRANCH_KEY DEFAULT_REPO "what" "what the repo may be" —
+# ask_fork REPO_KEY BRANCH_KEY DEFAULT_REPO "what" "what the repo may be" -
 # where something is built from. Hidden behind a question so nobody changes it
 # by accident: only someone who forked the project and changed it needs this,
 # and forks are unsupported.
@@ -1620,7 +1620,7 @@ wiz_docker() {
 
 setup_wizard() {
   local v n=1 s
-  load_settings || fail "Could not read settings.yml — check it is valid YAML."
+  load_settings || fail "Could not read settings.yml - check it is valid YAML."
   # The interactive UI shows this on every screen's header instead.
   if [ "$FANCY" != 1 ]; then
     printf '\n  %sSettings walkthrough.%s Enter keeps the value in [brackets], - clears it.\n' "$BOLD" "$RESET"
@@ -1803,7 +1803,7 @@ fi
 # Read the docker: section for compose (names, network, port, bind, source).
 info "reading settings.yml (${YQ_IMAGE})…"
 docker run --rm -i "$YQ_IMAGE" "$YQ_EXPR" < "$SETTINGS" > "$ENV_FILE" \
-  || fail "Could not read settings.yml — check it is valid YAML."
+  || fail "Could not read settings.yml - check it is valid YAML."
 ok "Compose values read ($(grep -c . "$ENV_FILE") from settings.yml)"
 
 # Resolve ports / URL / names (fall back to compose defaults).

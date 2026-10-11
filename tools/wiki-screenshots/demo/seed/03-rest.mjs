@@ -111,7 +111,7 @@ if (!st.bills) {
   const monthly = (dom) => ({ kind: 'monthly', interval: 1, byMonthday: [dom], timezone: TZ });
   // [key, body, firstDue, payments [[paidAtOffset, amount, fee, note, who]], extra]
   const bills = [
-    ['mortgage', { name: 'Mortgage — Lakeshore Home Loans', amount: 1842.16, category: 'Housing', autoPay: true, notes: '30-yr fixed. Escrow covers property tax and homeowners insurance.', assignedUserId: U.alex, recurrence: monthly(1) },
+    ['mortgage', { name: 'Mortgage - Lakeshore Home Loans', amount: 1842.16, category: 'Housing', autoPay: true, notes: '30-yr fixed. Escrow covers property tax and homeowners insurance.', assignedUserId: U.alex, recurrence: monthly(1) },
       day(-71, 12), [[-72, 1842.16, 0, 'Autopay', 'alex'], [-41, 1842.16, 0, 'Autopay', 'alex'], [-11, 1842.16, 0, 'Autopay', 'alex']], { accountNo: 'LHL-0048 2291 7735' }],
     ['electric', { name: 'Prairie Power & Light', amount: 118.42, category: 'Utilities', autoPay: false, notes: 'Budget billing is off. Summer AC bumps it up.', assignedUserId: U.alex, recurrence: monthly(15) },
       day(-57, 12), [[-58, 142.87, 0, 'Paid online', 'alex'], [-29, 131.05, 2.95, 'Paid by card online (card fee)', 'sam']], { accountNo: '7781-204-3398', invoiceNo: 'PPL-2026-10-55812' }],
@@ -119,13 +119,13 @@ if (!st.bills) {
       day(-35, 12), [[-36, 58.75, 0, 'Paid by phone', 'sam']], { accountNo: 'BW-118302', invoiceNo: 'W-2026-09-11830' }],
     ['internet', { name: 'Northwind Fiber 500', amount: 70.0, category: 'Internet & phone', autoPay: true, assignedUserId: U.alex, recurrence: monthly(20) },
       day(-52, 12), [[-51, 70, 0, 'Autopay', 'alex'], [-21, 70, 0, 'Autopay', 'alex']], { accountNo: 'NWF-5520-0193' }],
-    ['phone', { name: 'Bluebird Mobile — family plan', amount: 96.5, category: 'Internet & phone', autoPay: true, notes: '4 lines. Riley’s line is on the teen plan.', assignedUserId: U.sam, recurrence: monthly(13) },
+    ['phone', { name: 'Bluebird Mobile - family plan', amount: 96.5, category: 'Internet & phone', autoPay: true, notes: '4 lines. Riley’s line is on the teen plan.', assignedUserId: U.sam, recurrence: monthly(13) },
       day(-59, 12), [[-58, 96.5, 0, 'Autopay', 'sam'], [-28, 96.5, 0, 'Autopay', 'sam']], { accountNo: 'BBM 312-555-0147' }],
     ['car', { name: 'Harborline Auto Insurance', amount: 108.75, category: 'Insurance', autoPay: false, notes: 'Two cars. Policy renews in March.', assignedUserId: U.alex, recurrence: monthly(24) },
       day(-48, 12), [[-48, 108.75, 0, 'Paid online', 'alex'], [-18, 108.75, 0, 'Paid online', 'alex']], { accountNo: 'HAI-PA-77120934', invoiceNo: 'INV-HAI-0926-4471' }],
     ['streaming', { name: 'StreamBox Premium', amount: 17.99, category: 'Subscriptions', autoPay: true, assignedUserId: U.sam, recurrence: monthly(24) },
       day(-48, 12), [[-47, 17.99, 0, 'Autopay', 'sam'], [-17, 17.99, 0, 'Autopay', 'sam']], {}],
-    ['plumber', { name: 'Rivera Plumbing — kitchen sink repair', amount: 185.0, category: 'Home repairs', autoPay: false, notes: 'Replaced the P-trap and garbage disposal seal.', assignedUserId: U.alex },
+    ['plumber', { name: 'Rivera Plumbing - kitchen sink repair', amount: 185.0, category: 'Home repairs', autoPay: false, notes: 'Replaced the P-trap and garbage disposal seal.', assignedUserId: U.alex },
       day(-16, 12), [[-15, 185, 0, 'Paid by check #1043', 'alex']], { invoiceNo: 'RP-20260925-118' }],
   ];
   for (const [key, body, firstDue, pays, extra] of bills) {
@@ -147,10 +147,10 @@ if (!st.events) {
   st.events = {};
   const all = [U.alex, U.sam, U.jordan, U.riley, U.mia];
   const ev = [
-    ['soccer', 'sam', { title: 'Riley — soccer practice', location: 'Brookfield Park, field 3', startAt: day(-12, 17, 30), endAt: day(-12, 19), attendeeIds: [U.riley, U.sam], recurrence: { kind: 'weekly', interval: 1, byWeekday: [2, 4], timezone: TZ }, description: 'Bring shin guards and a full water bottle.' }],
+    ['soccer', 'sam', { title: 'Riley - soccer practice', location: 'Brookfield Park, field 3', startAt: day(-12, 17, 30), endAt: day(-12, 19), attendeeIds: [U.riley, U.sam], recurrence: { kind: 'weekly', interval: 1, byWeekday: [2, 4], timezone: TZ }, description: 'Bring shin guards and a full water bottle.' }],
     ['movie', 'sam', { title: 'Family movie night', location: 'Living room', startAt: day(-9, 19, 30), endAt: day(-9, 21, 30), attendeeIds: all, recurrence: { kind: 'weekly', interval: 1, byWeekday: [5], timezone: TZ }, description: 'Whoever picks the movie does not have to make popcorn.' }],
-    ['dentist', 'alex', { title: 'Mia — dentist checkup', location: 'Smile Bright Family Dental, 220 Oak Ave', startAt: day(3, 15, 30), endAt: day(3, 16, 15), attendeeIds: [U.mia, U.alex] }],
-    ['conference', 'sam', { title: 'Parent–teacher conferences', location: 'Lincoln Middle School', startAt: day(5, 18), endAt: day(5, 19, 30), attendeeIds: [U.alex, U.sam] }],
+    ['dentist', 'alex', { title: 'Mia - dentist checkup', location: 'Smile Bright Family Dental, 220 Oak Ave', startAt: day(3, 15, 30), endAt: day(3, 16, 15), attendeeIds: [U.mia, U.alex] }],
+    ['conference', 'sam', { title: 'Parent-teacher conferences', location: 'Lincoln Middle School', startAt: day(5, 18), endAt: day(5, 19, 30), attendeeIds: [U.alex, U.sam] }],
     ['market', 'sam', { title: 'Farmers market', location: 'Town square', startAt: day(6, 9), endAt: day(6, 11), attendeeIds: [U.sam, U.mia] }],
     ['picture', 'sam', { title: 'School picture day', startAt: day(8, 0), allDay: true, attendeeIds: [U.riley, U.mia], description: 'Riley wants the blue shirt ironed.' }],
     ['bookclub', 'sam', { title: 'Book club', location: 'Pages & Pours Café', startAt: day(9, 19), endAt: day(9, 21), attendeeIds: [U.sam] }],

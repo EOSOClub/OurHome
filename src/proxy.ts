@@ -7,7 +7,7 @@ import { isHttpsRequest } from '@/server/security/network';
 //
 //   1. An OPTIMISTIC auth gate: if there's no session cookie, protected pages
 //      redirect to /login. Cookie presence is not proof of a valid session, so
-//      this is only the negative gate — authoritative checks happen in Server
+//      this is only the negative gate - authoritative checks happen in Server
 //      Components via requireUser(). It must NOT do the positive bounce (cookie
 //      present -> /dashboard), or a stale cookie would ping-pong forever.
 //

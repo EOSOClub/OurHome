@@ -39,7 +39,7 @@ export function ReportBugDialog({ open, onClose }: { open: boolean; onClose: () 
         }),
       }),
     onSuccess: () => {
-      toast.success('Thanks — your bug report was sent.');
+      toast.success('Thanks - your bug report was sent.');
       close();
     },
     onError: (e: Error) => toast.error(e.message),

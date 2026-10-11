@@ -126,8 +126,8 @@ Then open `http://<server-ip>:3000` from any device on your network. On a fresh 
 
 Configuration lives in two gitignored files in the repo root, used by both local dev and the Docker deploy; nothing in `docker/` is ever edited:
 
-- **`settings.yml`** — everything that isn't secret ([`settings.example.yml`](./settings.example.yml)). Its `dev:` section overrides values for `npm run dev`.
-- **`.env`** — secrets only: passwords, keys, tokens and the database URL ([`.env.example`](./.env.example)). A `DEV_` entry (e.g. `DEV_DATABASE_URL`) replaces its name for `npm run dev`.
+- **`settings.yml`** - everything that isn't secret ([`settings.example.yml`](./settings.example.yml)). Its `dev:` section overrides values for `npm run dev`.
+- **`.env`** - secrets only: passwords, keys, tokens and the database URL ([`.env.example`](./.env.example)). A `DEV_` entry (e.g. `DEV_DATABASE_URL`) replaces its name for `npm run dev`.
 
 The app reads both at startup; in Docker, compose passes `.env` in as environment variables and hands `settings.yml` over read-only. Moving from an old all-in-one `.env`: `npm run settings:migrate`.
 

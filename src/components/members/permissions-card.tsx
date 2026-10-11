@@ -78,7 +78,7 @@ export function PermissionsCard({ membersVersion }: { membersVersion: string }) 
       : role
         ? data.roles[role]
         : null;
-  // What the member would have with no overrides — highlights their custom cells.
+  // What the member would have with no overrides - highlights their custom cells.
   const roleDefault = member && role && data ? data.roles[role] : null;
 
   const editKey = `${target}|${JSON.stringify(saved)}`;
@@ -197,7 +197,7 @@ export function PermissionsCard({ membersVersion }: { membersVersion: string }) 
                       if (!PAGE_ACTIONS[p].includes(a)) {
                         return (
                           <td key={a} className="px-1 py-2 text-center text-muted-foreground" aria-hidden>
-                            —
+                            -
                           </td>
                         );
                       }

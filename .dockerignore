@@ -13,13 +13,13 @@ next-env.d.ts
 prisma/*.db
 prisma/*.db-journal
 
-# settings + secrets — never copy into the image (compose passes them at runtime)
+# settings + secrets - never copy into the image (compose passes them at runtime)
 settings.yml
 .env
 .env.*
 docker/.compose.env
 
-# deployment folders (compose files, secrets, retired services) — not app source.
+# deployment folders (compose files, secrets, retired services) - not app source.
 # The web Dockerfile still needs docker.example/web/entrypoint.sh (the template
 # copy, which a GitHub build has too), so that stays in.
 docker

@@ -26,12 +26,12 @@ import { cn } from '@/lib/utils';
 import { useHrefEnabled } from '@/components/household-features';
 
 /**
- * Command palette — a purpose-built lightweight overlay (Ctrl/⌘+K, opened by
+ * Command palette - a purpose-built lightweight overlay (Ctrl/⌘+K, opened by
  * KeyboardShortcuts). Follows the Dialog conventions in ui/dialog.tsx
  * (backdrop, scroll lock, Escape, focus restore) but skips its header chrome
  * so the search input sits on top and is focused immediately. Its Escape/Tab
  * handling runs in the capture phase with stopPropagation, so an underlying
- * Dialog's bubble-phase listener never sees the same keystroke — the palette
+ * Dialog's bubble-phase listener never sees the same keystroke - the palette
  * therefore can't fight over Escape with the module-level dialog stack.
  */
 
@@ -120,7 +120,7 @@ function PalettePanel({ onClose }: { onClose: () => void }) {
         e.stopPropagation();
         onClose();
       } else if (e.key === 'Tab') {
-        // The input is the palette's only focusable control — trap focus on
+        // The input is the palette's only focusable control - trap focus on
         // it and keep the keystroke from any dialog underneath.
         e.preventDefault();
         e.stopPropagation();

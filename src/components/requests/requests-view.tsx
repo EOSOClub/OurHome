@@ -150,7 +150,7 @@ export function RequestsView({
   const acceptMutation = useMutation({
     mutationFn: (input: { id: string; dueAt: string }) => post<RequestDTO>('/api/requests/accept', input),
     onSuccess: (r) => {
-      toast.success(r.dueAt ? `Done by ${shortDate(r.dueAt, timeZone)} — got it` : `Accepted “${r.title}”`);
+      toast.success(r.dueAt ? `Done by ${shortDate(r.dueAt, timeZone)} - got it` : `Accepted “${r.title}”`);
       setAccepting(null);
       invalidate();
     },
@@ -465,7 +465,7 @@ function MaintenanceRow({
   );
 }
 
-/** Assignee picks the date they'll have it done by — the request's deadline. */
+/** Assignee picks the date they'll have it done by - the request's deadline. */
 function AcceptDialog({
   request,
   pending,

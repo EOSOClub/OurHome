@@ -1,6 +1,6 @@
 // Recognise Amazon product links and pull the ASIN (Amazon's 10-character
-// product id) out of them. Pure string parsing of a URL the user pasted — no
-// network access — so it's safe to use on both the server and the client.
+// product id) out of them. Pure string parsing of a URL the user pasted - no
+// network access - so it's safe to use on both the server and the client.
 
 // An ASIN is 10 uppercase alphanumerics (books reuse their ISBN-10 here).
 const ASIN = '([A-Z0-9]{10})';

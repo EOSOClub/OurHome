@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { cn } from '@/lib/utils';
 
-/** Styled native select — no extra dependency, fully touch/keyboard friendly. */
+/** Styled native select - no extra dependency, fully touch/keyboard friendly. */
 export const Select = React.forwardRef<
   HTMLSelectElement,
   React.SelectHTMLAttributes<HTMLSelectElement>

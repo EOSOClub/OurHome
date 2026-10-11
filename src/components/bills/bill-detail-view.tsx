@@ -109,7 +109,7 @@ export function BillDetailView({
   // surface via the global mutation toast; success swaps the button for a link.
   const addToCalendar = useMutation({
     mutationFn: () => {
-      // Local midnight on the due date — the calendar's all-day convention.
+      // Local midnight on the due date - the calendar's all-day convention.
       const due = dateValue(new Date(bill.dueDate!));
       return apiFetch('/api/calendar/events', {
         method: 'POST',
@@ -184,7 +184,7 @@ export function BillDetailView({
           </div>
 
           <div className="space-y-1.5">
-            {/* Decorative — the same numbers are in the text below. */}
+            {/* Decorative - the same numbers are in the text below. */}
             <div
               aria-hidden="true"
               className="h-2 w-full overflow-hidden rounded-full bg-muted"

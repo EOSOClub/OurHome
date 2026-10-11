@@ -35,7 +35,7 @@ describe('parseIntList / formatIntList', () => {
   });
 });
 
-describe('computeNextRunAt — daily / interval', () => {
+describe('computeNextRunAt - daily / interval', () => {
   it('daily advances one day, preserving anchor time', () => {
     const next = computeNextRunAt(
       rule({ kind: 'daily', interval: 1 }),
@@ -61,7 +61,7 @@ describe('computeNextRunAt — daily / interval', () => {
   });
 });
 
-describe('computeNextRunAt — weekly', () => {
+describe('computeNextRunAt - weekly', () => {
   it('without byWeekday advances interval weeks', () => {
     const next = computeNextRunAt(
       rule({ kind: 'weekly', interval: 1 }),
@@ -93,7 +93,7 @@ describe('computeNextRunAt — weekly', () => {
   });
 });
 
-describe('computeNextRunAt — monthly', () => {
+describe('computeNextRunAt - monthly', () => {
   it('without byMonthday advances interval months', () => {
     const next = computeNextRunAt(
       rule({
@@ -124,7 +124,7 @@ describe('computeNextRunAt — monthly', () => {
   });
 });
 
-describe('computeNextRunAt — until end date', () => {
+describe('computeNextRunAt - until end date', () => {
   it('returns the next occurrence when it falls on or before until', () => {
     const next = computeNextRunAt(
       rule({ kind: 'daily', until: iso('2026-01-31T08:00:00.000Z') }),
@@ -142,7 +142,7 @@ describe('computeNextRunAt — until end date', () => {
   });
 });
 
-describe('computeNextRunAt — unsupported', () => {
+describe('computeNextRunAt - unsupported', () => {
   it('returns null for cron (handled by external scheduler later)', () => {
     expect(
       computeNextRunAt(rule({ kind: 'cron', cron: '0 9 * * 1' }), new Date()),
@@ -169,7 +169,7 @@ describe('nextAfterOccurrence (paying/completing the current one)', () => {
     expect(nextAfterOccurrence(daily, due, iso('2026-03-10T09:00:00.000Z'))).toEqual(
       iso('2026-03-11T12:00:00.000Z'),
     );
-    // Counting from "now" lands on the same due date — the old bug.
+    // Counting from "now" lands on the same due date - the old bug.
     expect(computeNextRunAt(daily, iso('2026-03-10T09:00:00.000Z'))).toEqual(due);
   });
 

@@ -160,7 +160,7 @@ with your billers in place of `biller one|biller two`:
 ### 2. Connect it
 
 Either in **Settings → Paperless bill import** (any household; see "One
-Paperless per household" above), or — for the server admin's household — in
+Paperless per household" above), or - for the server admin's household - in
 Our Home's `settings.yml` and `.env` as below. The address goes in `settings.yml`:
 
 ```yaml

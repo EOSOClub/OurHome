@@ -5,7 +5,7 @@ import { formatRelativeTime } from '@/lib/format';
 
 // Pages are rendered on the server (UTC) and then hydrated in the browser
 // (the viewer's zone). Any date label computed from "now" or a local day then
-// came out differently in the two renders — e.g. "Due tomorrow" flipping to
+// came out differently in the two renders - e.g. "Due tomorrow" flipping to
 // "Due today" in the evening. Formatting every date in the household's zone
 // (Settings → Task points) makes both renders produce the same text.
 

@@ -2,11 +2,11 @@
 // datasource.prisma (MongoDB).
 //
 // MONGODB NOTES:
-//   - Every id is `String @id @default(cuid()) @map("_id")` — cuid strings stored
+//   - Every id is `String @id @default(cuid()) @map("_id")` - cuid strings stored
 //     as the Mongo `_id`. Relation scalar fields stay plain String (no ObjectId).
 //   - Referential actions (onDelete) are emulated by Prisma's relation engine.
 //   - Interactive transactions (prisma.$transaction) require Mongo to run as a
-//     replica set — the docker/ stack provides a single-node RS.
+//     replica set - the docker/ stack provides a single-node RS.
 //
 // SCHEMA CONVENTIONS (carried over, all Mongo-friendly):
 //   - No Prisma `enum` -> use String columns, validated by Zod (see src/lib/validation).
@@ -323,7 +323,7 @@ model RecurrenceRule {
   until     DateTime?
   nextRunAt DateTime?
   // Tasks only: the task runs in cycles that start at local midnight (household
-  // time zone) — daily: every day; interval: every `interval` days from the
+  // time zone) - daily: every day; interval: every `interval` days from the
   // anchor; weekly: on cycleWeekdays; monthly: on cycleMonthdays (a day past
   // the month's end starts on its last day). null/false = no cycles.
   rollover       Boolean?
@@ -378,7 +378,7 @@ model Subtask {
   // reset): the PointAward, so unchecking within the undo window voids it.
   checkAwardId String?
   // Set when the step's own reset unchecked it (cleared by any check or hand
-  // uncheck). Only a re-check after an auto-reset can pay out on its own —
+  // uncheck). Only a re-check after an auto-reset can pay out on its own -
   // unchecking and re-checking by hand never earns twice.
   autoResetAt  DateTime?
   // Auto-uncheck this item N days after it was checked (e.g. "dishes" daily
@@ -451,7 +451,7 @@ model PointAward {
 }
 
 // ---------------------------------------------------------------------------
-// Activity feed (implemented this milestone — written by the service layer)
+// Activity feed (implemented this milestone - written by the service layer)
 // ---------------------------------------------------------------------------
 
 model ActivityEntry {
@@ -531,7 +531,7 @@ model Bill {
   householdId    String
   name           String
   // `amount` is the total owed by the due date (the statement's "payment amount" /
-  // balance — what determines paid vs unpaid). `currentCharges` is this period's
+  // balance - what determines paid vs unpaid). `currentCharges` is this period's
   // charges when a statement shows both (e.g. a utility when you're carrying a balance).
   amount         Float
   currentCharges Float?
@@ -596,7 +596,7 @@ model BillPayment {
   reference       String?
   confirmationNo  String?
   sourceMessageId String?
-  // Who recorded it (plain user id) — may differ from paidByUserId. Decides
+  // Who recorded it (plain user id) - may differ from paidByUserId. Decides
   // "own" vs "others'" for page access; null for imported payments.
   createdById  String?
   createdAt    DateTime @default(now())
@@ -662,7 +662,7 @@ model ShoppingItem {
 // A household request. Visible to everyone in the household; only the
 // requester may edit or delete it (requestService).
 //   media:       "please get this movie / show"
-//   maintenance: "please fix this" — assigned to another member, who accepts it
+//   maintenance: "please fix this" - assigned to another member, who accepts it
 //                with a done-by date (`dueAt`, the deadline) and later marks it
 //                done. dueAt is the hook for deadline notifications.
 model Request {
@@ -673,7 +673,7 @@ model Request {
   category    String    @default("media")
   title       String
   // --- media ---
-  // mediaType: "movie" | "tv" (MEDIA_TYPES) — required for category "media".
+  // mediaType: "movie" | "tv" (MEDIA_TYPES) - required for category "media".
   mediaType   String?
   // movie: release year. tv: year of the first season, or of `season` when set.
   year        Int?
@@ -686,7 +686,7 @@ model Request {
   // status: "pending" (awaiting acceptance) | "accepted" | "completed"
   // (MAINTENANCE_STATUSES). Null for media requests.
   status      String?
-  // Done-by date the assignee committed to when accepting — the deadline.
+  // Done-by date the assignee committed to when accepting - the deadline.
   dueAt       DateTime?
   acceptedAt  DateTime?
   completedAt DateTime?
@@ -714,7 +714,7 @@ model BugReport {
   source      String
   // Where it happened: the web page path or the app screen.
   context     String?
-  // App version (android) — helps match a report to a build.
+  // App version (android) - helps match a report to a build.
   appVersion  String?
   userAgent   String?
   // Support email delivery: "pending" | "emailed" | "email_failed" | "not_configured"
@@ -798,7 +798,7 @@ model Notification {
   // Set it on EVERY row: MongoDB's unique index counts a missing key as a
   // value, so a second row without one fails the insert.
   dedupeKey   String?
-  // Generated reminders only: who sees it — the people tied to the subject
+  // Generated reminders only: who sees it - the people tied to the subject
   // (assignee, creator) plus that page's managers (grid "edit others").
   // Refreshed on every sweep. Nobody outside it sees the reminder.
   audienceUserIds String[] @default([])

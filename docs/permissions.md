@@ -23,10 +23,10 @@ someone from outside the household.
 | `bugs:report` (file a bug report) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `bugs:manage` (receive bug reports: bell + phone alert) | ✓ | | | | | |
 
-¹ Managers may only manage and assign the ranks below them — member, teen,
+¹ Managers may only manage and assign the ranks below them - member, teen,
   child, guest (`canManageMember`, `canAssignRole`).
 ² Guests only on tasks assigned to them (enforced in `taskService`).
-³ Ownership is enforced in `requestService` — nobody, including the head, can
+³ Ownership is enforced in `requestService` - nobody, including the head, can
   edit or delete another person's request. For maintenance requests, only the
   **assignee** can accept (set the done-by date) and mark done.
 
@@ -52,12 +52,12 @@ five switches; Requests has Add and Approve (`PAGE_ACTIONS`):
 
    | Page | manager | member | teen | child | guest |
    | --- | :-: | :-: | :-: | :-: | :-: |
-   | Tasks | — | — | — | — | — |
-   | Calendar | all | all | own | — | — |
-   | Shopping items | all | all | own | add | — |
-   | Shopping lists | all | all | — | — | — |
-   | Inventory | all | all | own | — | — |
-   | Bills | all | all | — | — | — |
+   | Tasks | - | - | - | - | - |
+   | Calendar | all | all | own | - | - |
+   | Shopping items | all | all | own | add | - |
+   | Shopping lists | all | all | - | - | - |
+   | Inventory | all | all | own | - | - |
+   | Bills | all | all | - | - | - |
    | Requests | add + approve | add | add | add | add |
 
    "own" = Add + Edit own + Delete own; "add" = Add only.
@@ -152,63 +152,63 @@ with its own Head of House), reset a head's password, turn a household off or
 on, delete a turned-off household for good (its name typed to confirm),
 restore a household from an export file (as a new household), set
 **HTTPS only** for the whole server, and read contact-form messages. It grants
-nothing inside other households — it can't export them either; a household's
+nothing inside other households - it can't export them either; a household's
 Head of House exports their own (Settings → Export household data).
 
 It also chooses each household's **features** (Server → Features): Tasks,
 Points, Calendar, Shopping, Inventory, Bills, Requests. A turned-off feature
-sits above the page-access grid: nobody — not even the Head of House — gets
+sits above the page-access grid: nobody - not even the Head of House - gets
 its page, API, reminders or bell notifications, and its grid rows are hidden.
 Nothing is deleted; turning it back on restores everything as it was.
 
 ## Changelog
 
-- **2026-10-10** — Server admin can turn features off per household
+- **2026-10-10** - Server admin can turn features off per household
   (`lib/features.ts`, `Household.disabledFeatures`).
 
-- **2026-10-10** — Several households per server: the **server admin** role
+- **2026-10-10** - Several households per server: the **server admin** role
   (above). "HTTPS only" and contact-form messages moved from the Head of House
   to the server admin.
 
-- **2026-10-10** — Messages from the public contact form are Head of House only
+- **2026-10-10** - Messages from the public contact form are Head of House only
   (`household:manage`; were `settings:manage`). Role changes and removals apply
   on the next request (the session is read without the 5-minute cookie cache).
   Changing your own email needs your current password.
 
-- **2026-10-09** — Task points (table above).
+- **2026-10-09** - Task points (table above).
 
-- **2026-10-08** — Generated reminders are targeted (table above) instead of
+- **2026-10-08** - Generated reminders are targeted (table above) instead of
   going to the whole household, and read state is per person.
 
-- **2026-10-08** — New roles **teen** and **child** (between member and
+- **2026-10-08** - New roles **teen** and **child** (between member and
   guest) with tiered defaults (table above).
-- **2026-10-08** — Replaced `requests:manage_media` with the Requests
+- **2026-10-08** - Replaced `requests:manage_media` with the Requests
   **Approve** switch (head + managers by default). Media is now one step:
   "Mark as added" completes it (old "accepted" rows still count as waiting;
   `/api/requests/accept` on media marks it added, for older app builds).
-- **2026-10-08** — **Shopping lists** row split from Shopping (now "Shopping
+- **2026-10-08** - **Shopping lists** row split from Shopping (now "Shopping
   items"); list create/rename/delete use it. Defaults match the old behaviour
   for managers and members. Stored Shopping overrides don't carry over to it.
 
-- **2026-10-07** — Replaced `tasks:write`, `shopping:write`, `inventory:write`,
+- **2026-10-07** - Replaced `tasks:write`, `shopping:write`, `inventory:write`,
   `calendar:write` and `bills:write` with the editable page-access grid above
   (role defaults + per-member overrides, own vs others'). Defaults match the
   previous behaviour.
-- **2026-10-07** — Requests row in the grid: the head can switch off
+- **2026-10-07** - Requests row in the grid: the head can switch off
   submitting requests per role or member (on for everyone by default).
 
-- **2026-10-05** — `tasks:write` made **head-only**. Previously manager and
+- **2026-10-05** - `tasks:write` made **head-only**. Previously manager and
   member could also create/edit/delete tasks. Everyone keeps `tasks:complete`.
-- **2026-10-05** — Added `requests:write` (all roles) for the new Requests
+- **2026-10-05** - Added `requests:write` (all roles) for the new Requests
   page (movies / TV). Requests are edit/delete-by-owner only.
-- **2026-10-05** — Added `requests:manage_media` (head) — media requests now
+- **2026-10-05** - Added `requests:manage_media` (head) - media requests now
   have a status and the head accepts them / marks them available.
 
-## Follow-ups (planned — not done yet)
+## Follow-ups (planned - not done yet)
 
 - [ ] Requests: should the head be able to edit/remove anyone's request (e.g.
       to clean up duplicates or mark fulfilled)? Today only the requester can.
 - [ ] Keep the Android app's `defaultAccess` (OurHomeApp repo,
-      `data/Permissions.kt`) in sync with `BUILTIN_ROLE_ACCESS` — it's what the
+      `data/Permissions.kt`) in sync with `BUILTIN_ROLE_ACCESS` - it's what the
       app shows before `/api/permissions/me` loads. The app reads the real grid
       from that endpoint and uses `createdById` for own vs others'.

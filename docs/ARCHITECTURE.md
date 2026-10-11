@@ -24,9 +24,9 @@ Request
 Services own the rules and are the only code that touches the database. Every
 state-changing service writes an `ActivityEntry`, so the activity feed is an
 authoritative, append-only log of household events. It is read on its own
-page (`/activity`, `GET /api/activity`, filtered by area — `lib/activityAreas.ts`
-— and person), not on the dashboard: the dashboard (`dashboardService`) is
-"my day first" — the viewer's tasks due today, requests waiting on them
+page (`/activity`, `GET /api/activity`, filtered by area (see `lib/activityAreas.ts`)
+and person), not on the dashboard: the dashboard (`dashboardService`) is
+"my day first" - the viewer's tasks due today, requests waiting on them
 (`lib/requestAttention.ts`, mirrored by the app's `RequestAttention.kt`),
 their points this week, then a household glance.
 
@@ -39,10 +39,10 @@ TanStack Query for cache + optimistic-ish updates.
 The app runs on **MongoDB** through Prisma's MongoDB connector (the `mongo`
 service in [`docker.example/docker-compose.yml`](../docker.example/docker-compose.yml)).
 
-- `prisma/schema/models.prisma` — single source of truth for all models. Each id
+- `prisma/schema/models.prisma` - single source of truth for all models. Each id
   is `String @id @default(cuid()) @map("_id")` (cuid stored as the Mongo `_id`);
   relation scalar fields stay plain `String`.
-- `prisma/schema/datasource.prisma` — static `mongodb` datasource
+- `prisma/schema/datasource.prisma` - static `mongodb` datasource
   (`url = env("DATABASE_URL")`).
 - No SQL migrations on Mongo: schema changes are applied with `npm run db:push`
   (`prisma db push`).
@@ -77,10 +77,10 @@ monthly, interval. `cron` is reserved for an external scheduler and returns
 Completing a recurring task or paying a recurring bill moves on with
 `nextAfterOccurrence(rule, dueDate)`: counted from the current due date while
 that is still ahead (picked dates sit at 12:00, so counting from "now" in the
-morning landed on the same occurrence and a task could be completed — and
-paid — again). `taskService.completeTask` records a `TaskCompletion`, advances
+morning landed on the same occurrence and a task could be completed - and
+paid - again). `taskService.completeTask` records a `TaskCompletion`, advances
 `RecurrenceRule.nextRunAt` and the task's `dueDate`, and resets status to
-`pending` — all in one transaction.
+`pending` - all in one transaction.
 
 **Due vs overdue.** A due date picked without a time is stored at 12:00 local
 and is due all day: it counts as overdue from the next day (`lib/format.ts`
@@ -101,10 +101,10 @@ carry no Secure flag so sign-in works over plain HTTP on the home network; the
 auth route adds it on HTTPS responses, and a home-network origin is trusted only
 for same-origin requests (`src/server/security/network.ts`). Guarding is two-tier:
 
-- **`src/proxy.ts`** (Next 16's renamed middleware) — optimistic cookie check to
+- **`src/proxy.ts`** (Next 16's renamed middleware) - optimistic cookie check to
   redirect unauthenticated page requests to `/login`. It does **not** guard
   `/api`, which authenticates itself and returns JSON `401`s.
-- **`requireUser()`** (`src/server/auth/session.ts`) — authoritative check in
+- **`requireUser()`** (`src/server/auth/session.ts`) - authoritative check in
   Server Components, also enforcing household membership.
 
 ## Data model
@@ -120,7 +120,7 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
 
 - **Households and the server admin.** One server can hold several
   households. Every household row carries `householdId`, every route gets the
-  household from the session (never the request — `src/server/api/routes.test.ts`
+  household from the session (never the request - `src/server/api/routes.test.ts`
   checks), and one person belongs to one household. Usernames and emails are
   unique across the server, so sign-in has no household picker.
   `User.isServerAdmin` (`serverAdminService`) owns the server: the **Server**
@@ -144,7 +144,7 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
   task's place clears it). Tasks page sort "By room" groups Floor → Room in
   that order (whole-floor tasks first, rooms on no floor, then whole house).
   Settings → Rooms & floors (settings:manage; `/api/places*`) adds, renames,
-  moves, reorders and removes them — removing a room moves its tasks and
+  moves, reorders and removes them - removing a room moves its tasks and
   items to its floor, removing a floor keeps its rooms. The card shows while
   Tasks *or* Inventory is on (`placesEnabled`). Exported under `places`,
   restored with ids rewired.
@@ -183,13 +183,13 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
   sessions, Home Assistant/Paperless/push tokens) or the request log. The
   server admin deletes a household for good (Server page; only when turned
   off, never their own, exact name typed): an explicit, ordered delete of every
-  model in one transaction — not cascades, since several models link by a
+  model in one transaction - not cascades, since several models link by a
   plain id. `HOUSEHOLD_MODELS` / `SERVER_MODELS` list every schema model, and a
   test fails when a new model isn't covered. **Restore** (`householdRestore`,
   Server page → Restore from export) loads an export as a *new* household:
   every record gets a fresh id and every reference is rewired, including ids
-  inside text (rotation lists, undo snapshots, notification keys) — a pure,
-  unit-tested `planRestore` — and only fields the current schema knows are
+  inside text (rotation lists, undo snapshots, notification keys) - a pure,
+  unit-tested `planRestore` - and only fields the current schema knows are
   written (Prisma DMMF), so older/newer exports load. Refused when a member's
   username or email is taken on the server. The head gets the admin's
   temporary password; other members get theirs from the head. Home Assistant
@@ -218,9 +218,9 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
   The DTO carries `rotation` + `nextAssignee`. Edited in the task form's
   "Take turns" (recurring tasks only), on web and app.
 - **"Your turn" notices** (`taskReadyService`, type `task_ready`). When a task
-  becomes someone's to do — created or reassigned to them, passed on by a
+  becomes someone's to do - created or reassigned to them, passed on by a
   rotation, a new cycle opening, or (without cycles) the next occurrence after
-  someone else completed it — its assignee gets one bell row addressed to them
+  someone else completed it - its assignee gets one bell row addressed to them
   plus a phone push (`reason: "task"`; the app alerts through the household
   reminder notification). One per task: newer replaces older; completing,
   archiving or deleting removes it. Whoever caused it isn't notified. Not
@@ -229,11 +229,11 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
   notification marks it read and goes to its subject (`/tasks?task=<id>` opens
   and highlights that task; bills, stock, requests, calendar, settings). The
   app does the same (unread only; a tap opens the tab).
-- **Profiles.** `User.bio/avatarEmoji/profileColor/birthday` — the
+- **Profiles.** `User.bio/avatarEmoji/profileColor/birthday` - the
   user's own "About me" (`PATCH /api/profile`; blank clears; one emoji;
   colour keys and `MM-DD` birthdays in `lib/profile.ts`, mirrored in the app's
   `data/ProfileStyle.kt`). Every member can read everyone's via
-  `GET /api/household/members` (also the picker list; now with role) — shown
+  `GET /api/household/members` (also the picker list; now with role) - shown
   as the Household card on Profile. Emails stay behind `members:manage`.
   Changing your own email needs your current password (`currentPassword`):
   password resets go there.
@@ -284,7 +284,7 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
     up in-app via `POST /api/nfc/setup` (bind to an item or create it).
     `GET /api/nfc/scans` is the scan history. The app writes tags as
     `ourhome://tag/<id>` (same id). Per-tag app settings live in
-    `NfcTag.config` (`scanAction` open/notify, `shoppingListId`) —
+    `NfcTag.config` (`scanAction` open/notify, `shoppingListId`) -
     `POST /api/nfc/tags/settings`; a "notify" tag's notification can
     `POST /api/nfc/shopping` (add the item to its list, no duplicates).
   - *Legacy:* `NFC → Home Assistant → /api/webhooks/nfc (token auth)`, which
@@ -321,12 +321,12 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
 - **Requests.** `requestService` owns household requests. Everyone sees all
   requests on `/requests`, grouped by category; only the requester can edit or
   delete their own.
-  - *Media* — movies and TV shows (`mediaType`, name, year, optional TV season).
+  - *Media* - movies and TV shows (`mediaType`, name, year, optional TV season).
     One step: `pending` ("waiting") → `completed` ("added"), by anyone with the
     Requests **Approve** switch (head + managers by default). Rows created
-    before media had a status have none — treat a missing status as `pending`;
+    before media had a status have none - treat a missing status as `pending`;
     `accepted` rows from the older accept → available flow also still wait.
-  - *Maintenance* — the requester asks another member (`assigneeId`, never
+  - *Maintenance* - the requester asks another member (`assigneeId`, never
     themself). Lifecycle `pending` → `accepted` → `completed`: the assignee
     accepts with a done-by date stored as `dueAt` (the deadline), may move it,
     and marks it done; reassigning resets to `pending`.
@@ -337,7 +337,7 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
     the assignee is told the day before, on the day, and daily while overdue;
     the requester once when it goes overdue. Every request change also sends
     an instant push (see *Instant push* below), so the hourly poll is now the
-    fallback. No in-app (bell) equivalent — `reminderService` would be the
+    fallback. No in-app (bell) equivalent - `reminderService` would be the
     place for one.
   - `/api/household/members` gives any member an id+name list for the
     assignee picker (the full `/api/members` stays behind `members:manage`).

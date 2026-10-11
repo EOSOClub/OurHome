@@ -116,7 +116,7 @@ If you didn't request this, you can safely ignore this email.`,
   },
   // A temporary password is gone only once the user really changed it: the
   // forced-change flag is lifted here, after Better Auth's change-password
-  // succeeded — never on the client's word (that route could be called
+  // succeeded - never on the client's word (that route could be called
   // without changing anything).
   hooks: {
     after: createAuthMiddleware(async (ctx) => {
@@ -127,7 +127,7 @@ If you didn't request this, you can safely ignore this email.`,
       }
     }),
   },
-  // nextCookies() must be last — it bridges Better Auth cookie writes into
+  // nextCookies() must be last - it bridges Better Auth cookie writes into
   // Next.js server actions.
   plugins: [username(), nextCookies()],
 });

@@ -21,7 +21,7 @@ const dateValue = (d: Date) =>
  * Record-payment modal shared by the bills list ("Mark paid") and the bill
  * detail page. Prefilled with the outstanding balance so paying in full is a
  * single confirm, while still allowing partial amounts, fees, and backdating.
- * Accepts the list DTO — the remaining balance is derived, not read off the
+ * Accepts the list DTO - the remaining balance is derived, not read off the
  * detail-only DTO. Pass `payment` to edit an existing payment instead.
  */
 export function PaymentDialog({

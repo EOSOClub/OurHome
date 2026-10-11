@@ -84,14 +84,17 @@ export function resolveSecrets(
   return out;
 }
 
+// The turbopackIgnore comments stop Turbopack tracing the whole project from
+// these runtime file reads (instrumentation.ts imports this module).
+
 /** settings.yml in the working directory, or SETTINGS_FILE when set. */
 export function settingsFile(): string {
-  return process.env.SETTINGS_FILE || path.join(process.cwd(), 'settings.yml');
+  return process.env.SETTINGS_FILE || path.join(/*turbopackIgnore: true*/ process.cwd(), 'settings.yml');
 }
 
 /** .env in the working directory, or SECRETS_FILE when set. */
 export function secretsFile(): string {
-  return process.env.SECRETS_FILE || path.join(process.cwd(), '.env');
+  return process.env.SECRETS_FILE || path.join(/*turbopackIgnore: true*/ process.cwd(), '.env');
 }
 
 export function defaultMode(): SettingsMode {
@@ -101,7 +104,7 @@ export function defaultMode(): SettingsMode {
 /** settings.yml as environment variables for `mode` ({} when there's no file). */
 export function readSettings(mode: SettingsMode = defaultMode()): Record<string, string> {
   const file = settingsFile();
-  return existsSync(file) ? flattenSettings(parse(readFileSync(file, 'utf8')), mode) : {};
+  return existsSync(/*turbopackIgnore: true*/ file) ? flattenSettings(parse(readFileSync(/*turbopackIgnore: true*/ file, 'utf8')), mode) : {};
 }
 
 /**
@@ -118,13 +121,13 @@ export function loadSettings(mode: SettingsMode = defaultMode()): {
   secretsFrom: string;
 } {
   const file = settingsFile();
-  const found = existsSync(file);
+  const found = existsSync(/*turbopackIgnore: true*/ file);
   const settings = readSettings(mode);
   for (const [name, value] of Object.entries(settings)) process.env[name] = value;
 
   const envFile = secretsFile();
-  const hasEnvFile = existsSync(envFile);
-  const fromFile = hasEnvFile ? parseEnv(readFileSync(envFile, 'utf8')) : {};
+  const hasEnvFile = existsSync(/*turbopackIgnore: true*/ envFile);
+  const fromFile = hasEnvFile ? parseEnv(readFileSync(/*turbopackIgnore: true*/ envFile, 'utf8')) : {};
   const secrets = resolveSecrets({ ...process.env, ...fromFile }, mode);
   for (const [name, value] of Object.entries(secrets)) process.env[name] = value;
 

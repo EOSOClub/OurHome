@@ -1,4 +1,4 @@
-// Which requests wait on someone — the dashboard's "Needs you" card. Mirrors
+// Which requests wait on someone - the dashboard's "Needs you" card. Mirrors
 // the Android app's data/RequestAttention.kt (Requests tab badge + reminders):
 // change both together.
 

@@ -27,8 +27,8 @@ const { previewPaperless } = await import('@/server/services/paperlessSync');
 const days = Number(process.argv[2] ?? 30);
 
 const money = (n: number | null | undefined, cur: string | null | undefined) =>
-  n == null ? '—' : `${cur ?? ''}${n.toFixed(2)}`;
-const day = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : '—');
+  n == null ? '-' : `${cur ?? ''}${n.toFixed(2)}`;
+const day = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : '-');
 
 async function main() {
   console.log(`[preview] asking ${process.env.PAPERLESS_URL ?? '(PAPERLESS_URL unset)'} for documents changed in the last ${days} days…`);

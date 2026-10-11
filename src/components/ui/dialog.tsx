@@ -5,7 +5,7 @@ import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 /**
- * Minimal accessible modal — no external dependency. Closes on Escape or
+ * Minimal accessible modal - no external dependency. Closes on Escape or
  * backdrop click and locks body scroll while open. Render it conditionally or
  * pass `open`. Focus moves into the panel on open, is trapped inside it, and
  * returns to the previously focused element on close. When dialogs stack

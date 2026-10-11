@@ -4,7 +4,7 @@ import * as React from 'react';
 import { cn } from '@/lib/utils';
 
 /**
- * Minimal tooltip — no external dependency. Wraps its child in an inline
+ * Minimal tooltip - no external dependency. Wraps its child in an inline
  * wrapper and shows a small label after a short delay on hover or keyboard
  * focus. The child keeps its own accessible name (aria-label); the tooltip is
  * purely visual reinforcement and stays aria-hidden so screen readers don't

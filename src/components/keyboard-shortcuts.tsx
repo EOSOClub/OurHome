@@ -86,7 +86,7 @@ export function KeyboardShortcuts() {
       }
 
       // Never intercept browser/OS combos, typing, or keys meant for an open
-      // dialog (which covers the shortcuts sheet and the palette — the
+      // dialog (which covers the shortcuts sheet and the palette - the
       // palette's overlay sets role="dialog").
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (isTypingTarget(e.target)) return;

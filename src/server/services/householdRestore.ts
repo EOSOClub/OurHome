@@ -9,9 +9,9 @@ import { assertServerAdmin } from '@/server/services/serverAdminService';
 // Restore a household from its export (householdDataService.exportHousehold)
 // as a new household on this server (server admin, Server page).
 //
-// - Every record gets a fresh id and every reference is rewired — including
+// - Every record gets a fresh id and every reference is rewired - including
 //   ids inside text (rotation lists, undo snapshots, notification keys, JSON
-//   settings) — so a restore never collides with what's on the server, even
+//   settings) - so a restore never collides with what's on the server, even
 //   when the original household still exists.
 // - Only fields the current schema knows are written, so exports from older
 //   or newer versions load (missing fields take their defaults).
@@ -21,7 +21,7 @@ import { assertServerAdmin } from '@/server/services/serverAdminService';
 // - Not restored, because their tokens were never exported: the Home
 //   Assistant and Paperless connections.
 
-/** The export's id format: Prisma cuid() — "c" + 24 lowercase letters/digits. */
+/** The export's id format: Prisma cuid() - "c" + 24 lowercase letters/digits. */
 const ID_PATTERN = /\bc[a-z0-9]{24}\b/g;
 
 type Row = Record<string, unknown>;

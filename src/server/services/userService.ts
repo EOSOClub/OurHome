@@ -174,7 +174,7 @@ export async function updateMember(
   return memberToDTO(updated);
 }
 
-/** Change a member's role (anything but head — headship moves via transfer). */
+/** Change a member's role (anything but head - headship moves via transfer). */
 export async function setMemberRole(
   householdId: string,
   actor: Actor,
@@ -365,7 +365,7 @@ export async function transferHeadship(
   const target = await loadMember(householdId, newHeadId);
 
   const updated = await prisma.$transaction(async (tx) => {
-    // Demote any current head(s) — there should be exactly one (the actor).
+    // Demote any current head(s) - there should be exactly one (the actor).
     await tx.user.updateMany({
       where: { householdId, role: 'head' },
       data: { role: 'manager' },

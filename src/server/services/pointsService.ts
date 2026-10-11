@@ -130,8 +130,8 @@ export interface PlannedAward {
 }
 
 /**
- * Who gets what when a task is completed. Every step pays exactly once — to
- * its queued checker, else to the completer — so the awards add up to the
+ * Who gets what when a task is completed. Every step pays exactly once - to
+ * its queued checker, else to the completer - so the awards add up to the
  * task's live points. Zero-point rows are skipped.
  */
 export function planPayout(input: {

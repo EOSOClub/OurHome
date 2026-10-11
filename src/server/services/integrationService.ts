@@ -37,7 +37,7 @@ export async function listIntegrations(
 
 export interface CreatedIntegration {
   integration: IntegrationDTO;
-  /** Plaintext token — returned once, never stored. */
+  /** Plaintext token - returned once, never stored. */
   token: string;
 }
 

@@ -90,8 +90,8 @@ export function withAuth(handler: Handler) {
 
 /**
  * Like withAuth, for the server admin's endpoints (households, HTTPS only,
- * contact messages): the caller needn't belong to a household — a server
- * admin may have none — but must be the server admin.
+ * contact messages): the caller needn't belong to a household - a server
+ * admin may have none - but must be the server admin.
  */
 export function withServerAdmin(handler: Handler) {
   return async (req: NextRequest): Promise<Response> => {
@@ -149,7 +149,7 @@ export async function requireCreate(
 
 /**
  * Require the caller may edit or delete a record on `page` created by
- * `ownerId` (resolve it with recordOwner.* first — that also 404s a record
+ * `ownerId` (resolve it with recordOwner.* first - that also 404s a record
  * outside the household).
  */
 export async function requireModify(

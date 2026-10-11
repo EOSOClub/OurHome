@@ -15,7 +15,7 @@ interface SubmitMeta {
 
 /**
  * Persist a contact-form submission, then send two emails:
- *   1. a confirmation to the visitor (from support@ — configured via SMTP_FROM),
+ *   1. a confirmation to the visitor (from support@ - configured via SMTP_FROM),
  *   2. a forward to FORWARD_TO with the visitor's address as Reply-To.
  *
  * The row is stored first, so a mail failure never loses the message: we log it,
@@ -40,7 +40,7 @@ export async function submitContactMessage(
   try {
     await sendEmail({
       to: input.email,
-      subject: `We received your message — ${APP_NAME}`,
+      subject: `We received your message - ${APP_NAME}`,
       text: confirmationText(input.name),
       html: confirmationHtml(input.name),
     });
@@ -92,7 +92,7 @@ function toDTO(row: {
 /**
  * Most recent contact-form submissions, newest first. ContactMessage is not
  * household-scoped (the public form has no household context), so callers must
- * gate access by permission — see /api/contact/messages. IP/UA are deliberately
+ * gate access by permission - see /api/contact/messages. IP/UA are deliberately
  * omitted from the DTO; they exist only for abuse tracing.
  */
 export async function listContactMessages(
@@ -113,7 +113,7 @@ function confirmationText(name: string): string {
     '',
     'You do not need to reply to this email.',
     '',
-    `— ${APP_NAME}`,
+    `- ${APP_NAME}`,
   ].join('\n');
 }
 
@@ -124,7 +124,7 @@ function confirmationHtml(name: string): string {
     <p>Thanks for reaching out to ${appName}. We received your message and
     someone will be in contact with you soon.</p>
     <p>You do not need to reply to this email.</p>
-    <p>— ${appName}</p>
+    <p>- ${appName}</p>
   `;
 }
 

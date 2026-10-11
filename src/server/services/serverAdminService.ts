@@ -275,7 +275,7 @@ export async function createHousehold(adminId: string, input: CreateHouseholdInp
 /**
  * Turn a household off (its members are signed out and refused until it's
  * turned back on) or on again. Nothing is deleted. The admin's own household
- * can't be turned off — that would lock the admin out.
+ * can't be turned off - that would lock the admin out.
  */
 export async function setHouseholdDisabled(adminId: string, householdId: string, disabled: boolean): Promise<void> {
   await assertServerAdmin(adminId);
@@ -317,7 +317,7 @@ export async function resetHeadPassword(adminId: string, input: ResetHeadPasswor
 
 /**
  * Let a household's Paperless be on the server's private network (Docker,
- * LAN), or take that back. Off, its Paperless must be a public address — the
+ * LAN), or take that back. Off, its Paperless must be a public address - the
  * server won't connect to its own network on that household's say-so.
  */
 export async function setPaperlessPrivateNetwork(adminId: string, householdId: string, allowed: boolean): Promise<void> {

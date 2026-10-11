@@ -180,7 +180,7 @@ export function InventoryView({
         body: JSON.stringify(vars),
       }),
     // Optimistically apply the delta (clamped at 0, matching the service) and
-    // recompute the low flag so +/- taps respond instantly — no busy spinner,
+    // recompute the low flag so +/- taps respond instantly - no busy spinner,
     // so rapid taps aren't blocked. Restock timestamps and the depletion
     // forecast are server-derived; the refetch after the last tap refreshes
     // those.
@@ -291,7 +291,7 @@ export function InventoryView({
     }
     if (lists.length === 0) {
       toast.error(
-        'No shopping list yet — create one on the Shopping page first.',
+        'No shopping list yet - create one on the Shopping page first.',
       );
       return;
     }

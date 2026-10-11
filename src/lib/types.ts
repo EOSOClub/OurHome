@@ -222,7 +222,7 @@ export interface ShoppingItemDTO {
 }
 
 // Best-effort Open Graph metadata pulled from a pasted product link. Any field
-// may be null when the page can't be read (e.g. Amazon's bot wall) — the UI then
+// may be null when the page can't be read (e.g. Amazon's bot wall) - the UI then
 // falls back to manual entry.
 export interface LinkPreviewDTO {
   title: string | null;
@@ -344,7 +344,7 @@ export interface BillDTO {
   reference: string | null;
   recurrence: RecurrenceDTO | null;
   assignee: MemberDTO | null;
-  // Aggregates over the bill's BillPayment records (fees excluded — `amount` is
+  // Aggregates over the bill's BillPayment records (fees excluded - `amount` is
   // the portion applied to the balance). Drive list progress + "partially paid".
   paidTotal: number;
   paymentCount: number;
@@ -415,7 +415,7 @@ export interface PaperlessStatusDTO {
 }
 
 // A stored contact-form submission (global, not household-scoped).
-// status: "received" | "emailed" | "email_failed" — see contactService.
+// status: "received" | "emailed" | "email_failed" - see contactService.
 export interface ContactMessageDTO {
   id: string;
   name: string;

@@ -6,7 +6,7 @@ import { AlertCircle, CheckCircle2, Info, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /**
- * App-wide toast notifications — no external dependency, mirroring the Dialog
+ * App-wide toast notifications - no external dependency, mirroring the Dialog
  * approach. State lives in a zustand store so non-React code (e.g. the global
  * MutationCache error handler in providers.tsx) can raise toasts too:
  *

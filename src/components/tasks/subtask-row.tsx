@@ -11,7 +11,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
 
 /**
- * One checklist item — shared by the task card's expanded checklist and the
+ * One checklist item - shared by the task card's expanded checklist and the
  * task editor. Handles its own inline edit mode (title + reset cadence) and
  * delete confirmation; toggling/reordering/saving go through the caller's
  * mutations.
@@ -94,7 +94,7 @@ export function SubtaskRow({
               max={365}
               value={resetDraft}
               onChange={(e) => setResetDraft(e.target.value)}
-              placeholder="—"
+              placeholder="-"
               className="h-7 w-16 text-xs"
               aria-label="Reset interval in days"
             />

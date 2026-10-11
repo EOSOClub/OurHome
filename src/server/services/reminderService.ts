@@ -77,7 +77,7 @@ export function tiedUsers(...ids: (string | null | undefined)[]): string[] {
 /**
  * Overdue = active task past its due date: a date-only one (stored at 12:00
  * local) from the next day in the household's zone, a timed one once its
- * time passed — the same rule the pages show (lib/format isOverdue).
+ * time passed - the same rule the pages show (lib/format isOverdue).
  */
 export function buildOverdueReminders(
   tasks: TaskLike[],
@@ -117,7 +117,7 @@ export function buildInventoryReminders(
   for (const item of items) {
     if (item.isLow) {
       const left =
-        item.unit !== null ? ` — ${item.quantity} ${item.unit} left` : '';
+        item.unit !== null ? ` - ${item.quantity} ${item.unit} left` : '';
       out.push({
         dedupeKey: `low_inventory:inventory_item:${item.id}`,
         type: 'low_inventory',
@@ -137,7 +137,7 @@ export function buildInventoryReminders(
         dedupeKey: `reminder:inventory_item:${item.id}`,
         type: 'reminder',
         title: item.name,
-        body: 'Predicted to run out soon — consider restocking.',
+        body: 'Predicted to run out soon - consider restocking.',
         subjectType: 'inventory_item',
         subjectId: item.id,
         audienceUserIds: tiedUsers(item.createdById),
@@ -149,7 +149,7 @@ export function buildInventoryReminders(
 }
 
 /**
- * Unpaid bills due within the look-ahead window — or already past due — become
+ * Unpaid bills due within the look-ahead window - or already past due - become
  * a `bill_due` notification. One stable dedupe key per bill, so a bill that
  * slides from "due soon" into "overdue" refreshes its body in place instead of
  * stacking a second notification.
@@ -200,7 +200,7 @@ export function buildReminders(
 
 /**
  * Candidates whose dedupeKey is not among the household's existing generated
- * notifications — i.e. the ones the upsert will *create* rather than refresh.
+ * notifications - i.e. the ones the upsert will *create* rather than refresh.
  * Only these trigger an email; refreshes stay silent.
  */
 export function selectNewReminders(
@@ -219,9 +219,9 @@ const SUBJECT_PAGE: Record<string, AccessPage> = {
 };
 
 /**
- * Adds each subject's managers — whoever the page-access grid lets edit
+ * Adds each subject's managers - whoever the page-access grid lets edit
  * other people's entries on that page (head only for tasks; head, manager and
- * member for bills and stock by default) — to the people tied to it.
+ * member for bills and stock by default) - to the people tied to it.
  */
 export function withManagers(
   candidates: ReminderCandidate[],
@@ -261,7 +261,7 @@ export type ReminderEmailSender = (args: {
  *
  * Newly-created notifications (not refreshes of an existing dedupeKey) are also
  * emailed to every household member as a best-effort side effect. The rows stay
- * channel `in_app` — they remain the source of truth; email failures are logged
+ * channel `in_app` - they remain the source of truth; email failures are logged
  * and never break generation. `send` is injectable for tests.
  */
 export async function generateReminders(
@@ -338,7 +338,7 @@ export async function generateReminders(
 
   // Snapshot existing generated keys so we can tell created from refreshed:
   // upsert alone doesn't report which branch it took. Read just before the
-  // transaction — a concurrent run could at worst duplicate a best-effort email.
+  // transaction - a concurrent run could at worst duplicate a best-effort email.
   const existing = await prisma.notification.findMany({
     where: {
       householdId,
@@ -397,7 +397,7 @@ export async function generateReminders(
 
   // Best-effort email for the newly-created notifications, after the rows are
   // committed. Each goes to the members who see it in the bell (its
-  // audience). Any failure is logged and swallowed — email must never break
+  // audience). Any failure is logged and swallowed - email must never break
   // reminder generation.
   if (created.length > 0) {
     try {

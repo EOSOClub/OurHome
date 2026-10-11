@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 // Static security headers applied to every response. The Content-Security-Policy
-// is NOT here — it needs a per-request nonce and is set in src/proxy.ts.
+// is NOT here - it needs a per-request nonce and is set in src/proxy.ts.
 const securityHeaders = [
   // HTTPS-only deployment: tell browsers to stick to HTTPS. (No `preload` to
   // avoid an irreversible all-subdomains commitment.)
@@ -28,7 +28,7 @@ const nextConfig: NextConfig = {
   // Dev-only: allow the app to be opened from the LAN (e.g. a phone) instead of
   // just localhost. Without this, Next 16 blocks cross-origin requests to its
   // internal /_next/* dev resources, which breaks client JS, HMR, and the RSC
-  // navigation that runs after sign-in — making mobile login appear to fail.
+  // navigation that runs after sign-in - making mobile login appear to fail.
   // Wildcards cover common private subnets so a DHCP IP change doesn't break it.
   allowedDevOrigins: ['192.168.*', '10.*', '172.16.*'],
   async headers() {

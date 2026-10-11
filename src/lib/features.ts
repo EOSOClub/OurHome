@@ -1,8 +1,8 @@
 // Features the server admin can turn off per household (Server → Households →
 // Features), so a household that only needs tasks and a calendar doesn't see
 // shopping, stock, bills or requests. Stored as the *turned-off* list
-// (Household.disabledFeatures), so a household created before this — or a
-// feature added later — starts with everything on.
+// (Household.disabledFeatures), so a household created before this - or a
+// feature added later - starts with everything on.
 //
 // Pure, shared by the server (API guard, pages, reminder sweep) and the client
 // (nav, menus). Dashboard, activity, notifications, profile, members and

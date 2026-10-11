@@ -1,7 +1,7 @@
 // Floors and rooms: how tasks (and inventory items, which have no hand-set
 // position) are grouped by place and kept in the order the household set.
 // Pure, shared by the Tasks and Inventory pages and mirrored in the Android
-// app (data/Places.kt) — change both together.
+// app (data/Places.kt) - change both together.
 
 export interface FloorRef {
   id: string;
@@ -24,7 +24,7 @@ export interface PlacedTask {
   position: number | null;
 }
 
-/** By hand-set position, then name — floors and rooms alike. */
+/** By hand-set position, then name - floors and rooms alike. */
 export function byPosition<T extends { position: number; name: string }>(a: T, b: T): number {
   return a.position - b.position || a.name.localeCompare(b.name);
 }
@@ -133,7 +133,7 @@ export function placeRefs(row: {
   return { room: ref(row.room), floor: row.room ? ref(row.room.floor) : ref(row.floor) };
 }
 
-/** "Upstairs · Bedroom", "Upstairs", "Kitchen" — a task's place as one label. */
+/** "Upstairs · Bedroom", "Upstairs", "Kitchen" - a task's place as one label. */
 export function placeLabel(task: {
   room: { name: string } | null;
   floor: { name: string } | null;

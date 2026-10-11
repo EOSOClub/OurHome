@@ -22,7 +22,7 @@ describe('taskReadyBody', () => {
         { ...base, rotationUserIds: 'u,v', dueDate: new Date('2026-10-09T17:00:00Z') },
         'America/Chicago',
       ),
-    ).toBe('It’s your turn — due Fri, Oct 9.');
+    ).toBe('It’s your turn - due Fri, Oct 9.');
   });
 
   it('reads plainly without a rotation or due date', () => {

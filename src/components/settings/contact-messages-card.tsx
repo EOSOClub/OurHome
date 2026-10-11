@@ -51,7 +51,7 @@ export function ContactMessagesCard({
           <span className="font-medium text-[var(--color-warning)]">
             Email failed
           </span>{' '}
-          were stored but never forwarded — reply to them from here.
+          were stored but never forwarded - reply to them from here.
         </CardDescription>
       </CardHeader>
       <CardContent>

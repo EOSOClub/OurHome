@@ -3,14 +3,14 @@
 // / year periods the points stats use. Pure and IO-free; uses Intl only (the
 // project has no date library), so DST is handled by the platform's tz data.
 //
-// A boundary is always local midnight. Monthly cycle days are 1–31; in a
+// A boundary is always local midnight. Monthly cycle days are 1-31; in a
 // month without that day the cycle starts on the month's last day instead
 // (30 and 31 both land on Feb 28/29 and fire once).
 
 export const DEFAULT_TIMEZONE = 'America/Chicago';
 const DAY_MS = 86_400_000;
 
-/** A calendar date (no time, no zone). month is 1–12. */
+/** A calendar date (no time, no zone). month is 1-12. */
 export interface LocalDate {
   year: number;
   month: number;
@@ -23,7 +23,7 @@ export type CycleSpec =
   | { kind: 'interval'; everyDays: number; anchor: Date }
   /** 0 = Sunday … 6 = Saturday. */
   | { kind: 'weekdays'; days: number[] }
-  /** 1–31. */
+  /** 1-31. */
   | { kind: 'monthdays'; days: number[] };
 
 export type Period = 'day' | 'week' | 'month' | 'year';

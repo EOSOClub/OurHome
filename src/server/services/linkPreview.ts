@@ -1,6 +1,6 @@
 // Best-effort Open Graph preview fetcher. Given a pasted product URL it pulls
 // the title / image / price out of the page's <head> meta tags so the shopping
-// form can pre-fill itself. Everything here degrades to nulls on failure — many
+// form can pre-fill itself. Everything here degrades to nulls on failure - many
 // sites (Amazon in particular) serve a bot wall instead of the real page, and
 // that's expected: the UI just falls back to manual entry.
 
@@ -37,7 +37,7 @@ export async function fetchLinkPreview(rawUrl: string): Promise<LinkPreviewDTO> 
     const html = await readCapped(res.body, MAX_BYTES);
     return parsePreview(html, res.url || url.href);
   } catch {
-    // Timeouts, connection resets, bot walls, DNS errors — all best-effort.
+    // Timeouts, connection resets, bot walls, DNS errors - all best-effort.
     return EMPTY;
   }
 }
@@ -48,7 +48,7 @@ export async function fetchLinkPreview(rawUrl: string): Promise<LinkPreviewDTO> 
  * hostname is resolved so a public name pointing at a private IP is rejected too.
  *
  * Residual risk: a TOCTOU/DNS-rebinding window remains between the lookup and the
- * connection. That is acceptable here — the only callers are authenticated
+ * connection. That is acceptable here - the only callers are authenticated
  * household members, and the high-value bypasses (redirect-to-internal and
  * private A records) are closed.
  */
@@ -98,7 +98,7 @@ export async function isPublicFetchTarget(url: URL): Promise<boolean> {
     if (addrs.length === 0) return false;
     return addrs.every(({ address }) => !isPrivateIp(address));
   } catch {
-    return false; // unresolvable host — don't fetch
+    return false; // unresolvable host - don't fetch
   }
 }
 

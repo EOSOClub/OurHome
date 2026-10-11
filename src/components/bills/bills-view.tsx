@@ -247,7 +247,7 @@ export function BillsView({
                   <BillList bills={shownUpcoming} access={access} userId={userId} />
                 ) : (
                   <p className="px-1 text-sm text-muted-foreground">
-                    Nothing due — you&apos;re all caught up.
+                    Nothing due - you&apos;re all caught up.
                   </p>
                 )}
               </Section>
@@ -358,7 +358,7 @@ function BillRow({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [paying, setPaying] = useState(false);
 
-  // Also re-render the server component — the "Paid this month" stat is a
+  // Also re-render the server component - the "Paid this month" stat is a
   // server prop and would go stale on invalidation alone.
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: KEY });

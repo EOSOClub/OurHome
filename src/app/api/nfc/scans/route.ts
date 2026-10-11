@@ -9,7 +9,7 @@ export const GET = withAuth(async (ctx) => {
 });
 
 // Apply a scan from the Android app: same handling as the HA webhook, but as
-// the signed-in user (source "nfc"). An unknown tag 404s — the app sets it up
+// the signed-in user (source "nfc"). An unknown tag 404s - the app sets it up
 // first via /api/nfc/setup.
 export const POST = withAuth(async (ctx) => {
   await requireAnyAccess(ctx, 'inventory');

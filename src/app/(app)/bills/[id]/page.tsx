@@ -6,7 +6,7 @@ import { getBillDetail } from '@/server/services/billService';
 import { NotFoundError } from '@/server/services/errors';
 import { BillDetailView } from '@/components/bills/bill-detail-view';
 
-// This customized Next.js resolves `params` asynchronously — await it.
+// This customized Next.js resolves `params` asynchronously - await it.
 export default async function BillDetailPage({
   params,
 }: {

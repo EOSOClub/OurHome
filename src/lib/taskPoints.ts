@@ -1,6 +1,6 @@
 // Task time-to-complete (TTC) and points: the pure rules shared by the task
 // editor (live, as you type), the server (every save is normalised here) and
-// the Android app (mirrored in data/TaskPoints.kt — keep the two in step).
+// the Android app (mirrored in data/TaskPoints.kt - keep the two in step).
 //
 // Units: minutes are whole minutes; points are integer hundredths ("centi"),
 // so 3.33 pts is 333. Splits use largest-remainder rounding, so the parts

@@ -608,7 +608,7 @@ export async function resetDueSubtasks(householdId: string): Promise<number> {
   const now = Date.now();
   const due = candidates.filter(
     (s) =>
-      // Items checked before doneAt existed reset immediately — better than
+      // Items checked before doneAt existed reset immediately - better than
       // sticking checked forever.
       s.doneAt === null ||
       s.doneAt.getTime() + s.resetIntervalDays! * 86_400_000 <= now,
@@ -788,7 +788,7 @@ export async function updateTask(
     }
 
     // Rotation: saving a list puts the assignee on it (whose turn it is now).
-    // Without one (older clients), a hand-picked assignee is taken as is —
+    // Without one (older clients), a hand-picked assignee is taken as is -
     // someone covering a turn; the next turn then starts the list over.
     const assignment =
       rotationUserIds !== undefined
@@ -848,7 +848,7 @@ export async function updateTask(
 
 /**
  * Make the checklist match the editor's list: items with a known id are
- * updated (done state is left alone — ticking goes through updateSubtask),
+ * updated (done state is left alone - ticking goes through updateSubtask),
  * new ones created, missing ones deleted with their queued points. Order =
  * array order.
  */
@@ -901,12 +901,12 @@ async function replaceChecklist(
  *   reopens at the next cycle start (rollTaskCycles);
  * - without, it rolls forward to its next occurrence (due date advances,
  *   status returns to pending) as before.
- * One-time tasks — and recurring tasks whose `until` end date has been
- * reached — are marked completed. Steps left unchecked are checked by the
+ * One-time tasks - and recurring tasks whose `until` end date has been
+ * reached - are marked completed. Steps left unchecked are checked by the
  * completer (they "finish the rest").
  *
  * Guests hold `tasks:complete` but only for tasks assigned to them (see
- * src/lib/permissions.ts) — that narrower scope is enforced here.
+ * src/lib/permissions.ts) - that narrower scope is enforced here.
  */
 export async function completeTask(
   householdId: string,
@@ -999,7 +999,7 @@ export async function completeTask(
     // The next occurrence after the one being completed: counted from its due
     // date when that's still ahead (picked dates sit at 12:00, so a daily task
     // done in the morning would otherwise "advance" to the same noon and could
-    // be completed — and paid — again).
+    // be completed - and paid - again).
     const next = existing.recurrence && !existing.cycleEndsAt
       ? nextAfterOccurrence(normalizeRule(existing.recurrence, settings.timezone), existing.dueDate, now)
       : null;
@@ -1085,7 +1085,7 @@ function isWriteConflict(err: unknown): boolean {
 /**
  * Undo a completion: restore the task as it was just before and void the
  * points it paid. The completer may within UNDO_WINDOW_MS, the head any time
- * — but only for the task's latest completion, and only while nothing has
+ * - but only for the task's latest completion, and only while nothing has
  * happened on the task since (otherwise the head voids points in the ledger).
  */
 export async function undoCompletion(
@@ -1319,7 +1319,7 @@ export async function addSubtask(
 }
 
 /**
- * Edit a step's title/order/reset, or check/uncheck it — which is where step
+ * Edit a step's title/order/reset, or check/uncheck it - which is where step
  * points are queued or paid (checkOutcome) and dropped on a hand uncheck.
  */
 export async function updateSubtask(
@@ -1328,7 +1328,7 @@ export async function updateSubtask(
   actor?: CompletingActor,
 ): Promise<TaskWithRelations> {
   const taskId = await assertSubtaskInHousehold(input.subtaskId, householdId);
-  // Guests may toggle items only on tasks assigned to them — the same scope
+  // Guests may toggle items only on tasks assigned to them - the same scope
   // as completeTask (their route permission is tasks:complete).
   if (actor?.role === 'guest') {
     const task = await prisma.task.findFirst({
@@ -1564,7 +1564,7 @@ export class SubtaskNotFoundError extends NotFoundError {
 export class SubtaskOrderConflictError extends ConflictError {
   constructor(taskId: string) {
     super(
-      `The checklist for task ${taskId} changed while reordering — refresh and try again.`,
+      `The checklist for task ${taskId} changed while reordering - refresh and try again.`,
     );
     this.name = 'SubtaskOrderConflictError';
   }

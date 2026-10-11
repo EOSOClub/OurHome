@@ -603,8 +603,15 @@ function MemberRow({
                   id={`email-${member.id}`}
                   type="email"
                   value={edit.email}
+                  // Your own email changes on your profile, which asks for your password.
+                  disabled={isSelf}
                   onChange={(e) => setEdit({ ...edit, email: e.target.value })}
                 />
+                {isSelf ? (
+                  <p className="text-xs text-muted-foreground">
+                    Change your own email on your profile.
+                  </p>
+                ) : null}
               </div>
               <div className="sm:col-span-3">
                 <Button type="submit" size="sm" disabled={save.isPending}>

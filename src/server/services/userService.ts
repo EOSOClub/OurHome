@@ -150,6 +150,11 @@ export async function updateMember(
   const displayUsername = input.username?.trim();
   const username = displayUsername?.toLowerCase();
   const email = input.email?.trim().toLowerCase();
+  // Password resets go to the email, so changing your own needs your password:
+  // that check lives on the profile (updateProfile), not here.
+  if (isSelf && email && email !== target.email.toLowerCase()) {
+    throw new ForbiddenError('Change your own email from your profile.');
+  }
   await assertUnique(username ?? null, email ?? null, target.id);
 
   const updated = await prisma.user.update({

@@ -29,7 +29,7 @@ The first-run setup page needs an empty database: run `sh demo/run.sh blank`, th
 
 ## Demo accounts
 
-Every member's password is `DemoHouse!2026`: `alex` (Head of House), `sam` (Manager), `jordan` (Member), `riley` (Teen), `mia` (Child). `demo/accounts.md` lists the ids of the bills, tasks and other records the shots open.
+Every member's password is `DemoHouse!2026`: `alex` (Head of House), `sam` (Manager), `jordan` (Adult), `riley` (Teen), `mia` (Child). `demo/accounts.md` lists the ids of the bills, tasks and other records the shots open.
 
 ## Rebuilding the demo from scratch
 

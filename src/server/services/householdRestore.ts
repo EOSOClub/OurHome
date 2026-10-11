@@ -74,6 +74,26 @@ export interface RestorePlan {
   notes: string[];
 }
 
+/** The adult role's stored name before 2026-10-11. */
+const LEGACY_ADULT_ROLE = 'member';
+
+/**
+ * Household.roleAccess (JSON text) from an older export: its "member" key
+ * becomes "adult". Anything that isn't a JSON object is left as it was.
+ */
+function renameLegacyRoleKey(value: string): string {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return value;
+    const grid = parsed as Row;
+    if (!(LEGACY_ADULT_ROLE in grid)) return value;
+    const { [LEGACY_ADULT_ROLE]: legacy, ...rest } = grid;
+    return JSON.stringify({ ...rest, adult: rest.adult ?? legacy });
+  } catch {
+    return value;
+  }
+}
+
 function asArray(v: unknown): Row[] {
   return Array.isArray(v) ? (v.filter((x) => x && typeof x === 'object') as Row[]) : [];
 }
@@ -172,10 +192,13 @@ export function planRestore(
   if (opts.name?.trim()) hh.name = opts.name.trim();
   delete hh.disabledAt;
   delete hh.paperlessPrivateNetwork;
+  if (typeof hh.roleAccess === 'string') hh.roleAccess = renameLegacyRoleKey(hh.roleAccess);
   for (const user of rows.User) {
     user.mustChangePassword = true;
     user.emailVerified = false;
     delete user.isServerAdmin;
+    // Exports from before 2026-10-11 call the adult role "member".
+    if (user.role === LEGACY_ADULT_ROLE) user.role = 'adult';
   }
 
   const notes: string[] = [];

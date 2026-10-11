@@ -5,14 +5,15 @@
 // Household roles, highest authority first. There is exactly one `head` per
 // household (the "Head of House"); see src/server/services/userService.ts.
 // Teen and child are household members with narrower defaults; a guest is
-// someone from outside the household (a sitter, a visitor).
-export const USER_ROLES = ['head', 'manager', 'member', 'teen', 'child', 'guest'] as const;
+// someone from outside the household (a sitter, a visitor). `adult` was stored
+// as `member` before 2026-10-11.
+export const USER_ROLES = ['head', 'manager', 'adult', 'teen', 'child', 'guest'] as const;
 export type UserRole = (typeof USER_ROLES)[number];
 
 export const USER_ROLE_LABELS: Record<UserRole, string> = {
   head: 'Head of House',
   manager: 'Manager',
-  member: 'Member',
+  adult: 'Adult',
   teen: 'Teen',
   child: 'Child',
   guest: 'Guest',
@@ -22,7 +23,7 @@ export const USER_ROLE_LABELS: Record<UserRole, string> = {
 export const ROLE_RANK: Record<UserRole, number> = {
   head: 6,
   manager: 5,
-  member: 4,
+  adult: 4,
   teen: 3,
   child: 2,
   guest: 1,

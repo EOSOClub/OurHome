@@ -43,7 +43,7 @@ type CurrentUser = { id: string; role: string };
 const ROLE_BADGE: Record<UserRole, 'default' | 'warning' | 'secondary' | 'outline'> = {
   head: 'default',
   manager: 'warning',
-  member: 'secondary',
+  adult: 'secondary',
   teen: 'secondary',
   child: 'secondary',
   guest: 'outline',
@@ -235,7 +235,7 @@ function AddMemberCard({ actorRole }: { actorRole: string }) {
     name: '',
     username: '',
     email: '',
-    role: (roles.includes('member') ? 'member' : roles[0]) as UserRole,
+    role: (roles.includes('adult') ? 'adult' : roles[0]) as UserRole,
     password: '',
   });
 
@@ -244,7 +244,7 @@ function AddMemberCard({ actorRole }: { actorRole: string }) {
       name: '',
       username: '',
       email: '',
-      role: (roles.includes('member') ? 'member' : roles[0]) as UserRole,
+      role: (roles.includes('adult') ? 'adult' : roles[0]) as UserRole,
       password: '',
     });
 

@@ -9,11 +9,11 @@ the server is the authority.
 
 Fixed per role; not editable in the UI.
 
-Roles, highest first: head > manager > member > teen > child > guest. Teen and
+Roles, highest first: head > manager > adult > teen > child > guest. Teen and
 child are household members with narrower page-access defaults; a guest is
 someone from outside the household.
 
-| Permission | head | manager | member | teen | child | guest |
+| Permission | head | manager | adult | teen | child | guest |
 | --- | :-: | :-: | :-: | :-: | :-: | :-: |
 | `household:manage` (rename household, transfer headship, **edit page permissions**) | ✓ | | | | | |
 | `members:manage` | ✓ | ✓¹ | | | | |
@@ -23,7 +23,7 @@ someone from outside the household.
 | `bugs:report` (file a bug report) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `bugs:manage` (receive bug reports: bell + phone alert) | ✓ | | | | | |
 
-¹ Managers may only manage and assign the ranks below them - member, teen,
+¹ Managers may only manage and assign the ranks below them - adult, teen,
   child, guest (`canManageMember`, `canAssignRole`).
 ² Guests only on tasks assigned to them (enforced in `taskService`).
 ³ Ownership is enforced in `requestService` - nobody, including the head, can
@@ -50,7 +50,7 @@ five switches; Requests has Add and Approve (`PAGE_ACTIONS`):
 2. Otherwise start from the built-in default for the role
    (`BUILTIN_ROLE_ACCESS`):
 
-   | Page | manager | member | teen | child | guest |
+   | Page | manager | adult | teen | child | guest |
    | --- | :-: | :-: | :-: | :-: | :-: |
    | Tasks | - | - | - | - | - |
    | Calendar | all | all | own | - | - |
@@ -120,8 +120,8 @@ grid allows **Edit others'** on the page:
 | Reminder | Tied to | Managers (defaults) |
 | --- | --- | --- |
 | Overdue task | assignee, creator | Tasks → Edit others' (head) |
-| Bill due / overdue | assigned person, creator | Bills → Edit others' (head, manager, member) |
-| Low / running-out stock | creator | Inventory → Edit others' (head, manager, member) |
+| Bill due / overdue | assigned person, creator | Bills → Edit others' (head, manager, adult) |
+| Low / running-out stock | creator | Inventory → Edit others' (head, manager, adult) |
 
 So a child or teen hears only about their own tasks and bills unless the head
 grants them more. Read state is per person: reading a notification never marks
@@ -162,6 +162,10 @@ its page, API, reminders or bell notifications, and its grid rows are hidden.
 Nothing is deleted; turning it back on restores everything as it was.
 
 ## Changelog
+
+- **2026-10-11** - The **member** role is now **adult** (stored value and
+  label). Existing users and the `member` key in `Household.roleAccess` were
+  renamed by a one-off migration. Entries below keep the old name.
 
 - **2026-10-10** - Server admin can turn features off per household
   (`lib/features.ts`, `Household.disabledFeatures`).

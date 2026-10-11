@@ -2,7 +2,7 @@
 // pure functions so it can be reused on the server (route guards, services) and
 // the client (hiding controls a role can't use) and unit-tested in isolation.
 //
-// Roles (highest first): head > manager > member > teen > child > guest. See
+// Roles (highest first): head > manager > adult > teen > child > guest. See
 // src/lib/enums.ts.
 
 import { z } from 'zod';
@@ -44,7 +44,7 @@ const WRITE_MODULES: Permission[] = [
 const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
   head: [...PERMISSIONS],
   manager: ['members:manage', 'settings:manage', ...WRITE_MODULES],
-  member: [...WRITE_MODULES],
+  adult: [...WRITE_MODULES],
   teen: [...WRITE_MODULES],
   child: [...WRITE_MODULES],
   guest: [...WRITE_MODULES],
@@ -59,7 +59,7 @@ export function can(role: string, permission: Permission): boolean {
 /**
  * Whether an actor may administer a member who currently holds `targetRole`.
  * The head may manage anyone; a manager may only manage ranks below their own
- * (members, teens, children and guests), never another manager or the head.
+ * (adults, teens, children and guests), never another manager or the head.
  */
 export function canManageMember(
   actorRole: string,
@@ -168,7 +168,7 @@ export type AccessMatrix = Record<AccessPage, PageAccess>;
 export type AccessOverrides = Partial<Record<AccessPage, Partial<PageAccess>>>;
 
 /** Roles whose access the head can edit (the head itself is always full). */
-export const EDITABLE_ROLES = ['manager', 'member', 'teen', 'child', 'guest'] as const;
+export const EDITABLE_ROLES = ['manager', 'adult', 'teen', 'child', 'guest'] as const;
 export type EditableRole = (typeof EDITABLE_ROLES)[number];
 export type RoleAccessOverrides = Partial<Record<EditableRole, AccessOverrides>>;
 
@@ -201,7 +201,7 @@ const OWN_ONLY: PageAccess = { ...NONE, create: true, editOwn: true, deleteOwn: 
 const ADD_ONLY: PageAccess = { ...NONE, create: true };
 
 /**
- * Out-of-the-box defaults. Tasks are head-only; managers and members can
+ * Out-of-the-box defaults. Tasks are head-only; managers and adults can
  * change anything on the other pages; managers (and the head) mark media
  * requests added; teens add and change their own calendar, shopping and
  * inventory entries; children can add shopping items; guests change nothing;
@@ -211,7 +211,7 @@ export const BUILTIN_ROLE_ACCESS: Record<EditableRole, AccessMatrix> = {
   manager: matrix((p) =>
     p === 'tasks' ? NONE : p === 'requests' ? SUBMIT_AND_APPROVE : ALL,
   ),
-  member: matrix((p) => (p === 'tasks' ? NONE : p === 'requests' ? SUBMIT_ONLY : ALL)),
+  adult: matrix((p) => (p === 'tasks' ? NONE : p === 'requests' ? SUBMIT_ONLY : ALL)),
   teen: matrix((p) =>
     p === 'requests'
       ? SUBMIT_ONLY
@@ -316,7 +316,7 @@ export const accessOverridesSchema = z
 export const roleAccessOverridesSchema = z
   .object({
     manager: accessOverridesSchema,
-    member: accessOverridesSchema,
+    adult: accessOverridesSchema,
     teen: accessOverridesSchema,
     child: accessOverridesSchema,
     guest: accessOverridesSchema,

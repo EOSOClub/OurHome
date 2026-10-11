@@ -143,6 +143,30 @@ describe('planRestore', () => {
     expect(plan.notes.join(' ')).toMatch(/1 other member needs a temporary password/);
   });
 
+  it('renames the old "member" role to "adult", in members and the role grid', () => {
+    const old = sampleExport();
+    const legacy = {
+      ...old,
+      household: { ...old.household, roleAccess: JSON.stringify({ member: { tasks: { create: true } }, teen: {} }) },
+      members: [...old.members, { id: id(16), name: 'Jo', username: 'jo', role: 'member' }],
+    };
+    const withGrid = (model: string) => (model === 'Household' ? new Set([...FIELDS.Household, 'roleAccess']) : fields(model));
+    const restored = planRestore(legacy, { newId: newIds(), fields: withGrid });
+    expect(restored.rows.User.map((u) => u.role)).toEqual(['head', 'child', 'adult']);
+    expect(JSON.parse(restored.rows.Household[0].roleAccess as string)).toEqual({
+      adult: { tasks: { create: true } },
+      teen: {},
+    });
+  });
+
+  it('leaves a grid without the old role key untouched', () => {
+    const old = sampleExport();
+    const grid = JSON.stringify({ adult: { bills: { create: false } } });
+    const withGrid = (model: string) => (model === 'Household' ? new Set([...FIELDS.Household, 'roleAccess']) : fields(model));
+    const restored = planRestore({ ...old, household: { ...old.household, roleAccess: grid } }, { newId: newIds(), fields: withGrid });
+    expect(restored.rows.Household[0].roleAccess).toBe(grid);
+  });
+
   it('can restore under a new name', () => {
     expect(planRestore(sampleExport(), { name: 'Smiths (restored)', newId: newIds(), fields }).rows.Household[0].name).toBe(
       'Smiths (restored)',

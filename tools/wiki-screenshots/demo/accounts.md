@@ -6,7 +6,7 @@ Server: http://localhost:3100 (DB ourhome_demo on localhost:27019, container our
 |---|---|---|---|
 | Alex Morgan | alex | Head of House | DemoHouse!2026 |
 | Sam Morgan | sam | Manager | DemoHouse!2026 |
-| Jordan Lee | jordan | Member | DemoHouse!2026 |
+| Jordan Lee | jordan | Adult | DemoHouse!2026 |
 | Riley Morgan | riley | Teen | DemoHouse!2026 |
 | Mia Morgan | mia | Child | DemoHouse!2026 |
 

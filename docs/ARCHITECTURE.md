@@ -95,7 +95,7 @@ email/password, HTTP-only signed cookies, 7-day sessions with a short cookie
 cache. Server code reads the session with `disableCookieCache` (`server/auth/session.ts`),
 so a role change or removal applies on the next request, not after the cache's
 5 minutes. The forced password change is lifted by an `after` hook on
-`/change-password`, never by the client. `role` (`head` > `manager` > `member` > `teen` > `child` > `guest`) and `householdId` are
+`/change-password`, never by the client. `role` (`head` > `manager` > `adult` > `teen` > `child` > `guest`) and `householdId` are
 application-managed fields assigned by first-run setup or the admin. Cookies
 carry no Secure flag so sign-in works over plain HTTP on the home network; the
 auth route adds it on HTTPS responses, and a home-network origin is trusted only
@@ -370,7 +370,7 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
   (to its audience, `Notification.audienceUserIds`). `server/push/fcm.ts` calls the FCM HTTP v1 API
   directly (signed JWT → OAuth token) rather than `firebase-admin`, which needs
   Node 22+. Tokens FCM reports as dead are deleted.
-- **Permissions.** Role-based (`head`/`manager`/`member`/`teen`/`child`/`guest`)
+- **Permissions.** Role-based (`head`/`manager`/`adult`/`teen`/`child`/`guest`)
   via `src/lib/permissions.ts`; routes enforce `requirePermission`, and the guest
   task-completion scope (own assignments only) is enforced in
   `taskService.completeTask`. Add/edit/delete per page (and approving media

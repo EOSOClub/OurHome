@@ -87,8 +87,8 @@ model User {
   // lowercase and unique; `displayUsername` preserves the original casing.
   username        String? @unique
   displayUsername String?
-  // Application fields. role: "head" | "manager" | "member" | "guest" (Zod).
-  role          String   @default("member")
+  // Application fields. role: "head" | "manager" | "adult" | "teen" | "child" | "guest" (Zod).
+  role          String   @default("adult")
   // Set when an admin provisions an account with a temporary password; the app
   // forces a password change on next sign-in, then clears this.
   mustChangePassword Boolean @default(false)

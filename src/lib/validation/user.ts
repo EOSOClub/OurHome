@@ -27,7 +27,7 @@ export const createMemberSchema = z.object({
   name: nameSchema,
   username: usernameSchema,
   email: z.string().trim().email().max(160).optional(),
-  role: z.enum(USER_ROLES).default('member'),
+  role: z.enum(USER_ROLES).default('adult'),
   password: passwordSchema,
 });
 export type CreateMemberInput = z.infer<typeof createMemberSchema>;

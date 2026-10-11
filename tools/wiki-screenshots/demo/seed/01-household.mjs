@@ -23,7 +23,7 @@ st.users.alex = me.id ?? me.user?.id;
 
 const members = [
   { key: 'sam', name: 'Sam Morgan', role: 'manager' },
-  { key: 'jordan', name: 'Jordan Lee', role: 'member' },
+  { key: 'jordan', name: 'Jordan Lee', role: 'adult' },
   { key: 'riley', name: 'Riley Morgan', role: 'teen' },
   { key: 'mia', name: 'Mia Morgan', role: 'child' },
 ];

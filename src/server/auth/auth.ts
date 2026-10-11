@@ -97,7 +97,7 @@ If you didn't request this, you can safely ignore this email.`,
       role: {
         type: 'string',
         required: false,
-        defaultValue: 'member',
+        defaultValue: 'adult',
         input: false,
       },
       householdId: {

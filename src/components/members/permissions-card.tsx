@@ -46,7 +46,7 @@ function roleLabel(role: string): string {
 export function PermissionsCard({ membersVersion }: { membersVersion: string }) {
   const queryClient = useQueryClient();
   const features = useHouseholdFeatures();
-  const [selected, setTarget] = useState<Target>('role:member');
+  const [selected, setTarget] = useState<Target>('role:adult');
   // Unsaved edits, tagged with the selection + saved grid they were made on, so
   // switching who you're editing (or a save landing) drops them automatically.
   const [edit, setEdit] = useState<{ key: string; access: AccessMatrix } | null>(null);
@@ -64,7 +64,7 @@ export function PermissionsCard({ membersVersion }: { membersVersion: string }) 
     : undefined;
   // A member who left (or became head) can't be edited; fall back to a role.
   const target: Target =
-    data && selected.startsWith('member:') && !member ? 'role:member' : selected;
+    data && selected.startsWith('member:') && !member ? 'role:adult' : selected;
 
   const role: EditableRole | null = target.startsWith('role:')
     ? (target.slice('role:'.length) as EditableRole)

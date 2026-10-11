@@ -32,9 +32,9 @@ describe('can', () => {
     expect(can('manager', 'household:manage')).toBe(false);
   });
 
-  it('keeps members out of administration', () => {
-    expect(can('member', 'members:manage')).toBe(false);
-    expect(can('member', 'settings:manage')).toBe(false);
+  it('keeps adults out of administration', () => {
+    expect(can('adult', 'members:manage')).toBe(false);
+    expect(can('adult', 'settings:manage')).toBe(false);
   });
 
   it('lets every role complete tasks', () => {
@@ -69,27 +69,29 @@ describe('can', () => {
   it('grants nothing to unknown roles', () => {
     expect(can('admin', 'tasks:complete')).toBe(false);
     expect(can('', 'tasks:complete')).toBe(false);
+    // The pre-2026-10-11 name for adult; the one-off migration renames it.
+    expect(can('member', 'tasks:complete')).toBe(false);
   });
 });
 
 describe('canManageMember', () => {
   it('lets the head manage anyone', () => {
-    for (const r of ['head', 'manager', 'member', 'guest']) {
+    for (const r of ['head', 'manager', 'adult', 'guest']) {
       expect(canManageMember('head', r)).toBe(true);
     }
   });
 
   it('lets managers manage only the ranks below them', () => {
-    for (const r of ['member', 'teen', 'child', 'guest']) {
+    for (const r of ['adult', 'teen', 'child', 'guest']) {
       expect(canManageMember('manager', r)).toBe(true);
     }
     expect(canManageMember('manager', 'manager')).toBe(false);
     expect(canManageMember('manager', 'head')).toBe(false);
   });
 
-  it('denies members, teens and guests', () => {
-    expect(canManageMember('member', 'guest')).toBe(false);
-    expect(canManageMember('member', 'child')).toBe(false);
+  it('denies adults, teens and guests', () => {
+    expect(canManageMember('adult', 'guest')).toBe(false);
+    expect(canManageMember('adult', 'child')).toBe(false);
     expect(canManageMember('teen', 'child')).toBe(false);
     expect(canManageMember('guest', 'guest')).toBe(false);
   });
@@ -102,13 +104,13 @@ describe('canAssignRole', () => {
   });
 
   it('lets the head assign every role but head', () => {
-    for (const r of ['manager', 'member', 'teen', 'child', 'guest']) {
+    for (const r of ['manager', 'adult', 'teen', 'child', 'guest']) {
       expect(canAssignRole('head', r)).toBe(true);
     }
   });
 
   it('lets managers assign only the ranks below them', () => {
-    for (const r of ['member', 'teen', 'child', 'guest']) {
+    for (const r of ['adult', 'teen', 'child', 'guest']) {
       expect(canAssignRole('manager', r)).toBe(true);
     }
     expect(canAssignRole('manager', 'manager')).toBe(false);
@@ -143,7 +145,7 @@ describe('resolveAccess', () => {
     const everything = {
       create: true, editOwn: true, deleteOwn: true, editOthers: true, deleteOthers: true,
     };
-    for (const r of ['manager', 'member'] as const) {
+    for (const r of ['manager', 'adult'] as const) {
       const a = resolveAccess(r, null, null);
       expect(hasAnyAccess(a.tasks)).toBe(false);
       for (const p of ['calendar', 'shopping', 'shoppingLists', 'inventory', 'bills'] as const) {
@@ -177,7 +179,7 @@ describe('resolveAccess', () => {
   });
 
   it('lets every role submit requests; only managers approve media by default', () => {
-    for (const r of ['member', 'teen', 'child', 'guest'] as const) {
+    for (const r of ['adult', 'teen', 'child', 'guest'] as const) {
       expect(resolveAccess(r, null, null).requests).toEqual(page({ create: true }));
     }
     expect(resolveAccess('manager', null, null).requests).toEqual(
@@ -188,20 +190,20 @@ describe('resolveAccess', () => {
 
   it('can grant media approval to one member', () => {
     expect(
-      resolveAccess('member', null, { requests: { approve: true } }).requests.approve,
+      resolveAccess('adult', null, { requests: { approve: true } }).requests.approve,
     ).toBe(true);
   });
 
   it('can switch request submission off for one member', () => {
     expect(
-      resolveAccess('member', null, { requests: { create: false } }).requests.create,
+      resolveAccess('adult', null, { requests: { create: false } }).requests.create,
     ).toBe(false);
   });
 
   it('layers built-in, then household role edits, then the member', () => {
     const a = resolveAccess(
-      'member',
-      { member: { tasks: { create: true, editOwn: true }, bills: { deleteOthers: false } } },
+      'adult',
+      { adult: { tasks: { create: true, editOwn: true }, bills: { deleteOthers: false } } },
       { tasks: { editOwn: false }, shopping: { create: false } },
     );
     expect(a.tasks).toEqual(page({ create: true }));
@@ -214,7 +216,7 @@ describe('resolveAccess', () => {
   it('only applies role edits to that role', () => {
     const edits = { manager: { tasks: { create: true } } };
     expect(resolveAccess('manager', edits, null).tasks.create).toBe(true);
-    expect(resolveAccess('member', edits, null).tasks.create).toBe(false);
+    expect(resolveAccess('adult', edits, null).tasks.create).toBe(false);
   });
 
   it('grants nothing to unknown roles', () => {
@@ -253,7 +255,7 @@ describe('canModify', () => {
 
 describe('diffAccess', () => {
   it('stores only the cells that changed', () => {
-    const base = roleDefaultAccess('member', null);
+    const base = roleDefaultAccess('adult', null);
     const next: AccessMatrix = structuredClone(base);
     next.tasks.create = true;
     next.bills.deleteOthers = false;
@@ -276,10 +278,10 @@ describe('diffAccess', () => {
 describe('parseStoredJson', () => {
   it('reads valid JSON and ignores junk', () => {
     expect(
-      parseStoredJson('{"member":{"tasks":{"create":true}}}', roleAccessOverridesSchema),
-    ).toEqual({ member: { tasks: { create: true } } });
+      parseStoredJson('{"adult":{"tasks":{"create":true}}}', roleAccessOverridesSchema),
+    ).toEqual({ adult: { tasks: { create: true } } });
     expect(parseStoredJson('not json', roleAccessOverridesSchema)).toBeNull();
-    expect(parseStoredJson('{"member":{"tasks":{"create":"yes"}}}', roleAccessOverridesSchema)).toBeNull();
+    expect(parseStoredJson('{"adult":{"tasks":{"create":"yes"}}}', roleAccessOverridesSchema)).toBeNull();
     expect(parseStoredJson(null, roleAccessOverridesSchema)).toBeNull();
   });
 });

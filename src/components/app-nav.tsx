@@ -10,6 +10,7 @@ import {
   Inbox,
   LayoutDashboard,
   ListChecks,
+  Map as MapIcon,
   MoreHorizontal,
   Receipt,
   ShoppingCart,
@@ -39,6 +40,7 @@ const items: NavItem[] = [
   { href: '/requests', label: 'Requests', short: 'Requests', icon: Inbox },
   // Desktop has these in the account menu; phones get them under More.
   { href: '/points', label: 'Points', short: 'Points', icon: Trophy, menuOnly: true },
+  { href: '/map', label: 'Map', short: 'Map', icon: MapIcon, menuOnly: true },
   { href: '/activity', label: 'Activity', short: 'Activity', icon: History, menuOnly: true },
 ];
 

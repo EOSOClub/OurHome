@@ -191,6 +191,9 @@ export interface MemberPresenceDTO {
   place: { id: string; name: string; kind: string } | null;
   /** When their phone noticed it (ISO). */
   since: string;
+  /** Away: where the phone was when they left (the map shows it). Null at a
+   *  place (the place is where they are) or when the phone sent no fix. */
+  point: { lat: number; lng: number; accuracyM: number | null } | null;
 }
 
 /** POST /api/location/presence: what the phone shows after reporting. */

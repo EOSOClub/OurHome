@@ -4,25 +4,18 @@ import 'leaflet/dist/leaflet.css';
 import { useEffect, useRef } from 'react';
 import type { Circle, CircleMarker, Map as LeafletMap } from 'leaflet';
 import { cn } from '@/lib/utils';
+import { ATTRIBUTION, TILE_URL, primaryColor } from '@/components/map/leaflet-shared';
 
 // A map to drop a pin on (Settings → Map places). Leaflet with OpenStreetMap
 // tiles: free, no API key. Leaflet touches `window` when it loads, so it's
 // imported inside the effect, on the client only. The pin is a drawn circle,
 // not Leaflet's image marker (whose image paths bundlers break).
 
-const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-const ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 /** No pin yet: the whole world. */
 const WORLD: [number, number] = [20, 0];
 const PIN_ZOOM = 16;
 
 export type LatLng = { lat: number; lng: number };
-
-/** The theme's primary color (SVG attributes can't read CSS variables). */
-function primaryColor(): string {
-  const value = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim();
-  return value || 'hsl(221 83% 53%)';
-}
 
 export function PinPicker({
   value,

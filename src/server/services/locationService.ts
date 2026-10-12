@@ -116,8 +116,9 @@ async function storeReminder(
 
 /**
  * Where everyone who shares their location is. Members who don't share, and
- * those whose phone hasn't reported yet, aren't listed. No coordinates: the
- * map (step 3) decides what it shows.
+ * those whose phone hasn't reported yet, aren't listed. Someone at a place is
+ * shown at the place, never at their exact spot inside it; someone away comes
+ * with the point their phone was at when they left (the map's last known point).
  */
 export async function listPresence(householdId: string): Promise<MemberPresenceDTO[]> {
   const [rows, places] = await Promise.all([
@@ -134,12 +135,15 @@ export async function listPresence(householdId: string): Promise<MemberPresenceD
     .filter((r) => r.user.householdId === householdId && isSharing(locationConsent(r.user).sharing))
     .map((r) => {
       const place = r.state === 'place' && r.placeId ? placeById.get(r.placeId) ?? null : null;
+      const point =
+        !place && r.lat != null && r.lng != null ? { lat: r.lat, lng: r.lng, accuracyM: r.accuracyM ?? null } : null;
       return {
         userId: r.userId,
         name: r.user.name,
         state: place ? 'place' : 'away',
         place,
         since: r.at.toISOString(),
+        point,
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name));

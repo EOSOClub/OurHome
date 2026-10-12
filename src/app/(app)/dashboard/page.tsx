@@ -287,8 +287,13 @@ function WhoIsWhereCard({ presence, timeZone }: { presence: MemberPresenceDTO[];
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <MapPin className="size-4" /> Who’s where
+        <CardTitle className="flex items-center justify-between gap-2">
+          <span className="flex items-center gap-2">
+            <MapPin className="size-4" /> Who’s where
+          </span>
+          <Link href="/map" className="text-xs font-medium text-primary hover:underline">
+            Map
+          </Link>
         </CardTitle>
       </CardHeader>
       <CardContent className="pt-0">

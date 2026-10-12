@@ -8,6 +8,7 @@ import {
   History,
   Loader2,
   LogOut,
+  Map as MapIcon,
   Moon,
   ServerCog,
   Settings,
@@ -140,6 +141,7 @@ export function UserMenu({
           <div role="separator" className="my-1 h-px bg-border" />
           {link('/activity', 'Activity', History)}
           {hrefEnabled('/points') ? link('/points', 'Points', Trophy) : null}
+          {hrefEnabled('/map') ? link('/map', 'Map', MapIcon) : null}
 
           <div role="separator" className="my-1 h-px bg-border" />
           {canManageMembers ? link('/members', 'Household members', Users) : null}

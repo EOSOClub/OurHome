@@ -8,13 +8,18 @@ const prisma = {
       liveChecks: args.data.liveChecks ?? null,
     })),
   },
-  mapPlace: { findFirst: vi.fn() },
-  memberLocation: { findUnique: vi.fn(), upsert: vi.fn(), deleteMany: vi.fn() },
+  mapPlace: { findFirst: vi.fn(), findMany: vi.fn(async (): Promise<unknown[]> => []) },
+  memberLocation: {
+    findUnique: vi.fn(),
+    findMany: vi.fn(async (): Promise<unknown[]> => []),
+    upsert: vi.fn(),
+    deleteMany: vi.fn(),
+  },
   shoppingList: { findMany: vi.fn(async (): Promise<unknown[]> => []) },
 };
 vi.mock('@/server/db/prisma', () => ({ prisma }));
 
-const { reportPresence, updateLocationConsent } = await import('./locationService');
+const { listPresence, reportPresence, updateLocationConsent } = await import('./locationService');
 
 const now = new Date(Date.UTC(2026, 9, 12, 18, 0));
 const minutesAgo = (m: number) => new Date(now.getTime() - m * 60_000);
@@ -104,5 +109,41 @@ describe('reportPresence', () => {
   it('404s a place outside the household', async () => {
     prisma.mapPlace.findFirst.mockResolvedValue(null);
     await expect(reportPresence('h1', 'u1', arrive(), now)).rejects.toThrow(/not found/);
+  });
+});
+
+describe('listPresence', () => {
+  const row = (userId: string, name: string, extra: Record<string, unknown>) => ({
+    userId,
+    at: minutesAgo(30),
+    lat: 45.1,
+    lng: -93.2,
+    accuracyM: 20,
+    user: { name, locationSharing: 'on', householdId: 'h1' },
+    ...extra,
+  });
+
+  beforeEach(() => {
+    prisma.mapPlace.findMany.mockResolvedValue([{ id: costco.id, name: 'Costco', kind: 'store' }]);
+  });
+
+  it('shows someone at a place at the place, never their exact spot', async () => {
+    prisma.memberLocation.findMany.mockResolvedValue([row('u1', 'Alex', { state: 'place', placeId: costco.id })]);
+    const [alex] = await listPresence('h1');
+    expect(alex).toMatchObject({ state: 'place', place: { id: costco.id }, point: null });
+  });
+
+  it('gives someone away the point they left from', async () => {
+    prisma.memberLocation.findMany.mockResolvedValue([row('u1', 'Alex', { state: 'away', placeId: null })]);
+    const [alex] = await listPresence('h1');
+    expect(alex).toMatchObject({ state: 'away', place: null, point: { lat: 45.1, lng: -93.2, accuracyM: 20 } });
+  });
+
+  it('leaves out anyone who stopped sharing or moved household', async () => {
+    prisma.memberLocation.findMany.mockResolvedValue([
+      row('u1', 'Alex', { state: 'away', placeId: null, user: { name: 'Alex', locationSharing: 'off', householdId: 'h1' } }),
+      row('u2', 'Sam', { state: 'away', placeId: null, user: { name: 'Sam', locationSharing: 'on', householdId: 'h2' } }),
+    ]);
+    expect(await listPresence('h1')).toEqual([]);
   });
 });

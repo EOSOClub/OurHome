@@ -72,7 +72,8 @@ export function MapPlacesCard({
   const hasHome = places.some((p) => p.kind === 'home');
 
   return (
-    <Card>
+    // The Map page's "Edit" links here.
+    <Card id="map-places" className="scroll-mt-20">
       <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
         <div>
           <CardTitle className="flex items-center gap-2">

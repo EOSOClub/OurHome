@@ -101,6 +101,7 @@ const SEGMENT_FEATURE: Record<string, Feature> = {
   nfc: 'inventory',
   bills: 'bills',
   requests: 'requests',
+  map: 'location',
   'map-places': 'location',
   location: 'location',
 };

@@ -25,6 +25,7 @@ const navShortcuts = [
   { key: 'c', href: '/calendar', label: 'Calendar' },
   { key: 'r', href: '/requests', label: 'Requests' },
   { key: 'p', href: '/points', label: 'Points' },
+  { key: 'm', href: '/map', label: 'Map' },
   { key: 'a', href: '/activity', label: 'Activity' },
   { key: 'n', href: '/notifications', label: 'Notifications' },
 ] as const;

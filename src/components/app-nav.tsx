@@ -100,7 +100,8 @@ export function AppNav({
   if (variant === 'bottom') return <BottomNav isActive={isActive} badgeFor={badgeFor} />;
 
   return (
-    <nav className="hidden items-center gap-1 md:flex">
+    // The labelled row needs about 750px, so tablets keep the phone bar.
+    <nav className="hidden items-center gap-1 lg:flex">
       {topItems.map(({ href, label, icon: Icon }) => (
         <Link
           key={href}
@@ -167,13 +168,13 @@ function BottomNav({
         // Tap outside to close; sits under the bar so More still toggles.
         <div
           aria-hidden
-          className="fixed inset-0 z-10 bg-black/40 md:hidden"
+          className="fixed inset-0 z-10 bg-black/40 lg:hidden"
           onClick={() => setMoreOpen(false)}
         />
       ) : null}
 
       {/* The sheet hangs off the bar's top edge, whatever the bar's height. */}
-      <div className="fixed inset-x-0 bottom-0 z-20 md:hidden">
+      <div className="fixed inset-x-0 bottom-0 z-20 lg:hidden">
         {moreOpen ? (
           <div
             ref={sheetRef}

@@ -103,7 +103,7 @@ export default async function AppLayout({
 
       <main
         id="main-content"
-        className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-6"
+        className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 pb-[calc(6rem+env(safe-area-inset-bottom))] lg:pb-6"
       >
         {children}
       </main>

@@ -123,7 +123,7 @@ export function Toaster() {
   const toasts = useToastStore((s) => s.toasts);
   return (
     // Sits above the mobile bottom nav (h-16 + safe area); tighter on desktop.
-    <div className="pointer-events-none fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-[60] flex flex-col items-center gap-2 px-4 sm:bottom-6 sm:items-end sm:px-6">
+    <div className="pointer-events-none fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-[60] flex flex-col items-center gap-2 px-4 sm:items-end sm:px-6 lg:bottom-6">
       {toasts.map((t) => (
         <ToastItem key={t.id} data={t} />
       ))}

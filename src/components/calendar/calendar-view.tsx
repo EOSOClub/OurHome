@@ -304,19 +304,21 @@ export function CalendarView({
         ) : null}
       </div>
 
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-medium">
+      {/* Phones: the toolbar box dissolves (`contents`) so the view switcher
+          can drop to its own full-width row under the title and arrows. */}
+      <div className="flex flex-wrap items-center gap-x-1 gap-y-3">
+        <h2 className="min-w-0 flex-1 text-lg font-medium">
           {view === 'week'
             ? weekDays[0].getMonth() === weekDays[6].getMonth()
               ? `${MONTHS[weekDays[0].getMonth()]} ${weekDays[0].getDate()} - ${weekDays[6].getDate()}, ${weekDays[6].getFullYear()}`
               : `${MONTHS[weekDays[0].getMonth()]} ${weekDays[0].getDate()} - ${MONTHS[weekDays[6].getMonth()]} ${weekDays[6].getDate()}, ${weekDays[6].getFullYear()}`
             : `${MONTHS[ym.month]} ${ym.year}`}
         </h2>
-        <div className="flex items-center gap-1">
+        <div className="contents sm:flex sm:items-center sm:gap-1">
           <div
             role="group"
             aria-label="Calendar view"
-            className="mr-1 flex rounded-md border border-border p-0.5"
+            className="order-last flex basis-full rounded-md border border-border p-0.5 sm:order-none sm:mr-1 sm:basis-auto"
           >
             {(['month', 'week', 'agenda'] as const).map((v) => (
               <button
@@ -324,7 +326,7 @@ export function CalendarView({
                 type="button"
                 aria-pressed={view === v}
                 onClick={() => changeView(v)}
-                className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                className={`flex-1 rounded px-2.5 py-1 text-xs font-medium transition-colors sm:flex-none ${
                   view === v
                     ? 'bg-primary text-primary-foreground'
                     : 'text-muted-foreground hover:text-foreground'

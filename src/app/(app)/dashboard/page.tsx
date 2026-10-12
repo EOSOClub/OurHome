@@ -77,7 +77,9 @@ export default async function DashboardPage() {
         ) : null}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      {/* grid-cols-1 keeps the phone column at screen width, so long titles
+          truncate instead of widening the page. */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
           {showNeedsYou ? <NeedsYouCard me={data.me} timeZone={data.timezone} /> : null}
           {showComingUp ? <ComingUpCard data={data} /> : null}

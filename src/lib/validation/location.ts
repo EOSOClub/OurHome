@@ -23,9 +23,15 @@ export type DeleteMapPlaceInput = z.infer<typeof deleteMapPlaceSchema>;
 /** Address search for the pin picker. */
 export const searchAddressSchema = z.object({ q: z.string().trim().min(3).max(200) });
 
+/** The phone's battery as it reads it; sent with reports (optional for older apps). */
+export const batterySchema = z.object({
+  pct: z.number().int().min(0).max(100),
+  charging: z.boolean(),
+});
+
 /**
  * The Android app's report: this member's phone arrived at (dwelled in) or
- * left a map place. The position is where the phone was at that moment.
+ * left a map place. The position and battery are the phone's at that moment.
  */
 export const reportPresenceSchema = z.object({
   placeId: z.string().cuid(),
@@ -34,6 +40,7 @@ export const reportPresenceSchema = z.object({
   lat: z.number().min(-90).max(90).optional(),
   lng: z.number().min(-180).max(180).optional(),
   accuracyM: z.number().min(0).max(100_000).optional(),
+  battery: batterySchema.optional(),
 });
 export type ReportPresenceInput = z.infer<typeof reportPresenceSchema>;
 
@@ -66,8 +73,13 @@ export const liveCheckFixSchema = z.object({
   lng: z.number().min(-180).max(180),
   accuracyM: z.number().min(0).max(100_000).optional(),
   at: z.coerce.date(),
+  battery: batterySchema.optional(),
 });
 export type LiveCheckFixInput = z.infer<typeof liveCheckFixSchema>;
+
+/** The phone's hourly battery reading, sent while its owner shares their location. */
+export const reportBatterySchema = batterySchema.extend({ at: z.coerce.date() });
+export type ReportBatteryInput = z.infer<typeof reportBatterySchema>;
 
 /** The head's limits. */
 export const liveCheckSettingsSchema = z.object({

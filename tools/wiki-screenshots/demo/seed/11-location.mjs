@@ -52,6 +52,9 @@ saveState(st);
 // Who shares (Mia, the child, doesn't), and who allows live checks.
 const consent = { alex: [true, false], sam: [true, true], jordan: [true, true], riley: [true, true], mia: [false, false] };
 for (const [k, [sharing, liveChecks]] of Object.entries(consent)) {
+  // Off first: that forgets where they were, so a rerun's reports (dated
+  // relative to now) aren't ignored as older than what an earlier run left.
+  await C[k].call('PATCH', '/api/location/consent', { sharing: 'off' });
   await C[k].call('PATCH', '/api/location/consent', { sharing: sharing ? 'on' : 'off' });
   if (sharing) await C[k].call('PATCH', '/api/location/consent', { liveChecks });
   log(`  ${k}: sharing ${sharing ? 'on' : 'off'}${sharing ? `, live checks ${liveChecks ? 'allowed' : 'off'}` : ''}`);
@@ -61,17 +64,21 @@ for (const [k, [sharing, liveChecks]] of Object.entries(consent)) {
 const ago = (min) => new Date(Date.now() - min * 60_000).toISOString();
 const P = st.mapPlaces;
 const near = (p, dLat, dLng) => ({ lat: p.lat + dLat, lng: p.lng + dLng });
+// Each report carries the phone's battery at that moment, as the app sends it.
 const reports = [
-  ['alex', P.Home, 'enter', 180, near(P.Home, 0, 0), 12],
-  ['sam', P.Home, 'enter', 50, near(P.Home, 0.0004, -0.0003), 15],
-  ['jordan', P['Prairie Market'], 'enter', 12, near(P['Prairie Market'], 0.0005, 0.0004), 20],
-  ['riley', P.School, 'enter', 400, near(P.School, 0, 0), 15],
-  ['riley', P.School, 'exit', 40, near(P.School, 0.0032, 0.0021), 35],
+  ['alex', P.Home, 'enter', 180, near(P.Home, 0, 0), 12, { pct: 52, charging: false }],
+  ['sam', P.Home, 'enter', 50, near(P.Home, 0.0004, -0.0003), 15, { pct: 64, charging: false }],
+  ['jordan', P['Prairie Market'], 'enter', 12, near(P['Prairie Market'], 0.0005, 0.0004), 20, { pct: 15, charging: false }],
+  ['riley', P.School, 'enter', 400, near(P.School, 0, 0), 15, { pct: 88, charging: false }],
+  ['riley', P.School, 'exit', 40, near(P.School, 0.0032, 0.0021), 35, { pct: 41, charging: false }],
 ];
-for (const [k, place, transition, minAgo, pt, acc] of reports) {
-  await C[k].post('/api/location/presence', { placeId: place.id, transition, at: ago(minAgo), ...pt, accuracyM: acc });
-  log(`  ${k} ${transition === 'enter' ? 'arrived at' : 'left'} ${place.name} ${minAgo} min ago`);
+for (const [k, place, transition, minAgo, pt, acc, battery] of reports) {
+  await C[k].post('/api/location/presence', { placeId: place.id, transition, at: ago(minAgo), ...pt, accuracyM: acc, battery });
+  log(`  ${k} ${transition === 'enter' ? 'arrived at' : 'left'} ${place.name} ${minAgo} min ago, battery ${battery.pct}%`);
 }
+// Alex's phone has since been put on charge: its hourly reading is newer.
+await C.alex.post('/api/location/battery', { pct: 78, charging: true, at: ago(20) });
+log('  alex: hourly battery 78%, charging');
 
 // Live checks, written straight into the demo database.
 const members = await C.alex.get('/api/members');
@@ -112,7 +119,7 @@ const out = execFileSync('docker', ['exec', 'ourhome_demo_mongo', 'mongosh', 'ou
 console.log(out.trim());
 
 const presence = await C.alex.get('/api/location/presence');
-log('  who is where:', presence.map((p) => `${p.name.split(' ')[0]} ${p.place ? 'at ' + p.place.name : 'away'}`).join('; '));
+log('  who is where:', presence.map((p) => `${p.name.split(' ')[0]} ${p.place ? 'at ' + p.place.name : 'away'}${p.battery ? ` (${p.battery.pct}%${p.battery.charging ? ', charging' : ''})` : ''}`).join('; '));
 const ov = await C.alex.get('/api/location/checks');
 log(`  Alex's live checks: ${ov.started.length} running, may check ${ov.checkable.map((m) => m.name.split(' ')[0]).join(', ')}`);
 log('step 11 done');

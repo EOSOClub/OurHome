@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { USER_ROLES } from '@/lib/enums';
 import {
+  batteryLabel,
   clampRadius,
   fitLiveCheck,
   fixAge,
@@ -126,6 +127,28 @@ describe('map places', () => {
     expect(saveMapPlaceSchema.safeParse({ ...valid, lng: -181 }).success).toBe(false);
     expect(saveMapPlaceSchema.safeParse({ ...valid, radiusM: 50 }).success).toBe(false);
     expect(saveMapPlaceSchema.safeParse({ ...valid, kind: 'school' }).success).toBe(false);
+  });
+});
+
+describe('battery', () => {
+  const now = new Date('2026-10-12T18:00:00Z').getTime();
+  const at = (minutesAgo: number) => new Date(now - minutesAgo * 60_000).toISOString();
+
+  it('shows the level, and charging while it is fresh', () => {
+    expect(batteryLabel({ pct: 85, charging: false, at: at(10) }, now)).toEqual({ text: '85%', low: false });
+    expect(batteryLabel({ pct: 85, charging: true, at: at(10) }, now)).toEqual({ text: '85%, charging', low: false });
+  });
+
+  it('flags a low battery that is not charging', () => {
+    expect(batteryLabel({ pct: 20, charging: false, at: at(10) }, now).low).toBe(true);
+    expect(batteryLabel({ pct: 21, charging: false, at: at(10) }, now).low).toBe(false);
+    expect(batteryLabel({ pct: 5, charging: true, at: at(10) }, now).low).toBe(false);
+  });
+
+  it('says how old a stale reading is', () => {
+    expect(batteryLabel({ pct: 40, charging: true, at: at(119) }, now).text).toBe('40%, charging');
+    expect(batteryLabel({ pct: 40, charging: true, at: at(180) }, now).text).toBe('40%, 3 h ago');
+    expect(batteryLabel({ pct: 40, charging: false, at: at(3 * 24 * 60) }, now).text).toBe('40%, 3 days ago');
   });
 });
 

@@ -118,6 +118,43 @@ export function homeReminderDue(lastRemindedAt: Date | null | undefined, now: Da
   return !lastRemindedAt || now.getTime() - lastRemindedAt.getTime() >= HOME_REMINDER_GAP_MS;
 }
 
+// --- Battery ----------------------------------------------------------------------------
+// The phone sends its battery with each presence report and live-check fix,
+// and once an hour, while its owner shares their location. Shown next to
+// them wherever presence is.
+
+/** At or below this the level is shown as low. */
+export const BATTERY_LOW_PCT = 20;
+
+/** A reading older than this shows its age: the phone may be off or flat. */
+export const BATTERY_STALE_MS = 2 * 60 * 60_000;
+
+export interface BatteryReading {
+  pct: number;
+  charging: boolean;
+  /** When the phone read it (ISO). */
+  at: string;
+}
+
+/**
+ * How a reading is shown: "85%", "85%, charging", "12%, 3 h ago". `low`
+ * flags a flat-ish battery that isn't charging.
+ */
+export function batteryLabel(
+  battery: BatteryReading,
+  now: number = Date.now(),
+): { text: string; low: boolean } {
+  const ageMs = now - new Date(battery.at).getTime();
+  const parts = [`${battery.pct}%`];
+  if (ageMs >= BATTERY_STALE_MS) {
+    const hours = Math.floor(ageMs / 3_600_000);
+    parts.push(hours < 48 ? `${hours} h ago` : `${Math.floor(hours / 24)} days ago`);
+  } else if (battery.charging) {
+    parts.push('charging');
+  }
+  return { text: parts.join(', '), low: battery.pct <= BATTERY_LOW_PCT && !battery.charging };
+}
+
 // --- Live checks ------------------------------------------------------------------------
 // An adult asks to see where someone is for a few minutes. Their phone shows
 // that it's happening for the whole time and sends a fix every interval; only

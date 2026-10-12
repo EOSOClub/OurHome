@@ -3,6 +3,7 @@
 
 import type { AccessMatrix, EditableRole } from '@/lib/permissions';
 import type { Feature } from '@/lib/features';
+import type { BatteryReading } from '@/lib/location';
 
 export interface CategoryDTO {
   id: string;
@@ -195,6 +196,8 @@ export interface MemberPresenceDTO {
    *  that came later (`at` says when). Null at a place (the place is where they
    *  are) or when the phone sent no fix. */
   point: { lat: number; lng: number; accuracyM: number | null; at: string } | null;
+  /** Their phone's last battery reading; null before it sent one. */
+  battery: BatteryReading | null;
 }
 
 /** A live location check, as the person checking and the person checked see it. */
@@ -599,6 +602,13 @@ export interface SupervisionDTO {
   supervisors: { id: string; name: string; role: string }[];
   /** Every child and teen, with who supervises them. */
   supervised: { id: string; name: string; role: string; supervisorIds: string[] }[];
+}
+
+/** GET /api/supervision/ring: the children whose phone the viewer may ring. */
+export interface RingOverviewDTO {
+  /** false when the server can't push (no Firebase): nobody can be rung. */
+  available: boolean;
+  ringable: { id: string; name: string }[];
 }
 
 /** The signed-in user's own page access (GET /api/permissions/me). */

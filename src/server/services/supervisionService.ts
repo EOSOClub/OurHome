@@ -1,10 +1,11 @@
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/server/db/prisma';
 import { logActivity } from '@/server/services/activityService';
-import { ForbiddenError, NotFoundError } from '@/server/services/errors';
+import { ConflictError, ForbiddenError, NotFoundError } from '@/server/services/errors';
+import { canPush, pushToMember } from '@/server/services/pushService';
 import { ROLE_RANK, isUserRole } from '@/lib/enums';
 import { can, canBeSupervised, canSupervise } from '@/lib/permissions';
-import type { SupervisionDTO } from '@/lib/types';
+import type { RingOverviewDTO, SupervisionDTO } from '@/lib/types';
 import type { SetSupervisorsInput } from '@/lib/validation/supervision';
 
 // Parental controls, step 1: the Head of House's list of which adults
@@ -130,6 +131,83 @@ export async function setSupervisors(
   }
 
   return getSupervision(householdId);
+}
+
+// --- Ringing a child's phone --------------------------------------------------
+// A supervising adult makes their child's phone ring loudly, even on silent
+// (Android: location-free RingService). Only the adults the Head chose for that
+// child; logged in Activity so a ring is never hidden.
+
+/** One ring per child at a time: the phone rings for about this long. */
+export const RING_COOLDOWN_MS = 30_000;
+
+/** A ring older than this is no use: Firebase stops trying an offline phone. */
+const RING_TTL_SEC = 60;
+
+const lastRingAt = new Map<string, number>();
+
+/** The children and teens [actorId] supervises, while both roles still fit. */
+async function supervisedBy(householdId: string, actorId: string): Promise<Person[]> {
+  const links = await prisma.supervision.findMany({
+    where: { householdId, supervisorId: actorId },
+    select: {
+      supervisor: { select: { role: true } },
+      supervised: { select: { id: true, name: true, role: true } },
+    },
+  });
+  return links
+    .filter((l) => canSupervise(l.supervisor.role) && canBeSupervised(l.supervised.role))
+    .map((l) => l.supervised)
+    .sort(byRankThenName);
+}
+
+/** Who the viewer may ring, and whether this server can ring at all. */
+export async function ringOverview(householdId: string, actorId: string): Promise<RingOverviewDTO> {
+  const kids = await supervisedBy(householdId, actorId);
+  return { available: canPush(), ringable: kids.map(({ id, name }) => ({ id, name })) };
+}
+
+/**
+ * Ring a supervised child's phone. Refused unless the actor supervises them,
+ * while it's still ringing from the last time, or when no phone answered.
+ */
+export async function ringPhone(
+  householdId: string,
+  actor: { id: string },
+  targetId: string,
+  now: number = Date.now(),
+): Promise<void> {
+  if (!canPush()) {
+    throw new ConflictError(
+      'Ringing a phone needs instant phone alerts (Firebase), and this server doesn’t have them set up.',
+    );
+  }
+  const kid = (await supervisedBy(householdId, actor.id)).find((k) => k.id === targetId);
+  if (!kid) {
+    throw new ForbiddenError(
+      'Only an adult who supervises them can ring their phone. The Head of House chooses that on the Members page.',
+    );
+  }
+  const last = lastRingAt.get(kid.id);
+  if (last !== undefined && now - last < RING_COOLDOWN_MS) {
+    throw new ConflictError(`${kid.name}’s phone is already ringing. Try again in a few seconds.`);
+  }
+  lastRingAt.set(kid.id, now);
+  const reached = await pushToMember(householdId, kid.id, { type: 'ring', ringerId: actor.id }, { ttlSec: RING_TTL_SEC });
+  if (reached === 0) {
+    lastRingAt.delete(kid.id);
+    throw new ConflictError(
+      `Couldn’t reach ${kid.name}’s phone. The OurHome app needs to be signed in there with instant alerts working.`,
+    );
+  }
+  await logActivity({
+    householdId,
+    actorId: actor.id,
+    verb: 'updated',
+    subjectType: 'member',
+    subjectId: kid.id,
+    message: `rang ${kid.name}’s phone`,
+  });
 }
 
 /**

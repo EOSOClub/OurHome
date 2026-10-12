@@ -145,8 +145,8 @@ export function MembersView({
       {/* Page permissions and supervision are the head's call (household:manage). */}
       {canRename ? (
         <>
-          <PermissionsCard membersVersion={membersVersion} />
           <SupervisionCard membersVersion={supervisionVersion} />
+          <PermissionsCard membersVersion={membersVersion} />
         </>
       ) : null}
 

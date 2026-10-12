@@ -1036,6 +1036,12 @@ model MemberLocation {
   // When arriving home last reminded them about their chores (at most every
   // 4 hours, HOME_REMINDER_GAP_MS). null = never.
   homeReminderAt DateTime?
+  // The phone's battery (0-100) and whether it was charging, sent with each
+  // report and hourly (batteryService). batteryAt: when it was read; older
+  // readings than this are ignored. null = the phone hasn't sent one.
+  batteryPct      Int?
+  batteryCharging Boolean?
+  batteryAt       DateTime?
   updatedAt   DateTime @updatedAt
 
   household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)

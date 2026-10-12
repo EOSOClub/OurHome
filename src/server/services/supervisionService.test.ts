@@ -22,8 +22,12 @@ const prisma = {
 vi.mock('@/server/db/prisma', () => ({ prisma }));
 const logActivity = vi.fn();
 vi.mock('@/server/services/activityService', () => ({ logActivity }));
+const push = { canPush: vi.fn(() => true), pushToMember: vi.fn(async () => 1) };
+vi.mock('@/server/services/pushService', () => push);
 
-const { dropBrokenSupervision, getSupervision, setSupervisors } = await import('./supervisionService');
+const { dropBrokenSupervision, getSupervision, ringOverview, ringPhone, setSupervisors } = await import(
+  './supervisionService'
+);
 
 const H = 'household1';
 const head = { id: 'head', role: 'head' };
@@ -157,5 +161,63 @@ describe('dropBrokenSupervision', () => {
   it('removes a guest from both sides', async () => {
     await dropBrokenSupervision(tx as never, 'g', 'guest');
     expect(tx.supervision.deleteMany).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('ringing a phone', () => {
+  // supervision.findMany as ringPhone asks it: the actor's links with both roles.
+  const linksOf = (...kids: Person[]) => kids.map((k) => ({ supervisor: { role: 'adult' }, supervised: k }));
+  const findLinks = prisma.supervision.findMany as unknown as ReturnType<typeof vi.fn>;
+  let clock = 1_000_000;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    push.canPush.mockReturnValue(true);
+    push.pushToMember.mockResolvedValue(1);
+    clock += 3_600_000; // every test well past the last one's ring
+  });
+
+  it('lists only the kids the viewer supervises, whose roles still fit', async () => {
+    findLinks.mockResolvedValueOnce([...linksOf(sam, jo), { supervisor: { role: 'adult' }, supervised: { ...alex } }]);
+    expect(await ringOverview(H, 'alex')).toEqual({
+      available: true,
+      ringable: [{ id: 'jo', name: 'Jo' }, { id: 'sam', name: 'Sam' }],
+    });
+  });
+
+  it('rings a supervised child with a short-lived push and logs it', async () => {
+    findLinks.mockResolvedValueOnce(linksOf(sam));
+    await ringPhone(H, { id: 'alex' }, 'sam', clock);
+    expect(push.pushToMember).toHaveBeenCalledWith(H, 'sam', { type: 'ring', ringerId: 'alex' }, { ttlSec: 60 });
+    expect(logActivity).toHaveBeenCalledWith(expect.objectContaining({ actorId: 'alex', message: 'rang Sam’s phone' }));
+  });
+
+  it('refuses anyone who does not supervise them', async () => {
+    findLinks.mockResolvedValueOnce(linksOf(jo));
+    await expect(ringPhone(H, { id: 'gran' }, 'sam', clock)).rejects.toThrow(/Only an adult who supervises/);
+    expect(push.pushToMember).not.toHaveBeenCalled();
+  });
+
+  it('refuses a second ring while the phone still rings, but not one after', async () => {
+    findLinks.mockResolvedValue(linksOf(sam));
+    await ringPhone(H, { id: 'alex' }, 'sam', clock);
+    await expect(ringPhone(H, { id: 'alex' }, 'sam', clock + 10_000)).rejects.toThrow(/already ringing/);
+    await ringPhone(H, { id: 'alex' }, 'sam', clock + 31_000);
+    expect(push.pushToMember).toHaveBeenCalledTimes(2);
+    findLinks.mockReset();
+  });
+
+  it('says so when no phone answered, and lets them try again at once', async () => {
+    findLinks.mockResolvedValue(linksOf(sam));
+    push.pushToMember.mockResolvedValueOnce(0);
+    await expect(ringPhone(H, { id: 'alex' }, 'sam', clock)).rejects.toThrow(/Couldn’t reach Sam’s phone/);
+    expect(logActivity).not.toHaveBeenCalled();
+    await ringPhone(H, { id: 'alex' }, 'sam', clock + 1000);
+    findLinks.mockReset();
+  });
+
+  it('needs Firebase', async () => {
+    push.canPush.mockReturnValue(false);
+    await expect(ringPhone(H, { id: 'alex' }, 'sam', clock)).rejects.toThrow(/Firebase/);
   });
 });

@@ -121,6 +121,24 @@ describe('reportPresence', () => {
     expect((await reportPresence('h1', 'u1', arrive(), now)).reminder).toBeNull();
   });
 
+  it('keeps the battery even when the place is old news', async () => {
+    prisma.memberLocation.findUnique
+      .mockResolvedValueOnce({ state: 'place', placeId: costco.id, at: minutesAgo(10) }) // already there
+      .mockResolvedValueOnce({ householdId: 'h1', batteryAt: minutesAgo(60) }); // saveBattery
+    const result = await reportPresence(
+      'h1',
+      'u1',
+      { placeId: costco.id, transition: 'enter', at: minutesAgo(1), battery: { pct: 30, charging: false } },
+      now,
+    );
+    expect(result).toEqual({ reminder: null, home: null });
+    expect(prisma.memberLocation.upsert).not.toHaveBeenCalled();
+    expect(prisma.memberLocation.update).toHaveBeenCalledWith({
+      where: { userId: 'u1' },
+      data: { batteryPct: 30, batteryCharging: false, batteryAt: minutesAgo(1) },
+    });
+  });
+
   it('pulls a report from a fast phone clock back to now', async () => {
     prisma.memberLocation.findUnique.mockResolvedValue(null);
     await reportPresence('h1', 'u1', arrive(new Date(now.getTime() + 3_600_000)), now);
@@ -197,6 +215,16 @@ describe('listPresence', () => {
     prisma.memberLocation.findMany.mockResolvedValue([row('u1', 'Alex', { state: 'place', placeId: costco.id })]);
     const [alex] = await listPresence('h1');
     expect(alex).toMatchObject({ state: 'place', place: { id: costco.id }, point: null });
+  });
+
+  it('shows the phone battery once there is a reading', async () => {
+    prisma.memberLocation.findMany.mockResolvedValue([
+      row('u1', 'Alex', { state: 'away', placeId: null, batteryPct: 42, batteryCharging: true, batteryAt: minutesAgo(5) }),
+      row('u2', 'Sam', { state: 'away', placeId: null }),
+    ]);
+    const [alex, sam] = await listPresence('h1');
+    expect(alex.battery).toEqual({ pct: 42, charging: true, at: minutesAgo(5).toISOString() });
+    expect(sam.battery).toBeNull();
   });
 
   it('gives someone away the point they left from', async () => {

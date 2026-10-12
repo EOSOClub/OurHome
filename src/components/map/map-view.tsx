@@ -13,6 +13,8 @@ import { RelativeTime, useHouseholdZone } from '@/components/household-zone';
 import { MAP_PLACES_KEY } from '@/components/settings/map-places-card';
 import type { MapFocus } from '@/components/map/household-map';
 import { LiveChecksCard } from '@/components/map/live-checks-card';
+import { BatteryBadge } from '@/components/map/battery-badge';
+import { RingPhoneCard } from '@/components/map/ring-phone-card';
 import { LIVE_CHECKS_KEY } from '@/components/profile/location-card';
 
 // Leaflet only runs in the browser.
@@ -125,6 +127,7 @@ export function MapView({
           {overview && (overview.checkable.length > 0 || started.length > 0) ? (
             <LiveChecksCard overview={overview} onFocus={focusOnCheck} />
           ) : null}
+          <RingPhoneCard />
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -154,7 +157,10 @@ export function MapView({
                           onClick={() => target && focusOn(target)}
                           className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm enabled:hover:bg-accent/60"
                         >
-                          <span className="truncate font-medium">{p.name}</span>
+                          <span className="min-w-0">
+                            <span className="block truncate font-medium">{p.name}</span>
+                            {p.battery ? <BatteryBadge battery={p.battery} /> : null}
+                          </span>
                           <span className="shrink-0 text-xs text-muted-foreground">
                             {p.place ? (p.place.kind === 'home' ? p.place.name : `At ${p.place.name}`) : 'Away'}
                             {' · '}

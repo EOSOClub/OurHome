@@ -11,6 +11,7 @@ import {
 } from '@/lib/location';
 import { canChangeOwnSharing } from '@/lib/permissions';
 import { closeExpiredLiveChecks, endLiveChecksOn } from '@/server/services/liveCheckService';
+import { saveBattery } from '@/server/services/batteryService';
 import { myTasksDueToday } from '@/server/services/dashboardService';
 import { getHouseholdFeatures } from '@/server/services/serverAdminService';
 import type { MemberPresenceDTO, PresenceReportDTO } from '@/lib/types';
@@ -88,18 +89,21 @@ export async function reportPresence(
     stored ? { state: stored.state as PresenceState, placeId: stored.placeId ?? null, at: stored.at } : null,
     { placeId: place.id, transition: input.transition, at },
   );
+  if (change) {
+    const data = {
+      householdId,
+      state: change.next.state,
+      placeId: change.next.placeId,
+      lat: input.lat ?? null,
+      lng: input.lng ?? null,
+      accuracyM: input.accuracyM ?? null,
+      at: change.next.at,
+    };
+    await prisma.memberLocation.upsert({ where: { userId }, update: data, create: { userId, ...data } });
+  }
+  // The battery is news even when the place isn't.
+  if (input.battery) await saveBattery(householdId, userId, input.battery, at, now);
   if (!change) return { reminder: null, home: null };
-
-  const data = {
-    householdId,
-    state: change.next.state,
-    placeId: change.next.placeId,
-    lat: input.lat ?? null,
-    lng: input.lng ?? null,
-    accuracyM: input.accuracyM ?? null,
-    at: change.next.at,
-  };
-  await prisma.memberLocation.upsert({ where: { userId }, update: data, create: { userId, ...data } });
 
   // Reminders only for a real arrival the phone reported in time.
   const fresh = now.getTime() - at.getTime() <= REMINDER_FRESH_MS;
@@ -179,6 +183,10 @@ export async function listPresence(householdId: string): Promise<MemberPresenceD
         place,
         since: r.at.toISOString(),
         point,
+        battery:
+          r.batteryPct != null && r.batteryAt
+            ? { pct: r.batteryPct, charging: r.batteryCharging === true, at: r.batteryAt.toISOString() }
+            : null,
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name));

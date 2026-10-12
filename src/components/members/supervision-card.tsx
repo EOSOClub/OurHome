@@ -54,7 +54,7 @@ export function SupervisionCard({ membersVersion }: { membersVersion: string }) 
         ) : data.supervised.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             Nobody in the household is a Child or Teen yet. Give someone one of
-            those roles above and they’ll appear here.
+            those roles in the list above and they’ll appear here.
           </p>
         ) : (
           <ul className="divide-y divide-border">

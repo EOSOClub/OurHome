@@ -107,9 +107,14 @@ export function isDeadTokenResponse(status: number, body: string): boolean {
 /**
  * Sends a data-only message (no `notification` block, so Android never shows
  * anything by itself: the app decides what to post). High priority so it
- * reaches a dozing phone promptly. Never throws.
+ * reaches a dozing phone promptly. [ttlSec]: how long Firebase keeps trying a
+ * phone that's offline (a ring is pointless an hour late). Never throws.
  */
-export async function sendData(token: string, data: Record<string, string>): Promise<SendResult> {
+export async function sendData(
+  token: string,
+  data: Record<string, string>,
+  ttlSec: number = 3600,
+): Promise<SendResult> {
   if (!account) return 'failed';
   try {
     const res = await fetch(
@@ -121,7 +126,7 @@ export async function sendData(token: string, data: Record<string, string>): Pro
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          message: { token, data, android: { priority: 'high', ttl: '3600s' } },
+          message: { token, data, android: { priority: 'high', ttl: `${ttlSec}s` } },
         }),
         signal: AbortSignal.timeout(TIMEOUT_MS),
       },

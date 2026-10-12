@@ -3,6 +3,7 @@ import { prisma } from '@/server/db/prisma';
 import { dateBefore, dateOnOrBefore } from '@/server/db/dateFilters';
 import { ConflictError, ForbiddenError, NotFoundError } from '@/server/services/errors';
 import { canPush, pushToMember } from '@/server/services/pushService';
+import { saveBattery } from '@/server/services/batteryService';
 import { canStartLiveCheck } from '@/lib/permissions';
 import {
   LIVE_CHECK_LOG_DAYS,
@@ -337,6 +338,7 @@ export async function reportLiveCheckFix(
   // A phone clock running fast can't date a fix in the future; an older fix
   // than the one stored (sent late) changes nothing.
   const at = input.at.getTime() > now.getTime() ? now : input.at;
+  if (input.battery) await saveBattery(householdId, userId, input.battery, at, now);
   if (check.fixAt && at.getTime() <= check.fixAt.getTime()) return toDTO(check, now);
   const updated = await prisma.locationCheck.update({
     where: { id: check.id },

@@ -20,9 +20,10 @@ ALT = {
     "inventory-adjusters.png": "Inventory rows with − and + buttons, an amount box, and a Low badge on an item running low",
     "inventory-add-item.png": "The add-item bar with More options open: unit, low at, restock every, category and where it's kept",
     "inventory-shopping-handoff.png": "Choosing which shopping list a low item goes on",
-    "members-overview.png": "The Members page: the household name, everyone's role, and the Add a member and Permissions cards",
+    "members-overview.png": "The Members page: the household name, the Add a member card, everyone's role, and the Supervision card",
     "members-add-card.png": "The Add a member form: name, username, email, role and a temporary password",
     "members-permissions-grid.png": "The Permissions card: a grid of pages and what each role may add, edit, delete or approve",
+    "members-supervision.png": "The Supervision card: each child and teen with a tick box for every adult who may look after them",
     "notifications-page-view.png": "The Notifications page with Unread, Read and All filters and a Mark all read button",
     "profile-overview.png": "The top of the Profile page: stats and the About me card",
     "profile-about-me-card.png": "The About me card: avatar emoji, colour, birthday and a short bio",
@@ -48,7 +49,8 @@ ALT = {
     "location-map-page.png": "The Map page: the household's places on a map with who is at each, someone away at the spot they were last seen, and lists of who's where and the places",
     "location-live-check.png": "The Map page during a live check: the person's live dot labelled with how long ago it updated, and the running check with a Stop button",
     "location-start-check.png": "The Check location window: how long to check for and how often to update",
-    "location-whos-where.png": "The Who's where card on the Home screen: each person who shares, where they are and since when",
+    "location-ring-phone.png": "The Ring phone card on the Map page: each child the viewer looks after, with a Ring button",
+    "location-whos-where.png": "The Who's where card on the Home screen: each person who shares, their phone's battery, where they are and since when",
     "location-profile-card.png": "The Location card on a teen's Profile: a live check running with a Stop button, the two switches, and the list of live checks on them",
 }
 (wiki / "images").mkdir(exist_ok=True)

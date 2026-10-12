@@ -64,14 +64,18 @@ export function canPush(): boolean {
 
 /**
  * Sends one message straight to one member's phones and waits for Firebase's
- * answer: live checks need to know at once whether a phone was reached. Like
- * the sync pushes it carries no names or places, only ids. Returns how many
- * phones were reached (0 when push is off or they have none).
+ * answer: live checks and rings need to know at once whether a phone was
+ * reached. Like the sync pushes it carries no names or places, only ids.
+ * Returns how many phones were reached (0 when push is off or they have none).
  */
 export async function pushToMember(
   householdId: string,
   userId: string,
-  data: { type: 'live_check' | 'live_check_stop'; checkId: string },
+  data:
+    | { type: 'live_check' | 'live_check_stop'; checkId: string }
+    // A supervising adult ringing this child's phone (supervisionService).
+    | { type: 'ring'; ringerId: string },
+  opts: { ttlSec?: number } = {},
 ): Promise<number> {
   if (!isPushConfigured()) return 0;
   const devices = await prisma.pushDevice.findMany({
@@ -80,7 +84,7 @@ export async function pushToMember(
   });
   if (devices.length === 0) return 0;
   const results = await Promise.all(
-    devices.map(async (d) => ({ token: d.token, result: await sendData(d.token, data) })),
+    devices.map(async (d) => ({ token: d.token, result: await sendData(d.token, data, opts.ttlSec) })),
   );
   const dead = results.filter((r) => r.result === 'invalid_token').map((r) => r.token);
   if (dead.length > 0) await prisma.pushDevice.deleteMany({ where: { token: { in: dead } } });

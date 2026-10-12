@@ -19,7 +19,7 @@ Helpful things to include:
 - What the problem is, and what someone could do with it.
 - Which part it is in: the website, the Android app or the server setup.
 - Steps to show it happening, or a small example.
-- Which version you are running (the date or commit you installed).
+- Which version you are running (the release, or the date or commit you installed).
 
 Please do not test against someone else's OurHome server or real household data. Use your own install.
 
@@ -29,7 +29,7 @@ OurHome is built and looked after by one person in their spare time, so there is
 
 ## Which versions get fixes
 
-OurHome has no numbered releases yet. Fixes go into the latest code on the `main` branch of each repo, so the way to get a fix is to update to the latest version.
+Fixes go into the latest code on the `main` branch of each repo and the next release after it. Older releases are not patched, so the way to get a fix is to update to the latest version.
 
 ## Problems in other software
 

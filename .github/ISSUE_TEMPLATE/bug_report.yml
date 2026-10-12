@@ -50,11 +50,11 @@ body:
     id: environment
     attributes:
       label: Your setup
-      description: Whatever applies. Browser and device, Android version, and how you run the server (Docker, the date or commit you installed).
+      description: Whatever applies. Browser and device, Android version, and how you run the server (Docker, and the release, date or commit you installed).
       placeholder: |
         Browser: Chrome on a Pixel 8
         Android: 15
-        Server: Docker, updated 2026-10-01
+        Server: Docker, v0.1.0
   - type: textarea
     id: logs
     attributes:

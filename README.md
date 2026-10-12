@@ -210,6 +210,10 @@ HomeAssistant/            Example Home Assistant config
 docs/                     Runbooks
 ```
 
+## 📜 License
+
+OurHomeWeb is free software under the [GNU Affero General Public License v3.0](LICENSE). You can run it, change it and share it. If you change it and let other people use your version over a network, you must share your changed source code under the same license.
+
 ---
 
 <div align="center">

@@ -1,0 +1,45 @@
+name: Suggest an idea
+description: Something OurHome could do, or do better.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea. Please search the open issues first, in case someone has already suggested it.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of OurHome?
+      options:
+        - Website
+        - Android app
+        - Server setup (MongoDB, Paperless-ngx, Proton Mail Bridge)
+        - Wiki
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would it help with?
+      description: The problem or annoyance in your household that this would fix.
+      placeholder: When the kids finish a chore, I have to ...
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea
+      description: What you'd like OurHome to do. Rough is fine.
+    validations:
+      required: true
+  - type: textarea
+    id: who
+    attributes:
+      label: Who in the household would use it?
+      description: For example the Head of House, adults, kids, or everyone.
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Sketches, screenshots or other apps that do it well.

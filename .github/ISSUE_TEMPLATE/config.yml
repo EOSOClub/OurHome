@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security problem
+    url: https://github.com/EOSOClub/OurHome/security/advisories/new
+    about: Please report security problems privately here, not in a public issue.
+  - name: Help and how-to guides
+    url: https://github.com/EOSOClub/OurHome/wiki
+    about: Setup, everyday use and answers to common questions.
+  - name: Something not working?
+    url: https://github.com/EOSOClub/OurHome/wiki/Troubleshooting
+    about: Fixes for the most common problems. Worth a look before you report a bug.

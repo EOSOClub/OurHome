@@ -1,0 +1,68 @@
+name: Report a bug
+description: Something in OurHome is broken or not working the way it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this.
+
+        **Live in a home that uses OurHome?** Use **Report a bug** in your account menu instead. It goes to your Head of House, who can check it and bring it here if it's a problem with OurHome itself.
+
+        This form is for one bug in the website, the Android app, the server setup or the wiki. Please check [Troubleshooting](https://github.com/EOSOClub/OurHome/wiki/Troubleshooting) first.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where is the problem?
+      options:
+        - Website
+        - Android app
+        - Server setup (MongoDB, Paperless-ngx, Proton Mail Bridge)
+        - Wiki
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Tell us what you saw. Include any error message, word for word.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How can we make it happen again?
+      description: The steps that lead to the problem, one per line.
+      placeholder: |
+        1. Open the Shopping page
+        2. Tap an item
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Your setup
+      description: Whatever applies. Browser and device, Android version, and how you run the server (Docker, the date or commit you installed).
+      placeholder: |
+        Browser: Chrome on a Pixel 8
+        Android: 15
+        Server: Docker, updated 2026-10-01
+  - type: textarea
+    id: logs
+    attributes:
+      label: Server log
+      description: If you run the server, paste any error lines from its log here. Remove passwords, email addresses and anything else private first.
+      render: shell
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Screenshots or anything that might help. Make sure they don't show private household details.

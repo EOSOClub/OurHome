@@ -58,6 +58,7 @@ export const RESTORE_ORDER = [
   'Purchase',
   'Notification',
   'NfcTag',
+  'MapPlace',
   'ActivityEntry',
 ] as const;
 export type RestoreModel = (typeof RESTORE_ORDER)[number];
@@ -159,6 +160,8 @@ export function planRestore(
     Purchase: asArray(inventory.purchases),
     Notification: asArray(doc.notifications),
     NfcTag: asArray(doc.nfcTags),
+    // Exports from before map places have none.
+    MapPlace: asArray(doc.mapPlaces),
     ActivityEntry: asArray(doc.activity),
   };
 

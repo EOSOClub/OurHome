@@ -9,6 +9,8 @@ import { listIntegrations } from '@/server/services/integrationService';
 import { listCategories } from '@/server/services/categoryService';
 import { getPointsSettings } from '@/server/services/pointsService';
 import { listPlaces } from '@/server/services/placeService';
+import { listMapPlaces } from '@/server/services/mapPlaceService';
+import { listShoppingLists } from '@/server/services/shoppingService';
 import { SettingsView } from '@/components/settings/settings-view';
 
 export default async function SettingsPage() {
@@ -30,7 +32,7 @@ export default async function SettingsPage() {
   const isHead = can(user.role, 'household:manage');
   // "HTTPS only" and contact-form messages are server-wide: they're on the
   // server admin's Server page now.
-  const [integrations, tags, items, categories, points, places] =
+  const [integrations, tags, items, categories, points, places, mapPlaces, shoppingLists] =
     await Promise.all([
       listIntegrations(householdId),
       listNfcTags(householdId),
@@ -39,6 +41,9 @@ export default async function SettingsPage() {
       // Points rate / time zone / week start: the head's.
       isHead ? getPointsSettings(householdId) : null,
       listPlaces(householdId),
+      listMapPlaces(householdId),
+      // Stores on the map remind about these.
+      listShoppingLists(householdId),
     ]);
 
   return (
@@ -48,6 +53,8 @@ export default async function SettingsPage() {
       initialCategories={categories}
       initialPoints={points}
       initialPlaces={places}
+      initialMapPlaces={mapPlaces}
+      shoppingLists={shoppingLists.map((l) => ({ id: l.id, name: l.name }))}
       canExport={isHead}
       items={items.map(itemToDTO).map((i) => ({ id: i.id, name: i.name }))}
     />

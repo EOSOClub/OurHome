@@ -18,6 +18,9 @@ import { HouseholdCard } from '@/components/profile/household-card';
 import { ProfileAvatar } from '@/components/profile/profile-avatar';
 import type { AppRelease } from '@/server/services/appDownloadService';
 import { AndroidAppCard } from '@/components/profile/android-app-card';
+import { LocationCard } from '@/components/profile/location-card';
+import { useHouseholdFeatures } from '@/components/household-features';
+import type { LocationConsent } from '@/lib/location';
 import { changePassword, updateUser } from '@/lib/auth-client';
 import { apiFetch } from '@/lib/api';
 import { USER_ROLE_LABELS, type UserRole } from '@/lib/enums';
@@ -41,14 +44,19 @@ const STAT_LINK_CLASS =
 export function ProfileView({
   overview,
   household,
+  location,
   appRelease,
 }: {
   overview: ProfileOverview;
   /** Everyone's about-me fields (the household directory). */
   household: HouseholdProfile[];
+  /** The member's own location consent. */
+  location: LocationConsent;
   /** The Android app built on this server, if any. */
   appRelease: AppRelease | null;
 }) {
+  // Location sharing is hidden with the Location feature.
+  const features = useHouseholdFeatures();
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
@@ -94,6 +102,7 @@ export function ProfileView({
       <AboutMeCard overview={overview} />
       {household.length > 1 ? <HouseholdCard members={household} userId={overview.id} /> : null}
       <OverviewCard overview={overview} />
+      {features.includes('location') ? <LocationCard initial={location} /> : null}
       {appRelease && <AndroidAppCard release={appRelease} />}
       <EditProfileCard overview={overview} />
       <ChangePasswordCard />

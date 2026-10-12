@@ -7,6 +7,7 @@
 
 import { z } from 'zod';
 import { ROLE_RANK, isUserRole, type UserRole } from '@/lib/enums';
+import { isSharing, type LocationConsent, type LocationSharing } from '@/lib/location';
 
 export const PERMISSIONS = [
   // Rename the household, transfer Head of House.
@@ -83,6 +84,36 @@ export function canAssignRole(actorRole: string, targetRole: string): boolean {
   if (actorRole === 'head') return true;
   if (actorRole === 'manager') return ROLE_RANK[targetRole] < ROLE_RANK.manager;
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// Location: who may look at someone's location. Consent is the only gate:
+// a member shares only if they turned it on (Profile → Location), and a live
+// check needs their separate yes. Role never grants authority over someone
+// else's location. Parental controls will add it for supervised kids through
+// the Head's supervision list ("required" sharing), here and nowhere else.
+// ---------------------------------------------------------------------------
+
+/** The lowest role that may start a live location check. */
+const LIVE_CHECK_MIN_ROLE: UserRole = 'adult';
+
+/**
+ * Whether `actor` may start a short live location check on `target`: an adult
+ * or above, on someone else in the household who shares their location and
+ * allows live checks.
+ */
+export function canStartLiveCheck(
+  actor: { id: string; role: string },
+  target: { id: string; consent: LocationConsent },
+): boolean {
+  if (actor.id === target.id) return false;
+  if (!isUserRole(actor.role) || ROLE_RANK[actor.role] < ROLE_RANK[LIVE_CHECK_MIN_ROLE]) return false;
+  return isSharing(target.consent.sharing) && target.consent.liveChecks;
+}
+
+/** Whether a member may change their own sharing: not while it's required. */
+export function canChangeOwnSharing(current: LocationSharing): boolean {
+  return current !== 'required';
 }
 
 // ---------------------------------------------------------------------------

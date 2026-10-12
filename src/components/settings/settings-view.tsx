@@ -21,7 +21,8 @@ import { useHouseholdFeatures } from '@/components/household-features';
 import { PLACES_KEY, PlacesCard } from '@/components/settings/places-card';
 import { LocationSelect } from '@/components/location-select';
 import { placesEnabled } from '@/lib/features';
-import type { PlacesDTO } from '@/lib/types';
+import type { MapPlaceDTO, PlacesDTO } from '@/lib/types';
+import { MapPlacesCard } from '@/components/settings/map-places-card';
 import { ExportCard } from '@/components/settings/export-card';
 import { PointsCard } from '@/components/settings/points-card';
 import { Button, type ButtonProps } from '@/components/ui/button';
@@ -88,9 +89,14 @@ export function SettingsView({
   initialCategories,
   initialPoints,
   initialPlaces,
+  initialMapPlaces,
+  shoppingLists,
   items,
 }: {
   initialPlaces: PlacesDTO;
+  initialMapPlaces: MapPlaceDTO[];
+  /** For linking stores on the map to lists. */
+  shoppingLists: ItemRef[];
   /** Head of House: may download the household export. */
   canExport: boolean;
   /** null unless the viewer is the Head of House. */
@@ -114,6 +120,12 @@ export function SettingsView({
       {initialPoints ? <PointsCard initial={initialPoints} /> : null}
       {/* Rooms are where tasks are done and stock is kept: shown while either is on. */}
       {placesEnabled(features) ? <PlacesCard initial={initialPlaces} /> : null}
+      {features.includes('location') ? (
+        <MapPlacesCard
+          initial={initialMapPlaces}
+          lists={features.includes('shopping') ? shoppingLists : []}
+        />
+      ) : null}
       <CategoriesCard initialCategories={initialCategories} />
       {features.includes('bills') ? <PaperlessCard /> : null}
       <HomeAssistantCard initialIntegrations={initialIntegrations} />

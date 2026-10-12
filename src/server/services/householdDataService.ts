@@ -42,6 +42,7 @@ export const HOUSEHOLD_MODELS = [
   'PushDevice',
   'EventLog',
   'NfcTag',
+  'MapPlace',
   'HomeAssistantIntegration',
 ] as const;
 
@@ -56,7 +57,9 @@ export const EXPORT_VERSION = 1;
  * The household's data as one JSON document (Head of House, Settings →
  * Export). Credentials are left out: passwords, sessions, the Home Assistant
  * and Paperless tokens, phone push tokens. The request log (EventLog) is left
- * out too: it's operational, not the household's records.
+ * out too: it's operational, not the household's records. So is each member's
+ * location consent: a restored household starts with everyone's sharing off,
+ * and each person turns it back on themselves.
  */
 export async function exportHousehold(householdId: string) {
   const where = { householdId };
@@ -82,6 +85,7 @@ export async function exportHousehold(householdId: string) {
     purchases,
     notifications,
     nfcTags,
+    mapPlaces,
     integrations,
     paperless,
   ] = await Promise.all([
@@ -119,6 +123,7 @@ export async function exportHousehold(householdId: string) {
     prisma.purchase.findMany({ where }),
     prisma.notification.findMany({ where }),
     prisma.nfcTag.findMany({ where }),
+    prisma.mapPlace.findMany({ where }),
     prisma.homeAssistantIntegration.findMany({
       where,
       select: { id: true, name: true, active: true, createdAt: true },
@@ -154,6 +159,7 @@ export async function exportHousehold(householdId: string) {
     inventory: { items: inventoryItems, purchases },
     notifications,
     nfcTags,
+    mapPlaces,
     homeAssistant: integrations,
     paperless,
   };
@@ -228,6 +234,7 @@ export async function deleteHousehold(adminId: string, householdId: string, conf
       count('ActivityEntry', await tx.activityEntry.deleteMany({ where }));
       count('EventLog', await tx.eventLog.deleteMany({ where }));
       count('NfcTag', await tx.nfcTag.deleteMany({ where }));
+      count('MapPlace', await tx.mapPlace.deleteMany({ where }));
       count('HomeAssistantIntegration', await tx.homeAssistantIntegration.deleteMany({ where }));
       count('PaperlessSync', await tx.paperlessSync.deleteMany({ where }));
       count('PaperlessConnection', await tx.paperlessConnection.deleteMany({ where }));

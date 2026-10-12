@@ -18,6 +18,7 @@ export const FEATURES = [
   'inventory',
   'bills',
   'requests',
+  'location',
 ] as const;
 export type Feature = (typeof FEATURES)[number];
 
@@ -29,6 +30,7 @@ export const FEATURE_LABELS: Record<Feature, string> = {
   inventory: 'Inventory',
   bills: 'Bills',
   requests: 'Requests',
+  location: 'Location',
 };
 
 export const FEATURE_DESCRIPTIONS: Record<Feature, string> = {
@@ -39,6 +41,7 @@ export const FEATURE_DESCRIPTIONS: Record<Feature, string> = {
   inventory: 'Stock levels, low-stock alerts and NFC tags.',
   bills: 'Bills, payments and the Paperless import.',
   requests: 'Media and maintenance requests.',
+  location: 'Map places, who is home and store reminders. Each member chooses whether to share.',
 };
 
 export function isFeature(value: string): value is Feature {
@@ -98,6 +101,8 @@ const SEGMENT_FEATURE: Record<string, Feature> = {
   nfc: 'inventory',
   bills: 'bills',
   requests: 'requests',
+  'map-places': 'location',
+  location: 'location',
 };
 
 // Deeper paths inside an always-on area that still belong to a feature: the

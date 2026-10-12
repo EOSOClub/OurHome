@@ -31,6 +31,7 @@ describe('enabledFeatures', () => {
       'calendar',
       'inventory',
       'requests',
+      'location',
     ]);
   });
 
@@ -47,6 +48,8 @@ describe('featureForPath', () => {
     expect(featureForPath('/bills/abc')).toBe('bills');
     expect(featureForPath('/api/points/summary')).toBe('points');
     expect(featureForPath('/api/integrations/paperless/sync')).toBe('bills');
+    expect(featureForPath('/api/map-places/search')).toBe('location');
+    expect(featureForPath('/api/location/consent')).toBe('location');
   });
 
   it('leaves always-on areas alone', () => {

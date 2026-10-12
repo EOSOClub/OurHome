@@ -15,10 +15,11 @@ const securityHeaders = [
   { key: "X-Frame-Options", value: "DENY" },
   // Don't leak full URLs to other origins.
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-  // Drop powerful features the app doesn't use.
+  // Drop powerful features the app doesn't use. Geolocation is ours only:
+  // "Use my location" when setting a map place (Settings → Map places).
   {
     key: "Permissions-Policy",
-    value: "camera=(), microphone=(), geolocation=(), browsing-topics=()",
+    value: "camera=(), microphone=(), geolocation=(self), browsing-topics=()",
   },
 ];
 

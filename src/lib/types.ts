@@ -168,6 +168,26 @@ export interface PlacesDTO {
   rooms: RoomDTO[];
 }
 
+/** GET /api/map-places: a spot on the map (home first, then by name). */
+export interface MapPlaceDTO {
+  id: string;
+  name: string;
+  /** MapPlaceKind: "home" | "store" | "other". */
+  kind: string;
+  lat: number;
+  lng: number;
+  radiusM: number;
+  /** Stores: the shopping lists reminded about on arrival (existing ones only). */
+  shoppingListIds: string[];
+}
+
+/** GET /api/map-places/search: one address match for the pin picker. */
+export interface AddressMatchDTO {
+  label: string;
+  lat: number;
+  lng: number;
+}
+
 export interface TaskDTO {
   id: string;
   /** Who created it (user id); null = nobody recorded. Drives own vs others' access. */

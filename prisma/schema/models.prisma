@@ -69,6 +69,7 @@ model Household {
   bills          Bill[]
   billPayments   BillPayment[]
   nfcTags        NfcTag[]
+  mapPlaces      MapPlace[]
   integrations   HomeAssistantIntegration[]
   requests       Request[]
   bugReports     BugReport[]
@@ -106,6 +107,12 @@ model User {
   avatarEmoji   String?
   profileColor  String?
   birthday      String?
+  // Location consent, set by the member on Profile (src/lib/location.ts).
+  // locationSharing: "off" | "on" | "required"; null = off. "required" is
+  // reserved for parental controls (a supervising adult sets it), not set yet.
+  // liveChecks: may adults start a short live location check on them; null = no.
+  locationSharing String?
+  liveChecks      Boolean?
   // Audit: which user provisioned this member (plain id, no relation).
   createdById   String?
   householdId   String?
@@ -923,6 +930,33 @@ model NfcTag {
   room      Room?     @relation(fields: [roomId], references: [id], onDelete: SetNull)
 
   @@unique([householdId, tagId])
+  @@index([householdId])
+}
+
+// A spot on the map (Settings → Map places): home, a store, school... The
+// Android app turns each one into a geofence for presence and store reminders.
+// "Map places" because "places" already means floors and rooms. Head of House
+// and managers change them; everyone reads them. See src/lib/location.ts.
+model MapPlace {
+  id          String   @id @default(cuid()) @map("_id")
+  householdId String
+  name        String
+  // kind: "home" | "store" | "other"
+  kind        String   @default("other")
+  lat         Float
+  lng         Float
+  // Geofence radius in metres (MAP_PLACE_RADIUS in src/lib/location.ts).
+  radiusM     Int      @default(150)
+  // Stores: shopping lists to remind about on arrival. Plain ids; a deleted
+  // list is dropped when read (mapPlaceService).
+  shoppingListIds String[] @default([])
+  // Plain user id (no relation), like ShoppingList.createdById.
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
   @@index([householdId])
 }
 

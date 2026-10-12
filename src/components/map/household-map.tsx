@@ -3,10 +3,11 @@
 import 'leaflet/dist/leaflet.css';
 import { useEffect, useRef, useState } from 'react';
 import type { LatLngBounds, LayerGroup, Map as LeafletMap } from 'leaflet';
-import type { MapPlaceDTO, MemberPresenceDTO } from '@/lib/types';
+import type { LiveCheckDTO, MapPlaceDTO, MemberPresenceDTO } from '@/lib/types';
 import { formatRelativeTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { ATTRIBUTION, TILE_URL, primaryColor, themeColor } from '@/components/map/leaflet-shared';
+import { fixAge } from '@/lib/location';
 
 // The household map (Map page): every map place as its circle, labelled with
 // who is there, and everyone away at the point their phone left from, with
@@ -44,12 +45,15 @@ function placeColor(kind: string): string {
 export function HouseholdMap({
   places,
   presence,
+  live = [],
   focus,
   timeZone,
   className,
 }: {
   places: MapPlaceDTO[];
   presence: MemberPresenceDTO[];
+  /** Live checks the viewer has running: each latest fix is drawn. */
+  live?: LiveCheckDTO[];
   focus: MapFocus | null;
   timeZone?: string;
   className?: string;
@@ -125,8 +129,26 @@ export function HouseholdMap({
     }
 
     const awayColor = themeColor('--warning', 'hsl(38 92% 50%)');
+    const liveColor = primaryColor();
+    const liveIds = new Set(live.filter((c) => c.fix).map((c) => c.targetId));
+    for (const check of live) {
+      if (!check.fix) continue;
+      const at: [number, number] = [check.fix.lat, check.fix.lng];
+      if (check.fix.accuracyM) {
+        L.circle(at, { radius: check.fix.accuracyM, color: liveColor, weight: 1, fillOpacity: 0.12, interactive: false }).addTo(layer);
+      }
+      L.circleMarker(at, { radius: 8, color: '#fff', weight: 3, fillColor: liveColor, fillOpacity: 1, interactive: false })
+        .bindTooltip(labelElement(check.targetName, `Live, ${fixAge(check.fix.at)}`), {
+          permanent: true,
+          direction: 'right',
+          offset: [10, 0],
+        })
+        .addTo(layer);
+    }
+
     for (const person of presence) {
-      if (person.place || !person.point) continue;
+      // Someone being checked live is shown at the live fix instead.
+      if (person.place || !person.point || liveIds.has(person.userId)) continue;
       const at: [number, number] = [person.point.lat, person.point.lng];
       if (person.point.accuracyM) {
         L.circle(at, {
@@ -138,11 +160,16 @@ export function HouseholdMap({
         }).addTo(layer);
       }
       L.circleMarker(at, { radius: 7, color: '#fff', weight: 2, fillColor: awayColor, fillOpacity: 1, interactive: false })
-        .bindTooltip(labelElement(person.name, `Left ${formatRelativeTime(person.since, timeZone)}`), {
-          permanent: true,
-          direction: 'right',
-          offset: [8, 0],
-        })
+        .bindTooltip(
+          labelElement(
+            person.name,
+            // A point from a live check that ended after they left: when it was seen.
+            person.point.at !== person.since
+              ? `Seen ${formatRelativeTime(person.point.at, timeZone)}`
+              : `Left ${formatRelativeTime(person.since, timeZone)}`,
+          ),
+          { permanent: true, direction: 'right', offset: [8, 0] },
+        )
         .addTo(layer);
       shown.push(L.latLngBounds(at, at));
     }
@@ -152,7 +179,7 @@ export function HouseholdMap({
       const all = shown.reduce((acc, b) => acc.extend(b), L.latLngBounds(shown[0].getSouthWest(), shown[0].getNorthEast()));
       map.fitBounds(all, { padding: [32, 32], maxZoom: FOCUS_ZOOM });
     }
-  }, [ready, places, presence, timeZone, tick]);
+  }, [ready, places, presence, live, timeZone, tick]);
 
   // Zoom to whatever was picked in the list.
   useEffect(() => {

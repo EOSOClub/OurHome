@@ -51,6 +51,10 @@ model Household {
   timezone         String?
   weekStartsOn     Int?
   minutesPerPoint  Float?
+  // Live location check limits (head). null = defaults (src/lib/location.ts
+  // LIVE_CHECK_LIMITS): 30 minutes at most, a fix every 15 seconds at most.
+  liveCheckMaxMinutes     Int?
+  liveCheckMinIntervalSec Int?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -71,6 +75,7 @@ model Household {
   nfcTags        NfcTag[]
   mapPlaces      MapPlace[]
   memberLocations MemberLocation[]
+  locationChecks LocationCheck[]
   integrations   HomeAssistantIntegration[]
   requests       Request[]
   bugReports     BugReport[]
@@ -138,6 +143,8 @@ model User {
   bugReports      BugReport[]
   pushDevices     PushDevice[]
   location        MemberLocation?
+  liveChecksStarted LocationCheck[] @relation("LocationCheckRequester")
+  liveChecksOnMe    LocationCheck[] @relation("LocationCheckTarget")
 
   @@index([householdId])
 }
@@ -997,12 +1004,48 @@ model MemberLocation {
   accuracyM   Float?
   // When the phone noticed it; older reports than this are ignored.
   at          DateTime
+  // When lat/lng were taken, when that's later than `at`: a live check that
+  // ended while they were away leaves its last fix here. null = taken at `at`.
+  pointAt     DateTime?
   updatedAt   DateTime @updatedAt
 
   household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([householdId])
+}
+
+// A live location check: an adult watching where someone is for a few
+// minutes (src/lib/location.ts, liveCheckService). The checked person's phone
+// shows it the whole time and sends a fix every intervalSec; only the latest
+// fix is kept, and it's cleared when the check closes (moving to their last
+// known point if they're away). What stays is the log entry the checked
+// person sees on Profile: who, when, how long. Removed after 30 days.
+model LocationCheck {
+  id          String    @id @default(cuid()) @map("_id")
+  householdId String
+  requesterId String
+  targetId    String
+  intervalSec Int
+  startedAt   DateTime  @default(now())
+  endsAt      DateTime
+  // Set when it closes: stopped early (endedById says by whom) or ran out.
+  endedAt     DateTime?
+  endedById   String?
+  // The latest fix while it runs; null before the first and after closing.
+  lat         Float?
+  lng         Float?
+  accuracyM   Float?
+  fixAt       DateTime?
+  // When the first fix came in: the phone answered.
+  answeredAt  DateTime?
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  requester User      @relation("LocationCheckRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  target    User      @relation("LocationCheckTarget", fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@index([householdId, targetId])
+  @@index([requesterId])
 }
 
 // ---------------------------------------------------------------------------

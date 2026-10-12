@@ -44,6 +44,7 @@ export const HOUSEHOLD_MODELS = [
   'NfcTag',
   'MapPlace',
   'MemberLocation',
+  'LocationCheck',
   'HomeAssistantIntegration',
 ] as const;
 
@@ -61,7 +62,8 @@ export const EXPORT_VERSION = 1;
  * out too: it's operational, not the household's records. So is each member's
  * location consent and last known location (MemberLocation): a restored
  * household starts with everyone's sharing off, and each person turns it back
- * on themselves.
+ * on themselves. Live location checks and their log (LocationCheck) stay out
+ * for the same reason; they're gone after 30 days anyway.
  */
 export async function exportHousehold(householdId: string) {
   const where = { householdId };
@@ -238,6 +240,7 @@ export async function deleteHousehold(adminId: string, householdId: string, conf
       count('NfcTag', await tx.nfcTag.deleteMany({ where }));
       count('MapPlace', await tx.mapPlace.deleteMany({ where }));
       count('MemberLocation', await tx.memberLocation.deleteMany({ where }));
+      count('LocationCheck', await tx.locationCheck.deleteMany({ where }));
       count('HomeAssistantIntegration', await tx.homeAssistantIntegration.deleteMany({ where }));
       count('PaperlessSync', await tx.paperlessSync.deleteMany({ where }));
       count('PaperlessConnection', await tx.paperlessConnection.deleteMany({ where }));

@@ -18,6 +18,8 @@ const prisma = {
   shoppingList: { findMany: vi.fn(async (): Promise<unknown[]> => []) },
 };
 vi.mock('@/server/db/prisma', () => ({ prisma }));
+const liveChecks = { closeExpiredLiveChecks: vi.fn(), endLiveChecksOn: vi.fn() };
+vi.mock('@/server/services/liveCheckService', () => liveChecks);
 
 const { listPresence, reportPresence, updateLocationConsent } = await import('./locationService');
 
@@ -34,12 +36,24 @@ describe('updateLocationConsent', () => {
     expect(await updateLocationConsent('u1', { sharing: 'on' })).toEqual({ sharing: 'on', liveChecks: false });
     expect(prisma.user.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'u1' } }));
     expect(prisma.memberLocation.deleteMany).not.toHaveBeenCalled();
+    expect(liveChecks.endLiveChecksOn).not.toHaveBeenCalled();
   });
 
   it('forgets where they were when they stop sharing', async () => {
-    prisma.user.findUnique.mockResolvedValueOnce(sharing);
+    prisma.user.findUnique.mockResolvedValueOnce({ locationSharing: 'on', liveChecks: true });
     await updateLocationConsent('u1', { sharing: 'off' });
     expect(prisma.memberLocation.deleteMany).toHaveBeenCalledWith({ where: { userId: 'u1' } });
+    // A check running on them ends first (so its last fix isn't left behind).
+    expect(liveChecks.endLiveChecksOn).toHaveBeenCalledWith('u1');
+  });
+
+  it('ends a running check when they turn live checks off', async () => {
+    prisma.user.findUnique.mockResolvedValueOnce({ locationSharing: 'on', liveChecks: true });
+    // Prisma leaves fields the update doesn't name as they were.
+    prisma.user.update.mockResolvedValueOnce({ locationSharing: 'on', liveChecks: false });
+    await updateLocationConsent('u1', { liveChecks: false });
+    expect(liveChecks.endLiveChecksOn).toHaveBeenCalledWith('u1');
+    expect(prisma.memberLocation.deleteMany).not.toHaveBeenCalled();
   });
 
   it('refuses to turn off sharing that is required', async () => {

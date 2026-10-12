@@ -10,6 +10,7 @@ import { listCategories } from '@/server/services/categoryService';
 import { getPointsSettings } from '@/server/services/pointsService';
 import { listPlaces } from '@/server/services/placeService';
 import { listMapPlaces } from '@/server/services/mapPlaceService';
+import { getLiveCheckSettings } from '@/server/services/liveCheckService';
 import { listShoppingLists } from '@/server/services/shoppingService';
 import { SettingsView } from '@/components/settings/settings-view';
 
@@ -32,7 +33,7 @@ export default async function SettingsPage() {
   const isHead = can(user.role, 'household:manage');
   // "HTTPS only" and contact-form messages are server-wide: they're on the
   // server admin's Server page now.
-  const [integrations, tags, items, categories, points, places, mapPlaces, shoppingLists] =
+  const [integrations, tags, items, categories, points, liveChecks, places, mapPlaces, shoppingLists] =
     await Promise.all([
       listIntegrations(householdId),
       listNfcTags(householdId),
@@ -40,6 +41,8 @@ export default async function SettingsPage() {
       listCategories(householdId),
       // Points rate / time zone / week start: the head's.
       isHead ? getPointsSettings(householdId) : null,
+      // Live location check limits: the head's too.
+      isHead ? getLiveCheckSettings(householdId) : null,
       listPlaces(householdId),
       listMapPlaces(householdId),
       // Stores on the map remind about these.
@@ -52,6 +55,7 @@ export default async function SettingsPage() {
       initialTags={tags}
       initialCategories={categories}
       initialPoints={points}
+      initialLiveChecks={liveChecks}
       initialPlaces={places}
       initialMapPlaces={mapPlaces}
       shoppingLists={shoppingLists.map((l) => ({ id: l.id, name: l.name }))}

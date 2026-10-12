@@ -107,6 +107,97 @@ export function nextPresence(
  */
 export const REMINDER_FRESH_MS = 15 * 60_000;
 
+// --- Live checks ------------------------------------------------------------------------
+// An adult asks to see where someone is for a few minutes. Their phone shows
+// that it's happening for the whole time and sends a fix every interval; only
+// the latest fix is kept. The head limits how long a check may run and how
+// often it may ask (Settings → Live location checks).
+
+/** Choices offered when starting a check, before the household's limits. */
+export const LIVE_CHECK_MINUTES = [5, 10, 15, 30, 60, 120] as const;
+export const LIVE_CHECK_INTERVALS = [15, 30, 60, 120] as const;
+export const LIVE_CHECK_DEFAULT = { minutes: 5, intervalSec: 30 } as const;
+
+/** The head's limits: what they may be set to, and the default. */
+export const LIVE_CHECK_LIMITS = {
+  maxMinutes: { min: 5, max: 120, default: 30 },
+  minIntervalSec: { min: 15, max: 120, default: 15 },
+} as const;
+
+export interface LiveCheckSettings {
+  /** The longest a check may run. */
+  maxMinutes: number;
+  /** The shortest time between fixes. */
+  minIntervalSec: number;
+}
+
+export function liveCheckSettings(household: {
+  liveCheckMaxMinutes?: number | null;
+  liveCheckMinIntervalSec?: number | null;
+}): LiveCheckSettings {
+  const { maxMinutes, minIntervalSec } = LIVE_CHECK_LIMITS;
+  const clamp = (v: number | null | undefined, r: { min: number; max: number; default: number }) =>
+    v == null || !Number.isFinite(v) ? r.default : Math.min(r.max, Math.max(r.min, Math.round(v)));
+  return {
+    maxMinutes: clamp(household.liveCheckMaxMinutes, maxMinutes),
+    minIntervalSec: clamp(household.liveCheckMinIntervalSec, minIntervalSec),
+  };
+}
+
+/** What someone starting a check may pick, and what's picked to begin with. */
+export function liveCheckChoices(settings: LiveCheckSettings) {
+  const minutes = LIVE_CHECK_MINUTES.filter((m) => m <= settings.maxMinutes);
+  const intervals = LIVE_CHECK_INTERVALS.filter((s) => s >= settings.minIntervalSec);
+  return {
+    minutes,
+    intervals,
+    defaultMinutes: minutes.includes(LIVE_CHECK_DEFAULT.minutes) ? LIVE_CHECK_DEFAULT.minutes : minutes[0],
+    defaultIntervalSec: intervals.includes(LIVE_CHECK_DEFAULT.intervalSec)
+      ? LIVE_CHECK_DEFAULT.intervalSec
+      : intervals[0],
+  };
+}
+
+/** A requested length and interval brought inside the household's limits. */
+export function fitLiveCheck(
+  settings: LiveCheckSettings,
+  minutes: number,
+  intervalSec: number,
+): { minutes: number; intervalSec: number } {
+  return {
+    minutes: Math.min(settings.maxMinutes, Math.max(1, Math.round(minutes))),
+    intervalSec: Math.max(settings.minIntervalSec, Math.round(intervalSec)),
+  };
+}
+
+/** No fix within this long of the start: the phone isn't answering. */
+export const LIVE_CHECK_ANSWER_MS = 60_000;
+
+/** How long a finished check stays in the checked person's log. */
+export const LIVE_CHECK_LOG_DAYS = 30;
+
+/**
+ * waiting: just started, the phone hasn't sent a fix yet. live: fixes are
+ * coming. no_answer: no fix a minute in (phone off, no signal, permission
+ * gone). ended: stopped, or its time ran out.
+ */
+export type LiveCheckState = 'waiting' | 'live' | 'no_answer' | 'ended';
+
+export function liveCheckState(
+  check: { startedAt: Date; endsAt: Date; endedAt: Date | null; fixAt: Date | null },
+  now: Date,
+): LiveCheckState {
+  if (check.endedAt || now.getTime() >= check.endsAt.getTime()) return 'ended';
+  if (check.fixAt) return 'live';
+  return now.getTime() - check.startedAt.getTime() > LIVE_CHECK_ANSWER_MS ? 'no_answer' : 'waiting';
+}
+
+/** A live fix's age for its label: "updated 20s ago", "updated 3 min ago". */
+export function fixAge(at: string, now: number = Date.now()): string {
+  const seconds = Math.max(0, Math.round((now - new Date(at).getTime()) / 1000));
+  return seconds < 90 ? `updated ${seconds}s ago` : `updated ${Math.round(seconds / 60)} min ago`;
+}
+
 export function locationConsent(user: {
   locationSharing?: string | null;
   liveChecks?: boolean | null;

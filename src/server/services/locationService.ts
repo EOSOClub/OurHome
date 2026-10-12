@@ -9,13 +9,14 @@ import {
   type PresenceState,
 } from '@/lib/location';
 import { canChangeOwnSharing } from '@/lib/permissions';
+import { closeExpiredLiveChecks, endLiveChecksOn } from '@/server/services/liveCheckService';
 import type { MemberPresenceDTO, PresenceReportDTO } from '@/lib/types';
 import type { ReportPresenceInput, UpdateLocationConsentInput } from '@/lib/validation/location';
 
 // A member's own location consent (Profile → Location), and presence: where
 // the members who share are, from their Android app's geofences. Off until a
 // member turns it on; turning it off deletes what was stored about them.
-// Live checks come later (vault: Location and Presence).
+// Live checks are in liveCheckService.
 
 const consentSelect = { locationSharing: true, liveChecks: true } as const;
 
@@ -42,6 +43,11 @@ export async function updateLocationConsent(
     select: consentSelect,
   });
   const consent = locationConsent(user);
+  // Stopped sharing or allowing checks: a check running on them ends now.
+  const allowedBefore = isSharing(current.sharing) && current.liveChecks;
+  if (allowedBefore && (!isSharing(consent.sharing) || !consent.liveChecks)) {
+    await endLiveChecksOn(userId);
+  }
   // Stopped sharing: nothing about where they were stays behind.
   if (!isSharing(consent.sharing)) {
     await prisma.memberLocation.deleteMany({ where: { userId } });
@@ -121,6 +127,8 @@ async function storeReminder(
  * with the point their phone was at when they left (the map's last known point).
  */
 export async function listPresence(householdId: string): Promise<MemberPresenceDTO[]> {
+  // A check that ran out while nobody looked hands its last fix over first.
+  await closeExpiredLiveChecks(householdId);
   const [rows, places] = await Promise.all([
     prisma.memberLocation.findMany({
       where: { householdId },
@@ -136,7 +144,9 @@ export async function listPresence(householdId: string): Promise<MemberPresenceD
     .map((r) => {
       const place = r.state === 'place' && r.placeId ? placeById.get(r.placeId) ?? null : null;
       const point =
-        !place && r.lat != null && r.lng != null ? { lat: r.lat, lng: r.lng, accuracyM: r.accuracyM ?? null } : null;
+        !place && r.lat != null && r.lng != null
+          ? { lat: r.lat, lng: r.lng, accuracyM: r.accuracyM ?? null, at: (r.pointAt ?? r.at).toISOString() }
+          : null;
       return {
         userId: r.userId,
         name: r.user.name,

@@ -1,17 +1,19 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Home, Map as MapIcon, MapPin, Navigation, Store } from 'lucide-react';
-import type { MapPlaceDTO, MemberPresenceDTO } from '@/lib/types';
+import type { LiveCheckDTO, LiveChecksOverviewDTO, MapPlaceDTO, MemberPresenceDTO } from '@/lib/types';
 import { apiFetch } from '@/lib/api';
 import { MAP_PLACE_KIND_LABELS, isMapPlaceKind } from '@/lib/location';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { RelativeTime, useHouseholdZone } from '@/components/household-zone';
 import { MAP_PLACES_KEY } from '@/components/settings/map-places-card';
 import type { MapFocus } from '@/components/map/household-map';
+import { LiveChecksCard } from '@/components/map/live-checks-card';
+import { LIVE_CHECKS_KEY } from '@/components/profile/location-card';
 
 // Leaflet only runs in the browser.
 const HouseholdMap = dynamic(() => import('@/components/map/household-map').then((m) => m.HouseholdMap), {
@@ -59,6 +61,41 @@ export function MapView({
     setFocus((prev) => ({ ...target, seq: (prev?.seq ?? 0) + 1 }));
   const placeById = new Map(places.map((p) => [p.id, p]));
 
+  // Live checks: polled as often as the most frequent running check asks
+  // its phone, and once a minute otherwise.
+  const queryClient = useQueryClient();
+  const { data: overview } = useQuery({
+    queryKey: LIVE_CHECKS_KEY,
+    queryFn: () => apiFetch<LiveChecksOverviewDTO>('/api/location/checks'),
+    refetchInterval: (query) => {
+      const started = query.state.data?.started ?? [];
+      return started.length ? Math.min(...started.map((c) => c.intervalSec)) * 1000 : REFRESH_MS;
+    },
+  });
+  const started = overview?.started ?? [];
+  const focusOnCheck = (check: LiveCheckDTO) => {
+    if (check.fix) focusOn({ lat: check.fix.lat, lng: check.fix.lng });
+  };
+  // Zoom to a check's first fix once; and when a check ends, its last fix
+  // may now be someone's last known point, so presence is fetched again.
+  const focusedRef = useRef(new Set<string>());
+  const runningRef = useRef<string[]>([]);
+  const startedKey = started.map((c) => `${c.id}:${c.fix ? 1 : 0}`).join(',');
+  useEffect(() => {
+    for (const check of started) {
+      if (check.fix && !focusedRef.current.has(check.id)) {
+        focusedRef.current.add(check.id);
+        setFocus((prev) => ({ lat: check.fix!.lat, lng: check.fix!.lng, seq: (prev?.seq ?? 0) + 1 }));
+      }
+    }
+    const ids = started.map((c) => c.id);
+    if (runningRef.current.some((id) => !ids.includes(id))) {
+      queryClient.invalidateQueries({ queryKey: PRESENCE_KEY });
+    }
+    runningRef.current = ids;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startedKey]);
+
   return (
     <div className="space-y-6">
       <div>
@@ -66,7 +103,8 @@ export function MapView({
           <MapIcon className="size-6" /> Map
         </h1>
         <p className="text-sm text-muted-foreground">
-          The household&apos;s places and who is at them. Not live: phones say when someone arrives or leaves.
+          The household&apos;s places and who is at them. Phones say when someone arrives or leaves; a live check
+          shows where someone is right now, for a few minutes.
         </p>
       </div>
 
@@ -81,9 +119,12 @@ export function MapView({
       ) : null}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
-        <HouseholdMap places={places} presence={presence} focus={focus} timeZone={timeZone} />
+        <HouseholdMap places={places} presence={presence} live={started} focus={focus} timeZone={timeZone} />
 
         <div className="space-y-6">
+          {overview && (overview.checkable.length > 0 || started.length > 0) ? (
+            <LiveChecksCard overview={overview} onFocus={focusOnCheck} />
+          ) : null}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">

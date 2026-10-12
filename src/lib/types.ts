@@ -191,9 +191,55 @@ export interface MemberPresenceDTO {
   place: { id: string; name: string; kind: string } | null;
   /** When their phone noticed it (ISO). */
   since: string;
-  /** Away: where the phone was when they left (the map shows it). Null at a
-   *  place (the place is where they are) or when the phone sent no fix. */
-  point: { lat: number; lng: number; accuracyM: number | null } | null;
+  /** Away: where the phone was when they left, or a live check's last fix if
+   *  that came later (`at` says when). Null at a place (the place is where they
+   *  are) or when the phone sent no fix. */
+  point: { lat: number; lng: number; accuracyM: number | null; at: string } | null;
+}
+
+/** A live location check, as the person checking and the person checked see it. */
+export interface LiveCheckDTO {
+  id: string;
+  requesterId: string;
+  requesterName: string;
+  targetId: string;
+  targetName: string;
+  startedAt: string;
+  endsAt: string;
+  intervalSec: number;
+  /** LiveCheckState: "waiting" | "live" | "no_answer" | "ended". */
+  state: string;
+  /** The latest fix; null before the first and once the check has closed. */
+  fix: { lat: number; lng: number; accuracyM: number | null; at: string } | null;
+}
+
+/** One check in the checked person's log (Profile → Location). */
+export interface LiveCheckLogDTO {
+  id: string;
+  requesterName: string;
+  startedAt: string;
+  /** When it closed; null while it's running. */
+  endedAt: string | null;
+  /** "requester" | "me" (stopped early by them or by me) | null (ran its time). */
+  stoppedBy: string | null;
+  /** Their phone sent at least one fix. */
+  answered: boolean;
+}
+
+/** GET /api/location/checks: everything about live checks for the signed-in member. */
+export interface LiveChecksOverviewDTO {
+  /** A check running on me right now (my phone keeps it going). */
+  onMe: LiveCheckDTO | null;
+  /** Checks I started that are still running. */
+  started: LiveCheckDTO[];
+  /** Checks on me in the last 30 days, newest first. */
+  log: LiveCheckLogDTO[];
+  /** Who I may start a check on: others who share and allow it. Empty below adult. */
+  checkable: { id: string; name: string }[];
+  settings: { maxMinutes: number; minIntervalSec: number };
+  choices: { minutes: number[]; intervals: number[]; defaultMinutes: number; defaultIntervalSec: number };
+  /** False when this server can't reach phones instantly (no Firebase): checks can't start. */
+  available: boolean;
 }
 
 /** POST /api/location/presence: what the phone shows after reporting. */

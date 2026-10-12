@@ -23,6 +23,8 @@ import { LocationSelect } from '@/components/location-select';
 import { placesEnabled } from '@/lib/features';
 import type { MapPlaceDTO, PlacesDTO } from '@/lib/types';
 import { MapPlacesCard } from '@/components/settings/map-places-card';
+import { LiveCheckCard } from '@/components/settings/live-check-card';
+import type { LiveCheckSettings } from '@/lib/location';
 import { ExportCard } from '@/components/settings/export-card';
 import { PointsCard } from '@/components/settings/points-card';
 import { Button, type ButtonProps } from '@/components/ui/button';
@@ -88,11 +90,14 @@ export function SettingsView({
   initialTags,
   initialCategories,
   initialPoints,
+  initialLiveChecks,
   initialPlaces,
   initialMapPlaces,
   shoppingLists,
   items,
 }: {
+  /** null unless the viewer is the Head of House. */
+  initialLiveChecks: LiveCheckSettings | null;
   initialPlaces: PlacesDTO;
   initialMapPlaces: MapPlaceDTO[];
   /** For linking stores on the map to lists. */
@@ -126,6 +131,7 @@ export function SettingsView({
           lists={features.includes('shopping') ? shoppingLists : []}
         />
       ) : null}
+      {features.includes('location') && initialLiveChecks ? <LiveCheckCard initial={initialLiveChecks} /> : null}
       <CategoriesCard initialCategories={initialCategories} />
       {features.includes('bills') ? <PaperlessCard /> : null}
       <HomeAssistantCard initialIntegrations={initialIntegrations} />

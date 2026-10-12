@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MAP_PLACE_KINDS, MAP_PLACE_RADIUS, SELF_SHARING } from '@/lib/location';
+import { LIVE_CHECK_LIMITS, MAP_PLACE_KINDS, MAP_PLACE_RADIUS, SELF_SHARING } from '@/lib/location';
 
 // Map places (Settings → Map places: Head of House and managers) and each
 // member's own location sharing (Profile → Location).
@@ -45,3 +45,37 @@ export const updateLocationConsentSchema = z
   })
   .partial();
 export type UpdateLocationConsentInput = z.infer<typeof updateLocationConsentSchema>;
+
+// --- Live checks ---
+
+/** Start one. Out-of-limit lengths and intervals are brought inside the limits. */
+export const startLiveCheckSchema = z.object({
+  targetId: z.string().cuid(),
+  minutes: z.number().int().min(1).max(LIVE_CHECK_LIMITS.maxMinutes.max),
+  intervalSec: z.number().int().min(1).max(600),
+});
+export type StartLiveCheckInput = z.infer<typeof startLiveCheckSchema>;
+
+export const liveCheckIdSchema = z.object({ id: z.string().cuid() });
+export type LiveCheckIdInput = z.infer<typeof liveCheckIdSchema>;
+
+/** The checked person's phone sending where it is. */
+export const liveCheckFixSchema = z.object({
+  id: z.string().cuid(),
+  lat: z.number().min(-90).max(90),
+  lng: z.number().min(-180).max(180),
+  accuracyM: z.number().min(0).max(100_000).optional(),
+  at: z.coerce.date(),
+});
+export type LiveCheckFixInput = z.infer<typeof liveCheckFixSchema>;
+
+/** The head's limits. */
+export const liveCheckSettingsSchema = z.object({
+  maxMinutes: z.number().int().min(LIVE_CHECK_LIMITS.maxMinutes.min).max(LIVE_CHECK_LIMITS.maxMinutes.max),
+  minIntervalSec: z
+    .number()
+    .int()
+    .min(LIVE_CHECK_LIMITS.minIntervalSec.min)
+    .max(LIVE_CHECK_LIMITS.minIntervalSec.max),
+});
+export type LiveCheckSettingsInput = z.infer<typeof liveCheckSettingsSchema>;

@@ -2,6 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { USER_ROLES } from '@/lib/enums';
 import {
   clampRadius,
+  fitLiveCheck,
+  fixAge,
+  liveCheckChoices,
+  liveCheckSettings,
+  liveCheckState,
   locationConsent,
   MAP_PLACE_RADIUS,
   nextPresence,
@@ -120,5 +125,48 @@ describe('map places', () => {
     expect(saveMapPlaceSchema.safeParse({ ...valid, lng: -181 }).success).toBe(false);
     expect(saveMapPlaceSchema.safeParse({ ...valid, radiusM: 50 }).success).toBe(false);
     expect(saveMapPlaceSchema.safeParse({ ...valid, kind: 'school' }).success).toBe(false);
+  });
+});
+
+describe('live checks', () => {
+  it('uses the defaults until the head sets limits, and keeps limits in range', () => {
+    expect(liveCheckSettings({})).toEqual({ maxMinutes: 30, minIntervalSec: 15 });
+    expect(liveCheckSettings({ liveCheckMaxMinutes: 500, liveCheckMinIntervalSec: 1 })).toEqual({
+      maxMinutes: 120,
+      minIntervalSec: 15,
+    });
+  });
+
+  it('offers only what the limits allow', () => {
+    const choices = liveCheckChoices({ maxMinutes: 10, minIntervalSec: 60 });
+    expect(choices.minutes).toEqual([5, 10]);
+    expect(choices.intervals).toEqual([60, 120]);
+    expect(choices.defaultMinutes).toBe(5);
+    expect(choices.defaultIntervalSec).toBe(60);
+  });
+
+  it('brings a request inside the limits', () => {
+    expect(fitLiveCheck({ maxMinutes: 30, minIntervalSec: 30 }, 120, 15)).toEqual({ minutes: 30, intervalSec: 30 });
+    expect(fitLiveCheck({ maxMinutes: 30, minIntervalSec: 15 }, 5, 30)).toEqual({ minutes: 5, intervalSec: 30 });
+  });
+
+  it('labels how old a fix is', () => {
+    const now = Date.parse('2026-10-12T15:10:00Z');
+    expect(fixAge('2026-10-12T15:09:40Z', now)).toBe('updated 20s ago');
+    expect(fixAge('2026-10-12T15:07:00Z', now)).toBe('updated 3 min ago');
+    // A phone clock slightly ahead never reads as negative.
+    expect(fixAge('2026-10-12T15:10:05Z', now)).toBe('updated 0s ago');
+  });
+
+  it('is waiting, then live, or not answering, then ended', () => {
+    const startedAt = new Date('2026-10-12T15:00:00Z');
+    const endsAt = new Date('2026-10-12T15:05:00Z');
+    const at = (s: number) => new Date(startedAt.getTime() + s * 1000);
+    const check = { startedAt, endsAt, endedAt: null, fixAt: null };
+    expect(liveCheckState(check, at(20))).toBe('waiting');
+    expect(liveCheckState(check, at(90))).toBe('no_answer');
+    expect(liveCheckState({ ...check, fixAt: at(10) }, at(90))).toBe('live');
+    expect(liveCheckState({ ...check, fixAt: at(10) }, at(300))).toBe('ended');
+    expect(liveCheckState({ ...check, endedAt: at(30) }, at(40))).toBe('ended');
   });
 });

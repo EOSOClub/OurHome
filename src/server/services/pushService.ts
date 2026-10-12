@@ -57,6 +57,38 @@ export function pushSync(householdId: string, audience: PushAudience, reason: Pu
   });
 }
 
+/** Whether this server can push at all (Firebase set up). */
+export function canPush(): boolean {
+  return isPushConfigured();
+}
+
+/**
+ * Sends one message straight to one member's phones and waits for Firebase's
+ * answer: live checks need to know at once whether a phone was reached. Like
+ * the sync pushes it carries no names or places, only ids. Returns how many
+ * phones were reached (0 when push is off or they have none).
+ */
+export async function pushToMember(
+  householdId: string,
+  userId: string,
+  data: { type: 'live_check' | 'live_check_stop'; checkId: string },
+): Promise<number> {
+  if (!isPushConfigured()) return 0;
+  const devices = await prisma.pushDevice.findMany({
+    where: { householdId, userId },
+    select: { token: true },
+  });
+  if (devices.length === 0) return 0;
+  const results = await Promise.all(
+    devices.map(async (d) => ({ token: d.token, result: await sendData(d.token, data) })),
+  );
+  const dead = results.filter((r) => r.result === 'invalid_token').map((r) => r.token);
+  if (dead.length > 0) await prisma.pushDevice.deleteMany({ where: { token: { in: dead } } });
+  const sent = results.filter((r) => r.result === 'sent').length;
+  console.log(`[push] ${data.type}: ${sent}/${devices.length} device(s) reached`);
+  return sent;
+}
+
 async function sendSync(householdId: string, audience: PushAudience, reason: PushReason) {
   const ids = new Set(audience.userIds?.filter((id): id is string => Boolean(id)));
   if (audience.everyone) {

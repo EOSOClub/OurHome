@@ -344,9 +344,11 @@ export interface BillDTO {
   reference: string | null;
   recurrence: RecurrenceDTO | null;
   assignee: MemberDTO | null;
-  // Aggregates over the bill's BillPayment records (fees excluded - `amount` is
-  // the portion applied to the balance). Drive list progress + "partially paid".
+  // Paid toward the current balance (fees excluded - `amount` is the portion
+  // applied to the balance). For a recurring bill that is only its current
+  // cycle's payments. Drives totals, progress and "partially paid".
   paidTotal: number;
+  // Every payment the bill has ever had.
   paymentCount: number;
 }
 

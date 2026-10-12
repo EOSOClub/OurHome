@@ -26,19 +26,39 @@ const billInclude = {
 type BillWithRelations = Prisma.BillGetPayload<{ include: typeof billInclude }>;
 
 // Aggregates over a bill's payments. `paidTotal` sums `amount` (the portion
-// applied to the balance), so fees are intentionally excluded.
+// applied to the balance), so fees are intentionally excluded. It is what has
+// been paid toward the CURRENT balance (see cyclePaymentsWhere); `paymentCount`
+// counts every payment the bill has ever had.
 type BillStats = { paidTotal: number; paymentCount: number };
 const ZERO_STATS: BillStats = { paidTotal: 0, paymentCount: 0 };
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
-async function paymentStats(db: Db, billId: string): Promise<BillStats> {
-  const agg = await db.billPayment.aggregate({
-    where: { billId },
-    _sum: { amount: true },
-    _count: true,
-  });
-  return { paidTotal: agg._sum.amount ?? 0, paymentCount: agg._count };
+type BillCycle = { id: string; recurrenceId: string | null; dueDate: Date | null };
+
+/**
+ * True when a payment counts toward the bill's current balance. A one-off bill
+ * counts all its payments. A recurring bill rolls on to its next due date when
+ * paid, so only payments made for its current due date count; summing them all
+ * would make every recurring bill with a past payment look settled.
+ */
+export function countsTowardBalance(bill: BillCycle, cycleDueDate: Date | null): boolean {
+  if (!bill.recurrenceId || !bill.dueDate) return true;
+  return cycleDueDate?.getTime() === bill.dueDate.getTime();
+}
+
+/** The `where` for the payments that count toward the bill's current balance. */
+export function cyclePaymentsWhere(bill: BillCycle): Prisma.BillPaymentWhereInput {
+  if (!bill.recurrenceId || !bill.dueDate) return { billId: bill.id };
+  return { billId: bill.id, cycleDueDate: bill.dueDate };
+}
+
+async function paymentStats(db: Db, bill: BillCycle): Promise<BillStats> {
+  const [cycle, paymentCount] = await Promise.all([
+    db.billPayment.aggregate({ where: cyclePaymentsWhere(bill), _sum: { amount: true } }),
+    db.billPayment.count({ where: { billId: bill.id } }),
+  ]);
+  return { paidTotal: cycle._sum.amount ?? 0, paymentCount };
 }
 
 const paymentInclude = {
@@ -129,21 +149,27 @@ export function billToDTO(
 }
 
 export async function listBills(householdId: string): Promise<BillDTO[]> {
-  const [rows, paymentGroups] = await Promise.all([
+  const [rows, paymentRows] = await Promise.all([
     prisma.bill.findMany({ where: { householdId }, include: billInclude }),
-    // One grouped query for all payment totals - avoids an aggregate per bill.
-    prisma.billPayment.groupBy({
-      by: ['billId'],
+    // One query for all payment totals - avoids an aggregate per bill. Summed
+    // here rather than with groupBy: each bill keeps only its current cycle's
+    // payments, and Prisma's MongoDB engine panics grouping by a field older
+    // payments don't have (cycleDueDate).
+    prisma.billPayment.findMany({
       where: { householdId },
-      _sum: { amount: true },
-      _count: true,
+      select: { billId: true, amount: true, cycleDueDate: true },
     }),
   ]);
-  const statsByBill = new Map<string, BillStats>(
-    paymentGroups
-      .filter((g): g is typeof g & { billId: string } => g.billId !== null)
-      .map((g) => [g.billId, { paidTotal: g._sum.amount ?? 0, paymentCount: g._count }]),
-  );
+  const billsById = new Map(rows.map((r) => [r.id, r]));
+  const statsByBill = new Map<string, BillStats>();
+  for (const p of paymentRows) {
+    const bill = p.billId ? billsById.get(p.billId) : undefined;
+    if (!bill) continue;
+    const stats = statsByBill.get(bill.id) ?? { ...ZERO_STATS };
+    stats.paymentCount += 1;
+    if (countsTowardBalance(bill, p.cycleDueDate)) stats.paidTotal += p.amount;
+    statsByBill.set(bill.id, stats);
+  }
   // Order in memory: MongoDB sorts null dates FIRST, but we want bills with no
   // due date last. Priority: status (asc) -> dueDate (asc, nulls last) -> newest.
   rows.sort((a, b) => {
@@ -176,8 +202,10 @@ export async function getBillDetail(
     include: paymentInclude,
     orderBy: { paidAt: 'desc' },
   });
-  const paidTotal = payments.reduce((sum, p) => sum + p.amount, 0);
-  const feeTotal = payments.reduce((sum, p) => sum + (p.fee ?? 0), 0);
+  // Totals for the current balance; the history below still lists every payment.
+  const current = payments.filter((p) => countsTowardBalance(bill, p.cycleDueDate));
+  const paidTotal = current.reduce((sum, p) => sum + p.amount, 0);
+  const feeTotal = current.reduce((sum, p) => sum + (p.fee ?? 0), 0);
 
   return {
     ...billToDTO(bill, { paidTotal, paymentCount: payments.length }),
@@ -293,7 +321,7 @@ export async function updateBill(
     // status itself.
     let status = rest.status;
     if (rest.amount !== undefined && status === undefined && !existing.recurrenceId && recurrenceId === undefined && !recurrence) {
-      const { paidTotal, paymentCount } = await paymentStats(tx, id);
+      const { paidTotal, paymentCount } = await paymentStats(tx, existing);
       if (paymentCount > 0) status = paidTotal + 0.005 >= rest.amount ? 'paid' : 'unpaid';
     }
 
@@ -341,7 +369,7 @@ export async function updateBill(
       },
       tx,
     );
-    const stats = await paymentStats(tx, updated.id);
+    const stats = await paymentStats(tx, updated);
     return { updated, stats };
   });
 
@@ -352,8 +380,9 @@ export async function updateBill(
  * Record a payment.
  *
  * Recurring bills treat each payment as clearing the current cycle: they roll
- * forward to the next due date and stay unpaid for the new cycle (payment amounts
- * accumulate across cycles, so a per-cycle "fully paid" check isn't meaningful).
+ * forward to the next due date and stay unpaid for the new cycle. Each payment
+ * records the due date it paid (`cycleDueDate`), so the balance only ever counts
+ * the current cycle's payments.
  *
  * One-off bills are partial-payment aware: a payment smaller than the remaining
  * balance leaves the bill unpaid; the bill flips to "paid" only once the summed
@@ -380,9 +409,9 @@ export async function markBillPaid(
       !!existing.recurrence && existing.recurrence.kind !== 'cron' && next === null;
     const recurs = !!existing.recurrence && !recurrenceEnded;
 
-    // Default the applied amount to what's still owed (recurring bills bill per
-    // cycle, so default to the full cycle amount rather than a polluted remainder).
-    const priorPaid = recurs ? 0 : (await paymentStats(tx, existing.id)).paidTotal;
+    // Default the applied amount to what's still owed this cycle (a Paperless
+    // import can leave part of a recurring bill's cycle paid).
+    const priorPaid = (await paymentStats(tx, existing)).paidTotal;
     const remaining = Math.max(0, existing.amount - priorPaid);
     const amount = input.amount ?? (remaining > 0 ? remaining : existing.amount);
 
@@ -392,6 +421,7 @@ export async function markBillPaid(
         billId: existing.id,
         amount,
         fee: input.fee ?? null,
+        cycleDueDate: existing.dueDate,
         paidByUserId: userId,
         createdById: userId,
         paidAt: input.paidAt ?? new Date(),
@@ -442,7 +472,7 @@ export async function markBillPaid(
       },
       tx,
     );
-    const stats = await paymentStats(tx, existing.id);
+    const stats = await paymentStats(tx, updated);
     return { updated, stats };
   });
 
@@ -482,10 +512,10 @@ export async function updatePayment(
     if (existing.billId) {
       const bill = await tx.bill.findUnique({
         where: { id: existing.billId },
-        select: { id: true, name: true, amount: true, recurrenceId: true },
+        select: { id: true, name: true, amount: true, recurrenceId: true, dueDate: true },
       });
       if (bill && !bill.recurrenceId) {
-        const { paidTotal } = await paymentStats(tx, bill.id);
+        const { paidTotal } = await paymentStats(tx, bill);
         const fullyPaid = paidTotal + 0.005 >= bill.amount;
         await tx.bill.update({
           where: { id: bill.id },
@@ -533,10 +563,10 @@ export async function deletePayment(
     if (payment.billId) {
       const bill = await tx.bill.findUnique({
         where: { id: payment.billId },
-        select: { id: true, name: true, amount: true, recurrenceId: true },
+        select: { id: true, name: true, amount: true, recurrenceId: true, dueDate: true },
       });
       if (bill && !bill.recurrenceId) {
-        const { paidTotal } = await paymentStats(tx, bill.id);
+        const { paidTotal } = await paymentStats(tx, bill);
         const fullyPaid = paidTotal + 0.005 >= bill.amount;
         await tx.bill.update({
           where: { id: bill.id },

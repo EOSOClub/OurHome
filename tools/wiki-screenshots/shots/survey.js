@@ -3,7 +3,7 @@ const { chromium } = require('playwright-core');
 const fs = require('fs'); const path = require('path');
 const BASE = 'http://localhost:3100', OUT = path.join(__dirname, 'survey');
 fs.mkdirSync(OUT, { recursive: true });
-const pages = ['dashboard','tasks','shopping','inventory','bills','bills/cmv3h8q46018xnik4w1x7mqdf','calendar','requests','notifications','profile','members','settings','activity','points'];
+const pages = ['dashboard','tasks','shopping','inventory','bills',`bills/${require('../demo/seed/state.json').bills.electric}`,'calendar','requests','notifications','profile','members','settings','activity','points'];
 (async () => {
   console.log('launching chrome', new Date().toLocaleTimeString());
   const browser = await chromium.launch({ channel: 'chrome' });

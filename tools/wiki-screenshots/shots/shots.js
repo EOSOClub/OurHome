@@ -2,7 +2,8 @@
 const fs = require('fs'); const path = require('path');
 const { open, go, card } = require('./lib');
 const OUT = path.join(__dirname, 'out'); fs.mkdirSync(OUT, { recursive: true });
-const BILL = 'bills/cmv3h8q46018xnik4w1x7mqdf';
+// The Prairie Power & Light bill, by the id the seed saved (changes on every reseed).
+const BILL = `bills/${require('../demo/seed/state.json').bills.electric}`;
 const only = process.argv.slice(2);
 
 async function clipOf(page, locators, pad = 16) {
@@ -40,7 +41,7 @@ const shots = {
   'bills-overview.png': async p => { await go(p, 'bills'); await view(p, 'bills-overview.png'); },
   'bill-create-modal.png': async p => { await go(p, 'bills'); await openDialog(p, 'New bill'); await el(p, 'bill-create-modal.png', dialog(p)); },
   'bill-detail-page.png': async p => { await go(p, BILL); await view(p, 'bill-detail-page.png'); },
-  'bill-payment-modal.png': async p => { await go(p, BILL); await openDialog(p, 'Add payment'); await el(p, 'bill-payment-modal.png', dialog(p)); },
+  'bill-payment-modal.png': async p => { await go(p, BILL); await openDialog(p, 'Record payment'); await el(p, 'bill-payment-modal.png', dialog(p)); },
   'calendar-month-view.png': async p => { await go(p, 'calendar'); await view(p, 'calendar-month-view.png'); },
   'calendar-week-agenda-views.png': async p => {
     await go(p, 'calendar');

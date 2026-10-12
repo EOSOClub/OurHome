@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { getPointsSettings } from '@/server/services/pointsService';
 import { prisma } from '@/server/db/prisma';
 import { logActivity } from '@/server/services/activityService';
+import { cyclePaymentsWhere } from '@/server/services/billService';
 import {
   nextAfterOccurrence,
   parseIntList,
@@ -320,8 +321,9 @@ async function ingestReceipt(
       // Split the charged amount into what's applied to the balance vs. a card
       // fee. Prefer an explicit split from the parser; otherwise infer the fee
       // from any overage within the fee band so the bill still reads paid in full.
+      // Only this cycle's payments: a recurring bill's earlier cycles are paid off.
       const priorAgg = await tx.billPayment.aggregate({
-        where: { billId: match.id },
+        where: cyclePaymentsWhere(match),
         _sum: { amount: true },
       });
       const prior = priorAgg._sum.amount ?? 0;
@@ -346,6 +348,7 @@ async function ingestReceipt(
           billId: match.id,
           amount: applied,
           fee: fee > 0 ? fee : null,
+          cycleDueDate: match.dueDate,
           paidAt,
           source: opts.source,
           reference,
@@ -433,6 +436,7 @@ async function ingestReceipt(
         billId: bill.id,
         amount: base,
         fee,
+        cycleDueDate: doc.dueDate ?? null,
         paidAt,
         source: opts.source,
         reference,

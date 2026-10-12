@@ -587,6 +587,11 @@ model BillPayment {
   // bill's balance). Total charged = amount + fee. Null ⇒ 0 (backward compatible:
   // no existing payment's `amount` includes a fee, so `amount` still == applied).
   fee          Float?
+  // The bill's due date when this payment was recorded: the cycle it pays.
+  // A recurring bill's balance counts only payments for its current due date,
+  // since paying rolls it on to the next one. Null on payments recorded before
+  // this field existed, which then count toward no recurring cycle.
+  cycleDueDate DateTime?
   paidByUserId String?
   paidAt       DateTime @default(now())
   notes        String?

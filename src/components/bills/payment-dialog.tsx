@@ -191,8 +191,9 @@ export function PaymentDialog({
         </div>
         <p className="text-xs text-muted-foreground">
           Applied to a {formatMoney(bill.amount, bill.currency)} balance ·{' '}
-          {formatMoney(remaining, bill.currency)} remaining. The fee is recorded
-          but doesn&apos;t count toward the balance.
+          {formatMoney(remaining, bill.currency)}{' '}
+          remaining. The fee is recorded but doesn&apos;t count toward the
+          balance.
         </p>
       </form>
     </Dialog>

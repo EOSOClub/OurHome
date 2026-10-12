@@ -57,5 +57,10 @@ for f in sorted(wiki.glob("*.md")):
         out.append(lines[i]); i += 1
     if n:
         f.write_text("\n".join(out), encoding="utf-8"); print(f"{f.name}: {n} image(s)", flush=True)
-for name in sorted(done): shutil.copy2(src / name, wiki / "images" / name)
-print(f"copied {len(done)} images; not placed: {sorted(set(ALT) - done) or 'none'}", flush=True)
+# Copy every shot that was taken, not only the newly placed ones, so a reshoot
+# replaces the images already in the wiki.
+copied = sorted(name for name in ALT if (src / name).exists())
+for name in copied: shutil.copy2(src / name, wiki / "images" / name)
+print(f"placed {len(done)} new image(s); copied {len(copied)} image(s)", flush=True)
+missing = sorted(set(ALT) - set(copied))
+if missing: print(f"not taken (left as they are): {missing}", flush=True)

@@ -33,7 +33,14 @@ Every member's password is `DemoHouse!2026`: `alex` (Head of House), `sam` (Mana
 
 ## Rebuilding the demo from scratch
 
-Only needed if the container is gone. The seed scripts drive the app's own API, so the data passes the same rules as real use.
+Needed if the container is gone, or to start the data over. To start over in the existing container, stop the demo server, empty the database and delete `demo/seed/state.json`, then carry on from `push-schema.sh` below. Stop the server first: once an account exists it remembers setup is finished until it restarts. From Git Bash, put `MSYS_NO_PATHCONV=1` in front of any `docker exec` or `docker cp` with a `/path` in it, or Git Bash rewrites the path into a Windows one.
+
+```sh
+MSYS_NO_PATHCONV=1 docker exec ourhome_demo_mongo mongosh --quiet ourhome_demo --eval 'db.dropDatabase()'
+rm tools/wiki-screenshots/demo/seed/state.json
+```
+
+The seed scripts drive the app's own API, so the data passes the same rules as real use.
 
 ```sh
 docker run -d --name ourhome_demo_mongo -p 127.0.0.1:27019:27017 mongo:7 --replSet rs0
@@ -41,9 +48,9 @@ docker exec ourhome_demo_mongo mongosh --quiet --eval 'rs.initiate()'
 sh tools/wiki-screenshots/demo/push-schema.sh
 ```
 
-Use `push-schema.sh`, never `npx prisma db push` with `DATABASE_URL=...` in front: the Prisma config loads the repo's `.env` over the environment, which would point it at the real server. (If `demo/.env` doesn't exist yet, run `demo/run.sh` once to create it.) Then start `demo/run.sh`, create the household on the setup page (Maple House, `alex`, time zone America/Chicago), and run the seed scripts in order from `demo/seed/`: `01-household`, `01b-places-cats`, `02-tasks`, `03-rest`, `04-bill-dues`, `09-backdate`, `10-reminders` (`node 01-household.mjs`, and so on). They save ids and sign-ins in `seed/state.json`.
+Use `push-schema.sh`, never `npx prisma db push` with `DATABASE_URL=...` in front: the Prisma config loads the repo's `.env` over the environment, which would point it at the real server. (If `demo/.env` doesn't exist yet, run `demo/run.sh` once to create it.) Then start `demo/run.sh` and run the seed scripts in order from `demo/seed/` (the first one does the setup page's job: Maple House, `alex`, time zone America/Chicago): `01-household`, `01b-places-cats`, `02-tasks`, `03-rest`, `04-bill-dues`, `09-backdate`, `10-reminders` (`node 01-household.mjs`, and so on). They save ids and sign-ins in `seed/state.json`.
 
-The seed dates are fixed around **11 October 2026**, so a fresh seed shows bills and tasks as overdue relative to that day. Change `day()` in `seed/lib.mjs` to move it. New record ids also mean updating the bill ids in `shots/shots.js`.
+The seed dates are fixed around **11 October 2026**, so a fresh seed shows bills and tasks as overdue relative to that day. Change `day()` in `seed/lib.mjs` to move it. A reseed gives every record a new id; the shots read the ids they need from `seed/state.json`, but the id lists in `demo/accounts.md` need updating by hand.
 
 ## Rules for wiki pictures
 

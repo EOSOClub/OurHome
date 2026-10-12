@@ -76,22 +76,26 @@ log('places now:', JSON.stringify(places).slice(0, 200));
 st.floors = st.floors ?? {}; st.rooms = st.rooms ?? {};
 const layout = { 'Ground floor': ['Kitchen', 'Living room', 'Laundry', 'Entryway'], Upstairs: ['Bathroom', "Alex & Sam's room", "Riley's room"] };
 for (const [floor, rooms] of Object.entries(layout)) {
+  // Both endpoints answer with the whole { floors, rooms } list, so the new
+  // record is found by name.
   if (!st.floors[floor]) {
     const f = await alex.post('/api/places/floors', { name: floor });
-    st.floors[floor] = f.id ?? f.floor?.id;
-    log(`floor ${floor} id=${st.floors[floor]}`, JSON.stringify(f).slice(0, 120));
+    st.floors[floor] = f.floors.find((x) => x.name === floor).id;
+    log(`floor ${floor} id=${st.floors[floor]}`);
   }
   for (const room of rooms) {
     if (st.rooms[room]) continue;
     const r = await alex.post('/api/places/rooms', { name: room, floorId: st.floors[floor] });
-    st.rooms[room] = r.id ?? r.room?.id;
+    st.rooms[room] = r.rooms.find((x) => x.name === room).id;
     log(`  room ${room} id=${st.rooms[room]}`);
   }
   saveState(st);
 }
 
-// Categories.
+// Categories. Setup already creates some defaults (Cleaning, for one), so
+// start from what exists and only add the rest.
 st.cats = st.cats ?? {};
+for (const c of await alex.get('/api/categories')) st.cats[`${c.kind}:${c.name}`] ??= c.id;
 const taskCats = [['Cleaning', '#38bdf8', '🧽'], ['Kitchen', '#f97316', '🍳'], ['Laundry', '#a78bfa', '🧺'], ['Outdoor', '#22c55e', '🌿'], ['Maintenance', '#ef4444', '🔧']];
 for (const [name, color, icon] of taskCats) {
   const k = `task:${name}`;

@@ -9,11 +9,15 @@ const prisma = {
     delete: vi.fn(),
   },
   shoppingList: { findMany: vi.fn(async (): Promise<{ id: string }[]> => []) },
+  memberLocation: { updateMany: vi.fn((args: unknown) => args) },
+  $transaction: vi.fn(async (ops: unknown[]) => ops),
 };
 vi.mock('@/server/db/prisma', () => ({ prisma }));
 vi.mock('@/server/services/activityService', () => ({ logActivity: vi.fn() }));
+const pushSync = vi.fn();
+vi.mock('@/server/services/pushService', () => ({ pushSync }));
 
-const { listMapPlaces, parseNominatim, saveMapPlace } = await import('./mapPlaceService');
+const { deleteMapPlace, listMapPlaces, parseNominatim, saveMapPlace } = await import('./mapPlaceService');
 
 const base = { name: 'Costco', kind: 'store' as const, lat: 41.9, lng: -87.7, radiusM: 250, shoppingListIds: [] };
 const listA = 'clist0000000000000000000a';
@@ -52,6 +56,21 @@ describe('mapPlaceService', () => {
     const lookedUp = prisma.shoppingList.findMany.mock.calls as unknown as [{ where: { id?: unknown } }][];
     expect(lookedUp.some(([a]) => a.where.id)).toBe(false);
     expect(prisma.mapPlace.create.mock.calls[0][0].data).toMatchObject({ kind: 'other', shoppingListIds: [], createdById: 'u1' });
+  });
+
+  it('wakes the phones when places change', async () => {
+    await saveMapPlace('h1', 'u1', { ...base, kind: 'other', name: 'School' });
+    expect(pushSync).toHaveBeenCalledWith('h1', { everyone: true }, 'map_places');
+  });
+
+  it('makes anyone at a deleted place away', async () => {
+    prisma.mapPlace.findFirst.mockResolvedValueOnce({ id: 'p1', name: 'Gym' });
+    await deleteMapPlace('h1', 'u1', { id: 'cplace000000000000000000a' });
+    expect(prisma.memberLocation.updateMany).toHaveBeenCalledWith({
+      where: { householdId: 'h1', placeId: 'p1' },
+      data: { state: 'away', placeId: null },
+    });
+    expect(pushSync).toHaveBeenCalledWith('h1', { everyone: true }, 'map_places');
   });
 
   it('reads Nominatim answers and skips malformed hits', () => {

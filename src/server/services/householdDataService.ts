@@ -43,6 +43,7 @@ export const HOUSEHOLD_MODELS = [
   'EventLog',
   'NfcTag',
   'MapPlace',
+  'MemberLocation',
   'HomeAssistantIntegration',
 ] as const;
 
@@ -58,8 +59,9 @@ export const EXPORT_VERSION = 1;
  * Export). Credentials are left out: passwords, sessions, the Home Assistant
  * and Paperless tokens, phone push tokens. The request log (EventLog) is left
  * out too: it's operational, not the household's records. So is each member's
- * location consent: a restored household starts with everyone's sharing off,
- * and each person turns it back on themselves.
+ * location consent and last known location (MemberLocation): a restored
+ * household starts with everyone's sharing off, and each person turns it back
+ * on themselves.
  */
 export async function exportHousehold(householdId: string) {
   const where = { householdId };
@@ -235,6 +237,7 @@ export async function deleteHousehold(adminId: string, householdId: string, conf
       count('EventLog', await tx.eventLog.deleteMany({ where }));
       count('NfcTag', await tx.nfcTag.deleteMany({ where }));
       count('MapPlace', await tx.mapPlace.deleteMany({ where }));
+      count('MemberLocation', await tx.memberLocation.deleteMany({ where }));
       count('HomeAssistantIntegration', await tx.homeAssistantIntegration.deleteMany({ where }));
       count('PaperlessSync', await tx.paperlessSync.deleteMany({ where }));
       count('PaperlessConnection', await tx.paperlessConnection.deleteMany({ where }));

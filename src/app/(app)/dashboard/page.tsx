@@ -3,8 +3,10 @@ import {
   AlertTriangle,
   CalendarDays,
   CheckCircle2,
+  Home,
   Inbox,
   ListTodo,
+  MapPin,
   Package,
   PartyPopper,
   Receipt,
@@ -15,6 +17,8 @@ import {
 import { requireUser } from '@/server/auth/session';
 import { getDashboard, type DashboardData } from '@/server/services/dashboardService';
 import { getUserAccess } from '@/server/services/permissionService';
+import { listPresence } from '@/server/services/locationService';
+import type { MemberPresenceDTO } from '@/lib/types';
 import { StatCard } from '@/components/dashboard/stat-card';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
@@ -37,6 +41,8 @@ export default async function DashboardPage() {
   const user = await requireUser();
   const access = await getUserAccess(user);
   const data = await getDashboard({ id: user.id, householdId: user.householdId! }, access);
+  // Only members who share their location are listed (Profile → Location).
+  const presence = data.features.includes('location') ? await listPresence(user.householdId!) : [];
   const actions = quickActions.filter((a) => access[a.page].create);
   const now = new Date();
   const hour = Number(
@@ -85,6 +91,7 @@ export default async function DashboardPage() {
           {showComingUp ? <ComingUpCard data={data} /> : null}
         </div>
         <div className="space-y-6">
+          {presence.length > 0 ? <WhoIsWhereCard presence={presence} timeZone={data.timezone} /> : null}
           {on('points') ? <PointsCard points={data.me.points} userId={user.id} /> : null}
           {showHousehold ? <HouseholdCard counts={data.counts} features={data.features} /> : null}
         </div>
@@ -262,6 +269,41 @@ function PointsCard({ points, userId }: { points: Me['points']; userId: string }
             ))}
           </ol>
         ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** "3:10 PM" today, else "Mon 3:10 PM", in the household's zone. */
+function sinceLabel(iso: string, timeZone: string): string {
+  const at = new Date(iso);
+  const day = (d: Date) => d.toLocaleDateString('en-CA', { timeZone });
+  const time = at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', timeZone });
+  if (day(at) === day(new Date())) return time;
+  return `${at.toLocaleDateString(undefined, { weekday: 'short', timeZone })} ${time}`;
+}
+
+function WhoIsWhereCard({ presence, timeZone }: { presence: MemberPresenceDTO[]; timeZone: string }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <MapPin className="size-4" /> Who’s where
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <ul className="space-y-2">
+          {presence.map((p) => (
+            <li key={p.userId} className="flex items-center justify-between gap-2 text-sm">
+              <span className="truncate font-medium">{p.name}</span>
+              <span className="flex shrink-0 items-center gap-1.5 text-muted-foreground">
+                {p.place?.kind === 'home' ? <Home className="size-3.5 text-[var(--color-success)]" /> : null}
+                {p.place ? (p.place.kind === 'home' ? p.place.name : `At ${p.place.name}`) : 'Away'}
+                <span className="text-xs">· since {sinceLabel(p.since, timeZone)}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
       </CardContent>
     </Card>
   );

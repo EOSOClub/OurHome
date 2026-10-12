@@ -55,6 +55,58 @@ export interface LocationConsent {
   liveChecks: boolean;
 }
 
+// --- Presence --------------------------------------------------------------------------
+// The Android app reports arriving at (after a couple of minutes inside) and
+// leaving each map place. Reports can arrive late or out of order (a phone
+// offline for a while sends them when it reconnects), so each is judged
+// against what's stored.
+
+export type PresenceState = 'place' | 'away';
+
+export interface PresenceSnapshot {
+  state: PresenceState;
+  /** The map place they're at; null when away. */
+  placeId: string | null;
+  /** When the phone noticed it. */
+  at: Date;
+}
+
+export interface PresenceEvent {
+  placeId: string;
+  transition: 'enter' | 'exit';
+  at: Date;
+}
+
+/**
+ * What a report changes. null = nothing: it's older than what's stored, they
+ * were already there, or they left a place they weren't recorded at (the
+ * stored place is newer news). `arrived` is true when they just got to the
+ * place, which is when store reminders go out.
+ */
+export function nextPresence(
+  current: PresenceSnapshot | null,
+  event: PresenceEvent,
+): { next: PresenceSnapshot; arrived: boolean } | null {
+  if (current && event.at.getTime() < current.at.getTime()) return null;
+  const atThatPlace = current?.state === 'place' && current.placeId === event.placeId;
+  if (event.transition === 'enter') {
+    if (atThatPlace) return null;
+    return { next: { state: 'place', placeId: event.placeId, at: event.at }, arrived: true };
+  }
+  // Leaving: away, unless the record already says they're somewhere else (or away).
+  if (atThatPlace || !current) {
+    return { next: { state: 'away', placeId: null, at: event.at }, arrived: false };
+  }
+  return null;
+}
+
+/**
+ * A store reminder only makes sense while they're likely still there: a
+ * report that reaches the server later than this (phone was offline) updates
+ * presence but doesn't remind.
+ */
+export const REMINDER_FRESH_MS = 15 * 60_000;
+
 export function locationConsent(user: {
   locationSharing?: string | null;
   liveChecks?: boolean | null;

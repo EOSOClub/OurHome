@@ -70,6 +70,7 @@ model Household {
   billPayments   BillPayment[]
   nfcTags        NfcTag[]
   mapPlaces      MapPlace[]
+  memberLocations MemberLocation[]
   integrations   HomeAssistantIntegration[]
   requests       Request[]
   bugReports     BugReport[]
@@ -136,6 +137,7 @@ model User {
   assignedRequests Request[]       @relation("RequestAssignee")
   bugReports      BugReport[]
   pushDevices     PushDevice[]
+  location        MemberLocation?
 
   @@index([householdId])
 }
@@ -972,6 +974,33 @@ model HomeAssistantIntegration {
   updatedAt   DateTime @updatedAt
 
   household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@index([householdId])
+}
+
+// Where a member who shares their location was last seen: one row per member,
+// overwritten on every report, never a history. Written by the Android app's
+// geofences (arrive at / leave a map place); removed when they stop sharing.
+// See src/lib/location.ts (nextPresence) and locationService.
+model MemberLocation {
+  id          String   @id @default(cuid()) @map("_id")
+  userId      String   @unique
+  householdId String
+  // state: "place" (at placeId) | "away" (not at any map place)
+  state       String
+  // The map place they're at; null when away. Plain id: a deleted place
+  // makes them away (mapPlaceService.deleteMapPlace).
+  placeId     String?
+  // Where the phone was when it noticed the change (the last known point).
+  lat         Float?
+  lng         Float?
+  accuracyM   Float?
+  // When the phone noticed it; older reports than this are ignored.
+  at          DateTime
+  updatedAt   DateTime @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([householdId])
 }

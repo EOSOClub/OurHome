@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { USER_ROLES } from '@/lib/enums';
-import { clampRadius, locationConsent, MAP_PLACE_RADIUS, sharingMode, type LocationConsent } from '@/lib/location';
+import {
+  clampRadius,
+  locationConsent,
+  MAP_PLACE_RADIUS,
+  nextPresence,
+  sharingMode,
+  type LocationConsent,
+} from '@/lib/location';
 import { canChangeOwnSharing, canStartLiveCheck } from '@/lib/permissions';
 import { saveMapPlaceSchema, updateLocationConsentSchema } from '@/lib/validation/location';
 
@@ -51,6 +58,45 @@ describe('canStartLiveCheck', () => {
 
   it('is never on yourself', () => {
     expect(canStartLiveCheck({ id: 'kid', role: 'head' }, target(yes))).toBe(false);
+  });
+});
+
+describe('nextPresence', () => {
+  const t = (min: number) => new Date(Date.UTC(2026, 9, 12, 12, min));
+  const atHome = { state: 'place' as const, placeId: 'home', at: t(0) };
+
+  it('records an arrival somewhere new', () => {
+    expect(nextPresence(null, { placeId: 'home', transition: 'enter', at: t(5) })).toEqual({
+      next: { state: 'place', placeId: 'home', at: t(5) },
+      arrived: true,
+    });
+    expect(nextPresence(atHome, { placeId: 'store', transition: 'enter', at: t(5) })?.arrived).toBe(true);
+  });
+
+  it('ignores arriving where they already are, so a store never reminds twice', () => {
+    expect(nextPresence(atHome, { placeId: 'home', transition: 'enter', at: t(30) })).toBeNull();
+  });
+
+  it('makes them away when they leave where they are', () => {
+    expect(nextPresence(atHome, { placeId: 'home', transition: 'exit', at: t(9) })).toEqual({
+      next: { state: 'away', placeId: null, at: t(9) },
+      arrived: false,
+    });
+  });
+
+  it('ignores leaving somewhere else, and leaving while already away', () => {
+    expect(nextPresence(atHome, { placeId: 'store', transition: 'exit', at: t(9) })).toBeNull();
+    expect(nextPresence({ state: 'away', placeId: null, at: t(0) }, { placeId: 'home', transition: 'exit', at: t(9) })).toBeNull();
+  });
+
+  it('takes a first report of leaving as away', () => {
+    expect(nextPresence(null, { placeId: 'home', transition: 'exit', at: t(1) })?.next.state).toBe('away');
+  });
+
+  it('drops reports older than what is stored (a phone catching up after being offline)', () => {
+    const atStore = { state: 'place' as const, placeId: 'store', at: t(20) };
+    expect(nextPresence(atStore, { placeId: 'home', transition: 'exit', at: t(10) })).toBeNull();
+    expect(nextPresence(atStore, { placeId: 'home', transition: 'enter', at: t(10) })).toBeNull();
   });
 });
 

@@ -1,6 +1,7 @@
 import { prisma } from '@/server/db/prisma';
 import { logActivity } from '@/server/services/activityService';
 import { ConflictError, NotFoundError } from '@/server/services/errors';
+import { pushSync } from '@/server/services/pushService';
 import { MAP_PLACE_KIND_LABELS, isMapPlaceKind } from '@/lib/location';
 import type { AddressMatchDTO, MapPlaceDTO } from '@/lib/types';
 import type { DeleteMapPlaceInput, SaveMapPlaceInput } from '@/lib/validation/location';
@@ -108,7 +109,13 @@ export async function saveMapPlace(
       message: `added the map place “${place.name}” (${MAP_PLACE_KIND_LABELS[input.kind].toLowerCase()})`,
     });
   }
+  placesChanged(householdId);
   return listMapPlaces(householdId);
+}
+
+/** Phones watch the map places: wake them to pick up the change now. */
+function placesChanged(householdId: string): void {
+  pushSync(householdId, { everyone: true }, 'map_places');
 }
 
 export async function deleteMapPlace(
@@ -118,7 +125,15 @@ export async function deleteMapPlace(
 ): Promise<MapPlaceDTO[]> {
   const place = await prisma.mapPlace.findFirst({ where: { id: input.id, householdId } });
   if (!place) throw new NotFoundError('Map place not found.');
-  await prisma.mapPlace.delete({ where: { id: place.id } });
+  await prisma.$transaction([
+    // Anyone recorded there is no longer at a known place.
+    prisma.memberLocation.updateMany({
+      where: { householdId, placeId: place.id },
+      data: { state: 'away', placeId: null },
+    }),
+    prisma.mapPlace.delete({ where: { id: place.id } }),
+  ]);
+  placesChanged(householdId);
   await logActivity({
     householdId,
     actorId,

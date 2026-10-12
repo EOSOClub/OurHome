@@ -23,6 +23,20 @@ export type DeleteMapPlaceInput = z.infer<typeof deleteMapPlaceSchema>;
 /** Address search for the pin picker. */
 export const searchAddressSchema = z.object({ q: z.string().trim().min(3).max(200) });
 
+/**
+ * The Android app's report: this member's phone arrived at (dwelled in) or
+ * left a map place. The position is where the phone was at that moment.
+ */
+export const reportPresenceSchema = z.object({
+  placeId: z.string().cuid(),
+  transition: z.enum(['enter', 'exit']),
+  at: z.coerce.date(),
+  lat: z.number().min(-90).max(90).optional(),
+  lng: z.number().min(-180).max(180).optional(),
+  accuracyM: z.number().min(0).max(100_000).optional(),
+});
+export type ReportPresenceInput = z.infer<typeof reportPresenceSchema>;
+
 /** A member's own choices. "required" is never chosen by the member. */
 export const updateLocationConsentSchema = z
   .object({

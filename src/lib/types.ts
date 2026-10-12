@@ -181,6 +181,28 @@ export interface MapPlaceDTO {
   shoppingListIds: string[];
 }
 
+/** GET /api/location/presence: one member who shares their location. */
+export interface MemberPresenceDTO {
+  userId: string;
+  name: string;
+  /** PresenceState: "place" | "away". */
+  state: string;
+  /** The map place they're at; null when away. */
+  place: { id: string; name: string; kind: string } | null;
+  /** When their phone noticed it (ISO). */
+  since: string;
+}
+
+/** POST /api/location/presence: what the phone shows after reporting. */
+export interface PresenceReportDTO {
+  /** Arrived at a store with lists still to buy: the phone posts a reminder. */
+  reminder: {
+    placeId: string;
+    placeName: string;
+    lists: { id: string; name: string; openItems: number }[];
+  } | null;
+}
+
 /** GET /api/map-places/search: one address match for the pin picker. */
 export interface AddressMatchDTO {
   label: string;

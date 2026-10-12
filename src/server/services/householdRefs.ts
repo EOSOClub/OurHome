@@ -33,6 +33,24 @@ export async function assertPlaceRef(
   }
 }
 
+/** Throws unless every room and floor in [places] is the household's. */
+export async function assertPlaceRefs(
+  db: Db,
+  householdId: string,
+  places: { roomId: string | null; floorId: string | null }[],
+): Promise<void> {
+  const roomIds = [...new Set(places.flatMap((p) => (p.roomId ? [p.roomId] : [])))];
+  const floorIds = [...new Set(places.flatMap((p) => (!p.roomId && p.floorId ? [p.floorId] : [])))];
+  if (roomIds.length) {
+    const found = await db.room.count({ where: { id: { in: roomIds }, householdId } });
+    if (found !== roomIds.length) throw new NotFoundError('That room is not in this household.');
+  }
+  if (floorIds.length) {
+    const found = await db.floor.count({ where: { id: { in: floorIds }, householdId } });
+    if (found !== floorIds.length) throw new NotFoundError('That floor is not in this household.');
+  }
+}
+
 /** Throws unless [categoryId] (when given) is one of the household's categories. */
 export async function assertCategoryRef(db: Db, householdId: string, categoryId: string | null | undefined): Promise<void> {
   if (!categoryId) return;

@@ -156,6 +156,12 @@ export interface RoomDTO {
   position: number;
 }
 
+/** One of a task's places: a room (and its floor), or a whole floor (room null). */
+export interface TaskPlaceDTO {
+  room: PlaceRefDTO | null;
+  floor: PlaceRefDTO | null;
+}
+
 /** GET /api/places: every floor and room, each in its hand-set order. */
 export interface PlacesDTO {
   floors: FloorDTO[];
@@ -188,11 +194,13 @@ export interface TaskDTO {
   cycleStartedAt: string | null;
   cycleEndsAt: string | null;
   category: CategoryDTO | null;
-  /** Where it's done (src/lib/places.ts). Both null = the whole house. */
+  /** Its first place (src/lib/places.ts). Both null = the whole house. */
   room: PlaceRefDTO | null;
   /** The whole floor it covers, or its room's floor. */
   floor: PlaceRefDTO | null;
-  /** Hand-set order within its place (null = by due date, after the ordered ones). */
+  /** Every place it's done in, in the household's order ([] = the whole house). */
+  places: TaskPlaceDTO[];
+  /** Hand-set order within its places (null = by due date, after the ordered ones). */
   position: number | null;
   assignee: MemberDTO | null;
   /** Rotating assignees in turn order ([] = no rotation; src/lib/taskRotation.ts). */

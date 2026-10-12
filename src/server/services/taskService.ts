@@ -15,8 +15,15 @@ import type {
   UpdateTaskInput,
 } from '@/lib/validation/task';
 import { logActivity } from '@/server/services/activityService';
-import { assertCategoryRef, assertMemberRef, assertPlaceRef } from '@/server/services/householdRefs';
-import { placeColumns } from '@/lib/places';
+import { assertCategoryRef, assertMemberRef, assertPlaceRefs } from '@/server/services/householdRefs';
+import {
+  placeColumns,
+  placeListColumns,
+  samePlaces,
+  taskPlaceIds,
+  type PlaceIds,
+} from '@/lib/places';
+import { loadPlaceIndex, resolveTaskPlaces, type PlaceIndex } from '@/server/services/taskPlaces';
 import {
   ConflictError,
   ForbiddenError,
@@ -93,21 +100,47 @@ export interface TaskContext {
   names: Map<string, string>;
   /** subtaskId → user whose points are queued on it. */
   pending: Map<string, string>;
+  /** The household's floors and rooms, for each task's places. */
+  places: PlaceIndex;
 }
 
 export async function loadTaskContext(householdId: string, taskIds: string[]): Promise<TaskContext> {
-  const [settings, members, pending] = await Promise.all([
+  const [settings, members, pending, places] = await Promise.all([
     getPointsSettings(householdId),
     prisma.user.findMany({ where: { householdId }, select: { id: true, name: true } }),
     taskIds.length
       ? prisma.pendingCredit.findMany({ where: { householdId, taskId: { in: taskIds } } })
       : Promise.resolve([]),
+    loadPlaceIndex(prisma, householdId),
   ]);
   return {
     settings,
     names: new Map(members.map((m) => [m.id, m.name])),
     pending: new Map(pending.map((p) => [p.subtaskId, p.userId])),
+    places,
   };
+}
+
+/**
+ * The places an input asks for, or undefined to leave them. The lists
+ * replace every place; a single roomId/floorId (app builds that know one
+ * place) replaces only the first and keeps the rest of `current`.
+ */
+function inputPlaces(
+  input: { roomIds?: string[]; floorIds?: string[]; roomId?: string | null; floorId?: string | null },
+  current: PlaceIds[],
+): PlaceIds[] | undefined {
+  if (input.roomIds !== undefined || input.floorIds !== undefined) {
+    return [
+      ...(input.roomIds ?? []).map((roomId) => ({ roomId, floorId: null })),
+      ...(input.floorIds ?? []).map((floorId) => ({ roomId: null, floorId })),
+    ];
+  }
+  if (input.roomId !== undefined || input.floorId !== undefined) {
+    const first = placeColumns(input.roomId, input.floorId);
+    return [...(first.roomId || first.floorId ? [first] : []), ...current.slice(1)];
+  }
+  return undefined;
 }
 
 function member(id: string | null | undefined, names: Map<string, string>) {
@@ -152,6 +185,7 @@ export function taskToDTO(task: TaskWithRelations, ctx: TaskContext): TaskDTO {
       : task.floor
         ? { id: task.floor.id, name: task.floor.name }
         : null,
+    places: resolveTaskPlaces(task, ctx.places),
     position: task.position ?? null,
     assignee: task.assignee
       ? { id: task.assignee.id, name: task.assignee.name }
@@ -513,7 +547,8 @@ export async function createTask(
   const created = await prisma.$transaction(async (tx) => {
     await assertMemberRef(tx, householdId, input.assigneeId);
     await assertCategoryRef(tx, householdId, input.categoryId);
-    await assertPlaceRef(tx, householdId, input.roomId, input.floorId);
+    const places = inputPlaces(input, []) ?? [];
+    await assertPlaceRefs(tx, householdId, places);
     const rotation = await rotationColumns(tx, householdId, input.rotationUserIds ?? null, input.assigneeId ?? null, null);
     let rule: RuleRow | null = null;
     if (input.recurrence) {
@@ -533,7 +568,7 @@ export async function createTask(
         ...taskPointsColumns(state),
         ...cycleWindow(rule, settings.timezone, now),
         categoryId: input.categoryId ?? null,
-        ...placeColumns(input.roomId, input.floorId),
+        ...placeListColumns(places),
         assigneeId: rotation.assigneeId ?? null,
         rotationUserIds: rotation.rotationUserIds,
         createdById: userId,
@@ -662,7 +697,7 @@ export async function updateTask(
   userId: string,
   input: UpdateTaskInput,
 ): Promise<TaskWithRelations> {
-  const { taskId, recurrence, subtasks, rotationUserIds, roomId, floorId, ...rest } = input;
+  const { taskId, recurrence, subtasks, rotationUserIds, roomId, floorId, roomIds, floorIds, ...rest } = input;
   const settings = await getPointsSettings(householdId);
   const now = new Date();
 
@@ -676,13 +711,13 @@ export async function updateTask(
     if (!existing) throw new TaskNotFoundError(taskId);
     await assertMemberRef(tx, householdId, rest.assigneeId);
     await assertCategoryRef(tx, householdId, rest.categoryId);
-    await assertPlaceRef(tx, householdId, roomId, floorId);
-    // Either key sent = a new place; a task moving to another place starts
-    // at the end of that place's order.
-    const place =
-      roomId !== undefined || floorId !== undefined ? placeColumns(roomId, floorId) : undefined;
-    const placeChanged =
-      !!place && (place.roomId !== (existing.roomId ?? null) || place.floorId !== (existing.floorId ?? null));
+    // New places when any place key is sent; a task whose places change
+    // starts at the end of their order.
+    const current = taskPlaceIds(existing);
+    const nextPlaces = inputPlaces({ roomId, floorId, roomIds, floorIds }, current);
+    if (nextPlaces) await assertPlaceRefs(tx, householdId, nextPlaces);
+    const place = nextPlaces ? placeListColumns(nextPlaces) : undefined;
+    const placeChanged = !!nextPlaces && !samePlaces(nextPlaces, current);
 
     // Completing pays points and reopening must take them back, so neither
     // can happen through an edit: Complete and Undo (task history) do that.

@@ -469,7 +469,8 @@ export function TasksView({
           focused={task.id === focusId}
           completing={completingId === task.id}
           deleting={deletingId === task.id}
-          hidePlace
+          // The heading says where; a task in several places still lists them all.
+          hidePlace={task.places.length <= 1}
           move={
             canReorder && list.length > 1
               ? {
@@ -689,7 +690,8 @@ export function TasksView({
                   <PlaceHeading
                     level="floor"
                     title={g.floor?.name ?? 'Other rooms'}
-                    count={g.tasks.length + g.rooms.reduce((n, r) => n + r.tasks.length, 0)}
+                    // Each task once, even when it's in several rooms on this floor.
+                    count={new Set([...g.tasks, ...g.rooms.flatMap((r) => r.tasks)].map((t) => t.id)).size}
                     open={!collapsed.has(key)}
                     onToggle={() => toggleCollapsed(key)}
                   />

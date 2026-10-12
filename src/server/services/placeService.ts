@@ -1,8 +1,9 @@
+import type { Prisma } from '@prisma/client';
 import { prisma } from '@/server/db/prisma';
 import { logActivity } from '@/server/services/activityService';
 import { NotFoundError } from '@/server/services/errors';
 import { assertPlaceRef } from '@/server/services/householdRefs';
-import { byPosition } from '@/lib/places';
+import { byPosition, placeListColumns, taskPlaceIds, type PlaceIds } from '@/lib/places';
 import type { PlacesDTO } from '@/lib/types';
 import type {
   DeletePlaceInput,
@@ -12,9 +13,22 @@ import type {
 } from '@/lib/validation/place';
 
 // Floors and the rooms on them, set up in Settings → Rooms & floors. Tasks
-// and inventory items point at one room or a whole floor (taskService,
-// inventoryService); NFC location tags at a room (nfcService). Grouping and
-// order rules are in src/lib/places.ts.
+// point at any rooms and whole floors (taskService), inventory items at one
+// room or a whole floor (inventoryService), NFC location tags at a room
+// (nfcService). Grouping and order rules are in src/lib/places.ts.
+
+const taskPlaceSelect = { id: true, roomId: true, floorId: true, extraRoomIds: true, extraFloorIds: true } as const;
+
+/** Rewrite the places of the tasks that use a place being deleted. */
+async function taskPlaceUpdates(
+  where: Prisma.TaskWhereInput,
+  replace: (p: PlaceIds) => PlaceIds[],
+) {
+  const tasks = await prisma.task.findMany({ where, select: taskPlaceSelect });
+  return tasks.map((t) =>
+    prisma.task.update({ where: { id: t.id }, data: placeListColumns(taskPlaceIds(t).flatMap(replace)) }),
+  );
+}
 
 export async function listPlaces(householdId: string): Promise<PlacesDTO> {
   const [floors, rooms] = await Promise.all([
@@ -125,17 +139,19 @@ export async function saveRoom(householdId: string, actorId: string, input: Save
  * Delete a room: its tasks and items move up to its floor (or the whole
  * house), and location tags that opened it point at no room. Delete a floor:
  * its rooms stay, on no floor; its whole-floor tasks and items go to the whole
- * house. Nothing else is lost.
+ * house. A task with other places keeps them (and only goes to the whole
+ * house when none are left). Nothing else is lost.
  */
 export async function deletePlace(householdId: string, actorId: string, input: DeletePlaceInput): Promise<PlacesDTO> {
   if (input.kind === 'room') {
     const room = await prisma.room.findFirst({ where: { id: input.id, householdId } });
     if (!room) throw new NotFoundError('Room not found.');
+    const tasks = await taskPlaceUpdates(
+      { householdId, OR: [{ roomId: room.id }, { extraRoomIds: { has: room.id } }] },
+      (p) => (p.roomId !== room.id ? [p] : room.floorId ? [{ roomId: null, floorId: room.floorId }] : []),
+    );
     await prisma.$transaction([
-      prisma.task.updateMany({
-        where: { householdId, roomId: room.id },
-        data: { roomId: null, floorId: room.floorId ?? null },
-      }),
+      ...tasks,
       prisma.inventoryItem.updateMany({
         where: { householdId, roomId: room.id },
         data: { roomId: null, floorId: room.floorId ?? null },
@@ -154,8 +170,12 @@ export async function deletePlace(householdId: string, actorId: string, input: D
   } else {
     const floor = await prisma.floor.findFirst({ where: { id: input.id, householdId } });
     if (!floor) throw new NotFoundError('Floor not found.');
+    const tasks = await taskPlaceUpdates(
+      { householdId, OR: [{ floorId: floor.id }, { extraFloorIds: { has: floor.id } }] },
+      (p) => (!p.roomId && p.floorId === floor.id ? [] : [p]),
+    );
     await prisma.$transaction([
-      prisma.task.updateMany({ where: { householdId, floorId: floor.id }, data: { floorId: null } }),
+      ...tasks,
       prisma.inventoryItem.updateMany({ where: { householdId, floorId: floor.id }, data: { floorId: null } }),
       prisma.room.updateMany({ where: { householdId, floorId: floor.id }, data: { floorId: null } }),
       prisma.floor.delete({ where: { id: floor.id } }),

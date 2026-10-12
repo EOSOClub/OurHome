@@ -81,6 +81,9 @@ const checklistSchema = z
     return new Set(ids).size === ids.length;
   }, 'A checklist step appears twice.');
 
+// A task's places (src/lib/places.ts): rooms and whole floors.
+const placeIdsSchema = z.array(z.string().cuid()).max(50);
+
 // Rotating assignees: member ids in turn order (src/lib/taskRotation.ts).
 // Fewer than two distinct people clears the rotation.
 const rotationSchema = z.array(z.string().cuid()).max(MAX_ROTATION);
@@ -97,7 +100,11 @@ export const createTaskSchema = z.object({
   points: pointsSchema.optional().nullable(),
   pointsFollowTime: z.boolean().optional(),
   categoryId: z.string().cuid().optional().nullable(),
-  // Where: a room, or a whole floor (a room wins if both are sent).
+  // Where: any rooms and whole floors (neither = the whole house). App
+  // builds from before several places send one roomId or floorId instead (a
+  // room wins if both are sent); the lists win when present.
+  roomIds: placeIdsSchema.optional(),
+  floorIds: placeIdsSchema.optional(),
   roomId: z.string().cuid().optional().nullable(),
   floorId: z.string().cuid().optional().nullable(),
   assigneeId: z.string().cuid().optional().nullable(),
@@ -131,8 +138,13 @@ export const updateTaskSchema = z.object({
   points: pointsSchema.optional().nullable(),
   pointsFollowTime: z.boolean().optional(),
   categoryId: z.string().cuid().optional().nullable(),
-  // When either is present the place is replaced: a room, else a whole
-  // floor, else (both null) the whole house. Both absent = unchanged.
+  // When either list is present, all the task's places are replaced (a
+  // missing list counts as []; both empty = the whole house).
+  roomIds: placeIdsSchema.optional(),
+  floorIds: placeIdsSchema.optional(),
+  // Older app builds: when either is present, the task's FIRST place is
+  // replaced (a room, else a whole floor, else none) and any further places
+  // are kept. Ignored when a list is sent. Both absent = unchanged.
   roomId: z.string().cuid().optional().nullable(),
   floorId: z.string().cuid().optional().nullable(),
   assigneeId: z.string().cuid().optional().nullable(),

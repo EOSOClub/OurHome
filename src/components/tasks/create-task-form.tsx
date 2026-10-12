@@ -16,7 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { LocationSelect, placeIds, placeValue } from '@/components/location-select';
+import { LocationMultiSelect, placeIdLists, placeValues } from '@/components/location-select';
 import {
   PointsEditor,
   draftFromTask,
@@ -50,9 +50,9 @@ export interface TaskFormPayload {
   points?: number | null;
   pointsFollowTime: boolean;
   categoryId?: string | null;
-  // Where: a room or a whole floor; both null = the whole house.
-  roomId: string | null;
-  floorId: string | null;
+  // Where: any rooms and whole floors; both [] = the whole house.
+  roomIds: string[];
+  floorIds: string[];
   assigneeId?: string | null;
   // Rotating assignees in turn order; [] clears (src/lib/taskRotation.ts).
   rotationUserIds: string[];
@@ -123,8 +123,8 @@ export function CreateTaskForm({
   const [dueTime, setDueTime] = useState(initialDue.time);
   const [points, setPoints] = useState<PointsDraft>(() => draftFromTask(initial));
   const [categoryId, setCategoryId] = useState(initial?.category?.id ?? '');
-  // "room:<id>", "floor:<id>" or "" (the whole house).
-  const [location, setLocation] = useState(placeValue(initial));
+  // "room:<id>" / "floor:<id>" for each place; [] = the whole house.
+  const [locations, setLocations] = useState<string[]>(() => placeValues(initial?.places));
   const [assigneeId, setAssigneeId] = useState(initial?.assignee?.id ?? '');
   const [rotation, setRotation] = useState<string[]>(
     () => initial?.rotation?.map((m) => m.id) ?? [],
@@ -183,7 +183,7 @@ export function CreateTaskForm({
       points: points.task.pointsFollowTime || points.task.basePointsCenti === null ? null : points.task.basePointsCenti / 100,
       pointsFollowTime: points.task.pointsFollowTime,
       categoryId: categoryId || null,
-      ...placeIds(location),
+      ...placeIdLists(locations),
       assigneeId: currentTurn || null,
       rotationUserIds: rotating ? rotation : [],
       subtasks: points.steps
@@ -328,19 +328,20 @@ export function CreateTaskForm({
                 ))}
               </Select>
             </div>
-            {places.floors.length || places.rooms.length ? (
-              <div className="space-y-2">
-                <Label htmlFor="location">Location</Label>
-                <LocationSelect
-                  id="location"
-                  places={places}
-                  value={location}
-                  onChange={setLocation}
-                  emptyLabel="Whole house"
-                />
-              </div>
-            ) : null}
           </div>
+
+          {places.floors.length || places.rooms.length ? (
+            <div className="space-y-2">
+              <Label>Location</Label>
+              <LocationMultiSelect
+                id="location"
+                places={places}
+                value={locations}
+                onChange={setLocations}
+                emptyLabel="Whole house"
+              />
+            </div>
+          ) : null}
 
           {isRecurring ? (
             <div className="space-y-4 rounded-md border border-border bg-muted/40 p-4">

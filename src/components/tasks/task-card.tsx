@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import type { TaskDTO } from '@/lib/types';
 import { formatPoints, toCenti } from '@/lib/taskPoints';
-import { placeLabel } from '@/lib/places';
+import { placesLabel } from '@/lib/places';
 import { canModify, type PageAccess } from '@/lib/permissions';
 import { PRIORITY_LABELS, TASK_TYPE_LABELS, type TaskPriority, type TaskType } from '@/lib/enums';
 import { cn } from '@/lib/utils';
@@ -254,10 +254,10 @@ export function TaskCard({
               </span>
             )}
             {/* Grouped by room the heading already says where. */}
-            {!hidePlace && placeLabel(task) ? (
+            {!hidePlace && placesLabel(task) ? (
               <span className="inline-flex items-center gap-1 text-muted-foreground">
                 <MapPin className="size-3" />
-                {placeLabel(task)}
+                {placesLabel(task)}
               </span>
             ) : null}
             {showPoints && task.points > 0 ? (

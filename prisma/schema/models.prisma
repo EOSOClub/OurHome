@@ -276,10 +276,15 @@ model Task {
   cycleStartedAt   DateTime?
   cycleEndsAt      DateTime?
   categoryId  String?
-  // Where it's done: one room, or a whole floor (never both; neither = the
-  // whole house).
+  // Where it's done. The first place: one room, or a whole floor (never
+  // both; neither = the whole house).
   roomId      String?
   floorId     String?
+  // Any further places (src/lib/places.ts taskPlaceIds). Kept apart from
+  // roomId/floorId so tasks from before multiple places, and app builds that
+  // only know one place, keep working unchanged.
+  extraRoomIds  String[]
+  extraFloorIds String[]
   // Hand-set order among the tasks of the same place (null = after the
   // ordered ones, by due date).
   position    Int?

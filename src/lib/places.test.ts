@@ -5,7 +5,11 @@ import {
   orderTasks,
   placeColumns,
   placeLabel,
+  placeListColumns,
   placeRefs,
+  placesLabel,
+  samePlaces,
+  taskPlaceIds,
   type PlacedTask,
 } from '@/lib/places';
 
@@ -94,6 +98,73 @@ describe('groupByPlace', () => {
     expect(only.floors).toHaveLength(1);
     expect(only.floors[0].rooms.map((r) => r.room.id)).toEqual(['kit']);
   });
+
+  it('lists a task in several places under each of them', () => {
+    const mop = {
+      ...task('mop', { room: 'kit', floor: 'main' }),
+      places: [
+        { room: { id: 'kit' }, floor: { id: 'main' } },
+        { room: { id: 'bath' }, floor: { id: 'up' } },
+        { room: null, floor: { id: 'up' } },
+        { room: { id: 'deleted-room' }, floor: null },
+      ],
+    };
+    const multi = groupByPlace([mop, task('dishes', { room: 'kit' })], floors, rooms);
+    const [main, up] = multi.floors;
+    expect(ids(main.rooms[0].tasks)).toEqual(['mop', 'dishes']);
+    expect(ids(up.tasks)).toEqual(['mop']);
+    expect(ids(up.rooms[0].tasks)).toEqual(['mop']);
+    expect(multi.house).toEqual([]);
+  });
+
+  it('sends a task none of whose places exist to the whole house', () => {
+    const lost = { ...task('lost'), places: [{ room: { id: 'gone' }, floor: null }] };
+    expect(ids(groupByPlace([lost], floors, rooms).house)).toEqual(['lost']);
+  });
+});
+
+describe('taskPlaceIds and placeListColumns', () => {
+  it('reads the first place, then the extra rooms and floors, without repeats', () => {
+    expect(taskPlaceIds({ roomId: 'kit', floorId: null, extraRoomIds: ['bath', 'kit'], extraFloorIds: ['up'] })).toEqual([
+      { roomId: 'kit', floorId: null },
+      { roomId: 'bath', floorId: null },
+      { roomId: null, floorId: 'up' },
+    ]);
+    // Tasks from before several places have no extra lists.
+    expect(taskPlaceIds({ roomId: null, floorId: 'up' })).toEqual([{ roomId: null, floorId: 'up' }]);
+    expect(taskPlaceIds({ roomId: null, floorId: null })).toEqual([]);
+  });
+
+  it('stores the first place where one-place app builds read it, the rest as extras', () => {
+    expect(
+      placeListColumns([
+        { roomId: null, floorId: 'up' },
+        { roomId: 'kit', floorId: null },
+        { roomId: 'kit', floorId: null },
+        { roomId: null, floorId: 'main' },
+      ]),
+    ).toEqual({ roomId: null, floorId: 'up', extraRoomIds: ['kit'], extraFloorIds: ['main'] });
+    expect(placeListColumns([])).toEqual({ roomId: null, floorId: null, extraRoomIds: [], extraFloorIds: [] });
+  });
+
+  it('round-trips', () => {
+    const list = [
+      { roomId: 'kit', floorId: null },
+      { roomId: 'bath', floorId: null },
+      { roomId: null, floorId: 'up' },
+    ];
+    expect(taskPlaceIds(placeListColumns(list))).toEqual(list);
+  });
+});
+
+describe('samePlaces', () => {
+  it('ignores order and repeats', () => {
+    const a = [{ roomId: 'kit', floorId: null }, { roomId: null, floorId: 'up' }];
+    expect(samePlaces(a, [...a].reverse())).toBe(true);
+    expect(samePlaces(a, [...a, a[0]])).toBe(true);
+    expect(samePlaces(a, a.slice(1))).toBe(false);
+    expect(samePlaces([], [])).toBe(true);
+  });
 });
 
 describe('moveId', () => {
@@ -109,5 +180,29 @@ describe('placeLabel', () => {
     expect(placeLabel({ room: { name: 'Garage' }, floor: null })).toBe('Garage');
     expect(placeLabel({ room: null, floor: { name: 'Upstairs' } })).toBe('Upstairs');
     expect(placeLabel({ room: null, floor: null })).toBeNull();
+  });
+});
+
+describe('placesLabel', () => {
+  const up = { name: 'Upstairs' };
+  const main = { name: 'Ground floor' };
+  it('reads like placeLabel for one place or none', () => {
+    expect(placesLabel({ room: { name: 'Bedroom' }, floor: up })).toBe('Upstairs · Bedroom');
+    expect(placesLabel({ room: null, floor: null, places: [{ room: { name: 'Garage' }, floor: null }] })).toBe('Garage');
+    expect(placesLabel({ room: null, floor: null, places: [] })).toBeNull();
+  });
+  it('lists several places, sharing each floor', () => {
+    expect(
+      placesLabel({
+        room: null,
+        floor: null,
+        places: [
+          { room: { name: 'Kitchen' }, floor: main },
+          { room: { name: 'Laundry' }, floor: main },
+          { room: null, floor: up },
+          { room: { name: 'Garage' }, floor: null },
+        ],
+      }),
+    ).toBe('Ground floor · Kitchen, Laundry; Upstairs; Garage');
   });
 });

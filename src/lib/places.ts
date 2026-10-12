@@ -16,12 +16,81 @@ export interface RoomRef {
   position: number;
 }
 
-/** What a task needs for grouping: its place and hand-set position. */
+/** One place: a room (with its floor), or a whole floor (room null). */
+export interface PlaceRefs<P = { id: string }> {
+  room: P | null;
+  floor: P | null;
+}
+
+/** What a task needs for grouping: its place(s) and hand-set position. */
 export interface PlacedTask {
   room: { id: string } | null;
   /** The task's own floor (a whole-floor task), or its room's floor. */
   floor: { id: string } | null;
+  /**
+   * Every place it's done in, when it can have several (tasks). Absent =
+   * just room/floor above (inventory items).
+   */
+  places?: PlaceRefs[];
   position: number | null;
+}
+
+/** A place as stored: a room, else a whole floor. */
+export interface PlaceIds {
+  roomId: string | null;
+  floorId: string | null;
+}
+
+const placeKey = (p: PlaceIds) => (p.roomId ? `room:${p.roomId}` : `floor:${p.floorId}`);
+
+function uniquePlaces(list: PlaceIds[]): PlaceIds[] {
+  const seen = new Set<string>();
+  return list.filter((p) => {
+    const key = placeKey(p);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
+ * Every place of a task as stored: the first in roomId/floorId, then the
+ * extra rooms and floors. [] = the whole house.
+ */
+export function taskPlaceIds(row: {
+  roomId: string | null;
+  floorId: string | null;
+  extraRoomIds?: string[] | null;
+  extraFloorIds?: string[] | null;
+}): PlaceIds[] {
+  return uniquePlaces([
+    ...(row.roomId || row.floorId ? [placeColumns(row.roomId, row.floorId)] : []),
+    ...(row.extraRoomIds ?? []).map((roomId) => ({ roomId, floorId: null })),
+    ...(row.extraFloorIds ?? []).map((floorId) => ({ roomId: null, floorId })),
+  ]);
+}
+
+/**
+ * The stored columns for a task's places: the first goes in roomId/floorId
+ * (what app builds that know one place read), the rest in the extra lists.
+ * Duplicates are dropped; [] = the whole house.
+ */
+export function placeListColumns(list: PlaceIds[]) {
+  const [first, ...rest] = uniquePlaces(
+    list.map((p) => placeColumns(p.roomId, p.floorId)).filter((p) => p.roomId || p.floorId),
+  );
+  return {
+    ...(first ?? { roomId: null, floorId: null }),
+    extraRoomIds: rest.flatMap((p) => (p.roomId ? [p.roomId] : [])),
+    extraFloorIds: rest.flatMap((p) => (p.roomId ? [] : [p.floorId!])),
+  };
+}
+
+/** True when both lists hold the same places, in any order. */
+export function samePlaces(a: PlaceIds[], b: PlaceIds[]): boolean {
+  const keys = new Set(uniquePlaces(a).map(placeKey));
+  const other = uniquePlaces(b);
+  return keys.size === other.length && other.every((p) => keys.has(placeKey(p)));
 }
 
 /** By hand-set position, then name - floors and rooms alike. */
@@ -68,8 +137,9 @@ export interface PlaceGroups<T> {
 
 /**
  * Tasks grouped Floor → Room in the household's order. Floors come first in
- * their order, then rooms on no floor, then whole-house tasks. Empty rooms and
- * floors are left out; tasks pointing at a deleted place count as whole-house.
+ * their order, then rooms on no floor, then whole-house tasks. A task with
+ * several places is listed under each of them. Empty rooms and floors are
+ * left out; a task none of whose places still exist counts as whole-house.
  */
 export function groupByPlace<T extends PlacedTask>(
   tasks: T[],
@@ -81,14 +151,23 @@ export function groupByPlace<T extends PlacedTask>(
   const inRoom = new Map<string, T[]>();
   const onFloor = new Map<string, T[]>();
   const house: T[] = [];
+  const add = (map: Map<string, T[]>, id: string, t: T) => {
+    const list = map.get(id) ?? [];
+    if (!list.includes(t)) map.set(id, [...list, t]);
+  };
   for (const t of orderTasks(tasks)) {
-    if (t.room && roomIds.has(t.room.id)) {
-      inRoom.set(t.room.id, [...(inRoom.get(t.room.id) ?? []), t]);
-    } else if (!t.room && t.floor && floorIds.has(t.floor.id)) {
-      onFloor.set(t.floor.id, [...(onFloor.get(t.floor.id) ?? []), t]);
-    } else {
-      house.push(t);
+    const places = t.places ?? [{ room: t.room, floor: t.floor }];
+    let placed = false;
+    for (const p of places) {
+      if (p.room && roomIds.has(p.room.id)) {
+        add(inRoom, p.room.id, t);
+        placed = true;
+      } else if (!p.room && p.floor && floorIds.has(p.floor.id)) {
+        add(onFloor, p.floor.id, t);
+        placed = true;
+      }
     }
+    if (!placed) house.push(t);
   }
 
   const roomGroups = (floorId: string | null) =>
@@ -140,4 +219,31 @@ export function placeLabel(task: {
 }): string | null {
   if (task.room) return task.floor ? `${task.floor.name} · ${task.room.name}` : task.room.name;
   return task.floor?.name ?? null;
+}
+
+/**
+ * Every place of a task as one label. One place reads as placeLabel; several
+ * share their floor: "Ground floor · Kitchen, Laundry; Upstairs".
+ */
+export function placesLabel(task: {
+  room: { name: string } | null;
+  floor: { name: string } | null;
+  places?: PlaceRefs<{ name: string }>[];
+}): string | null {
+  const list = task.places ?? [{ room: task.room, floor: task.floor }];
+  if (list.length <= 1) return list[0] ? placeLabel(list[0]) : null;
+  // Per floor (null = rooms on no floor), in the order they come.
+  const parts = new Map<string | null, { whole: boolean; rooms: string[] }>();
+  for (const p of list) {
+    const key = p.floor?.name ?? null;
+    const part = parts.get(key) ?? { whole: false, rooms: [] };
+    if (p.room) part.rooms.push(p.room.name);
+    else part.whole = true;
+    parts.set(key, part);
+  }
+  const labels = [...parts].flatMap(([floor, part]) => [
+    ...(part.whole && floor ? [floor] : []),
+    ...(part.rooms.length ? [floor ? `${floor} · ${part.rooms.join(', ')}` : part.rooms.join(', ')] : []),
+  ]);
+  return labels.length ? labels.join('; ') : null;
 }

@@ -39,7 +39,7 @@ ALT = {
     "home-phone.png": "OurHome on a phone, with the Home, Tasks, Shop, Stock and More bar along the bottom",
     "tasks-overview.png": "The Tasks & Chores page: search, filters and sort along the top, then the tasks soonest due first",
     "task-details-checklist.png": "A task's Details opened: its checklist steps with their points, and its History",
-    "task-create-form.png": "The new task form for a recurring chore: repeats, take turns, runs in cycles, time and points, checklist",
+    "task-create-form.png": "The new task form for a recurring chore: location buttons for each floor and room, repeats, take turns, runs in cycles, time and points, checklist",
     "shopping-overview.png": "The Shopping page: list buttons, the summary, the add box, items grouped by category and the In cart section",
     "shopping-add-options.png": "The add box with More options open: priority, category, est. price, notes and a link with Fetch details",
 }

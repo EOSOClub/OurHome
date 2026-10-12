@@ -106,7 +106,7 @@ export function weekdayOf(date: LocalDate): number {
   return new Date(Date.UTC(date.year, date.month - 1, date.day)).getUTCDay();
 }
 
-/** Whole days from a to b (b − a). */
+/** Whole days from a to b (b - a). */
 export function daysBetween(a: LocalDate, b: LocalDate): number {
   return Math.round(
     (Date.UTC(b.year, b.month - 1, b.day) - Date.UTC(a.year, a.month - 1, a.day)) / DAY_MS,

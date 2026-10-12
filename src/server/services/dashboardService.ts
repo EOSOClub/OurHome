@@ -7,7 +7,8 @@ import { addDays, localDateOf, startOfLocalDate } from '@/lib/taskCycles';
 import { attentionReason, type RequestAttentionReason } from '@/lib/requestAttention';
 import type { AccessMatrix } from '@/lib/permissions';
 import type { Feature } from '@/lib/features';
-import { placeLabel } from '@/lib/places';
+import { placesLabel } from '@/lib/places';
+import { loadPlaceIndex, resolveTaskPlaces, type PlaceIndex } from '@/server/services/taskPlaces';
 import { getHouseholdFeatures } from '@/server/services/serverAdminService';
 
 const ACTIVE_STATUSES = ['pending', 'in_progress'];
@@ -19,21 +20,28 @@ const taskSelect = {
   dueDate: true,
   type: true,
   assignee: { select: { id: true, name: true } },
-  room: { select: { name: true, floor: { select: { name: true } } } },
-  floor: { select: { name: true } },
+  roomId: true,
+  floorId: true,
+  extraRoomIds: true,
+  extraFloorIds: true,
 } as const;
 
 type SelectedTask = {
-  room: { name: string; floor: { name: string } | null } | null;
-  floor: { name: string } | null;
+  roomId: string | null;
+  floorId: string | null;
+  extraRoomIds: string[];
+  extraFloorIds: string[];
 };
 
-/** Each task with `place` ("Upstairs · Bedroom") instead of its raw room/floor. */
-function withPlace<T extends SelectedTask>(tasks: T[]) {
-  return tasks.map(({ room, floor, ...t }) => ({
-    ...t,
-    place: placeLabel({ room, floor: room ? room.floor : floor }),
-  }));
+/**
+ * Each task with `place` ("Upstairs · Bedroom", or all its places) instead
+ * of its raw place ids.
+ */
+function withPlace<T extends SelectedTask>(tasks: T[], places: PlaceIndex) {
+  return tasks.map(({ roomId, floorId, extraRoomIds, extraFloorIds, ...t }) => {
+    const list = resolveTaskPlaces({ roomId, floorId, extraRoomIds, extraFloorIds }, places);
+    return { ...t, place: placesLabel({ room: null, floor: null, places: list }) };
+  });
 }
 
 /**
@@ -121,6 +129,7 @@ export async function getDashboard(
     points,
     doneToday,
     doneTodayByMe,
+    places,
   ] = await Promise.all([
     prisma.task.findMany({
       where: { householdId, status: { in: ACTIVE_STATUSES }, dueDate: dateBefore(now) },
@@ -195,6 +204,7 @@ export async function getDashboard(
     pointsSummary(householdId, 'week', undefined, now),
     prisma.taskCompletion.count({ where: completedToday }),
     prisma.taskCompletion.count({ where: { ...completedToday, userId: user.id } }),
+    loadPlaceIndex(prisma, householdId),
   ]);
 
   // The query finds anything due before now; date-only due dates (12:00
@@ -221,17 +231,17 @@ export async function getDashboard(
       openShopping: on('shopping') ? openShoppingCount : 0,
       billsDue: on('bills') ? billsDueCount : 0,
     },
-    overdue: tasksOn ? withPlace(overdueNow) : [],
-    upcoming: tasksOn ? withPlace(upcoming) : [],
+    overdue: tasksOn ? withPlace(overdueNow, places) : [],
+    upcoming: tasksOn ? withPlace(upcoming, places) : [],
     upcomingBills: on('bills') ? upcomingBills : [],
     upcomingEvents: on('calendar') ? upcomingEvents.slice(0, 6) : [],
     me: {
       /** Mine, overdue or due today. */
-      today: tasksOn ? withPlace(myTasks.filter((t) => t.dueDate && t.dueDate < endOfToday)) : [],
+      today: tasksOn ? withPlace(myTasks.filter((t) => t.dueDate && t.dueDate < endOfToday), places) : [],
       /** Mine, due later this week. */
-      later: tasksOn ? withPlace(myTasks.filter((t) => t.dueDate && t.dueDate >= endOfToday)) : [],
+      later: tasksOn ? withPlace(myTasks.filter((t) => t.dueDate && t.dueDate >= endOfToday), places) : [],
       /** Unassigned, overdue or due today. */
-      openToAnyone: tasksOn ? withPlace(openTasks) : [],
+      openToAnyone: tasksOn ? withPlace(openTasks, places) : [],
       requests: on('requests')
         ? requests.flatMap((r) => {
             const reason = attentionReason(r, user.id, access.requests.approve, endOfToday);

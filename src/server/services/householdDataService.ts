@@ -45,6 +45,7 @@ export const HOUSEHOLD_MODELS = [
   'MapPlace',
   'MemberLocation',
   'LocationCheck',
+  'Supervision',
   'HomeAssistantIntegration',
 ] as const;
 
@@ -90,6 +91,7 @@ export async function exportHousehold(householdId: string) {
     notifications,
     nfcTags,
     mapPlaces,
+    supervision,
     integrations,
     paperless,
   ] = await Promise.all([
@@ -128,6 +130,7 @@ export async function exportHousehold(householdId: string) {
     prisma.notification.findMany({ where }),
     prisma.nfcTag.findMany({ where }),
     prisma.mapPlace.findMany({ where }),
+    prisma.supervision.findMany({ where }),
     prisma.homeAssistantIntegration.findMany({
       where,
       select: { id: true, name: true, active: true, createdAt: true },
@@ -164,6 +167,7 @@ export async function exportHousehold(householdId: string) {
     notifications,
     nfcTags,
     mapPlaces,
+    supervision,
     homeAssistant: integrations,
     paperless,
   };
@@ -241,6 +245,7 @@ export async function deleteHousehold(adminId: string, householdId: string, conf
       count('MapPlace', await tx.mapPlace.deleteMany({ where }));
       count('MemberLocation', await tx.memberLocation.deleteMany({ where }));
       count('LocationCheck', await tx.locationCheck.deleteMany({ where }));
+      count('Supervision', await tx.supervision.deleteMany({ where }));
       count('HomeAssistantIntegration', await tx.homeAssistantIntegration.deleteMany({ where }));
       count('PaperlessSync', await tx.paperlessSync.deleteMany({ where }));
       count('PaperlessConnection', await tx.paperlessConnection.deleteMany({ where }));

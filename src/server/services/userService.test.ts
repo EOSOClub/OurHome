@@ -4,13 +4,17 @@ const prisma = {
   user: {
     findFirst: vi.fn(),
     update: vi.fn(),
+    updateMany: vi.fn(),
   },
+  $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(prisma)),
 };
 vi.mock('@/server/db/prisma', () => ({ prisma }));
 vi.mock('@/server/auth/auth', () => ({ auth: {} }));
 vi.mock('@/server/services/activityService', () => ({ logActivity: vi.fn() }));
+const dropBrokenSupervision = vi.fn();
+vi.mock('@/server/services/supervisionService', () => ({ dropBrokenSupervision }));
 
-const { updateMember } = await import('./userService');
+const { setMemberRole, transferHeadship, updateMember } = await import('./userService');
 
 const HOUSEHOLD = 'household1';
 const head = { id: 'cmhead00000000000000000001', role: 'head' };
@@ -63,5 +67,27 @@ describe('updateMember', () => {
     expect(prisma.user.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ email: 'kid@example.com' }) }),
     );
+  });
+});
+
+describe('role changes and supervision', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('checks the supervision list when a role changes', async () => {
+    const kid = 'cmkid000000000000000000001';
+    prisma.user.findFirst.mockResolvedValueOnce(row({ id: kid, role: 'teen' }));
+    prisma.user.update.mockResolvedValueOnce(row({ id: kid, role: 'adult' }));
+    await setMemberRole(HOUSEHOLD, head, { id: kid, role: 'adult' });
+    expect(dropBrokenSupervision).toHaveBeenCalledWith(prisma, kid, 'adult');
+  });
+
+  it('checks it for a new Head of House too', async () => {
+    const kid = 'cmkid000000000000000000001';
+    prisma.user.findFirst.mockResolvedValueOnce(row({ id: kid, role: 'teen' }));
+    prisma.user.update.mockResolvedValueOnce(row({ id: kid, role: 'head' }));
+    await transferHeadship(HOUSEHOLD, head, kid);
+    expect(dropBrokenSupervision).toHaveBeenCalledWith(prisma, kid, 'head');
   });
 });

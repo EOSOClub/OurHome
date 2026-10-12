@@ -117,6 +117,23 @@ export function canChangeOwnSharing(current: LocationSharing): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Supervision (parental controls): the Head's list of which adults supervise
+// which children and teens. Role alone never grants it: a manager or adult may
+// be a roommate or grandparent. Only the Head edits the list
+// (household:manage), so nobody can make themselves someone's supervisor.
+// ---------------------------------------------------------------------------
+
+/** Whether someone with this role may supervise a child or teen: adults and up. */
+export function canSupervise(role: string): boolean {
+  return isUserRole(role) && ROLE_RANK[role] >= ROLE_RANK.adult;
+}
+
+/** Whether someone with this role may be supervised: teens and children. */
+export function canBeSupervised(role: string): boolean {
+  return role === 'teen' || role === 'child';
+}
+
+// ---------------------------------------------------------------------------
 // Page access: what someone may add, edit and delete on each feature page.
 //
 // Resolution (resolveAccess): the head always has everything. Everyone else

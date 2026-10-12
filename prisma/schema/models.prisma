@@ -76,7 +76,8 @@ model Household {
   mapPlaces      MapPlace[]
   memberLocations MemberLocation[]
   locationChecks LocationCheck[]
-  integrations   HomeAssistantIntegration[]
+  supervision    Supervision[]
+  integrations  HomeAssistantIntegration[]
   requests       Request[]
   bugReports     BugReport[]
   pushDevices    PushDevice[]
@@ -145,8 +146,33 @@ model User {
   location        MemberLocation?
   liveChecksStarted LocationCheck[] @relation("LocationCheckRequester")
   liveChecksOnMe    LocationCheck[] @relation("LocationCheckTarget")
+  supervising       Supervision[]   @relation("SupervisionSupervisor")
+  supervisedBy      Supervision[]   @relation("SupervisionSupervised")
 
   @@index([householdId])
+}
+
+// Parental controls: which adult supervises which child or teen. Only the
+// Head of House edits it (supervisionService), so nobody can add themselves.
+// Supervisors are adults and up, the supervised are teens and children
+// (src/lib/permissions.ts canSupervise / canBeSupervised); a role change that
+// breaks that removes the link (userService).
+model Supervision {
+  id           String   @id @default(cuid()) @map("_id")
+  householdId  String
+  supervisorId String
+  supervisedId String
+  // Audit: who added the link (plain id, no relation).
+  createdById  String?
+  createdAt    DateTime @default(now())
+
+  household  Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  supervisor User      @relation("SupervisionSupervisor", fields: [supervisorId], references: [id], onDelete: Cascade)
+  supervised User      @relation("SupervisionSupervised", fields: [supervisedId], references: [id], onDelete: Cascade)
+
+  @@unique([supervisorId, supervisedId])
+  @@index([householdId])
+  @@index([supervisedId])
 }
 
 model Session {

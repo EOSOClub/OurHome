@@ -37,6 +37,7 @@ function scalarFields(model: string): Set<string> {
 export const RESTORE_ORDER = [
   'Household',
   'User',
+  'Supervision',
   'Category',
   'Floor',
   'Room',
@@ -139,6 +140,8 @@ export function planRestore(
   const source: Record<RestoreModel, Row[]> = {
     Household: [household],
     User: members,
+    // Exports from before parental controls have none.
+    Supervision: asArray(doc.supervision),
     Category: asArray(doc.categories),
     Floor: asArray(places.floors),
     Room: asArray(places.rooms),

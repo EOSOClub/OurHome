@@ -7,7 +7,9 @@ import {
   FULL_ACCESS,
   can,
   canAssignRole,
+  canBeSupervised,
   canManageMember,
+  canSupervise,
   canModify,
   diffAccess,
   hasAnyAccess,
@@ -114,6 +116,18 @@ describe('canAssignRole', () => {
       expect(canAssignRole('manager', r)).toBe(true);
     }
     expect(canAssignRole('manager', 'manager')).toBe(false);
+  });
+});
+
+describe('supervision roles', () => {
+  it('lets adults and up supervise, nobody else', () => {
+    expect(['head', 'manager', 'adult'].map(canSupervise)).toEqual([true, true, true]);
+    expect(['teen', 'child', 'guest', 'member', ''].map(canSupervise)).toEqual([false, false, false, false, false]);
+  });
+
+  it('supervises only teens and children', () => {
+    expect(['teen', 'child'].map(canBeSupervised)).toEqual([true, true]);
+    expect(['head', 'manager', 'adult', 'guest', ''].map(canBeSupervised)).toEqual([false, false, false, false, false]);
   });
 });
 

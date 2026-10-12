@@ -593,6 +593,14 @@ export interface AccessSettingsMatrixDTO {
   }[];
 }
 
+/** The head's supervision list (Members → Supervision, GET /api/supervision). */
+export interface SupervisionDTO {
+  /** Everyone who may supervise (adults and up), highest role first. */
+  supervisors: { id: string; name: string; role: string }[];
+  /** Every child and teen, with who supervises them. */
+  supervised: { id: string; name: string; role: string; supervisorIds: string[] }[];
+}
+
 /** The signed-in user's own page access (GET /api/permissions/me). */
 export interface MyAccessDTO {
   userId: string;

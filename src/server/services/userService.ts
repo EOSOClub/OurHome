@@ -2,6 +2,7 @@ import type { User } from '@prisma/client';
 import { prisma } from '@/server/db/prisma';
 import { auth } from '@/server/auth/auth';
 import { logActivity } from '@/server/services/activityService';
+import { dropBrokenSupervision } from '@/server/services/supervisionService';
 import { ConflictError, ForbiddenError, NotFoundError } from '@/server/services/errors';
 import { ROLE_RANK, USER_ROLE_LABELS, isUserRole, type UserRole } from '@/lib/enums';
 import { can, canAssignRole, canManageMember } from '@/lib/permissions';
@@ -199,18 +200,26 @@ export async function setMemberRole(
     throw new ForbiddenError('You cannot assign that role.');
   }
 
-  const updated = await prisma.user.update({
-    where: { id: target.id },
-    data: { role: input.role },
-  });
-
-  await logActivity({
-    householdId,
-    actorId: actor.id,
-    verb: 'updated',
-    subjectType: 'member',
-    subjectId: target.id,
-    message: `changed ${updated.name}'s role to ${USER_ROLE_LABELS[input.role as UserRole]}`,
+  const updated = await prisma.$transaction(async (tx) => {
+    const u = await tx.user.update({
+      where: { id: target.id },
+      data: { role: input.role },
+    });
+    // A kid who becomes an adult, or an adult who becomes a teen or guest,
+    // leaves the supervision list.
+    await dropBrokenSupervision(tx, u.id, u.role);
+    await logActivity(
+      {
+        householdId,
+        actorId: actor.id,
+        verb: 'updated',
+        subjectType: 'member',
+        subjectId: target.id,
+        message: `changed ${u.name}'s role to ${USER_ROLE_LABELS[input.role as UserRole]}`,
+      },
+      tx,
+    );
+    return u;
   });
 
   return memberToDTO(updated);
@@ -379,6 +388,9 @@ export async function transferHeadship(
       where: { id: target.id },
       data: { role: 'head' },
     });
+    // A teen or child made head is no longer supervised (the old head, now a
+    // Manager, keeps supervising).
+    await dropBrokenSupervision(tx, u.id, u.role);
     await logActivity(
       {
         householdId,

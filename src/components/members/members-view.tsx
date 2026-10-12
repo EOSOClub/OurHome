@@ -35,6 +35,7 @@ import { Dialog } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { toast } from '@/components/ui/toast';
 import { PermissionsCard } from '@/components/members/permissions-card';
+import { SupervisionCard } from '@/components/members/supervision-card';
 
 const MEMBERS_KEY = ['members'];
 
@@ -106,6 +107,9 @@ export function MembersView({
     queryFn: () => apiFetch<HouseholdMemberDTO[]>('/api/members'),
     initialData: initialMembers,
   });
+  const membersVersion = members.map((m) => `${m.id}:${m.role}`).join(',');
+  // Names too, so the supervision list picks up a rename.
+  const supervisionVersion = members.map((m) => `${m.id}:${m.role}:${m.name}`).join(',');
 
   return (
     <div className="space-y-6">
@@ -138,11 +142,12 @@ export function MembersView({
         ))}
       </ul>
 
-      {/* Page permissions are the head's call (household:manage). */}
+      {/* Page permissions and supervision are the head's call (household:manage). */}
       {canRename ? (
-        <PermissionsCard
-          membersVersion={members.map((m) => `${m.id}:${m.role}`).join(',')}
-        />
+        <>
+          <PermissionsCard membersVersion={membersVersion} />
+          <SupervisionCard membersVersion={supervisionVersion} />
+        </>
       ) : null}
 
       {renaming ? (

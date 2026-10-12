@@ -167,6 +167,21 @@ describe('planRestore', () => {
     expect(restored.rows.Household[0].roleAccess).toBe(grid);
   });
 
+  it('keeps who supervises whom', () => {
+    const link = { id: id(17), householdId: H, supervisorId: HEAD, supervisedId: KID, createdById: HEAD };
+    const withLinks = (model: string) =>
+      model === 'Supervision' ? new Set(['id', 'householdId', 'supervisorId', 'supervisedId', 'createdById']) : fields(model);
+    const restored = planRestore({ ...sampleExport(), supervision: [link] }, { newId: newIds(), fields: withLinks });
+    const [head, kid] = restored.rows.User;
+    expect(restored.rows.Supervision).toEqual([
+      { id: expect.not.stringMatching(link.id), householdId: restored.householdId, supervisorId: head.id, supervisedId: kid.id, createdById: head.id },
+    ]);
+  });
+
+  it('restores an export from before supervision with none', () => {
+    expect(plan.rows.Supervision).toEqual([]);
+  });
+
   it('can restore under a new name', () => {
     expect(planRestore(sampleExport(), { name: 'Smiths (restored)', newId: newIds(), fields }).rows.Household[0].name).toBe(
       'Smiths (restored)',

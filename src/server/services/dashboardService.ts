@@ -79,6 +79,26 @@ export async function countRequestsWaitingOn(
 }
 
 /**
+ * The member's own tasks due by the end of today, overdue included: the
+ * dashboard's "today" list, counted for the "You're home" reminder.
+ * `titles` holds the first few, soonest due first.
+ */
+export async function myTasksDueToday(
+  householdId: string,
+  userId: string,
+  now: Date = new Date(),
+): Promise<{ count: number; titles: string[] }> {
+  const { timezone } = await getPointsSettings(householdId);
+  const endOfToday = startOfLocalDate(addDays(localDateOf(now, timezone), 1), timezone);
+  const where = { householdId, assigneeId: userId, status: { in: ACTIVE_STATUSES }, dueDate: dateBefore(endOfToday) };
+  const [count, first] = await Promise.all([
+    prisma.task.count({ where }),
+    prisma.task.findMany({ where, select: { title: true }, orderBy: { dueDate: 'asc' }, take: 3 }),
+  ]);
+  return { count, titles: first.map((t) => t.title) };
+}
+
+/**
  * Everything the dashboard renders, from the viewer's side: "me" is what is on
  * them today (their tasks, requests waiting on them, their points), the rest
  * is a short household glance. The activity log lives on its own page now

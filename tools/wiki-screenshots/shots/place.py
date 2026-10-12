@@ -42,6 +42,14 @@ ALT = {
     "task-create-form.png": "The new task form for a recurring chore: location buttons for each floor and room, repeats, take turns, runs in cycles, time and points, checklist",
     "shopping-overview.png": "The Shopping page: list buttons, the summary, the add box, items grouped by category and the In cart section",
     "shopping-add-options.png": "The add box with More options open: priority, category, est. price, notes and a link with Fetch details",
+    "location-map-places-card.png": "The Map places card in Settings: Home, a store that reminds about Groceries, and a school, each with how close counts as there",
+    "location-map-place-dialog.png": "The Edit map place window: name, kind, address search, a map with the pin and its circle, how close counts as there, and the lists to remind about",
+    "location-live-check-limits.png": "The Live location checks card in Settings: the longest a check may run and how often it may update",
+    "location-map-page.png": "The Map page: the household's places on a map with who is at each, someone away at the spot they were last seen, and lists of who's where and the places",
+    "location-live-check.png": "The Map page during a live check: the person's live dot labelled with how long ago it updated, and the running check with a Stop button",
+    "location-start-check.png": "The Check location window: how long to check for and how often to update",
+    "location-whos-where.png": "The Who's where card on the Home screen: each person who shares, where they are and since when",
+    "location-profile-card.png": "The Location card on a teen's Profile: a live check running with a Stop button, the two switches, and the list of live checks on them",
 }
 (wiki / "images").mkdir(exist_ok=True)
 done = set()

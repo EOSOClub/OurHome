@@ -1007,6 +1007,9 @@ model MemberLocation {
   // When lat/lng were taken, when that's later than `at`: a live check that
   // ended while they were away leaves its last fix here. null = taken at `at`.
   pointAt     DateTime?
+  // When arriving home last reminded them about their chores (at most every
+  // 4 hours, HOME_REMINDER_GAP_MS). null = never.
+  homeReminderAt DateTime?
   updatedAt   DateTime @updatedAt
 
   household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)

@@ -107,6 +107,17 @@ export function nextPresence(
  */
 export const REMINDER_FRESH_MS = 15 * 60_000;
 
+/**
+ * "You're home: 3 chores due" comes at most this often, so popping out for
+ * ten minutes doesn't bring the same reminder again on the way back in.
+ */
+export const HOME_REMINDER_GAP_MS = 4 * 60 * 60_000;
+
+/** Whether arriving home now may remind about chores again. */
+export function homeReminderDue(lastRemindedAt: Date | null | undefined, now: Date): boolean {
+  return !lastRemindedAt || now.getTime() - lastRemindedAt.getTime() >= HOME_REMINDER_GAP_MS;
+}
+
 // --- Live checks ------------------------------------------------------------------------
 // An adult asks to see where someone is for a few minutes. Their phone shows
 // that it's happening for the whole time and sends a fix every interval; only

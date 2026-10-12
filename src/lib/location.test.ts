@@ -4,6 +4,7 @@ import {
   clampRadius,
   fitLiveCheck,
   fixAge,
+  homeReminderDue,
   liveCheckChoices,
   liveCheckSettings,
   liveCheckState,
@@ -125,6 +126,16 @@ describe('map places', () => {
     expect(saveMapPlaceSchema.safeParse({ ...valid, lng: -181 }).success).toBe(false);
     expect(saveMapPlaceSchema.safeParse({ ...valid, radiusM: 50 }).success).toBe(false);
     expect(saveMapPlaceSchema.safeParse({ ...valid, kind: 'school' }).success).toBe(false);
+  });
+});
+
+describe('home reminders', () => {
+  it('reminds the first time, then not again for four hours', () => {
+    const now = new Date('2026-10-12T18:00:00Z');
+    const hoursAgo = (h: number) => new Date(now.getTime() - h * 3_600_000);
+    expect(homeReminderDue(null, now)).toBe(true);
+    expect(homeReminderDue(hoursAgo(1), now)).toBe(false);
+    expect(homeReminderDue(hoursAgo(4), now)).toBe(true);
   });
 });
 

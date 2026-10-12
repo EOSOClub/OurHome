@@ -1,4 +1,6 @@
+import type { Prisma } from '@prisma/client';
 import { prisma } from '@/server/db/prisma';
+import { dateBefore, dateOnOrBefore } from '@/server/db/dateFilters';
 import { ConflictError, ForbiddenError, NotFoundError } from '@/server/services/errors';
 import { canPush, pushToMember } from '@/server/services/pushService';
 import { canStartLiveCheck } from '@/lib/permissions';
@@ -26,6 +28,13 @@ import type {
 // closes the fix is cleared (it becomes their last known point if they're
 // away) and what's left is the log entry the checked person sees.
 // Never hidden: no push reaching the phone means no check.
+
+/**
+ * Still running (not closed). Prisma on MongoDB leaves fields that were never
+ * set out of the document, and `endedAt: null` only matches a stored null, so
+ * both are asked for (as everywhere else in the code).
+ */
+const OPEN = { OR: [{ endedAt: null }, { endedAt: { isSet: false } }] } satisfies Prisma.LocationCheckWhereInput;
 
 const withNames = {
   requester: { select: { name: true } },
@@ -83,10 +92,14 @@ async function closeCheck(check: CheckRow, now: Date, endedById: string | null):
       where: {
         userId: check.targetId,
         state: 'away',
-        // Only when it's newer than the point already there.
+        // Only when it's newer than the point already there (pointAt is
+        // usually unset: the point is from the arrival or departure at `at`).
+        // dateBefore, not a bare `lt`: on MongoDB a bare range also matches
+        // a missing date (src/server/db/dateFilters.ts).
         OR: [
+          { pointAt: { isSet: false }, at: { lt: check.fixAt } },
           { pointAt: null, at: { lt: check.fixAt } },
-          { pointAt: { lt: check.fixAt } },
+          { pointAt: dateBefore(check.fixAt) },
         ],
       },
       data: { lat: check.lat, lng: check.lng, accuracyM: check.accuracyM, pointAt: check.fixAt },
@@ -106,16 +119,17 @@ async function closeCheck(check: CheckRow, now: Date, endedById: string | null):
  */
 export async function closeExpiredLiveChecks(householdId: string, now: Date = new Date()): Promise<void> {
   const expired = await prisma.locationCheck.findMany({
-    where: { householdId, endedAt: null, endsAt: { lte: now } },
+    where: { householdId, ...OPEN, endsAt: { lte: now } },
   });
   for (const check of expired) await closeCheck(check, now, null);
   const cutoff = new Date(now.getTime() - LIVE_CHECK_LOG_DAYS * 24 * 60 * 60_000);
-  await prisma.locationCheck.deleteMany({ where: { householdId, endedAt: { not: null }, startedAt: { lt: cutoff } } });
+  // Closed ones only (a real end date: `not: null` would also match a missing one).
+  await prisma.locationCheck.deleteMany({ where: { householdId, endedAt: dateOnOrBefore(now), startedAt: { lt: cutoff } } });
 }
 
 /** Ends every running check on a member (they stopped sharing or turned live checks off). */
 export async function endLiveChecksOn(userId: string, now: Date = new Date()): Promise<void> {
-  const running = await prisma.locationCheck.findMany({ where: { targetId: userId, endedAt: null } });
+  const running = await prisma.locationCheck.findMany({ where: { targetId: userId, ...OPEN } });
   for (const check of running) await closeCheck(check, now, userId);
 }
 
@@ -159,9 +173,9 @@ export async function liveChecksOverview(
   const mayCheck = canStartLiveCheck(viewer, { id: '', consent: { sharing: 'on', liveChecks: true } });
   const [settings, onMe, started, log, members] = await Promise.all([
     getLiveCheckSettings(householdId),
-    prisma.locationCheck.findFirst({ where: { householdId, targetId: userId, endedAt: null }, include: withNames }),
+    prisma.locationCheck.findFirst({ where: { householdId, targetId: userId, ...OPEN }, include: withNames }),
     prisma.locationCheck.findMany({
-      where: { householdId, requesterId: userId, endedAt: null },
+      where: { householdId, requesterId: userId, ...OPEN },
       include: withNames,
       orderBy: { startedAt: 'desc' },
     }),
@@ -235,7 +249,7 @@ export async function startLiveCheck(
 
   await closeExpiredLiveChecks(householdId, now);
   const running = await prisma.locationCheck.findFirst({
-    where: { householdId, targetId: target.id, endedAt: null },
+    where: { householdId, targetId: target.id, ...OPEN },
     include: withNames,
   });
   if (running) {

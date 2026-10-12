@@ -127,17 +127,43 @@ const shots = {
     await go(p, 'tasks'); await p.selectOption('#f-sort', 'room'); await p.waitForTimeout(600);
     await view(p, 'rooms-grouped-view.png');
   },
+  // Location (demo/seed/11-location.mjs first: places, presence, a running live check).
+  'location-map-places-card.png': async p => { await go(p, 'settings'); await el(p, 'location-map-places-card.png', card(p, 'Map places')); },
+  'location-map-place-dialog.png': async p => {
+    await go(p, 'settings'); await openDialog(p, 'Edit Prairie Market'); await tiles(p);
+    await el(p, 'location-map-place-dialog.png', dialog(p));
+  },
+  'location-live-check-limits.png': async p => { await go(p, 'settings'); await el(p, 'location-live-check-limits.png', card(p, 'Live location checks')); },
+  // Sam has no check running, so the map fits every place and person.
+  'location-map-page.png': { as: 'sam', run: async p => { await go(p, 'map'); await tiles(p); await view(p, 'location-map-page.png'); } },
+  // Alex's check on Riley: the map zooms to Riley's live dot.
+  'location-live-check.png': async p => { await go(p, 'map'); await tiles(p); await view(p, 'location-live-check.png'); },
+  'location-start-check.png': async p => {
+    await go(p, 'map'); await openDialog(p, 'Check location'); await el(p, 'location-start-check.png', dialog(p));
+  },
+  'location-whos-where.png': async p => { await go(p, 'dashboard'); await el(p, 'location-whos-where.png', card(p, 'Who’s where')); },
+  // Riley (a teen) is being checked by Alex right now and has two older checks in the log.
+  'location-profile-card.png': { as: 'riley', run: async p => { await go(p, 'profile'); await el(p, 'location-profile-card.png', card(p, 'Location')); } },
 };
+
+/** Map tiles come from OpenStreetMap: give them time to arrive. */
+async function tiles(page) {
+  await page.waitForLoadState('networkidle').catch(() => {});
+  await page.waitForTimeout(2500);
+}
 
 (async () => {
   console.log('taking web screenshots into', OUT);
-  const { browser, page } = await open();
+  // Most shots are Alex's; a shot can say { as: 'riley', run } to be someone else's.
+  const sessions = {};
+  const pageFor = async (user) => (sessions[user] ??= await open(user)).page;
   let ok = 0; const failed = [];
-  for (const [name, fn] of Object.entries(shots)) {
+  for (const [name, shot] of Object.entries(shots)) {
     if (only.length && !only.includes(name)) continue;
-    try { await page.setViewportSize(NORMAL); await fn(page); ok++; console.log(`ok   ${name}`); }
+    const { as = 'alex', run } = typeof shot === 'function' ? { run: shot } : shot;
+    try { const page = await pageFor(as); await page.setViewportSize(NORMAL); await run(page); ok++; console.log(`ok   ${name}`); }
     catch (e) { failed.push(name); console.log(`FAIL ${name}: ${e.message.split('\n')[0]}`); }
   }
-  await browser.close();
+  for (const s of Object.values(sessions)) await s.browser.close();
   console.log(`done: ${ok} ok, ${failed.length} failed${failed.length ? ' (' + failed.join(', ') + ')' : ''}`);
 })().catch(e => { console.error('FAILED:', e.message); process.exit(1); });

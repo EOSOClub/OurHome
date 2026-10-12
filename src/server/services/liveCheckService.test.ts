@@ -110,6 +110,16 @@ describe('startLiveCheck', () => {
     expect(prisma.locationCheck.create).not.toHaveBeenCalled();
   });
 
+  it('finds a running check whose end was never written', async () => {
+    // Prisma on MongoDB leaves unset fields out of the document, and
+    // `endedAt: null` alone only matches a stored null (seen on the demo).
+    prisma.locationCheck.findFirst.mockResolvedValue(check());
+    await startLiveCheck('h1', adult, input, now);
+    expect(prisma.locationCheck.findFirst.mock.calls[0][0].where).toMatchObject({
+      OR: [{ endedAt: null }, { endedAt: { isSet: false } }],
+    });
+  });
+
   it('closes the check, but keeps it in their log, when no phone was reached', async () => {
     prisma.locationCheck.create.mockResolvedValue(check({ startedAt: now }));
     push.pushToMember.mockResolvedValue(0);
@@ -161,6 +171,10 @@ describe('closing a check', () => {
     await stopLiveCheck('h1', 'adult', checkId, now);
     const moved = prisma.memberLocation.updateMany.mock.calls[0][0];
     expect(moved.where).toMatchObject({ userId: 'sam', state: 'away' });
+    // A point never moved by a check has no pointAt at all.
+    expect(moved.where.OR).toContainEqual({ pointAt: { isSet: false }, at: { lt: fixAt } });
+    // A bare `lt` would also match a missing pointAt and skip the "newer" test.
+    expect(moved.where.OR).toContainEqual({ pointAt: { gte: new Date(0), lt: fixAt } });
     expect(moved.data).toEqual({ lat: 45.1, lng: -93.2, accuracyM: 12, pointAt: fixAt });
     // The check itself keeps no position afterwards.
     expect(prisma.locationCheck.update.mock.calls[0][0].data).toMatchObject({ lat: null, lng: null, fixAt: null });

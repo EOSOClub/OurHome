@@ -250,6 +250,13 @@ export interface PresenceReportDTO {
     placeName: string;
     lists: { id: string; name: string; openItems: number }[];
   } | null;
+  /** Arrived home with tasks of theirs due today or overdue: "You're home: 3 chores due". */
+  home: {
+    /** How many are due. */
+    count: number;
+    /** The first few, soonest due first. */
+    titles: string[];
+  } | null;
 }
 
 /** GET /api/map-places/search: one address match for the pin picker. */

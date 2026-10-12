@@ -13,6 +13,7 @@ const prisma = {
     findUnique: vi.fn(),
     findMany: vi.fn(async (): Promise<unknown[]> => []),
     upsert: vi.fn(),
+    update: vi.fn(),
     deleteMany: vi.fn(),
   },
   shoppingList: { findMany: vi.fn(async (): Promise<unknown[]> => []) },
@@ -20,6 +21,12 @@ const prisma = {
 vi.mock('@/server/db/prisma', () => ({ prisma }));
 const liveChecks = { closeExpiredLiveChecks: vi.fn(), endLiveChecksOn: vi.fn() };
 vi.mock('@/server/services/liveCheckService', () => liveChecks);
+const dashboard = {
+  myTasksDueToday: vi.fn(async () => ({ count: 3, titles: ['Dishes', 'Take out the bins', 'Feed the cat'] })),
+};
+vi.mock('@/server/services/dashboardService', () => dashboard);
+const serverAdmin = { getHouseholdFeatures: vi.fn(async () => ['tasks', 'location']) };
+vi.mock('@/server/services/serverAdminService', () => serverAdmin);
 
 const { listPresence, reportPresence, updateLocationConsent } = await import('./locationService');
 
@@ -118,6 +125,51 @@ describe('reportPresence', () => {
     prisma.memberLocation.findUnique.mockResolvedValue(null);
     await reportPresence('h1', 'u1', arrive(new Date(now.getTime() + 3_600_000)), now);
     expect(prisma.memberLocation.upsert.mock.calls[0][0].create.at).toEqual(now);
+  });
+
+  describe('arriving home', () => {
+    const home = { id: 'chome0000000000000000001', name: 'Home', kind: 'home', shoppingListIds: [] };
+    const arriveHome = (at = minutesAgo(1)) => ({ ...arrive(at), placeId: home.id });
+    beforeEach(() => {
+      prisma.mapPlace.findFirst.mockResolvedValue(home);
+      // Coming back from the store.
+      prisma.memberLocation.findUnique.mockResolvedValue({ state: 'away', placeId: null, at: minutesAgo(90) });
+    });
+
+    it('says how many of their chores are due, and remembers that it did', async () => {
+      const result = await reportPresence('h1', 'u1', arriveHome(), now);
+      expect(result).toEqual({ reminder: null, home: { count: 3, titles: ['Dishes', 'Take out the bins', 'Feed the cat'] } });
+      expect(dashboard.myTasksDueToday).toHaveBeenCalledWith('h1', 'u1', now);
+      expect(prisma.memberLocation.update).toHaveBeenCalledWith({ where: { userId: 'u1' }, data: { homeReminderAt: now } });
+    });
+
+    it('stays quiet when nothing is due', async () => {
+      dashboard.myTasksDueToday.mockResolvedValueOnce({ count: 0, titles: [] });
+      expect((await reportPresence('h1', 'u1', arriveHome(), now)).home).toBeNull();
+      expect(prisma.memberLocation.update).not.toHaveBeenCalled();
+    });
+
+    it('does not remind again within four hours', async () => {
+      prisma.memberLocation.findUnique.mockResolvedValue({
+        state: 'away', placeId: null, at: minutesAgo(20), homeReminderAt: minutesAgo(60),
+      });
+      expect((await reportPresence('h1', 'u1', arriveHome(), now)).home).toBeNull();
+      expect(dashboard.myTasksDueToday).not.toHaveBeenCalled();
+    });
+
+    it('stays quiet for a late report, or when the household has no Tasks', async () => {
+      expect((await reportPresence('h1', 'u1', arriveHome(minutesAgo(30)), now)).home).toBeNull();
+      serverAdmin.getHouseholdFeatures.mockResolvedValueOnce(['location']);
+      expect((await reportPresence('h1', 'u1', arriveHome(), now)).home).toBeNull();
+      expect(dashboard.myTasksDueToday).not.toHaveBeenCalled();
+    });
+
+    it('never comes with a store reminder, and a store never brings it', async () => {
+      prisma.mapPlace.findFirst.mockResolvedValue(costco);
+      const atStore = await reportPresence('h1', 'u1', arrive(), now);
+      expect(atStore.home).toBeNull();
+      expect(atStore.reminder).not.toBeNull();
+    });
   });
 
   it('404s a place outside the household', async () => {

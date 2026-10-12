@@ -2,6 +2,7 @@ import { prisma } from '@/server/db/prisma';
 import { ConflictError, ForbiddenError, NotFoundError } from '@/server/services/errors';
 import {
   REMINDER_FRESH_MS,
+  homeReminderDue,
   isSharing,
   locationConsent,
   nextPresence,
@@ -10,6 +11,8 @@ import {
 } from '@/lib/location';
 import { canChangeOwnSharing } from '@/lib/permissions';
 import { closeExpiredLiveChecks, endLiveChecksOn } from '@/server/services/liveCheckService';
+import { myTasksDueToday } from '@/server/services/dashboardService';
+import { getHouseholdFeatures } from '@/server/services/serverAdminService';
 import type { MemberPresenceDTO, PresenceReportDTO } from '@/lib/types';
 import type { ReportPresenceInput, UpdateLocationConsentInput } from '@/lib/validation/location';
 
@@ -85,7 +88,7 @@ export async function reportPresence(
     stored ? { state: stored.state as PresenceState, placeId: stored.placeId ?? null, at: stored.at } : null,
     { placeId: place.id, transition: input.transition, at },
   );
-  if (!change) return { reminder: null };
+  if (!change) return { reminder: null, home: null };
 
   const data = {
     householdId,
@@ -98,11 +101,33 @@ export async function reportPresence(
   };
   await prisma.memberLocation.upsert({ where: { userId }, update: data, create: { userId, ...data } });
 
+  // Reminders only for a real arrival the phone reported in time.
   const fresh = now.getTime() - at.getTime() <= REMINDER_FRESH_MS;
-  if (!change.arrived || !fresh || place.kind !== 'store' || place.shoppingListIds.length === 0) {
-    return { reminder: null };
+  if (!change.arrived || !fresh) return { reminder: null, home: null };
+  if (place.kind === 'home') {
+    return { reminder: null, home: await homeReminder(householdId, userId, stored?.homeReminderAt ?? null, now) };
   }
-  return { reminder: await storeReminder(householdId, place) };
+  if (place.kind !== 'store' || place.shoppingListIds.length === 0) return { reminder: null, home: null };
+  return { reminder: await storeReminder(householdId, place), home: null };
+}
+
+/**
+ * "You're home: 3 chores due": their own tasks due today or overdue, while
+ * the household uses Tasks, at most every few hours (HOME_REMINDER_GAP_MS).
+ * Null when there's nothing due or it's too soon.
+ */
+async function homeReminder(
+  householdId: string,
+  userId: string,
+  lastRemindedAt: Date | null,
+  now: Date,
+): Promise<PresenceReportDTO['home']> {
+  if (!homeReminderDue(lastRemindedAt, now)) return null;
+  if (!(await getHouseholdFeatures(householdId)).includes('tasks')) return null;
+  const due = await myTasksDueToday(householdId, userId, now);
+  if (due.count === 0) return null;
+  await prisma.memberLocation.update({ where: { userId }, data: { homeReminderAt: now } });
+  return due;
 }
 
 /** The store's linked lists that still have something to buy; null if none. */

@@ -299,8 +299,9 @@ function WhoIsWhereCard({ presence, timeZone }: { presence: MemberPresenceDTO[];
       <CardContent className="pt-0">
         <ul className="space-y-2">
           {presence.map((p) => (
-            <li key={p.userId} className="flex items-center justify-between gap-2 text-sm">
-              <span className="truncate font-medium">{p.name}</span>
+            // In the narrow column the status drops below the name rather than cutting the name short.
+            <li key={p.userId} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-sm">
+              <span className="min-w-0 break-words font-medium">{p.name}</span>
               <span className="flex shrink-0 items-center gap-1.5 text-muted-foreground">
                 {p.place?.kind === 'home' ? <Home className="size-3.5 text-[var(--color-success)]" /> : null}
                 {p.place ? (p.place.kind === 'home' ? p.place.name : `At ${p.place.name}`) : 'Away'}

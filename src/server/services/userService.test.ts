@@ -13,6 +13,8 @@ vi.mock('@/server/auth/auth', () => ({ auth: {} }));
 vi.mock('@/server/services/activityService', () => ({ logActivity: vi.fn() }));
 const dropBrokenSupervision = vi.fn();
 vi.mock('@/server/services/supervisionService', () => ({ dropBrokenSupervision }));
+const refreshPhoneAlerts = vi.fn();
+vi.mock('@/server/services/phoneStatusService', () => ({ refreshPhoneAlerts }));
 
 const { setMemberRole, transferHeadship, updateMember } = await import('./userService');
 
@@ -81,6 +83,8 @@ describe('role changes and supervision', () => {
     prisma.user.update.mockResolvedValueOnce(row({ id: kid, role: 'adult' }));
     await setMemberRole(HOUSEHOLD, head, { id: kid, role: 'adult' });
     expect(dropBrokenSupervision).toHaveBeenCalledWith(prisma, kid, 'adult');
+    // Who gets phone alerts may have changed with it.
+    expect(refreshPhoneAlerts).toHaveBeenCalledWith(HOUSEHOLD);
   });
 
   it('checks it for a new Head of House too', async () => {

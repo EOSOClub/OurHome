@@ -13,6 +13,7 @@ import {
   Receipt,
   Clock,
   ListChecks,
+  Smartphone,
   type LucideIcon,
 } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -42,6 +43,7 @@ const TYPE_ICON: Record<NotificationType, LucideIcon> = {
   system: Info,
   bug_report: Bug,
   task_ready: ListChecks,
+  phone_alert: Smartphone,
 };
 
 const TYPE_VARIANT: Record<
@@ -55,6 +57,7 @@ const TYPE_VARIANT: Record<
   system: 'secondary',
   bug_report: 'destructive',
   task_ready: 'default',
+  phone_alert: 'warning',
 };
 
 type ReadFilter = 'all' | 'unread' | 'read';
@@ -91,6 +94,9 @@ function subjectHref(n: NotificationDTO): string | null {
       return '/shopping';
     case 'app_release':
       return '/profile';
+    case 'phone':
+      // A supervised child's phone: their status is on the Map's "People you look after".
+      return '/map';
     default:
       return null;
   }

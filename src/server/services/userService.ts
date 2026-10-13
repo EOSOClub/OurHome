@@ -3,6 +3,7 @@ import { prisma } from '@/server/db/prisma';
 import { auth } from '@/server/auth/auth';
 import { logActivity } from '@/server/services/activityService';
 import { dropBrokenSupervision } from '@/server/services/supervisionService';
+import { refreshPhoneAlerts } from '@/server/services/phoneStatusService';
 import { ConflictError, ForbiddenError, NotFoundError } from '@/server/services/errors';
 import { ROLE_RANK, USER_ROLE_LABELS, isUserRole, type UserRole } from '@/lib/enums';
 import { can, canAssignRole, canManageMember } from '@/lib/permissions';
@@ -221,6 +222,8 @@ export async function setMemberRole(
     );
     return u;
   });
+  // Supervision may have changed with the role, so who gets phone alerts may too.
+  await refreshPhoneAlerts(householdId);
 
   return memberToDTO(updated);
 }
@@ -316,6 +319,8 @@ export async function removeMember(
       tx,
     );
   });
+  // Alerts about their phone (or to them) have nobody left to be about.
+  await refreshPhoneAlerts(householdId);
 }
 
 /** The household's display name (shown on the members page). */
@@ -404,6 +409,7 @@ export async function transferHeadship(
     );
     return u;
   });
+  await refreshPhoneAlerts(householdId);
 
   return memberToDTO(updated);
 }

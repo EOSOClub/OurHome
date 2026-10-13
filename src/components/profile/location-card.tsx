@@ -74,7 +74,8 @@ export function LocationCard({ initial }: { initial: LocationConsent }) {
               {onMe.requesterName} is checking where you are until{' '}
               {new Date(onMe.endsAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}.
             </span>
-            {!locked ? (
+            {/* Older servers don't say; then sharing being required decides, as before. */}
+            {(onMe.canStopOnMe ?? !locked) ? (
               <Button size="sm" variant="outline" disabled={stop.isPending} onClick={() => stop.mutate(onMe.id)}>
                 Stop
               </Button>
@@ -100,7 +101,13 @@ export function LocationCard({ initial }: { initial: LocationConsent }) {
               store), and where you were at that moment. Only that last spot is kept, never a history. Store
               reminders need it too.
             </span>
-            {locked ? <span className="block text-muted-foreground">Sharing is required for you.</span> : null}
+            {locked ? (
+              <span className="block text-muted-foreground">
+                Sharing is required for you by an adult who looks after you, so you can&apos;t turn it off. They
+                can also check where you are for a few minutes even with live checks off, and you can&apos;t stop
+                their checks. You always see a notification while they check, and every check is listed below.
+              </span>
+            ) : null}
           </span>
         </label>
 

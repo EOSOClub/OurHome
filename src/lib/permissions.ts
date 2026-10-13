@@ -87,28 +87,48 @@ export function canAssignRole(actorRole: string, targetRole: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Location: who may look at someone's location. Consent is the only gate:
-// a member shares only if they turned it on (Profile → Location), and a live
-// check needs their separate yes. Role never grants authority over someone
-// else's location. Parental controls will add it for supervised kids through
-// the Head's supervision list ("required" sharing), here and nowhere else.
+// Location: who may look at someone's location. Consent is the gate: a member
+// shares only if they turned it on (Profile → Location), and a live check
+// needs their separate yes. Role never grants authority over someone else's
+// location. The one exception is parental controls: an adult who supervises a
+// child or teen (the Head's supervision list) may make their sharing
+// "required", and then may check on them without that yes. Here and nowhere
+// else. A check is never hidden either way.
 // ---------------------------------------------------------------------------
 
 /** The lowest role that may start a live location check. */
 const LIVE_CHECK_MIN_ROLE: UserRole = 'adult';
 
 /**
+ * Whether a live check by someone on a member with this consent may run:
+ * they share and allow checks, or their sharing is required and the person
+ * checking supervises them.
+ */
+export function liveCheckAllowed(consent: LocationConsent, requesterSupervises: boolean): boolean {
+  if (!isSharing(consent.sharing)) return false;
+  return consent.liveChecks || (consent.sharing === 'required' && requesterSupervises);
+}
+
+/**
  * Whether `actor` may start a short live location check on `target`: an adult
- * or above, on someone else in the household who shares their location and
- * allows live checks.
+ * or above, on someone else in the household whose consent allows it
+ * ([liveCheckAllowed]; `supervisedByActor`: the actor supervises them).
  */
 export function canStartLiveCheck(
   actor: { id: string; role: string },
-  target: { id: string; consent: LocationConsent },
+  target: { id: string; consent: LocationConsent; supervisedByActor?: boolean },
 ): boolean {
   if (actor.id === target.id) return false;
   if (!isUserRole(actor.role) || ROLE_RANK[actor.role] < ROLE_RANK[LIVE_CHECK_MIN_ROLE]) return false;
-  return isSharing(target.consent.sharing) && target.consent.liveChecks;
+  return liveCheckAllowed(target.consent, target.supervisedByActor === true);
+}
+
+/**
+ * Whether the checked person may stop a check on them: always, except one by
+ * an adult who supervises them while their sharing is required.
+ */
+export function canStopCheckOnMe(consent: LocationConsent, requesterSupervises: boolean): boolean {
+  return !(consent.sharing === 'required' && requesterSupervises);
 }
 
 /** Whether a member may change their own sharing: not while it's required. */

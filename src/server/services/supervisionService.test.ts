@@ -7,7 +7,13 @@ const tx = {
   supervision: {
     deleteMany: vi.fn(),
     createMany: vi.fn(),
+    findMany: vi.fn(async (): Promise<unknown[]> => []),
   },
+  user: {
+    findMany: vi.fn(async (): Promise<unknown[]> => []),
+    update: vi.fn(),
+  },
+  appUsageDay: { deleteMany: vi.fn() },
 };
 const prisma = {
   user: {
@@ -16,18 +22,30 @@ const prisma = {
   },
   supervision: {
     findMany: vi.fn(async (): Promise<Link[]> => []),
+    findUnique: vi.fn(async (): Promise<unknown> => null),
   },
   $transaction: vi.fn(async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx)),
 };
 vi.mock('@/server/db/prisma', () => ({ prisma }));
 const logActivity = vi.fn();
 vi.mock('@/server/services/activityService', () => ({ logActivity }));
-const push = { canPush: vi.fn(() => true), pushToMember: vi.fn(async () => 1) };
+const push = { canPush: vi.fn(() => true), pushToMember: vi.fn(async () => 1), pushSync: vi.fn() };
 vi.mock('@/server/services/pushService', () => push);
+const phones = { phoneSummaries: vi.fn(async () => new Map()), refreshPhoneAlerts: vi.fn() };
+vi.mock('@/server/services/phoneStatusService', () => phones);
+vi.mock('@/server/services/appUsageService', () => ({ usageSummaries: vi.fn(async () => new Map()) }));
 
-const { dropBrokenSupervision, getSupervision, ringOverview, ringPhone, setSupervisors } = await import(
-  './supervisionService'
-);
+const {
+  dropBrokenSupervision,
+  getSupervision,
+  isSupervising,
+  lookAfterOverview,
+  releaseIfUnsupervised,
+  ringPhone,
+  setRequiredSharing,
+  setSupervisors,
+  setUsageSharing,
+} = await import('./supervisionService');
 
 const H = 'household1';
 const head = { id: 'head', role: 'head' };
@@ -120,13 +138,17 @@ describe('setSupervisors', () => {
       expect.objectContaining({ message: 'set who supervises Sam: Pat, Gran' }),
       tx,
     );
+    // Who gets Sam's phone alerts changed with it.
+    expect(phones.refreshPhoneAlerts).toHaveBeenCalledWith(H, expect.any(Date), ['sam']);
   });
 
-  it('can clear everyone', async () => {
+  it('can clear everyone, which gives required sharing back to them', async () => {
     prisma.user.findFirst.mockResolvedValueOnce(jo);
     prisma.supervision.findMany.mockResolvedValueOnce([{ supervisorId: 'alex', supervisedId: 'jo' }]);
+    tx.user.findMany.mockResolvedValueOnce([{ id: 'jo', role: 'teen', locationSharing: 'required' }]);
     await setSupervisors(H, head, { supervisedId: 'jo', supervisorIds: [] });
     expect(tx.supervision.createMany).not.toHaveBeenCalled();
+    expect(tx.user.update).toHaveBeenCalledWith({ where: { id: 'jo' }, data: { locationSharing: 'on' } });
     expect(logActivity).toHaveBeenCalledWith(
       expect.objectContaining({ message: 'removed everyone supervising Jo' }),
       tx,
@@ -162,6 +184,141 @@ describe('dropBrokenSupervision', () => {
     await dropBrokenSupervision(tx as never, 'g', 'guest');
     expect(tx.supervision.deleteMany).toHaveBeenCalledTimes(2);
   });
+
+  it('gives a kid who grew up their sharing back', async () => {
+    tx.user.findMany.mockResolvedValueOnce([{ id: 'sam', role: 'adult', locationSharing: 'required' }]);
+    await dropBrokenSupervision(tx as never, 'sam', 'adult');
+    expect(tx.user.update).toHaveBeenCalledWith({ where: { id: 'sam' }, data: { locationSharing: 'on' } });
+  });
+
+  it('checks the kids of a supervisor who lost the role', async () => {
+    tx.supervision.findMany.mockResolvedValueOnce([{ supervisedId: 'sam' }, { supervisedId: 'jo' }]);
+    await dropBrokenSupervision(tx as never, 'alex', 'teen');
+    expect(tx.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: { in: ['sam', 'jo'] }, OR: [{ locationSharing: 'required' }, { shareAppUsage: true }] },
+      }),
+    );
+  });
+});
+
+describe('releaseIfUnsupervised', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('keeps required sharing while another adult still supervises them', async () => {
+    tx.user.findMany.mockResolvedValueOnce([{ id: 'sam', role: 'child', locationSharing: 'required' }]);
+    tx.supervision.findMany.mockResolvedValueOnce([{ supervisor: { role: 'manager' } }]);
+    await releaseIfUnsupervised(tx as never, ['sam']);
+    expect(tx.user.update).not.toHaveBeenCalled();
+  });
+
+  it('lets it go when the only supervisor left is no longer an adult', async () => {
+    tx.user.findMany.mockResolvedValueOnce([{ id: 'sam', role: 'child', locationSharing: 'required' }]);
+    tx.supervision.findMany.mockResolvedValueOnce([{ supervisor: { role: 'teen' } }]);
+    await releaseIfUnsupervised(tx as never, ['sam']);
+    expect(tx.user.update).toHaveBeenCalledWith({ where: { id: 'sam' }, data: { locationSharing: 'on' } });
+    expect(tx.appUsageDay.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('stops sharing app usage, and deletes it, when nobody is left to see it', async () => {
+    tx.user.findMany.mockResolvedValueOnce([{ id: 'sam', role: 'child', locationSharing: 'on', shareAppUsage: true }]);
+    tx.supervision.findMany.mockResolvedValueOnce([]);
+    await releaseIfUnsupervised(tx as never, ['sam']);
+    expect(tx.user.update).toHaveBeenCalledTimes(1);
+    expect(tx.user.update).toHaveBeenCalledWith({ where: { id: 'sam' }, data: { shareAppUsage: null } });
+    expect(tx.appUsageDay.deleteMany).toHaveBeenCalledWith({ where: { userId: 'sam' } });
+  });
+});
+
+describe('required sharing', () => {
+  const findLinks = prisma.supervision.findMany as unknown as ReturnType<typeof vi.fn>;
+  const linkTo = (kid: Person, locationSharing: string | null) => [
+    { supervisor: { role: 'adult' }, supervised: { ...kid, locationSharing } },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    findLinks.mockReset();
+    findLinks.mockResolvedValue([]);
+  });
+
+  it('lists the people the viewer looks after with their sharing', async () => {
+    findLinks.mockResolvedValueOnce([...linkTo(sam, 'required'), ...linkTo(jo, null), { supervisor: { role: 'adult' }, supervised: { ...alex, locationSharing: 'on' } }]);
+    expect(await lookAfterOverview(H, 'alex')).toEqual({
+      canRing: true,
+      people: [
+        { id: 'jo', name: 'Jo', sharing: 'off', phone: null, appUsage: { shared: false, latest: null } },
+        { id: 'sam', name: 'Sam', sharing: 'required', phone: null, appUsage: { shared: false, latest: null } },
+      ],
+    });
+  });
+
+  it('a supervisor makes it required, logs it, and wakes their phone', async () => {
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'off'));
+    await setRequiredSharing(H, { id: 'alex' }, { supervisedId: 'sam', required: true });
+    expect(tx.user.update).toHaveBeenCalledWith({ where: { id: 'sam' }, data: { locationSharing: 'required' } });
+    expect(logActivity).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'made Sam’s location sharing required' }),
+      tx,
+    );
+    expect(push.pushSync).toHaveBeenCalledWith(H, { userIds: ['sam'] }, 'location');
+  });
+
+  it('stopping it leaves sharing on, for them to turn off', async () => {
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'required'));
+    await setRequiredSharing(H, { id: 'alex' }, { supervisedId: 'sam', required: false });
+    expect(tx.user.update).toHaveBeenCalledWith({ where: { id: 'sam' }, data: { locationSharing: 'on' } });
+    expect(phones.refreshPhoneAlerts).toHaveBeenCalledWith(H, expect.any(Date), ['sam']);
+  });
+
+  it('does nothing when it is already so, and never turns sharing on by stopping', async () => {
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'off'));
+    await setRequiredSharing(H, { id: 'alex' }, { supervisedId: 'sam', required: false });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(push.pushSync).not.toHaveBeenCalled();
+  });
+
+  it('refuses anyone who does not supervise them', async () => {
+    findLinks.mockResolvedValueOnce(linkTo(jo, 'off'));
+    await expect(setRequiredSharing(H, { id: 'gran' }, { supervisedId: 'sam', required: true })).rejects.toThrow(
+      /Only an adult who supervises/,
+    );
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('a supervisor turns app usage sharing on, and off again deletes what was stored', async () => {
+    findLinks.mockResolvedValueOnce([{ supervisor: { role: 'adult' }, supervised: { ...sam, shareAppUsage: null } }]);
+    await setUsageSharing(H, { id: 'alex' }, { supervisedId: 'sam', share: true });
+    expect(tx.user.update).toHaveBeenCalledWith({ where: { id: 'sam' }, data: { shareAppUsage: true } });
+    expect(tx.appUsageDay.deleteMany).not.toHaveBeenCalled();
+    expect(logActivity).toHaveBeenCalledWith(expect.objectContaining({ message: 'turned on sharing Sam’s app usage' }), tx);
+    expect(push.pushSync).toHaveBeenCalledWith(H, { userIds: ['sam'] }, 'usage');
+
+    vi.clearAllMocks();
+    findLinks.mockResolvedValueOnce([{ supervisor: { role: 'adult' }, supervised: { ...sam, shareAppUsage: true } }]);
+    await setUsageSharing(H, { id: 'alex' }, { supervisedId: 'sam', share: false });
+    expect(tx.user.update).toHaveBeenCalledWith({ where: { id: 'sam' }, data: { shareAppUsage: null } });
+    expect(tx.appUsageDay.deleteMany).toHaveBeenCalledWith({ where: { userId: 'sam' } });
+    // Its "Usage access off" alert can't stand any more: refreshed now, not at the next sweep.
+    expect(phones.refreshPhoneAlerts).toHaveBeenCalledWith(H, expect.any(Date), ['sam']);
+  });
+
+  it('refuses app usage sharing from anyone who does not supervise them', async () => {
+    findLinks.mockResolvedValueOnce([]);
+    await expect(setUsageSharing(H, { id: 'jordan' }, { supervisedId: 'sam', share: true })).rejects.toThrow(
+      /Only an adult who supervises/,
+    );
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('knows a supervisor only while both roles fit', async () => {
+    prisma.supervision.findUnique.mockResolvedValueOnce({ supervisor: { role: 'adult' }, supervised: { role: 'teen' } });
+    expect(await isSupervising('alex', 'jo')).toBe(true);
+    prisma.supervision.findUnique.mockResolvedValueOnce({ supervisor: { role: 'guest' }, supervised: { role: 'teen' } });
+    expect(await isSupervising('alex', 'jo')).toBe(false);
+    prisma.supervision.findUnique.mockResolvedValueOnce(null);
+    expect(await isSupervising('alex', 'jo')).toBe(false);
+  });
 });
 
 describe('ringing a phone', () => {
@@ -175,14 +332,6 @@ describe('ringing a phone', () => {
     push.canPush.mockReturnValue(true);
     push.pushToMember.mockResolvedValue(1);
     clock += 3_600_000; // every test well past the last one's ring
-  });
-
-  it('lists only the kids the viewer supervises, whose roles still fit', async () => {
-    findLinks.mockResolvedValueOnce([...linksOf(sam, jo), { supervisor: { role: 'adult' }, supervised: { ...alex } }]);
-    expect(await ringOverview(H, 'alex')).toEqual({
-      available: true,
-      ringable: [{ id: 'jo', name: 'Jo' }, { id: 'sam', name: 'Sam' }],
-    });
   });
 
   it('rings a supervised child with a short-lived push and logs it', async () => {

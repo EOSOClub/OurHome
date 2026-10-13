@@ -47,10 +47,11 @@ export async function updateLocationConsent(
     select: consentSelect,
   });
   const consent = locationConsent(user);
-  // Stopped sharing or allowing checks: a check running on them ends now.
+  // Stopped sharing or allowing checks: a check running on them ends now
+  // (except a supervisor's, while their sharing is required).
   const allowedBefore = isSharing(current.sharing) && current.liveChecks;
   if (allowedBefore && (!isSharing(consent.sharing) || !consent.liveChecks)) {
-    await endLiveChecksOn(userId);
+    await endLiveChecksOn(userId, consent);
   }
   // Stopped sharing: nothing about where they were stays behind.
   if (!isSharing(consent.sharing)) {

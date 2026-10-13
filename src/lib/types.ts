@@ -3,7 +3,8 @@
 
 import type { AccessMatrix, EditableRole } from '@/lib/permissions';
 import type { Feature } from '@/lib/features';
-import type { BatteryReading } from '@/lib/location';
+import type { BatteryReading, LocationSharing } from '@/lib/location';
+import type { PhoneProblem } from '@/lib/phoneHealth';
 
 export interface CategoryDTO {
   id: string;
@@ -214,6 +215,9 @@ export interface LiveCheckDTO {
   state: string;
   /** The latest fix; null before the first and once the check has closed. */
   fix: { lat: number; lng: number; accuracyM: number | null; at: string } | null;
+  /** For the person checked: whether they may stop it (not a supervisor's
+   *  check under required sharing). Only set when they're the one asking. */
+  canStopOnMe?: boolean;
 }
 
 /** One check in the checked person's log (Profile → Location). */
@@ -604,11 +608,25 @@ export interface SupervisionDTO {
   supervised: { id: string; name: string; role: string; supervisorIds: string[] }[];
 }
 
-/** GET /api/supervision/ring: the children whose phone the viewer may ring. */
-export interface RingOverviewDTO {
+/** GET /api/supervision/mine: the children and teens the viewer supervises. */
+export interface LookAfterDTO {
   /** false when the server can't push (no Firebase): nobody can be rung. */
-  available: boolean;
-  ringable: { id: string; name: string }[];
+  canRing: boolean;
+  /** sharing: their LocationSharing ("off" | "on" | "required"). phone: their
+   *  freshest phone's last check-in and what's wrong with it; null before
+   *  any phone of theirs checked in. */
+  people: {
+    id: string;
+    name: string;
+    sharing: LocationSharing;
+    phone: { lastSeenAt: string; deviceName: string | null; problems: PhoneProblem[] } | null;
+    /** shared: a supervisor turned app usage sharing on. latest: the newest day
+     *  their phone reported (the phone's own date), with the top apps. */
+    appUsage: {
+      shared: boolean;
+      latest: { day: string; totalMinutes: number; top: { label: string; minutes: number }[]; updatedAt: string } | null;
+    };
+  }[];
 }
 
 /** The signed-in user's own page access (GET /api/permissions/me). */

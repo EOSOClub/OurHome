@@ -49,7 +49,7 @@ ALT = {
     "location-map-page.png": "The Map page: the household's places on a map with who is at each, someone away at the spot they were last seen, and lists of who's where and the places",
     "location-live-check.png": "The Map page during a live check: the person's live dot labelled with how long ago it updated, and the running check with a Stop button",
     "location-start-check.png": "The Check location window: how long to check for and how often to update",
-    "location-ring-phone.png": "The Ring phone card on the Map page: each child the viewer looks after, with a Ring button",
+    "location-look-after.png": "The People you look after card on the Map page: each child with a Ring button and a Location required switch",
     "location-whos-where.png": "The Who's where card on the Home screen: each person who shares, their phone's battery, where they are and since when",
     "location-profile-card.png": "The Location card on a teen's Profile: a live check running with a Stop button, the two switches, and the list of live checks on them",
 }

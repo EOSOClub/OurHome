@@ -51,7 +51,7 @@ describe('updateLocationConsent', () => {
     await updateLocationConsent('u1', { sharing: 'off' });
     expect(prisma.memberLocation.deleteMany).toHaveBeenCalledWith({ where: { userId: 'u1' } });
     // A check running on them ends first (so its last fix isn't left behind).
-    expect(liveChecks.endLiveChecksOn).toHaveBeenCalledWith('u1');
+    expect(liveChecks.endLiveChecksOn).toHaveBeenCalledWith('u1', { sharing: 'off', liveChecks: false });
   });
 
   it('ends a running check when they turn live checks off', async () => {
@@ -59,7 +59,7 @@ describe('updateLocationConsent', () => {
     // Prisma leaves fields the update doesn't name as they were.
     prisma.user.update.mockResolvedValueOnce({ locationSharing: 'on', liveChecks: false });
     await updateLocationConsent('u1', { liveChecks: false });
-    expect(liveChecks.endLiveChecksOn).toHaveBeenCalledWith('u1');
+    expect(liveChecks.endLiveChecksOn).toHaveBeenCalledWith('u1', { sharing: 'on', liveChecks: false });
     expect(prisma.memberLocation.deleteMany).not.toHaveBeenCalled();
   });
 

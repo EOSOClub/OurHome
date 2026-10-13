@@ -22,6 +22,11 @@ const prisma = {
 vi.mock('@/server/db/prisma', () => ({ prisma }));
 const push = { canPush: vi.fn(() => true), pushToMember: vi.fn(async () => 1) };
 vi.mock('@/server/services/pushService', () => push);
+const supervision = {
+  isSupervising: vi.fn(async () => false),
+  supervisedIds: vi.fn(async () => new Set<string>()),
+};
+vi.mock('@/server/services/supervisionService', () => supervision);
 
 const { getLiveCheck, reportLiveCheckFix, startLiveCheck, stopLiveCheck } = await import('./liveCheckService');
 
@@ -61,6 +66,7 @@ beforeEach(() => {
   prisma.locationCheck.findFirst.mockResolvedValue(null);
   prisma.user.findFirst.mockResolvedValue(sam);
   prisma.user.findUnique.mockResolvedValue(sam);
+  supervision.isSupervising.mockResolvedValue(false);
 });
 
 describe('startLiveCheck', () => {
@@ -100,6 +106,18 @@ describe('startLiveCheck', () => {
     prisma.user.findFirst.mockResolvedValue({ ...sam, locationSharing: 'off' });
     await expect(startLiveCheck('h1', adult, input, now)).rejects.toThrow(/doesn’t allow/);
     expect(prisma.locationCheck.create).not.toHaveBeenCalled();
+  });
+
+  it('lets a supervisor check a child whose sharing is required, without their yes', async () => {
+    prisma.user.findFirst.mockResolvedValue({ ...sam, locationSharing: 'required', liveChecks: false });
+    prisma.locationCheck.create.mockImplementation(async (args: { data: Record<string, unknown> }) => ({
+      ...check(),
+      ...args.data,
+    }));
+    await expect(startLiveCheck('h1', adult, input, now)).rejects.toThrow(/doesn’t allow/);
+    supervision.isSupervising.mockResolvedValue(true);
+    expect((await startLiveCheck('h1', adult, input, now)).targetName).toBe('Sam');
+    expect(supervision.isSupervising).toHaveBeenCalledWith('adult', 'sam');
   });
 
   it('refuses while someone else is checking, and returns your own running check', async () => {
@@ -162,6 +180,19 @@ describe('reportLiveCheckFix', () => {
     await expect(reportLiveCheckFix('h1', 'sam', fix, now)).rejects.toThrow(/off for you/);
     expect(prisma.locationCheck.update.mock.calls[0][0].data).toMatchObject({ endedById: 'sam', lat: null });
   });
+
+  it('keeps a supervisor’s check going under required sharing, but not once they stop supervising', async () => {
+    prisma.locationCheck.findFirst.mockResolvedValue(check());
+    prisma.locationCheck.update.mockImplementation(async (args: { data: Record<string, unknown> }) => ({
+      ...check(),
+      ...args.data,
+    }));
+    prisma.user.findUnique.mockResolvedValue({ ...sam, locationSharing: 'required', liveChecks: false });
+    supervision.isSupervising.mockResolvedValue(true);
+    expect((await reportLiveCheckFix('h1', 'sam', fix, now)).state).toBe('live');
+    supervision.isSupervising.mockResolvedValue(false);
+    await expect(reportLiveCheckFix('h1', 'sam', fix, now)).rejects.toThrow(/off for you/);
+  });
 });
 
 describe('closing a check', () => {
@@ -189,15 +220,24 @@ describe('stopLiveCheck', () => {
     expect(push.pushToMember).toHaveBeenCalledWith('h1', 'sam', { type: 'live_check_stop', checkId });
   });
 
-  it('lets the person checked stop it, unless their sharing is required', async () => {
+  it('lets the person checked stop it, unless a supervisor checks them under required sharing', async () => {
     prisma.locationCheck.findFirst.mockResolvedValue(check());
     await stopLiveCheck('h1', 'sam', checkId, now);
     expect(prisma.locationCheck.update.mock.calls[0][0].data).toMatchObject({ endedById: 'sam' });
     expect(push.pushToMember).not.toHaveBeenCalled();
 
+    // Required, but the person checking doesn't supervise them: still theirs to stop.
     vi.clearAllMocks();
     prisma.locationCheck.findFirst.mockResolvedValue(check());
     prisma.user.findUnique.mockResolvedValue({ locationSharing: 'required' });
+    supervision.isSupervising.mockResolvedValue(false);
+    await stopLiveCheck('h1', 'sam', checkId, now);
+    expect(prisma.locationCheck.update).toHaveBeenCalled();
+
+    vi.clearAllMocks();
+    prisma.locationCheck.findFirst.mockResolvedValue(check());
+    prisma.user.findUnique.mockResolvedValue({ locationSharing: 'required' });
+    supervision.isSupervising.mockResolvedValue(true);
     await expect(stopLiveCheck('h1', 'sam', checkId, now)).rejects.toThrow(/can’t be stopped/);
   });
 });
@@ -207,5 +247,14 @@ describe('getLiveCheck', () => {
     prisma.locationCheck.findFirst.mockResolvedValue(check());
     await expect(getLiveCheck('h1', 'stranger', checkId, now)).rejects.toThrow(/not found/);
     expect((await getLiveCheck('h1', 'sam', checkId, now)).state).toBe('waiting');
+  });
+
+  it('tells the person checked whether they may stop it, and nobody else', async () => {
+    prisma.locationCheck.findFirst.mockResolvedValue(check());
+    expect((await getLiveCheck('h1', 'sam', checkId, now)).canStopOnMe).toBe(true);
+    expect((await getLiveCheck('h1', 'adult', checkId, now)).canStopOnMe).toBeUndefined();
+    prisma.user.findUnique.mockResolvedValue({ locationSharing: 'required' });
+    supervision.isSupervising.mockResolvedValue(true);
+    expect((await getLiveCheck('h1', 'sam', checkId, now)).canStopOnMe).toBe(false);
   });
 });

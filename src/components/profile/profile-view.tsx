@@ -19,6 +19,7 @@ import { ProfileAvatar } from '@/components/profile/profile-avatar';
 import type { AppRelease } from '@/server/services/appDownloadService';
 import { AndroidAppCard } from '@/components/profile/android-app-card';
 import { LocationCard } from '@/components/profile/location-card';
+import { AppUsageNotice } from '@/components/profile/app-usage-notice';
 import { useHouseholdFeatures } from '@/components/household-features';
 import type { LocationConsent } from '@/lib/location';
 import { changePassword, updateUser } from '@/lib/auth-client';
@@ -103,6 +104,7 @@ export function ProfileView({
       {household.length > 1 ? <HouseholdCard members={household} userId={overview.id} /> : null}
       <OverviewCard overview={overview} />
       {features.includes('location') ? <LocationCard initial={location} /> : null}
+      <AppUsageNotice />
       {appRelease && <AndroidAppCard release={appRelease} />}
       <EditProfileCard overview={overview} />
       <ChangePasswordCard />

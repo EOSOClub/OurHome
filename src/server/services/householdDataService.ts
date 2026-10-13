@@ -46,6 +46,8 @@ export const HOUSEHOLD_MODELS = [
   'MemberLocation',
   'LocationCheck',
   'Supervision',
+  'PhoneStatus',
+  'AppUsageDay',
   'HomeAssistantIntegration',
 ] as const;
 
@@ -64,7 +66,11 @@ export const EXPORT_VERSION = 1;
  * location consent and last known location (MemberLocation): a restored
  * household starts with everyone's sharing off, and each person turns it back
  * on themselves. Live location checks and their log (LocationCheck) stay out
- * for the same reason; they're gone after 30 days anyway.
+ * for the same reason; they're gone after 30 days anyway. Phone check-ins
+ * (PhoneStatus) stay out too: they're about the phones, not the household's
+ * records, and come back with the next check-in. App usage (AppUsageDay)
+ * stays out as well: it's a child's screen time, kept two weeks, and sharing
+ * it starts again off after a restore.
  */
 export async function exportHousehold(householdId: string) {
   const where = { householdId };
@@ -246,6 +252,8 @@ export async function deleteHousehold(adminId: string, householdId: string, conf
       count('MemberLocation', await tx.memberLocation.deleteMany({ where }));
       count('LocationCheck', await tx.locationCheck.deleteMany({ where }));
       count('Supervision', await tx.supervision.deleteMany({ where }));
+      count('PhoneStatus', await tx.phoneStatus.deleteMany({ where }));
+      count('AppUsageDay', await tx.appUsageDay.deleteMany({ where }));
       count('HomeAssistantIntegration', await tx.homeAssistantIntegration.deleteMany({ where }));
       count('PaperlessSync', await tx.paperlessSync.deleteMany({ where }));
       count('PaperlessConnection', await tx.paperlessConnection.deleteMany({ where }));

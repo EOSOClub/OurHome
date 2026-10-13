@@ -224,6 +224,9 @@ export const NOTIFICATION_TYPES = [
   // Sent to a task's assignee when it becomes theirs to do: assigned to them,
   // their turn in a rotation, or a new cycle/occurrence (taskReadyService).
   'task_ready',
+  // Sent to a child's supervisors when their phone goes quiet, or location or
+  // Usage access is turned off while needed (phoneStatusService). Removed once fixed.
+  'phone_alert',
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
@@ -235,6 +238,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   system: 'System',
   bug_report: 'Bug report',
   task_ready: 'Your turn',
+  phone_alert: 'Phone',
 };
 
 // --- Bug reports ----------------------------------------------------------

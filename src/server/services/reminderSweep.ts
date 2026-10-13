@@ -4,6 +4,7 @@ import { resetDueSubtasks, rollTaskCycles } from '@/server/services/taskService'
 import { runPaperlessSync } from '@/server/services/paperlessSync';
 import { announceAppRelease } from '@/server/services/appReleaseService';
 import { isFeatureEnabled } from '@/server/services/serverAdminService';
+import { refreshPhoneAlerts } from '@/server/services/phoneStatusService';
 
 // One reminder sweep over every household. Runs every 15 minutes inside the
 // production server (startReminderSchedule, from src/instrumentation.ts) and on
@@ -40,6 +41,9 @@ export async function runReminderSweep(): Promise<{ households: number }> {
           ] as const)
         : []),
       ['reminders', () => generateReminders(id)],
+      // Supervised children's phones gone quiet, or location or Usage access
+      // turned off while needed.
+      ['phone alerts', () => refreshPhoneAlerts(id)],
     ] as const) {
       try {
         await run();

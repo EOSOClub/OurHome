@@ -77,7 +77,9 @@ model Household {
   memberLocations MemberLocation[]
   locationChecks LocationCheck[]
   supervision    Supervision[]
-  integrations  HomeAssistantIntegration[]
+  phoneStatuses  PhoneStatus[]
+  appUsage       AppUsageDay[]
+  integrations   HomeAssistantIntegration[]
   requests       Request[]
   bugReports     BugReport[]
   pushDevices    PushDevice[]
@@ -120,6 +122,10 @@ model User {
   // liveChecks: may adults start a short live location check on them; null = no.
   locationSharing String?
   liveChecks      Boolean?
+  // Parental controls: a supervising adult turned on sharing this child's app
+  // usage (screen time per app) with their supervisors; the child can't turn
+  // it off. null = off. See appUsageService.
+  shareAppUsage   Boolean?
   // Audit: which user provisioned this member (plain id, no relation).
   createdById   String?
   householdId   String?
@@ -146,9 +152,63 @@ model User {
   location        MemberLocation?
   liveChecksStarted LocationCheck[] @relation("LocationCheckRequester")
   liveChecksOnMe    LocationCheck[] @relation("LocationCheckTarget")
-  supervising       Supervision[]   @relation("SupervisionSupervisor")
+  phones            PhoneStatus[]
+  appUsage          AppUsageDay[]
+  supervising      Supervision[]   @relation("SupervisionSupervisor")
   supervisedBy      Supervision[]   @relation("SupervisionSupervised")
 
+  @@index([householdId])
+}
+
+// A phone checking in (Android app, hourly): which install, when, and whether
+// what parental controls rely on is still allowed. One row per install,
+// overwritten each time; it moves with the install if someone else signs in
+// there. The sweep alerts a child's supervisors when their phone goes quiet or
+// location is turned off while required (phoneStatusService).
+model PhoneStatus {
+  id             String   @id @default(cuid()) @map("_id")
+  householdId    String
+  userId         String
+  // Random id the app keeps for its install (not a hardware id).
+  installId      String   @unique
+  lastSeenAt     DateTime
+  appVersion     String?
+  // e.g. "Pixel 8", to tell a member's phones apart.
+  deviceName     String?
+  // Precise location allowed "all the time" (what geofences and live checks need).
+  locationAlways Boolean  @default(false)
+  // Notifications allowed for the app.
+  notifications  Boolean  @default(false)
+  // Android's Usage access granted (needed while app usage is shared). null =
+  // an app from before usage reporting.
+  usageAccess    Boolean?
+  createdAt      DateTime @default(now())
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([householdId])
+  @@index([userId])
+}
+
+// One day of a member's app usage, as their phone measured it (parental
+// controls: only while a supervising adult has turned app usage sharing on).
+// day is the phone's own date ("YYYY-MM-DD"); apps is JSON text
+// ([{ app, label, minutes }], most used first, top 20). Kept 14 days
+// (USAGE_KEEP_DAYS). See appUsageService.
+model AppUsageDay {
+  id           String   @id @default(cuid()) @map("_id")
+  householdId  String
+  userId       String
+  day          String
+  totalMinutes Int
+  apps         String
+  updatedAt    DateTime @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, day])
   @@index([householdId])
 }
 

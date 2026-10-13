@@ -15,7 +15,7 @@ import {
   sharingMode,
   type LocationConsent,
 } from '@/lib/location';
-import { canChangeOwnSharing, canStartLiveCheck } from '@/lib/permissions';
+import { canChangeOwnSharing, canStartLiveCheck, canStopCheckOnMe, liveCheckAllowed } from '@/lib/permissions';
 import { saveMapPlaceSchema, updateLocationConsentSchema } from '@/lib/validation/location';
 
 describe('location consent', () => {
@@ -65,6 +65,24 @@ describe('canStartLiveCheck', () => {
 
   it('is never on yourself', () => {
     expect(canStartLiveCheck({ id: 'kid', role: 'head' }, target(yes))).toBe(false);
+  });
+
+  it('under required sharing, lets only their supervisors check without their yes', () => {
+    const required: LocationConsent = { sharing: 'required', liveChecks: false };
+    const adult = { id: 'a', role: 'adult' };
+    expect(canStartLiveCheck(adult, { id: 'kid', consent: required, supervisedByActor: true })).toBe(true);
+    expect(canStartLiveCheck(adult, { id: 'kid', consent: required, supervisedByActor: false })).toBe(false);
+    // Their own yes still lets anyone adult check, as with "on".
+    expect(canStartLiveCheck(adult, target({ sharing: 'required', liveChecks: true }))).toBe(true);
+    // Supervising gives nothing while sharing is merely on or off.
+    expect(liveCheckAllowed({ sharing: 'on', liveChecks: false }, true)).toBe(false);
+    expect(liveCheckAllowed({ sharing: 'off', liveChecks: true }, true)).toBe(false);
+  });
+
+  it('lets the checked person stop any check except a supervisor’s under required sharing', () => {
+    expect(canStopCheckOnMe({ sharing: 'on', liveChecks: true }, true)).toBe(true);
+    expect(canStopCheckOnMe({ sharing: 'required', liveChecks: true }, false)).toBe(true);
+    expect(canStopCheckOnMe({ sharing: 'required', liveChecks: false }, true)).toBe(false);
   });
 });
 

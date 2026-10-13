@@ -2,11 +2,18 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '@/server/db/prisma';
 import { logActivity } from '@/server/services/activityService';
 import { ConflictError, ForbiddenError, NotFoundError } from '@/server/services/errors';
-import { canPush, pushToMember } from '@/server/services/pushService';
+import { canPush, pushSync, pushToMember } from '@/server/services/pushService';
+import { phoneSummaries, refreshPhoneAlerts } from '@/server/services/phoneStatusService';
+import { usageSummaries } from '@/server/services/appUsageService';
 import { ROLE_RANK, isUserRole } from '@/lib/enums';
 import { can, canBeSupervised, canSupervise } from '@/lib/permissions';
-import type { RingOverviewDTO, SupervisionDTO } from '@/lib/types';
-import type { SetSupervisorsInput } from '@/lib/validation/supervision';
+import { sharingMode } from '@/lib/location';
+import type { LookAfterDTO, SupervisionDTO } from '@/lib/types';
+import type {
+  SetRequiredSharingInput,
+  SetSupervisorsInput,
+  SetUsageSharingInput,
+} from '@/lib/validation/supervision';
 
 // Parental controls, step 1: the Head of House's list of which adults
 // supervise which children and teens. The rules live in src/lib/permissions.ts
@@ -103,6 +110,8 @@ export async function setSupervisors(
         await tx.supervision.deleteMany({
           where: { supervisedId: supervised.id, supervisorId: { in: removed } },
         });
+        // Nobody left to supervise them: required sharing is theirs again.
+        await releaseIfUnsupervised(tx, [supervised.id]);
       }
       if (added.length) {
         await tx.supervision.createMany({
@@ -128,15 +137,23 @@ export async function setSupervisors(
         tx,
       );
     });
+    // Who gets this child's phone alerts just changed.
+    await refreshPhoneAlerts(householdId, new Date(), [supervised.id]);
   }
 
   return getSupervision(householdId);
 }
 
-// --- Ringing a child's phone --------------------------------------------------
-// A supervising adult makes their child's phone ring loudly, even on silent
-// (Android: location-free RingService). Only the adults the Head chose for that
-// child; logged in Activity so a ring is never hidden.
+// --- What a supervising adult can do -------------------------------------------
+// Only the adults the Head chose for a child; each action is logged in
+// Activity, so nothing is done behind anyone's back.
+//  - Ring their phone loudly, even on silent (Android: RingService).
+//  - Make their location sharing required: they can't turn it off, and their
+//    supervisors may check where they are without their yes (permissions.ts
+//    liveCheckAllowed). It goes back to "on" when nobody supervises them.
+//  - Share their app usage with their supervisors (appUsageService). It goes
+//    off, and what was kept is deleted, when nobody supervises them.
+//  - Be told when their phone goes quiet (phoneStatusService).
 
 /** One ring per child at a time: the phone rings for about this long. */
 export const RING_COOLDOWN_MS = 30_000;
@@ -147,12 +164,15 @@ const RING_TTL_SEC = 60;
 const lastRingAt = new Map<string, number>();
 
 /** The children and teens [actorId] supervises, while both roles still fit. */
-async function supervisedBy(householdId: string, actorId: string): Promise<Person[]> {
+async function supervisedBy(
+  householdId: string,
+  actorId: string,
+): Promise<(Person & { locationSharing: string | null; shareAppUsage: boolean | null })[]> {
   const links = await prisma.supervision.findMany({
     where: { householdId, supervisorId: actorId },
     select: {
       supervisor: { select: { role: true } },
-      supervised: { select: { id: true, name: true, role: true } },
+      supervised: { select: { id: true, name: true, role: true, locationSharing: true, shareAppUsage: true } },
     },
   });
   return links
@@ -161,10 +181,120 @@ async function supervisedBy(householdId: string, actorId: string): Promise<Perso
     .sort(byRankThenName);
 }
 
-/** Who the viewer may ring, and whether this server can ring at all. */
-export async function ringOverview(householdId: string, actorId: string): Promise<RingOverviewDTO> {
+/** Ids of the children and teens [actorId] supervises right now. */
+export async function supervisedIds(householdId: string, actorId: string): Promise<Set<string>> {
+  return new Set((await supervisedBy(householdId, actorId)).map((k) => k.id));
+}
+
+/** Whether [supervisorId] supervises [supervisedId] right now (both roles still fit). */
+export async function isSupervising(supervisorId: string, supervisedId: string): Promise<boolean> {
+  const link = await prisma.supervision.findUnique({
+    where: { supervisorId_supervisedId: { supervisorId, supervisedId } },
+    select: { supervisor: { select: { role: true } }, supervised: { select: { role: true } } },
+  });
+  return !!link && canSupervise(link.supervisor.role) && canBeSupervised(link.supervised.role);
+}
+
+/** The people the viewer looks after, and whether this server can ring phones. */
+export async function lookAfterOverview(householdId: string, actorId: string): Promise<LookAfterDTO> {
   const kids = await supervisedBy(householdId, actorId);
-  return { available: canPush(), ringable: kids.map(({ id, name }) => ({ id, name })) };
+  const [phones, usage] = await Promise.all([
+    phoneSummaries(householdId, kids),
+    usageSummaries(kids.filter((k) => k.shareAppUsage === true).map((k) => k.id)),
+  ]);
+  return {
+    canRing: canPush(),
+    people: kids.map((k) => ({
+      id: k.id,
+      name: k.name,
+      sharing: sharingMode(k.locationSharing),
+      phone: phones.get(k.id) ?? null,
+      appUsage: { shared: k.shareAppUsage === true, latest: usage.get(k.id) ?? null },
+    })),
+  };
+}
+
+/**
+ * Turn sharing a supervised child's app usage with their supervisors on or
+ * off. Off deletes what was stored. Wakes their phone so it starts (or stops)
+ * measuring at once.
+ */
+export async function setUsageSharing(
+  householdId: string,
+  actor: { id: string },
+  input: SetUsageSharingInput,
+): Promise<LookAfterDTO> {
+  const kid = (await supervisedBy(householdId, actor.id)).find((k) => k.id === input.supervisedId);
+  if (!kid) {
+    throw new ForbiddenError(
+      'Only an adult who supervises them can change this. The Head of House chooses that on the Members page.',
+    );
+  }
+  if ((kid.shareAppUsage === true) !== input.share) {
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({ where: { id: kid.id }, data: { shareAppUsage: input.share ? true : null } });
+      if (!input.share) await tx.appUsageDay.deleteMany({ where: { userId: kid.id } });
+      await logActivity(
+        {
+          householdId,
+          actorId: actor.id,
+          verb: 'updated',
+          subjectType: 'member',
+          subjectId: kid.id,
+          message: input.share
+            ? `turned on sharing ${kid.name}’s app usage`
+            : `turned off sharing ${kid.name}’s app usage`,
+        },
+        tx,
+      );
+    });
+    pushSync(householdId, { userIds: [kid.id] }, 'usage');
+    // A "Usage access off" alert only holds while usage is shared.
+    await refreshPhoneAlerts(householdId, new Date(), [kid.id]);
+  }
+  return lookAfterOverview(householdId, actor.id);
+}
+
+/**
+ * Make a supervised child's location sharing required, or stop requiring it
+ * (back to "on": they can turn it off themselves again). Wakes their phone so
+ * it starts watching the map places at once.
+ */
+export async function setRequiredSharing(
+  householdId: string,
+  actor: { id: string },
+  input: SetRequiredSharingInput,
+): Promise<LookAfterDTO> {
+  const kid = (await supervisedBy(householdId, actor.id)).find((k) => k.id === input.supervisedId);
+  if (!kid) {
+    throw new ForbiddenError(
+      'Only an adult who supervises them can change this. The Head of House chooses that on the Members page.',
+    );
+  }
+  const current = sharingMode(kid.locationSharing);
+  const next = input.required ? 'required' : current === 'required' ? 'on' : current;
+  if (next !== current) {
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({ where: { id: kid.id }, data: { locationSharing: next } });
+      await logActivity(
+        {
+          householdId,
+          actorId: actor.id,
+          verb: 'updated',
+          subjectType: 'member',
+          subjectId: kid.id,
+          message: input.required
+            ? `made ${kid.name}’s location sharing required`
+            : `stopped requiring ${kid.name}’s location sharing`,
+        },
+        tx,
+      );
+    });
+    pushSync(householdId, { userIds: [kid.id] }, 'location');
+    // A "location off" alert only holds while sharing is required.
+    await refreshPhoneAlerts(householdId, new Date(), [kid.id]);
+  }
+  return lookAfterOverview(householdId, actor.id);
 }
 
 /**
@@ -216,6 +346,47 @@ export async function ringPhone(
  * grew into an adult role).
  */
 export async function dropBrokenSupervision(db: Db, userId: string, role: string): Promise<void> {
-  if (!canSupervise(role)) await db.supervision.deleteMany({ where: { supervisorId: userId } });
-  if (!canBeSupervised(role)) await db.supervision.deleteMany({ where: { supervisedId: userId } });
+  const affected: string[] = [];
+  if (!canSupervise(role)) {
+    const theirs = await db.supervision.findMany({ where: { supervisorId: userId }, select: { supervisedId: true } });
+    affected.push(...theirs.map((l) => l.supervisedId));
+    await db.supervision.deleteMany({ where: { supervisorId: userId } });
+  }
+  if (!canBeSupervised(role)) {
+    affected.push(userId);
+    await db.supervision.deleteMany({ where: { supervisedId: userId } });
+  }
+  if (affected.length) await releaseIfUnsupervised(db, affected);
+}
+
+/**
+ * Supervisors' controls only last while someone supervises them: anyone in
+ * [userIds] with no supervisor left (or no longer a child or teen) gets
+ * required sharing back as "on" (they may turn it off again), and app usage
+ * sharing off with what was stored deleted (nobody is left to see it).
+ */
+export async function releaseIfUnsupervised(db: Db, userIds: string[]): Promise<void> {
+  const controlled = await db.user.findMany({
+    where: {
+      id: { in: [...new Set(userIds)] },
+      OR: [{ locationSharing: 'required' }, { shareAppUsage: true }],
+    },
+    select: { id: true, role: true, locationSharing: true, shareAppUsage: true },
+  });
+  for (const user of controlled) {
+    const links = canBeSupervised(user.role)
+      ? await db.supervision.findMany({
+          where: { supervisedId: user.id },
+          select: { supervisor: { select: { role: true } } },
+        })
+      : [];
+    if (links.some((l) => canSupervise(l.supervisor.role))) continue;
+    if (user.locationSharing === 'required') {
+      await db.user.update({ where: { id: user.id }, data: { locationSharing: 'on' } });
+    }
+    if (user.shareAppUsage) {
+      await db.user.update({ where: { id: user.id }, data: { shareAppUsage: null } });
+      await db.appUsageDay.deleteMany({ where: { userId: user.id } });
+    }
+  }
 }

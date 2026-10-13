@@ -4,16 +4,17 @@ import { dateBefore, dateOnOrBefore } from '@/server/db/dateFilters';
 import { ConflictError, ForbiddenError, NotFoundError } from '@/server/services/errors';
 import { canPush, pushToMember } from '@/server/services/pushService';
 import { saveBattery } from '@/server/services/batteryService';
-import { canStartLiveCheck } from '@/lib/permissions';
+import { canStartLiveCheck, canStopCheckOnMe, liveCheckAllowed } from '@/lib/permissions';
+import { isSupervising, supervisedIds } from '@/server/services/supervisionService';
 import {
   LIVE_CHECK_LOG_DAYS,
   fitLiveCheck,
-  isSharing,
   liveCheckChoices,
   liveCheckSettings,
   liveCheckState,
   locationConsent,
   type LiveCheckSettings,
+  type LocationConsent,
 } from '@/lib/location';
 import type { LiveCheckDTO, LiveCheckLogDTO, LiveChecksOverviewDTO } from '@/lib/types';
 import type {
@@ -128,10 +129,18 @@ export async function closeExpiredLiveChecks(householdId: string, now: Date = ne
   await prisma.locationCheck.deleteMany({ where: { householdId, endedAt: dateOnOrBefore(now), startedAt: { lt: cutoff } } });
 }
 
-/** Ends every running check on a member (they stopped sharing or turned live checks off). */
-export async function endLiveChecksOn(userId: string, now: Date = new Date()): Promise<void> {
+/**
+ * Ends the running checks on a member that their new consent no longer allows
+ * (they stopped sharing, or turned live checks off: a supervisor's check under
+ * required sharing goes on).
+ */
+export async function endLiveChecksOn(userId: string, consent: LocationConsent, now: Date = new Date()): Promise<void> {
   const running = await prisma.locationCheck.findMany({ where: { targetId: userId, ...OPEN } });
-  for (const check of running) await closeCheck(check, now, userId);
+  for (const check of running) {
+    if (!liveCheckAllowed(consent, await isSupervising(check.requesterId, userId))) {
+      await closeCheck(check, now, userId);
+    }
+  }
 }
 
 // --- Settings (head) ---
@@ -188,18 +197,22 @@ export async function liveChecksOverview(
     }),
     mayCheck
       ? prisma.user.findMany({
-          where: { householdId, id: { not: userId }, liveChecks: true },
+          // Allowed checks, or required sharing (then only for their supervisors).
+          where: { householdId, id: { not: userId }, OR: [{ liveChecks: true }, { locationSharing: 'required' }] },
           select: { id: true, name: true, locationSharing: true, liveChecks: true },
           orderBy: { name: 'asc' },
         })
       : Promise.resolve([]),
   ]);
+  const mine = mayCheck ? await supervisedIds(householdId, userId) : new Set<string>();
   return {
-    onMe: onMe ? toDTO(onMe, now) : null,
+    onMe: onMe ? await forTarget(toDTO(onMe, now)) : null,
     started: started.map((c) => toDTO(c, now)),
     log: log.map((c) => logEntry(c, userId)),
     checkable: members
-      .filter((m) => canStartLiveCheck(viewer, { id: m.id, consent: locationConsent(m) }))
+      .filter((m) =>
+        canStartLiveCheck(viewer, { id: m.id, consent: locationConsent(m), supervisedByActor: mine.has(m.id) }),
+      )
       .map((m) => ({ id: m.id, name: m.name })),
     settings,
     choices: liveCheckChoices(settings),
@@ -244,7 +257,8 @@ export async function startLiveCheck(
   if (!canStartLiveCheck(actor, { id: target.id, consent: { sharing: 'on', liveChecks: true } })) {
     throw new ForbiddenError('Only adults can start a live location check.');
   }
-  if (!canStartLiveCheck(actor, { id: target.id, consent: locationConsent(target) })) {
+  const supervisedByActor = await isSupervising(actor.id, target.id);
+  if (!canStartLiveCheck(actor, { id: target.id, consent: locationConsent(target), supervisedByActor })) {
     throw new ForbiddenError(`${target.name} doesn’t allow live location checks.`);
   }
 
@@ -293,7 +307,17 @@ export async function getLiveCheck(
     await closeCheck(check, now, null);
     return toDTO(await findForParty(householdId, viewerId, id), now);
   }
-  return toDTO(check, now);
+  const dto = toDTO(check, now);
+  return check.targetId === viewerId ? forTarget(dto) : dto;
+}
+
+/** Adds, for the person checked, whether they may stop it ([canStopCheckOnMe]). */
+async function forTarget(dto: LiveCheckDTO): Promise<LiveCheckDTO> {
+  const user = await prisma.user.findUnique({ where: { id: dto.targetId }, select: { locationSharing: true } });
+  return {
+    ...dto,
+    canStopOnMe: canStopCheckOnMe(locationConsent(user ?? {}), await isSupervising(dto.requesterId, dto.targetId)),
+  };
 }
 
 async function findForParty(householdId: string, viewerId: string, id: string): Promise<NamedCheck> {
@@ -326,7 +350,9 @@ export async function reportLiveCheckFix(
     select: { locationSharing: true, liveChecks: true },
   });
   const consent = locationConsent(user ?? {});
-  if (!isSharing(consent.sharing) || !consent.liveChecks) {
+  // Re-asked on every fix: turning checks off, or the requester no longer
+  // supervising them under required sharing, ends it here.
+  if (!liveCheckAllowed(consent, await isSupervising(check.requesterId, userId))) {
     await closeCheck(check, now, userId);
     throw new ConflictError('Live checks are off for you.');
   }
@@ -356,7 +382,8 @@ export async function reportLiveCheckFix(
 
 /**
  * Stops a check early: the person checking, or the person checked (from the
- * notification), unless their sharing is required (parental controls).
+ * notification), unless it's a supervisor's check under required sharing
+ * (parental controls).
  */
 export async function stopLiveCheck(
   householdId: string,
@@ -368,7 +395,7 @@ export async function stopLiveCheck(
   if (check.endedAt) return toDTO(check, now);
   if (check.targetId === userId && check.requesterId !== userId) {
     const user = await prisma.user.findUnique({ where: { id: userId }, select: { locationSharing: true } });
-    if (locationConsent(user ?? {}).sharing === 'required') {
+    if (!canStopCheckOnMe(locationConsent(user ?? {}), await isSupervising(check.requesterId, userId))) {
       throw new ForbiddenError('This check can’t be stopped from here.');
     }
   }

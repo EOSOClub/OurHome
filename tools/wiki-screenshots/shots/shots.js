@@ -78,7 +78,7 @@ const shots = {
   'members-add-card.png': async p => { await go(p, 'members'); await btn(p, 'New member').click(); await p.waitForTimeout(500); await el(p, 'members-add-card.png', card(p, 'Add a member')); },
   'members-permissions-grid.png': async p => { await go(p, 'members'); await el(p, 'members-permissions-grid.png', card(p, 'Permissions')); },
   // Needs demo/seed/12-supervision.mjs, and push set up (dummy Firebase) for the Ring buttons.
-  'location-ring-phone.png': async p => { await go(p, 'map'); await el(p, 'location-ring-phone.png', card(p, 'Ring phone')); },
+  'location-look-after.png': async p => { await go(p, 'map'); await el(p, 'location-look-after.png', card(p, 'People you look after')); },
   // Needs demo/seed/12-supervision.mjs.
   'members-supervision.png': async p => { await go(p, 'members'); await el(p, 'members-supervision.png', card(p, 'Supervision')); },
   'notifications-page-view.png': async p => { await go(p, 'notifications'); await view(p, 'notifications-page-view.png'); },

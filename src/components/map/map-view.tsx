@@ -14,7 +14,7 @@ import { MAP_PLACES_KEY } from '@/components/settings/map-places-card';
 import type { MapFocus } from '@/components/map/household-map';
 import { LiveChecksCard } from '@/components/map/live-checks-card';
 import { BatteryBadge } from '@/components/map/battery-badge';
-import { RingPhoneCard } from '@/components/map/ring-phone-card';
+import { LookAfterCard } from '@/components/map/look-after-card';
 import { LIVE_CHECKS_KEY } from '@/components/profile/location-card';
 
 // Leaflet only runs in the browser.
@@ -127,7 +127,7 @@ export function MapView({
           {overview && (overview.checkable.length > 0 || started.length > 0) ? (
             <LiveChecksCard overview={overview} onFocus={focusOnCheck} />
           ) : null}
-          <RingPhoneCard />
+          <LookAfterCard />
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">

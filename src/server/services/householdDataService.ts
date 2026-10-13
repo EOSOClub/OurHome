@@ -48,6 +48,7 @@ export const HOUSEHOLD_MODELS = [
   'Supervision',
   'PhoneStatus',
   'AppUsageDay',
+  'AppIcon',
   'HomeAssistantIntegration',
 ] as const;
 
@@ -68,9 +69,9 @@ export const EXPORT_VERSION = 1;
  * on themselves. Live location checks and their log (LocationCheck) stay out
  * for the same reason; they're gone after 30 days anyway. Phone check-ins
  * (PhoneStatus) stay out too: they're about the phones, not the household's
- * records, and come back with the next check-in. App usage (AppUsageDay)
- * stays out as well: it's a child's screen time, kept two weeks, and sharing
- * it starts again off after a restore.
+ * records, and come back with the next check-in. App usage (AppUsageDay) and
+ * its app icons (AppIcon) stay out as well: it's a child's screen time, kept
+ * two weeks, and sharing it starts again off after a restore.
  */
 export async function exportHousehold(householdId: string) {
   const where = { householdId };
@@ -254,6 +255,7 @@ export async function deleteHousehold(adminId: string, householdId: string, conf
       count('Supervision', await tx.supervision.deleteMany({ where }));
       count('PhoneStatus', await tx.phoneStatus.deleteMany({ where }));
       count('AppUsageDay', await tx.appUsageDay.deleteMany({ where }));
+      count('AppIcon', await tx.appIcon.deleteMany({ where }));
       count('HomeAssistantIntegration', await tx.homeAssistantIntegration.deleteMany({ where }));
       count('PaperlessSync', await tx.paperlessSync.deleteMany({ where }));
       count('PaperlessConnection', await tx.paperlessConnection.deleteMany({ where }));

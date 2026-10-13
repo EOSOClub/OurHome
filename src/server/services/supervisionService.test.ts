@@ -33,7 +33,12 @@ const push = { canPush: vi.fn(() => true), pushToMember: vi.fn(async () => 1), p
 vi.mock('@/server/services/pushService', () => push);
 const phones = { phoneSummaries: vi.fn(async () => new Map()), refreshPhoneAlerts: vi.fn() };
 vi.mock('@/server/services/phoneStatusService', () => phones);
-const usage = { usageSummaries: vi.fn(async () => new Map()) };
+const usage = {
+  usageSummaries: vi.fn(async () => new Map()),
+  forgetUsage: vi.fn(),
+  usageNamesApp: vi.fn(async () => false),
+  findIcon: vi.fn(async (): Promise<Uint8Array | null> => null),
+};
 vi.mock('@/server/services/appUsageService', () => usage);
 
 const {
@@ -42,10 +47,12 @@ const {
   isSupervising,
   lookAfterOverview,
   releaseIfUnsupervised,
+  refreshUsage,
   ringPhone,
   setRequiredSharing,
   setSupervisors,
   setUsageSharing,
+  usageIcon,
 } = await import('./supervisionService');
 
 const H = 'household1';
@@ -218,16 +225,19 @@ describe('releaseIfUnsupervised', () => {
     tx.supervision.findMany.mockResolvedValueOnce([{ supervisor: { role: 'teen' } }]);
     await releaseIfUnsupervised(tx as never, ['sam']);
     expect(tx.user.update).toHaveBeenCalledWith({ where: { id: 'sam' }, data: { locationSharing: 'on' } });
-    expect(tx.appUsageDay.deleteMany).not.toHaveBeenCalled();
+    expect(usage.forgetUsage).not.toHaveBeenCalled();
   });
 
   it('stops sharing app usage, and deletes it, when nobody is left to see it', async () => {
-    tx.user.findMany.mockResolvedValueOnce([{ id: 'sam', role: 'child', locationSharing: 'on', shareAppUsage: true }]);
+    tx.user.findMany.mockResolvedValueOnce([
+      { id: 'sam', role: 'child', householdId: H, locationSharing: 'on', shareAppUsage: true },
+    ]);
     tx.supervision.findMany.mockResolvedValueOnce([]);
     await releaseIfUnsupervised(tx as never, ['sam']);
     expect(tx.user.update).toHaveBeenCalledTimes(1);
     expect(tx.user.update).toHaveBeenCalledWith({ where: { id: 'sam' }, data: { shareAppUsage: null } });
-    expect(tx.appUsageDay.deleteMany).toHaveBeenCalledWith({ where: { userId: 'sam' } });
+    // Their days, and the icons nobody else's usage names.
+    expect(usage.forgetUsage).toHaveBeenCalledWith(tx, H, ['sam']);
   });
 });
 
@@ -265,7 +275,7 @@ describe('required sharing', () => {
     usage.usageSummaries.mockResolvedValueOnce(new Map([['sam', latest]]));
     const { people } = await lookAfterOverview(H, 'alex');
     // Jo's usage isn't shared, so it isn't even looked up.
-    expect(usage.usageSummaries).toHaveBeenCalledWith(['sam']);
+    expect(usage.usageSummaries).toHaveBeenCalledWith(H, ['sam']);
     expect(people).toEqual([
       { id: 'jo', name: 'Jo', sharing: 'on', phone: null, appUsage: { shared: false, latest: null } },
       { id: 'sam', name: 'Sam', sharing: 'on', phone, appUsage: { shared: true, latest } },
@@ -309,7 +319,7 @@ describe('required sharing', () => {
     findLinks.mockResolvedValueOnce([{ supervisor: { role: 'adult' }, supervised: { ...sam, shareAppUsage: null } }]);
     await setUsageSharing(H, { id: 'alex' }, { supervisedId: 'sam', share: true });
     expect(tx.user.update).toHaveBeenCalledWith({ where: { id: 'sam' }, data: { shareAppUsage: true } });
-    expect(tx.appUsageDay.deleteMany).not.toHaveBeenCalled();
+    expect(usage.forgetUsage).not.toHaveBeenCalled();
     expect(logActivity).toHaveBeenCalledWith(expect.objectContaining({ message: 'turned on sharing Sam’s app usage' }), tx);
     expect(push.pushSync).toHaveBeenCalledWith(H, { userIds: ['sam'] }, 'usage');
 
@@ -317,7 +327,7 @@ describe('required sharing', () => {
     findLinks.mockResolvedValueOnce([{ supervisor: { role: 'adult' }, supervised: { ...sam, shareAppUsage: true } }]);
     await setUsageSharing(H, { id: 'alex' }, { supervisedId: 'sam', share: false });
     expect(tx.user.update).toHaveBeenCalledWith({ where: { id: 'sam' }, data: { shareAppUsage: null } });
-    expect(tx.appUsageDay.deleteMany).toHaveBeenCalledWith({ where: { userId: 'sam' } });
+    expect(usage.forgetUsage).toHaveBeenCalledWith(tx, H, ['sam']);
     // Its "Usage access off" alert can't stand any more: refreshed now, not at the next sweep.
     expect(phones.refreshPhoneAlerts).toHaveBeenCalledWith(H, expect.any(Date), ['sam']);
   });
@@ -387,5 +397,79 @@ describe('ringing a phone', () => {
   it('needs Firebase', async () => {
     push.canPush.mockReturnValue(false);
     await expect(ringPhone(H, { id: 'alex' }, 'sam', clock)).rejects.toThrow(/Firebase/);
+  });
+});
+
+describe('fresh app usage when a supervisor looks', () => {
+  const findLinks = prisma.supervision.findMany as unknown as ReturnType<typeof vi.fn>;
+  const sharing = (kid: Person, shareAppUsage: boolean | null) => [
+    { supervisor: { role: 'adult' }, supervised: { ...kid, shareAppUsage } },
+  ];
+  let clock = 50_000_000;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    findLinks.mockReset();
+    findLinks.mockResolvedValue([]);
+    push.canPush.mockReturnValue(true);
+    push.pushToMember.mockResolvedValue(1);
+    clock += 3_600_000; // every test well past the last one's cooldown
+  });
+
+  it('wakes the child’s phone with a short-lived push, and says it did', async () => {
+    findLinks.mockResolvedValueOnce(sharing(sam, true));
+    expect(await refreshUsage(H, { id: 'alex' }, 'sam', clock)).toEqual({ asked: true });
+    expect(push.pushToMember).toHaveBeenCalledWith(H, 'sam', { type: 'usage_refresh' }, { ttlSec: 120 });
+    // Only reads what the supervisor may already see: not logged.
+    expect(logActivity).not.toHaveBeenCalled();
+  });
+
+  it('asks the same phone at most every two minutes, quietly', async () => {
+    findLinks.mockResolvedValue(sharing(sam, true));
+    await refreshUsage(H, { id: 'alex' }, 'sam', clock);
+    expect(await refreshUsage(H, { id: 'gran' }, 'sam', clock + 60_000)).toEqual({ asked: false });
+    expect(await refreshUsage(H, { id: 'alex' }, 'sam', clock + 121_000)).toEqual({ asked: true });
+    expect(push.pushToMember).toHaveBeenCalledTimes(2);
+  });
+
+  it('lets the next look try again at once when no phone answered', async () => {
+    findLinks.mockResolvedValue(sharing(sam, true));
+    push.pushToMember.mockResolvedValueOnce(0);
+    expect(await refreshUsage(H, { id: 'alex' }, 'sam', clock)).toEqual({ asked: false });
+    expect(await refreshUsage(H, { id: 'alex' }, 'sam', clock + 1000)).toEqual({ asked: true });
+  });
+
+  it('does nothing when their usage isn’t shared, or the server can’t push', async () => {
+    findLinks.mockResolvedValueOnce(sharing(sam, null));
+    expect(await refreshUsage(H, { id: 'alex' }, 'sam', clock)).toEqual({ asked: false });
+    push.canPush.mockReturnValue(false);
+    findLinks.mockResolvedValueOnce(sharing(sam, true));
+    expect(await refreshUsage(H, { id: 'alex' }, 'sam', clock)).toEqual({ asked: false });
+    expect(push.pushToMember).not.toHaveBeenCalled();
+  });
+
+  it('refuses anyone who does not supervise them', async () => {
+    await expect(refreshUsage(H, { id: 'jordan' }, 'sam', clock)).rejects.toThrow(/Only an adult who supervises/);
+    expect(push.pushToMember).not.toHaveBeenCalled();
+  });
+
+  it('gives an app’s icon only to a supervisor of a child whose shared usage names it', async () => {
+    const png = new Uint8Array([1, 2, 3]);
+    findLinks.mockResolvedValueOnce([...sharing(sam, true), ...sharing(jo, null)]);
+    usage.usageNamesApp.mockResolvedValueOnce(true);
+    usage.findIcon.mockResolvedValueOnce(png);
+    expect(await usageIcon(H, 'alex', 'com.roblox.client')).toBe(png);
+    // Jo's usage isn't shared, so only Sam's days are searched.
+    expect(usage.usageNamesApp).toHaveBeenCalledWith(['sam'], 'com.roblox.client');
+    expect(usage.findIcon).toHaveBeenCalledWith(H, 'com.roblox.client');
+  });
+
+  it('is not found for an app none of their children’s usage names, even when stored', async () => {
+    findLinks.mockResolvedValueOnce(sharing(sam, true));
+    usage.usageNamesApp.mockResolvedValueOnce(false);
+    usage.findIcon.mockResolvedValue(new Uint8Array([1]));
+    await expect(usageIcon(H, 'alex', 'com.example.secret')).rejects.toThrow(/No icon/);
+    expect(usage.findIcon).not.toHaveBeenCalled();
+    usage.findIcon.mockReset();
   });
 });

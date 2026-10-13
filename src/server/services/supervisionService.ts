@@ -4,7 +4,8 @@ import { logActivity } from '@/server/services/activityService';
 import { ConflictError, ForbiddenError, NotFoundError } from '@/server/services/errors';
 import { canPush, pushSync, pushToMember } from '@/server/services/pushService';
 import { phoneSummaries, refreshPhoneAlerts } from '@/server/services/phoneStatusService';
-import { usageSummaries } from '@/server/services/appUsageService';
+import { findIcon, forgetUsage, usageNamesApp, usageSummaries } from '@/server/services/appUsageService';
+import { USAGE_REFRESH_COOLDOWN_MS } from '@/lib/appUsage';
 import { ROLE_RANK, isUserRole } from '@/lib/enums';
 import { can, canBeSupervised, canSupervise } from '@/lib/permissions';
 import { sharingMode } from '@/lib/location';
@@ -200,7 +201,7 @@ export async function lookAfterOverview(householdId: string, actorId: string): P
   const kids = await supervisedBy(householdId, actorId);
   const [phones, usage] = await Promise.all([
     phoneSummaries(householdId, kids),
-    usageSummaries(kids.filter((k) => k.shareAppUsage === true).map((k) => k.id)),
+    usageSummaries(householdId, kids.filter((k) => k.shareAppUsage === true).map((k) => k.id)),
   ]);
   return {
     canRing: canPush(),
@@ -233,7 +234,7 @@ export async function setUsageSharing(
   if ((kid.shareAppUsage === true) !== input.share) {
     await prisma.$transaction(async (tx) => {
       await tx.user.update({ where: { id: kid.id }, data: { shareAppUsage: input.share ? true : null } });
-      if (!input.share) await tx.appUsageDay.deleteMany({ where: { userId: kid.id } });
+      if (!input.share) await forgetUsage(tx, householdId, [kid.id]);
       await logActivity(
         {
           householdId,
@@ -340,6 +341,51 @@ export async function ringPhone(
   });
 }
 
+const lastUsageRefreshAt = new Map<string, number>();
+
+/** A refresh older than this is no use: the page has been looked at already. */
+const USAGE_REFRESH_TTL_SEC = 120;
+
+/**
+ * Asks a supervised child's phone to measure and send its app usage now (a
+ * supervisor opened "People you look after"). Quietly does nothing when their
+ * usage isn't shared, the server can't push, or their phone was asked less
+ * than USAGE_REFRESH_COOLDOWN_MS ago: the page shows what's stored either way,
+ * and the phone still reports every 15 minutes. Not logged in Activity: it
+ * only reads what the supervisor may already see.
+ */
+export async function refreshUsage(
+  householdId: string,
+  actor: { id: string },
+  supervisedId: string,
+  now: number = Date.now(),
+): Promise<{ asked: boolean }> {
+  const kid = (await supervisedBy(householdId, actor.id)).find((k) => k.id === supervisedId);
+  if (!kid) {
+    throw new ForbiddenError(
+      'Only an adult who supervises them can see their app usage. The Head of House chooses that on the Members page.',
+    );
+  }
+  if (kid.shareAppUsage !== true || !canPush()) return { asked: false };
+  const last = lastUsageRefreshAt.get(kid.id);
+  if (last !== undefined && now - last < USAGE_REFRESH_COOLDOWN_MS) return { asked: false };
+  lastUsageRefreshAt.set(kid.id, now);
+  const reached = await pushToMember(householdId, kid.id, { type: 'usage_refresh' }, { ttlSec: USAGE_REFRESH_TTL_SEC });
+  if (reached === 0) lastUsageRefreshAt.delete(kid.id);
+  return { asked: reached > 0 };
+}
+
+/**
+ * An app's icon (PNG), for a supervisor of a child whose shared usage names
+ * the app. Not found otherwise, so nobody else can tell which apps a child has.
+ */
+export async function usageIcon(householdId: string, actorId: string, app: string): Promise<Uint8Array> {
+  const sharing = (await supervisedBy(householdId, actorId)).filter((k) => k.shareAppUsage === true);
+  const png = (await usageNamesApp(sharing.map((k) => k.id), app)) ? await findIcon(householdId, app) : null;
+  if (!png) throw new NotFoundError('No icon for that app.');
+  return png;
+}
+
 /**
  * After someone's role changes: remove the links the new role no longer
  * allows (a supervisor who is no longer an adult, or a child or teen who
@@ -371,7 +417,7 @@ export async function releaseIfUnsupervised(db: Db, userIds: string[]): Promise<
       id: { in: [...new Set(userIds)] },
       OR: [{ locationSharing: 'required' }, { shareAppUsage: true }],
     },
-    select: { id: true, role: true, locationSharing: true, shareAppUsage: true },
+    select: { id: true, role: true, householdId: true, locationSharing: true, shareAppUsage: true },
   });
   for (const user of controlled) {
     const links = canBeSupervised(user.role)
@@ -386,7 +432,8 @@ export async function releaseIfUnsupervised(db: Db, userIds: string[]): Promise<
     }
     if (user.shareAppUsage) {
       await db.user.update({ where: { id: user.id }, data: { shareAppUsage: null } });
-      await db.appUsageDay.deleteMany({ where: { userId: user.id } });
+      if (user.householdId) await forgetUsage(db, user.householdId, [user.id]);
+      else await db.appUsageDay.deleteMany({ where: { userId: user.id } });
     }
   }
 }

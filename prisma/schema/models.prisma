@@ -79,6 +79,7 @@ model Household {
   supervision    Supervision[]
   phoneStatuses  PhoneStatus[]
   appUsage       AppUsageDay[]
+  appIcons       AppIcon[]
   integrations   HomeAssistantIntegration[]
   requests       Request[]
   bugReports     BugReport[]
@@ -210,6 +211,23 @@ model AppUsageDay {
 
   @@unique([userId, day])
   @@index([householdId])
+}
+
+// An app's icon, sent by a child's phone for the apps in its usage report so
+// supervisors see it next to the minutes. PNG, small (USAGE_ICON_MAX_BYTES).
+// Per household, one per app; only kept while some stored usage day in the
+// household names the app (appUsageService.pruneIcons).
+model AppIcon {
+  id          String   @id @default(cuid()) @map("_id")
+  householdId String
+  // The app's package name, e.g. "com.google.android.youtube".
+  app         String
+  png         Bytes
+  updatedAt   DateTime @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@unique([householdId, app])
 }
 
 // Parental controls: which adult supervises which child or teen. Only the

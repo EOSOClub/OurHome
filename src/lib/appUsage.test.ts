@@ -1,7 +1,28 @@
 import { describe, expect, it } from 'vitest';
-import { USAGE_TOP_APPS, formatMinutes, oldestKeptDay, tidyApps, usageDayLabel } from '@/lib/appUsage';
+import {
+  USAGE_TOP_APPS,
+  formatMinutes,
+  isPng,
+  oldestKeptDay,
+  tidyApps,
+  usageDayLabel,
+  usageIconUrl,
+} from '@/lib/appUsage';
 
 describe('app usage', () => {
+  it('knows a PNG by its first bytes', () => {
+    const sig = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+    expect(isPng(new Uint8Array([...sig, 0]))).toBe(true);
+    // The signature alone is no picture.
+    expect(isPng(new Uint8Array(sig))).toBe(false);
+    expect(isPng(new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0, 0, 0]))).toBe(false);
+  });
+
+  it('puts the app in the icon address safely', () => {
+    expect(usageIconUrl('com.google.android.youtube')).toBe('/api/supervision/usage/icon?app=com.google.android.youtube');
+    expect(usageIconUrl('a&b=c')).toBe('/api/supervision/usage/icon?app=a%26b%3Dc');
+  });
+
   it('says minutes the way people do', () => {
     expect(formatMinutes(0)).toBe('under a minute');
     expect(formatMinutes(45)).toBe('45 min');

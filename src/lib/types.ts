@@ -621,10 +621,16 @@ export interface LookAfterDTO {
     sharing: LocationSharing;
     phone: { lastSeenAt: string; deviceName: string | null; problems: PhoneProblem[] } | null;
     /** shared: a supervisor turned app usage sharing on. latest: the newest day
-     *  their phone reported (the phone's own date), with the top apps. */
+     *  their phone reported (the phone's own date), with the top apps (app:
+     *  the package name; icon: whether /api/supervision/usage/icon has it). */
     appUsage: {
       shared: boolean;
-      latest: { day: string; totalMinutes: number; top: { label: string; minutes: number }[]; updatedAt: string } | null;
+      latest: {
+        day: string;
+        totalMinutes: number;
+        top: { app: string; label: string; minutes: number; icon: boolean }[];
+        updatedAt: string;
+      } | null;
     };
   }[];
 }

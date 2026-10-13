@@ -74,7 +74,9 @@ export async function pushToMember(
   data:
     | { type: 'live_check' | 'live_check_stop'; checkId: string }
     // A supervising adult ringing this child's phone (supervisionService).
-    | { type: 'ring'; ringerId: string },
+    | { type: 'ring'; ringerId: string }
+    // A supervisor looking at this child's app usage: send it now (supervisionService).
+    | { type: 'usage_refresh' },
   opts: { ttlSec?: number } = {},
 ): Promise<number> {
   if (!isPushConfigured()) return 0;

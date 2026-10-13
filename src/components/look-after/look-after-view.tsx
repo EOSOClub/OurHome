@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BellRing, HeartHandshake, Loader2 } from 'lucide-react';
 import type { LookAfterDTO } from '@/lib/types';
@@ -11,7 +11,7 @@ import { toast } from '@/components/ui/toast';
 import { LIVE_CHECKS_KEY } from '@/components/profile/location-card';
 import { RelativeTime } from '@/components/household-zone';
 import { PHONE_PROBLEM_LABELS } from '@/lib/phoneHealth';
-import { formatMinutes, usageDayLabel } from '@/lib/appUsage';
+import { formatMinutes, usageDayLabel, usageIconUrl } from '@/lib/appUsage';
 
 // The "People you look after" page: the children and teens the viewer
 // supervises (the Head's supervision list). Ring their phone, make their
@@ -23,12 +23,46 @@ const LOOK_AFTER_KEY = ['look-after'];
 /** How long the phone rings, and so how long the button rests. */
 const RING_MS = 30_000;
 
+/** Refetched this often while open, so check-ins and usage stay current (the app does the same). */
+const REFETCH_MS = 60_000;
+
+/** After asking the phones for fresh usage, look again this long after (they answer in seconds). */
+const AFTER_REFRESH_MS = [10_000, 25_000];
+
 export function LookAfterView({ initial }: { initial: LookAfterDTO }) {
+  const queryClient = useQueryClient();
   const { data = initial } = useQuery({
     queryKey: LOOK_AFTER_KEY,
     queryFn: () => apiFetch<LookAfterDTO>('/api/supervision/mine'),
     initialData: initial,
+    refetchInterval: REFETCH_MS,
   });
+
+  // Opening the page asks each child's phone whose usage is shared to send it
+  // now (a push; the server skips it when it can't or just did). Best effort:
+  // the page shows what's stored either way. Once per visit: the ref survives
+  // React running the effect twice in development, and the later refetches
+  // are harmless after leaving (the query is only marked stale).
+  const asked = useRef(false);
+  useEffect(() => {
+    if (asked.current) return;
+    asked.current = true;
+    const ids = initial.people.filter((p) => p.appUsage.shared).map((p) => p.id);
+    if (ids.length === 0) return;
+    Promise.all(
+      ids.map((supervisedId) =>
+        apiFetch<{ asked: boolean }>('/api/supervision/usage/refresh', {
+          method: 'POST',
+          body: JSON.stringify({ supervisedId }),
+        }).catch(() => ({ asked: false })),
+      ),
+    ).then((answers) => {
+      if (!answers.some((a) => a.asked)) return;
+      for (const ms of AFTER_REFRESH_MS) {
+        setTimeout(() => queryClient.invalidateQueries({ queryKey: LOOK_AFTER_KEY }), ms);
+      }
+    });
+  }, [initial, queryClient]);
 
   return (
     <div className="space-y-6">
@@ -59,7 +93,8 @@ export function LookAfterView({ initial }: { initial: LookAfterDTO }) {
               <strong>Ring</strong> rings their phone loudly for up to 30 seconds, even on silent.{' '}
               <strong>Location required</strong> keeps their location sharing on, and lets you check where they are
               on the Map without them allowing it. They always see when you check. <strong>Share app usage</strong>{' '}
-              shows you how long they spend in each app; their phone needs Usage access for it.
+              shows you how long they spend in each app; their phone needs Usage access for it. Their phone sends it
+              every 15 minutes, and opening this page asks it for the latest numbers.
               {data.canRing ? null : ' Ringing needs instant phone alerts, which this server doesn’t have set up.'}
             </p>
           </CardContent>
@@ -94,7 +129,28 @@ function PhoneLine({ phone }: { phone: LookAfterDTO['people'][number]['phone'] }
   );
 }
 
-/** The latest day their phone reported: total, then the top apps. */
+type UsageLatest = NonNullable<LookAfterDTO['people'][number]['appUsage']['latest']>;
+
+/** The app's icon from their phone, or its first letter until the phone has sent it. */
+function AppIcon({ app }: { app: UsageLatest['top'][number] }) {
+  const [broken, setBroken] = useState(false);
+  if (app.icon && !broken) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- a small private PNG from our own API, no optimising to do
+      <img src={usageIconUrl(app.app)} alt="" className="size-5 shrink-0 rounded" onError={() => setBroken(true)} />
+    );
+  }
+  return (
+    <span
+      aria-hidden
+      className="flex size-5 shrink-0 items-center justify-center rounded bg-muted text-[10px] font-semibold uppercase text-muted-foreground"
+    >
+      {app.label.slice(0, 1)}
+    </span>
+  );
+}
+
+/** The latest day their phone reported: total, then the top apps with their icons. */
 function UsageLine({ latest }: { latest: LookAfterDTO['people'][number]['appUsage']['latest'] }) {
   if (!latest) {
     return (
@@ -106,15 +162,25 @@ function UsageLine({ latest }: { latest: LookAfterDTO['people'][number]['appUsag
   // en-CA writes the viewer's local date as YYYY-MM-DD, like the phone's day.
   const dayLabel = usageDayLabel(latest.day, new Date().toLocaleDateString('en-CA'));
   return (
-    <p className="text-xs text-muted-foreground">
-      <span className="font-medium text-foreground">
-        {dayLabel}: {formatMinutes(latest.totalMinutes)}
-      </span>
-      {latest.top.length > 0
-        ? ` · ${latest.top.map((a) => `${a.label} ${formatMinutes(a.minutes)}`).join(', ')}`
-        : null}
-      {' · '}updated <RelativeTime date={latest.updatedAt} />
-    </p>
+    <div className="space-y-1.5">
+      <p className="text-xs text-muted-foreground">
+        <span className="font-medium text-foreground">
+          {dayLabel}: {formatMinutes(latest.totalMinutes)}
+        </span>
+        {' · '}updated <RelativeTime date={latest.updatedAt} />
+      </p>
+      {latest.top.length > 0 ? (
+        <ul className="space-y-1">
+          {latest.top.map((a) => (
+            <li key={a.app} className="flex items-center gap-2 text-xs">
+              <AppIcon app={a} />
+              <span className="min-w-0 flex-1 truncate">{a.label}</span>
+              <span className="shrink-0 tabular-nums text-muted-foreground">{formatMinutes(a.minutes)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   );
 }
 

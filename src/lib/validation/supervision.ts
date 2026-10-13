@@ -23,3 +23,9 @@ export const setUsageSharingSchema = z.object({
   share: z.boolean(),
 });
 export type SetUsageSharingInput = z.infer<typeof setUsageSharingSchema>;
+
+/** Ask a supervised child's phone to send its app usage now. */
+export const refreshUsageSchema = z.object({ supervisedId: z.string().min(1) });
+
+/** An app's icon on "People you look after" (GET query). */
+export const usageIconQuerySchema = z.object({ app: z.string().trim().min(1).max(200) });

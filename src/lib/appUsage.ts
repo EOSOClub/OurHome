@@ -12,6 +12,23 @@ export const USAGE_TOP_APPS = 20;
 /** Apps shown on the card. */
 export const USAGE_CARD_APPS = 3;
 
+/** Largest app icon a phone may send (a 96 px PNG is a few KB). */
+export const USAGE_ICON_MAX_BYTES = 32 * 1024;
+
+/** A supervisor opening "People you look after" asks the child's phone for fresh usage at most this often. */
+export const USAGE_REFRESH_COOLDOWN_MS = 2 * 60_000;
+
+/** Where the page loads an app's icon from (GET, supervisors only). */
+export function usageIconUrl(app: string): string {
+  return `/api/supervision/usage/icon?app=${encodeURIComponent(app)}`;
+}
+
+/** Whether [bytes] start like a PNG file. */
+export function isPng(bytes: Uint8Array): boolean {
+  const sig = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  return bytes.length > sig.length && sig.every((b, i) => bytes[i] === b);
+}
+
 export interface AppMinutes {
   /** The app's package name, e.g. "com.google.android.youtube". */
   app: string;

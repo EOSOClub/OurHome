@@ -34,3 +34,18 @@ export const reportUsageSchema = z.object({
     .max(3),
 });
 export type ReportUsageInput = z.infer<typeof reportUsageSchema>;
+
+/** App icons the server asked for after a usage report: PNG, base64. */
+export const reportUsageIconsSchema = z.object({
+  icons: z
+    .array(
+      z.object({
+        app: z.string().trim().min(1).max(200),
+        // 32 KB as base64 is under 44,000 characters; the service checks the bytes.
+        png: z.string().min(1).max(44_000),
+      }),
+    )
+    .min(1)
+    .max(20),
+});
+export type ReportUsageIconsInput = z.infer<typeof reportUsageIconsSchema>;

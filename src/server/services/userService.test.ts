@@ -93,5 +93,6 @@ describe('role changes and supervision', () => {
     prisma.user.update.mockResolvedValueOnce(row({ id: kid, role: 'head' }));
     await transferHeadship(HOUSEHOLD, head, kid);
     expect(dropBrokenSupervision).toHaveBeenCalledWith(prisma, kid, 'head');
+    expect(refreshPhoneAlerts).toHaveBeenCalledWith(HOUSEHOLD);
   });
 });

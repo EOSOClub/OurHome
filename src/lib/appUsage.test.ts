@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { USAGE_TOP_APPS, formatMinutes, oldestKeptDay, tidyApps } from '@/lib/appUsage';
+import { USAGE_TOP_APPS, formatMinutes, oldestKeptDay, tidyApps, usageDayLabel } from '@/lib/appUsage';
 
 describe('app usage', () => {
   it('says minutes the way people do', () => {
@@ -15,6 +15,13 @@ describe('app usage', () => {
     expect(tidy).toHaveLength(USAGE_TOP_APPS);
     expect(tidy[0]).toEqual({ app: 'a0', label: 'App 0', minutes: 101 });
     expect(tidy.some((a) => a.app === 'z')).toBe(false);
+  });
+
+  it('names the day as Today, Yesterday, or a short date', () => {
+    expect(usageDayLabel('2026-10-12', '2026-10-12')).toBe('Today');
+    expect(usageDayLabel('2026-10-11', '2026-10-12')).toBe('Yesterday');
+    expect(usageDayLabel('2026-09-30', '2026-10-01')).toBe('Yesterday');
+    expect(usageDayLabel('2026-10-10', '2026-10-12')).toBe('Oct 10');
   });
 
   it('keeps two weeks, counting the newest day, across a month end', () => {

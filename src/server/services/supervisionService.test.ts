@@ -33,7 +33,8 @@ const push = { canPush: vi.fn(() => true), pushToMember: vi.fn(async () => 1), p
 vi.mock('@/server/services/pushService', () => push);
 const phones = { phoneSummaries: vi.fn(async () => new Map()), refreshPhoneAlerts: vi.fn() };
 vi.mock('@/server/services/phoneStatusService', () => phones);
-vi.mock('@/server/services/appUsageService', () => ({ usageSummaries: vi.fn(async () => new Map()) }));
+const usage = { usageSummaries: vi.fn(async () => new Map()) };
+vi.mock('@/server/services/appUsageService', () => usage);
 
 const {
   dropBrokenSupervision,
@@ -251,6 +252,24 @@ describe('required sharing', () => {
         { id: 'sam', name: 'Sam', sharing: 'required', phone: null, appUsage: { shared: false, latest: null } },
       ],
     });
+  });
+
+  it('shows each one’s phone, and their app usage only where it is shared', async () => {
+    findLinks.mockResolvedValueOnce([
+      { supervisor: { role: 'adult' }, supervised: { ...sam, locationSharing: 'on', shareAppUsage: true } },
+      { supervisor: { role: 'adult' }, supervised: { ...jo, locationSharing: 'on', shareAppUsage: null } },
+    ]);
+    const phone = { lastSeenAt: '2026-10-12T17:00:00.000Z', deviceName: 'Pixel 8', problems: ['quiet'] };
+    const latest = { day: '2026-10-12', totalMinutes: 30, top: [], updatedAt: '2026-10-12T17:00:00.000Z' };
+    phones.phoneSummaries.mockResolvedValueOnce(new Map([['sam', phone]]));
+    usage.usageSummaries.mockResolvedValueOnce(new Map([['sam', latest]]));
+    const { people } = await lookAfterOverview(H, 'alex');
+    // Jo's usage isn't shared, so it isn't even looked up.
+    expect(usage.usageSummaries).toHaveBeenCalledWith(['sam']);
+    expect(people).toEqual([
+      { id: 'jo', name: 'Jo', sharing: 'on', phone: null, appUsage: { shared: false, latest: null } },
+      { id: 'sam', name: 'Sam', sharing: 'on', phone, appUsage: { shared: true, latest } },
+    ]);
   });
 
   it('a supervisor makes it required, logs it, and wakes their phone', async () => {

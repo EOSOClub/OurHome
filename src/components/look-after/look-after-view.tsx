@@ -6,51 +6,66 @@ import { BellRing, HeartHandshake, Loader2 } from 'lucide-react';
 import type { LookAfterDTO } from '@/lib/types';
 import { apiFetch, ApiError } from '@/lib/api';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { toast } from '@/components/ui/toast';
 import { LIVE_CHECKS_KEY } from '@/components/profile/location-card';
 import { RelativeTime } from '@/components/household-zone';
 import { PHONE_PROBLEM_LABELS } from '@/lib/phoneHealth';
-import { formatMinutes } from '@/lib/appUsage';
+import { formatMinutes, usageDayLabel } from '@/lib/appUsage';
 
-// The children and teens the viewer supervises (the Head's supervision list):
-// ring their phone, and make their location sharing required. Only shown to
-// adults who supervise someone; the server checks it again.
+// The "People you look after" page: the children and teens the viewer
+// supervises (the Head's supervision list). Ring their phone, make their
+// location sharing required, share their app usage. Only linked for adults
+// who supervise someone; the server checks it again.
 
 const LOOK_AFTER_KEY = ['look-after'];
 
 /** How long the phone rings, and so how long the button rests. */
 const RING_MS = 30_000;
 
-export function LookAfterCard() {
-  const { data } = useQuery({
+export function LookAfterView({ initial }: { initial: LookAfterDTO }) {
+  const { data = initial } = useQuery({
     queryKey: LOOK_AFTER_KEY,
     queryFn: () => apiFetch<LookAfterDTO>('/api/supervision/mine'),
+    initialData: initial,
   });
-  if (!data || data.people.length === 0) return null;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <HeartHandshake className="size-4" /> People you look after
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3 pt-0">
-        <ul className="divide-y divide-border">
-          {data.people.map((person) => (
-            <PersonRow key={person.id} person={person} canRing={data.canRing} />
-          ))}
-        </ul>
-        <p className="text-xs text-muted-foreground">
-          <strong>Ring</strong> rings their phone loudly for up to 30 seconds, even on silent.{' '}
-          <strong>Location required</strong> keeps their location sharing on, and lets you check where they are
-          without them allowing it. They always see when you check. <strong>Share app usage</strong> shows you how
-          long they spend in each app; their phone needs Usage access for it.
-          {data.canRing ? null : ' Ringing needs instant phone alerts, which this server doesn’t have set up.'}
+    <div className="space-y-6">
+      <div>
+        <h1 className="flex items-center gap-2 text-2xl font-semibold">
+          <HeartHandshake className="size-6" /> People you look after
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          The children and teens the Head of House asked you to supervise. Everything you do here is logged in
+          Activity.
         </p>
-      </CardContent>
-    </Card>
+      </div>
+
+      {data.people.length === 0 ? (
+        <p className="rounded-lg border border-border bg-muted/50 px-4 py-3 text-sm text-muted-foreground">
+          You don&apos;t look after anyone right now. The Head of House chooses who supervises whom on the Members
+          page.
+        </p>
+      ) : (
+        <Card className="max-w-2xl">
+          <CardContent className="space-y-3 pt-5">
+            <ul className="divide-y divide-border">
+              {data.people.map((person) => (
+                <PersonRow key={person.id} person={person} canRing={data.canRing} />
+              ))}
+            </ul>
+            <p className="text-xs text-muted-foreground">
+              <strong>Ring</strong> rings their phone loudly for up to 30 seconds, even on silent.{' '}
+              <strong>Location required</strong> keeps their location sharing on, and lets you check where they are
+              on the Map without them allowing it. They always see when you check. <strong>Share app usage</strong>{' '}
+              shows you how long they spend in each app; their phone needs Usage access for it.
+              {data.canRing ? null : ' Ringing needs instant phone alerts, which this server doesn’t have set up.'}
+            </p>
+          </CardContent>
+        </Card>
+      )}
+    </div>
   );
 }
 
@@ -88,11 +103,12 @@ function UsageLine({ latest }: { latest: LookAfterDTO['people'][number]['appUsag
       </p>
     );
   }
-  const today = latest.day === new Date().toLocaleDateString('en-CA');
+  // en-CA writes the viewer's local date as YYYY-MM-DD, like the phone's day.
+  const dayLabel = usageDayLabel(latest.day, new Date().toLocaleDateString('en-CA'));
   return (
     <p className="text-xs text-muted-foreground">
       <span className="font-medium text-foreground">
-        {today ? 'Today' : latest.day}: {formatMinutes(latest.totalMinutes)}
+        {dayLabel}: {formatMinutes(latest.totalMinutes)}
       </span>
       {latest.top.length > 0
         ? ` · ${latest.top.map((a) => `${a.label} ${formatMinutes(a.minutes)}`).join(', ')}`

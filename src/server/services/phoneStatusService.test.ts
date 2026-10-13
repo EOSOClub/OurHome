@@ -22,7 +22,12 @@ const { checkIn, refreshPhoneAlerts } = await import('./phoneStatusService');
 const now = new Date('2026-10-12T18:00:00Z');
 const hoursAgo = (h: number) => new Date(now.getTime() - h * 3_600_000);
 const H = 'h1';
-const mia = { id: 'mia', name: 'Mia', role: 'child', locationSharing: 'required' };
+const mia: { id: string; name: string; role: string; locationSharing: string; shareAppUsage?: boolean | null } = {
+  id: 'mia',
+  name: 'Mia',
+  role: 'child',
+  locationSharing: 'required',
+};
 const link = (supervisorId: string, role = 'adult', kid = mia) => ({ supervisorId, supervisor: { role }, supervised: kid });
 
 describe('phone alerts', () => {
@@ -70,6 +75,21 @@ describe('phone alerts', () => {
     expect(prisma.notification.createMany.mock.calls[0][0].data.map((r: { dedupeKey: string }) => r.dedupeKey)).toEqual([
       'phone:location_off:mia:alex',
     ]);
+  });
+
+  it('alerts when Usage access goes off while their app usage is shared, and not while it isn’t', async () => {
+    const phone = { userId: 'mia', lastSeenAt: hoursAgo(1), locationAlways: true, usageAccess: false, deviceName: null };
+    prisma.phoneStatus.findMany.mockResolvedValue([phone]);
+    prisma.supervision.findMany.mockResolvedValue([link('alex', 'adult', { ...mia, shareAppUsage: true })]);
+    await refreshPhoneAlerts(H, now);
+    expect(prisma.notification.createMany.mock.calls[0][0].data.map((r: { dedupeKey: string }) => r.dedupeKey)).toEqual([
+      'phone:usage_off:mia:alex',
+    ]);
+
+    vi.clearAllMocks();
+    prisma.supervision.findMany.mockResolvedValue([link('alex', 'adult', { ...mia, shareAppUsage: null })]);
+    await refreshPhoneAlerts(H, now);
+    expect(prisma.notification.createMany).not.toHaveBeenCalled();
   });
 
   it('a check-in records the phone and refreshes only that member’s alerts', async () => {

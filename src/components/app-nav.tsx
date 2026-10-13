@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import {
   Boxes,
   Calendar,
+  HeartHandshake,
   History,
   Inbox,
   LayoutDashboard,
@@ -28,6 +29,8 @@ type NavItem = {
   primary?: boolean;
   /** Desktop: only reachable from the account menu (and More on phones). */
   menuOnly?: boolean;
+  /** Only for adults who supervise someone. */
+  looksAfterOnly?: boolean;
 };
 
 const items: NavItem[] = [
@@ -41,6 +44,7 @@ const items: NavItem[] = [
   // Desktop has these in the account menu; phones get them under More.
   { href: '/points', label: 'Points', short: 'Points', icon: Trophy, menuOnly: true },
   { href: '/map', label: 'Map', short: 'Map', icon: MapIcon, menuOnly: true },
+  { href: '/look-after', label: 'Look after', short: 'Look after', icon: HeartHandshake, menuOnly: true, looksAfterOnly: true },
   { href: '/activity', label: 'Activity', short: 'Activity', icon: History, menuOnly: true },
 ];
 
@@ -50,10 +54,11 @@ const BOTTOM_TABS = 4;
  * Only the pages this household has on (the server admin can turn features
  * off). On phones, a turned-off tab's slot goes to the next page from More,
  * so the bar stays full; More disappears when nothing is left in it.
+ * [looksAfter]: the viewer supervises someone, so "Look after" is shown.
  */
-function useNavItems() {
+function useNavItems(looksAfter: boolean) {
   const enabled = useHrefEnabled();
-  const on = items.filter((i) => enabled(i.href));
+  const on = items.filter((i) => enabled(i.href) && (!i.looksAfterOnly || looksAfter));
   const bottom = on.filter((i) => i.primary);
   for (const i of on) {
     if (bottom.length >= BOTTOM_TABS) break;
@@ -89,17 +94,20 @@ function CountBadge({ count, className }: { count: number; className?: string })
 export function AppNav({
   variant,
   requestsWaiting = 0,
+  looksAfter = false,
 }: {
   variant: 'top' | 'bottom';
   requestsWaiting?: number;
+  /** The viewer supervises someone ("Look after" under More). */
+  looksAfter?: boolean;
 }) {
   const pathname = usePathname();
-  const { topItems } = useNavItems();
+  const { topItems } = useNavItems(looksAfter);
   const isActive = (href: string) =>
     pathname === href || pathname.startsWith(`${href}/`);
   const badgeFor = (href: string) => (href === '/requests' ? requestsWaiting : 0);
 
-  if (variant === 'bottom') return <BottomNav isActive={isActive} badgeFor={badgeFor} />;
+  if (variant === 'bottom') return <BottomNav isActive={isActive} badgeFor={badgeFor} looksAfter={looksAfter} />;
 
   return (
     // The labelled row needs about 750px, so tablets keep the phone bar.
@@ -128,12 +136,14 @@ export function AppNav({
 function BottomNav({
   isActive,
   badgeFor,
+  looksAfter,
 }: {
   isActive: (href: string) => boolean;
   badgeFor: (href: string) => number;
+  looksAfter: boolean;
 }) {
   const pathname = usePathname();
-  const { bottomItems, moreItems } = useNavItems();
+  const { bottomItems, moreItems } = useNavItems(looksAfter);
   const [moreOpen, setMoreOpen] = React.useState(false);
   const moreRef = React.useRef<HTMLButtonElement>(null);
   const sheetRef = React.useRef<HTMLDivElement>(null);

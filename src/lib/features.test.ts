@@ -50,6 +50,7 @@ describe('featureForPath', () => {
     expect(featureForPath('/api/integrations/paperless/sync')).toBe('bills');
     expect(featureForPath('/api/map-places/search')).toBe('location');
     expect(featureForPath('/api/location/consent')).toBe('location');
+    expect(featureForPath('/look-after')).toBe('location');
   });
 
   it('leaves always-on areas alone', () => {

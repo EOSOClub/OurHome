@@ -30,6 +30,18 @@ export function formatMinutes(minutes: number): string {
   return rest === 0 ? `${h} h` : `${h} h ${rest} min`;
 }
 
+/**
+ * How the card names a reported [day] ("YYYY-MM-DD"), given the viewer's
+ * [today]: "Today", "Yesterday", or a short date like "Oct 10".
+ */
+export function usageDayLabel(day: string, today: string): string {
+  if (day === today) return 'Today';
+  const d = new Date(`${today}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  if (day === d.toISOString().slice(0, 10)) return 'Yesterday';
+  return new Date(`${day}T00:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+
 /** A day's apps as stored: merged by app, most used first, capped, minutes whole. */
 export function tidyApps(apps: AppMinutes[]): AppMinutes[] {
   const byApp = new Map<string, AppMinutes>();

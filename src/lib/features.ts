@@ -103,6 +103,8 @@ const SEGMENT_FEATURE: Record<string, Feature> = {
   requests: 'requests',
   map: 'location',
   'map-places': 'location',
+  // People you look after: ringing, required sharing and app usage came with the Map.
+  'look-after': 'location',
   location: 'location',
 };
 

@@ -95,8 +95,8 @@ function subjectHref(n: NotificationDTO): string | null {
     case 'app_release':
       return '/profile';
     case 'phone':
-      // A supervised child's phone: their status is on the Map's "People you look after".
-      return '/map';
+      // A supervised child's phone: their status is on "People you look after".
+      return '/look-after';
     default:
       return null;
   }

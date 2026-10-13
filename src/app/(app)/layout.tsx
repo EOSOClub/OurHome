@@ -19,6 +19,7 @@ import { NotificationBell } from '@/components/notifications/notification-bell';
 import { UserMenu } from '@/components/user-menu';
 import { Tooltip } from '@/components/ui/tooltip';
 import { getPointsSettings } from '@/server/services/pointsService';
+import { supervisedIds } from '@/server/services/supervisionService';
 import { HouseholdZoneProvider } from '@/components/household-zone';
 
 export default async function AppLayout({
@@ -48,14 +49,17 @@ export default async function AppLayout({
   const { timezone } = await getPointsSettings(user.householdId!);
   // The avatar isn't on the session; the badge mirrors the dashboard's
   // "Needs you" requests and refreshes on every navigation.
-  const [profile, pageAccess, features] = await Promise.all([
+  const [profile, pageAccess, features, supervised] = await Promise.all([
     prisma.user.findUnique({
       where: { id: user.id },
       select: { avatarEmoji: true, profileColor: true },
     }),
     getUserAccess(user),
     getHouseholdFeatures(user.householdId!),
+    // "People you look after" is only linked for someone who supervises somebody.
+    supervisedIds(user.householdId!, user.id),
   ]);
+  const looksAfter = supervised.size > 0;
   const requestsWaiting = features.includes('requests')
     ? await countRequestsWaitingOn(
         { id: user.id, householdId: user.householdId! },
@@ -83,7 +87,7 @@ export default async function AppLayout({
             <span className="hidden sm:inline">Household</span>
           </Link>
           <div className="ml-2">
-            <AppNav variant="top" requestsWaiting={requestsWaiting} />
+            <AppNav variant="top" requestsWaiting={requestsWaiting} looksAfter={looksAfter} />
           </div>
           <div className="ml-auto flex items-center gap-1">
             <Tooltip label="Notifications">
@@ -96,6 +100,7 @@ export default async function AppLayout({
               color={isProfileColor(profile?.profileColor) ? profile.profileColor : null}
               canManageMembers={can(user.role, 'members:manage')}
               serverAdmin={serverAdmin}
+              looksAfter={looksAfter}
             />
           </div>
         </div>
@@ -108,7 +113,7 @@ export default async function AppLayout({
         {children}
       </main>
 
-      <AppNav variant="bottom" requestsWaiting={requestsWaiting} />
+      <AppNav variant="bottom" requestsWaiting={requestsWaiting} looksAfter={looksAfter} />
       <KeyboardShortcuts />
       {access && !access.reviewed ? <AccessPrompt settings={access} /> : null}
     </div>

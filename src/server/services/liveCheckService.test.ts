@@ -23,12 +23,14 @@ vi.mock('@/server/db/prisma', () => ({ prisma }));
 const push = { canPush: vi.fn(() => true), pushToMember: vi.fn(async () => 1) };
 vi.mock('@/server/services/pushService', () => push);
 const supervision = {
-  isSupervising: vi.fn(async () => false),
+  isSupervising: vi.fn<(supervisorId: string, supervisedId: string) => Promise<boolean>>(async () => false),
   supervisedIds: vi.fn(async () => new Set<string>()),
 };
 vi.mock('@/server/services/supervisionService', () => supervision);
 
-const { getLiveCheck, reportLiveCheckFix, startLiveCheck, stopLiveCheck } = await import('./liveCheckService');
+const { endLiveChecksOn, getLiveCheck, reportLiveCheckFix, startLiveCheck, stopLiveCheck } = await import(
+  './liveCheckService'
+);
 
 const now = new Date(Date.UTC(2026, 9, 12, 18, 0));
 const secondsAgo = (s: number) => new Date(now.getTime() - s * 1000);
@@ -209,6 +211,19 @@ describe('closing a check', () => {
     expect(moved.data).toEqual({ lat: 45.1, lng: -93.2, accuracyM: 12, pointAt: fixAt });
     // The check itself keeps no position afterwards.
     expect(prisma.locationCheck.update.mock.calls[0][0].data).toMatchObject({ lat: null, lng: null, fixAt: null });
+  });
+});
+
+describe('endLiveChecksOn', () => {
+  it('after they turn live checks off under required sharing, ends only the checks of people who don’t supervise them', async () => {
+    prisma.locationCheck.findMany.mockResolvedValue([
+      check({ id: 'by-supervisor', requesterId: 'adult' }),
+      check({ id: 'by-kim', requesterId: 'kim' }),
+    ]);
+    supervision.isSupervising.mockImplementation(async (requesterId: string) => requesterId === 'adult');
+    await endLiveChecksOn('sam', { sharing: 'required', liveChecks: false }, now);
+    expect(prisma.locationCheck.update).toHaveBeenCalledTimes(1);
+    expect(prisma.locationCheck.update.mock.calls[0][0].where).toEqual({ id: 'by-kim' });
   });
 });
 

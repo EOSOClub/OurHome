@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   Bug,
+  HeartHandshake,
   History,
   Loader2,
   LogOut,
@@ -39,6 +40,7 @@ export function UserMenu({
   color,
   canManageMembers,
   serverAdmin,
+  looksAfter,
 }: {
   name: string;
   roleLabel: string;
@@ -46,6 +48,8 @@ export function UserMenu({
   color: ProfileColor | null;
   canManageMembers: boolean;
   serverAdmin: boolean;
+  /** The viewer supervises someone: "People you look after". */
+  looksAfter: boolean;
 }) {
   const pathname = usePathname();
   const hrefEnabled = useHrefEnabled();
@@ -142,6 +146,7 @@ export function UserMenu({
           {link('/activity', 'Activity', History)}
           {hrefEnabled('/points') ? link('/points', 'Points', Trophy) : null}
           {hrefEnabled('/map') ? link('/map', 'Map', MapIcon) : null}
+          {looksAfter && hrefEnabled('/look-after') ? link('/look-after', 'People you look after', HeartHandshake) : null}
 
           <div role="separator" className="my-1 h-px bg-border" />
           {canManageMembers ? link('/members', 'Household members', Users) : null}

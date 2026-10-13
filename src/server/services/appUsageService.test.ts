@@ -52,6 +52,8 @@ describe('reportUsage', () => {
       { ...yt, minutes: 30 },
       { app: 'com.roblox.client', label: 'Roblox', minutes: 10 },
     ]);
+    // Sent again within the day (hourly), it replaces what was stored.
+    expect(today.update).toEqual({ householdId: 'h1', totalMinutes: 40, apps: today.create.apps });
     // 14 days kept, counting the newest: 2026-09-29 to 2026-10-12.
     expect(prisma.appUsageDay.deleteMany).toHaveBeenCalledWith({ where: { userId: 'mia', day: { lt: '2026-09-29' } } });
   });
@@ -79,6 +81,11 @@ describe('reportUsage dates', () => {
     // and the window counts back from it, not from 2099.
     expect(prisma.appUsageDay.upsert).toHaveBeenCalledTimes(1);
     expect(prisma.appUsageDay.deleteMany).toHaveBeenCalledWith({ where: { userId: 'mia', day: { lt: '2026-09-30' } } });
+  });
+
+  it('never stores more minutes than a day has', async () => {
+    await reportUsage('h1', 'mia', { days: [{ day: '2026-10-12', totalMinutes: 5000, apps: [] }] }, now);
+    expect(prisma.appUsageDay.upsert.mock.calls[0][0].create.totalMinutes).toBe(1440);
   });
 
   it('does nothing at all when every day is out of range', async () => {

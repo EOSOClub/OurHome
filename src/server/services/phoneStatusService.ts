@@ -1,11 +1,17 @@
 import { prisma } from '@/server/db/prisma';
-import { pushSync } from '@/server/services/pushService';
+import { pingInstall, pushSync } from '@/server/services/pushService';
 import { connectedInstalls } from '@/server/push/streamHub';
 import { isFeatureEnabled } from '@/server/services/serverAdminService';
 import { canBeSupervised, canSupervise } from '@/lib/permissions';
 import { sharingMode } from '@/lib/location';
-import { freshestPhone, phoneAlertText, phoneProblems, type PhoneProblem } from '@/lib/phoneHealth';
-import type { PhoneCheckInInput } from '@/lib/validation/phone';
+import {
+  PHONE_QUICK_QUIET_MS,
+  freshestPhone,
+  phoneAlertText,
+  phoneProblems,
+  type PhoneProblem,
+} from '@/lib/phoneHealth';
+import type { PhoneCheckInInput, PhoneStatusInput } from '@/lib/validation/phone';
 
 // Phone check-ins and the alerts they feed (parental controls). Every phone
 // with the app checks in about hourly; for a supervised child, the 15-minute
@@ -46,6 +52,11 @@ export async function checkIn(
     standbyBucket: input.standbyBucket ?? null,
     stayConnected: input.stayConnected ?? null,
     closeGuard: input.closeGuard ?? null,
+    ...statusData(input.status, now),
+    // Its last word before Android switches it off; any other word clears it.
+    shutdownAt: input.shuttingDown ? now : null,
+    // It's here, so whatever Firebase said about an old token no longer counts.
+    pushGoneAt: null,
   };
   // Same install, someone else signed in: the row moves to them.
   await prisma.phoneStatus.upsert({
@@ -55,6 +66,84 @@ export async function checkIn(
   });
   await refreshPhoneAlerts(householdId, now, [userId]);
   return { stayConnectedRequired: await isSupervised(householdId, userId) };
+}
+
+/** A phone's status as stored; nothing when it sent none (an older app, or nobody looks after them). */
+function statusData(status: PhoneStatusInput | undefined, now: Date) {
+  if (!status) return {};
+  return {
+    batteryPct: status.battery ?? null,
+    batteryCharging: status.charging ?? null,
+    network: status.network ?? null,
+    signalLevel: status.signal ?? null,
+    statusAt: now,
+  };
+}
+
+/**
+ * A phone's Stay connected stream opened (with its status) or closed. Both
+ * count as hearing from it ([lastWordAt]). After a close, unless it's back:
+ * a quiet Firebase ping a few minutes on, whose answer can say OurHome is
+ * gone from it (pushService.pingInstall), and the alerts checked again once
+ * it counts as quiet ([PHONE_QUICK_QUIET_MS]), instead of waiting for the
+ * 15-minute sweep. Only for a member an adult looks after.
+ */
+export async function recordStream(
+  householdId: string,
+  userId: string,
+  installId: string,
+  event: { opened: true; status?: PhoneStatusInput } | { opened: false },
+  now: Date = new Date(),
+): Promise<void> {
+  clearWatch(installId);
+  await prisma.phoneStatus.updateMany({
+    where: { installId, userId, householdId },
+    data: {
+      streamAt: now,
+      ...(event.opened ? { ...statusData(event.status, now), shutdownAt: null, pushGoneAt: null } : {}),
+    },
+  });
+  if (event.opened || !(await isSupervised(householdId, userId))) return;
+  // Already back (the server ends each stream every 30 minutes, and the phone reconnects at once).
+  if (connectedInstalls(householdId).has(installId)) return;
+  clearWatch(installId);
+  watches.set(installId, [
+    setTimeout(() => void probe(householdId, userId, installId), PING_AFTER_MS),
+    setTimeout(() => {
+      watches.delete(installId);
+      refreshPhoneAlerts(householdId, new Date(), [userId]).catch((err) =>
+        console.warn('[phone] checking a quiet phone failed; the sweep will:', err),
+      );
+    }, PHONE_QUICK_QUIET_MS + 60_000),
+  ]);
+  for (const timer of watches.get(installId) ?? []) timer.unref?.();
+}
+
+/** How long after a stream closes the phone is pinged through Firebase, unless it's back. */
+export const PING_AFTER_MS = 8 * 60_000;
+
+/** Follow-ups waiting per install, dropped when its stream opens again. In memory: one server process. */
+const globalWatch = globalThis as unknown as { __ourhomePhoneWatch?: Map<string, ReturnType<typeof setTimeout>[]> };
+const watches = (globalWatch.__ourhomePhoneWatch ??= new Map());
+
+function clearWatch(installId: string) {
+  for (const timer of watches.get(installId) ?? []) clearTimeout(timer);
+  watches.delete(installId);
+}
+
+async function probe(householdId: string, userId: string, installId: string) {
+  if (connectedInstalls(householdId).has(installId)) return;
+  try {
+    const result = await pingInstall(householdId, userId, installId);
+    console.log(`[phone] quiet phone pinged: ${result}`);
+  } catch (err) {
+    console.warn('[phone] pinging a quiet phone failed:', err);
+  }
+}
+
+/** Tests only: drop every waiting follow-up. */
+export function clearPhoneWatches(): void {
+  for (const id of [...watches.keys()]) clearWatch(id);
 }
 
 /** Whether an adult looks after [userId] right now (both roles still fit). */
@@ -102,6 +191,14 @@ export async function phoneSummaries(
         lastPushAt: true,
         stayConnected: true,
         closeGuard: true,
+        streamAt: true,
+        batteryPct: true,
+        batteryCharging: true,
+        network: true,
+        signalLevel: true,
+        statusAt: true,
+        shutdownAt: true,
+        pushGoneAt: true,
       },
     }),
     isFeatureEnabled(householdId, 'location').catch(() => true),
@@ -117,7 +214,7 @@ export async function phoneSummaries(
       stayConnected: phone.stayConnected === true,
       connected: connected.has(phone.installId),
       problems: phoneProblems(
-        phone,
+        { ...phone, connected: connected.has(phone.installId) },
         { sharing: sharingMode(kid.locationSharing), usageShared: kid.shareAppUsage === true, locationOn },
         now,
       ),

@@ -5,6 +5,6 @@ import { pushDeviceSchema } from '@/lib/validation/push';
 // The Android app registers its FCM token after sign-in (and whenever Firebase
 // rotates it). Any signed-in member may register their own phone.
 export const POST = withAuth(async ({ user, req }) => {
-  const { token } = await parseBody(req, pushDeviceSchema);
-  return ok(await registerDevice(user.householdId!, user.id, token));
+  const { token, installId } = await parseBody(req, pushDeviceSchema);
+  return ok(await registerDevice(user.householdId!, user.id, token, installId));
 });

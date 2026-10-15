@@ -46,21 +46,70 @@ export function syncPriority(reason: PushReason): PushPriority {
 /** A phone that hasn't re-registered for this long is treated as gone (the app re-registers daily). */
 export const PUSH_DEVICE_STALE_MS = 60 * 24 * 60 * 60_000;
 
-/** Saves (or moves) this install's FCM token to the signed-in user. */
+/**
+ * Saves (or moves) this install's FCM token to the signed-in user. [installId]
+ * (newer apps) ties it to the phone, so a token Firebase later calls dead
+ * marks that phone ([forgetDeadTokens]); registering clears that mark.
+ */
 export async function registerDevice(
   householdId: string,
   userId: string,
   token: string,
+  installId?: string,
 ): Promise<{ pushEnabled: boolean }> {
   await prisma.pushDevice.upsert({
     where: { token },
     // Same token, different account: the phone signed in as someone else.
     // updatedAt set even when nothing else changed: it's how a live phone
     // is told from a stale one (forgetStaleDevices).
-    update: { householdId, userId, updatedAt: new Date() },
-    create: { householdId, userId, token, platform: 'android' },
+    update: { householdId, userId, updatedAt: new Date(), ...(installId ? { installId } : {}) },
+    create: { householdId, userId, token, platform: 'android', installId: installId ?? null },
   });
+  if (installId) {
+    await prisma.phoneStatus.updateMany({ where: { installId, userId }, data: { pushGoneAt: null } });
+  }
   return { pushEnabled: isPushConfigured() };
+}
+
+/**
+ * Drops tokens Firebase called dead (the app uninstalled, or its data
+ * cleared), and marks their phones: a supervised child's phone that then goes
+ * quiet is reported as OurHome removed (lib/phoneHealth.ts).
+ */
+async function forgetDeadTokens(devices: { token: string; installId: string | null }[], now: Date = new Date()) {
+  if (devices.length === 0) return;
+  await prisma.pushDevice.deleteMany({ where: { token: { in: devices.map((d) => d.token) } } });
+  const installs = devices.map((d) => d.installId).filter((id): id is string => Boolean(id));
+  if (installs.length > 0) {
+    await prisma.phoneStatus.updateMany({ where: { installId: { in: installs } }, data: { pushGoneAt: now } });
+  }
+}
+
+/**
+ * A quiet supervised phone (its Stay connected stream closed and didn't come
+ * back): a silent `ping` through Firebase. A phone that's on and online
+ * checks in; Firebase's answer can say the app is gone ('gone'). 'none':
+ * Firebase is off, or this install has no token tied to it.
+ */
+export async function pingInstall(
+  householdId: string,
+  userId: string,
+  installId: string,
+): Promise<'sent' | 'gone' | 'failed' | 'none'> {
+  if (!isPushConfigured()) return 'none';
+  const devices = await prisma.pushDevice.findMany({
+    where: { householdId, userId, installId },
+    select: { token: true, installId: true },
+  });
+  if (devices.length === 0) return 'none';
+  const message = { type: 'ping', id: randomUUID() };
+  const results = await Promise.all(
+    devices.map(async (d) => ({ device: d, result: await sendData(d.token, message, 600, 'normal') })),
+  );
+  const dead = results.filter((r) => r.result === 'invalid_token').map((r) => r.device);
+  await forgetDeadTokens(dead);
+  if (dead.length === devices.length) return 'gone';
+  return results.some((r) => r.result === 'sent') ? 'sent' : 'failed';
 }
 
 /**
@@ -144,13 +193,12 @@ export async function pushToMember(
   }
   const devices = await prisma.pushDevice.findMany({
     where: { householdId, userId },
-    select: { token: true },
+    select: { token: true, installId: true },
   });
   const results = await Promise.all(
-    devices.map(async (d) => ({ token: d.token, result: await sendData(d.token, message, opts.ttlSec, opts.priority) })),
+    devices.map(async (d) => ({ device: d, result: await sendData(d.token, message, opts.ttlSec, opts.priority) })),
   );
-  const dead = results.filter((r) => r.result === 'invalid_token').map((r) => r.token);
-  if (dead.length > 0) await prisma.pushDevice.deleteMany({ where: { token: { in: dead } } });
+  await forgetDeadTokens(results.filter((r) => r.result === 'invalid_token').map((r) => r.device));
   const sent = results.filter((r) => r.result === 'sent').length;
   console.log(`[push] ${data.type}: ${sent}/${devices.length} device(s) reached, ${streamed} connected`);
   return sent + streamed;
@@ -208,20 +256,18 @@ async function sendSync(householdId: string, audience: PushAudience, reason: Pus
 
   const devices = await prisma.pushDevice.findMany({
     where: { householdId, userId: { in: [...ids] } },
-    select: { token: true },
+    select: { token: true, installId: true },
   });
   if (devices.length === 0 && streamed === 0) return;
 
   const results = await Promise.all(
     devices.map(async (d) => ({
-      token: d.token,
+      device: d,
       result: await sendData(d.token, message, undefined, syncPriority(reason)),
     })),
   );
-  const dead = results.filter((r) => r.result === 'invalid_token').map((r) => r.token);
-  if (dead.length > 0) {
-    await prisma.pushDevice.deleteMany({ where: { token: { in: dead } } });
-  }
+  const dead = results.filter((r) => r.result === 'invalid_token').map((r) => r.device);
+  await forgetDeadTokens(dead);
   const sent = results.filter((r) => r.result === 'sent').length;
   console.log(
     `[push] sync (${reason}): ${sent}/${devices.length} device(s) reached, ${streamed} connected` +

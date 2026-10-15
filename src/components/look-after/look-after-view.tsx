@@ -10,7 +10,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { toast } from '@/components/ui/toast';
 import { LIVE_CHECKS_KEY } from '@/components/profile/location-card';
 import { RelativeTime } from '@/components/household-zone';
-import { PHONE_PROBLEM_LABELS } from '@/lib/phoneHealth';
+import { PHONE_PROBLEM_LABELS, SILENT_PROBLEMS } from '@/lib/phoneHealth';
 import { formatMinutes, usageDayLabel, usageIconUrl } from '@/lib/appUsage';
 
 // The "People you look after" page: the children and teens the viewer
@@ -119,7 +119,7 @@ function PhoneLine({ phone }: { phone: LookAfterDTO['people'][number]['phone'] }
       {phone.problems.length > 0 ? (
         <span className="block text-xs font-medium text-destructive">
           {phone.problems.map((p) => PHONE_PROBLEM_LABELS[p]).join(' · ')}
-          {phone.problems.includes('quiet') ? (
+          {phone.problems.some((p) => SILENT_PROBLEMS.has(p)) ? (
             <>
               {' '}
               (last seen <RelativeTime date={phone.lastSeenAt} />)

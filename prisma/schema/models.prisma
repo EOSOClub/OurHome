@@ -198,6 +198,24 @@ model PhoneStatus {
   // button in Android's active apps, and a supervised child can't open
   // OurHome's App info to force stop it. null = an older app.
   closeGuard     Boolean?
+  // How the phone was doing at its last word (check-in, or Stay connected
+  // opening), sent only while an adult looks after its member, so a phone that
+  // goes quiet can be told apart: battery (0-100) and charging, network
+  // ("wifi" | "cellular" | "other" | "none") and mobile signal (0 none to 4
+  // great). statusAt: when it was read. null = not sent (an older app, or nobody
+  // looks after them). See lib/phoneHealth.ts phoneSilence.
+  batteryPct      Int?
+  batteryCharging Boolean?
+  network         String?
+  signalLevel     Int?
+  statusAt        DateTime?
+  // When its Stay connected stream last opened or closed. null = never.
+  streamAt        DateTime?
+  // The phone said it was switching off (Android's shutdown). Cleared by its next word.
+  shutdownAt      DateTime?
+  // Firebase said this install's push token is dead: OurHome uninstalled or its
+  // data cleared. Cleared when the install registers or checks in again.
+  pushGoneAt      DateTime?
   createdAt      DateTime @default(now())
 
   household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
@@ -1008,6 +1026,9 @@ model PushDevice {
   householdId String
   userId      String
   token       String   @unique
+  // The app's install id (PhoneStatus.installId), so a token Firebase calls
+  // dead marks that phone (pushGoneAt). null = an app from before it was sent.
+  installId   String?
   // platform: "android"
   platform    String   @default("android")
   createdAt   DateTime @default(now())

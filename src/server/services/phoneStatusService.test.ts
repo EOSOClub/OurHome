@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const prisma = {
   phoneStatus: {
     upsert: vi.fn(),
+    updateMany: vi.fn(),
     findMany: vi.fn(async (): Promise<unknown[]> => []),
   },
   supervision: { findMany: vi.fn(async (): Promise<unknown[]> => []) },
@@ -13,11 +14,13 @@ const prisma = {
   },
 };
 vi.mock('@/server/db/prisma', () => ({ prisma }));
-const push = { pushSync: vi.fn() };
+const push = { pushSync: vi.fn(), pingInstall: vi.fn(async () => 'sent') };
 vi.mock('@/server/services/pushService', () => push);
 vi.mock('@/server/services/serverAdminService', () => ({ isFeatureEnabled: vi.fn(async () => true) }));
 
-const { checkIn, phoneSummaries, refreshPhoneAlerts } = await import('./phoneStatusService');
+const { checkIn, clearPhoneWatches, phoneSummaries, PING_AFTER_MS, recordStream, refreshPhoneAlerts } = await import(
+  './phoneStatusService'
+);
 const { addStream, clearStreams } = await import('@/server/push/streamHub');
 
 const now = new Date('2026-10-12T18:00:00Z');
@@ -158,6 +161,26 @@ describe('phone alerts', () => {
     });
   });
 
+  it('stores the status a supervised phone sends, and its last word before switching off', async () => {
+    const base = { installId: 'install-123', locationAlways: true, notifications: true };
+    await checkIn(H, 'mia', { ...base, status: { battery: 4, charging: false, network: 'cellular', signal: 1 }, shuttingDown: true }, now);
+    expect(prisma.phoneStatus.upsert.mock.calls[0][0].update).toMatchObject({
+      batteryPct: 4,
+      batteryCharging: false,
+      network: 'cellular',
+      signalLevel: 1,
+      statusAt: now,
+      shutdownAt: now,
+      pushGoneAt: null,
+    });
+    // No status sent: the last one is kept, and the shutdown mark goes.
+    vi.clearAllMocks();
+    await checkIn(H, 'mia', base, now);
+    const update = prisma.phoneStatus.upsert.mock.calls[0][0].update;
+    expect(update).not.toHaveProperty('batteryPct');
+    expect(update.shutdownAt).toBeNull();
+  });
+
   it('alerts supervisors while battery saving still holds OurHome back', async () => {
     prisma.phoneStatus.findMany.mockResolvedValue([
       { userId: 'mia', installId: 'i1', lastSeenAt: hoursAgo(1), locationAlways: true, batteryUnrestricted: false, deviceName: null },
@@ -167,6 +190,52 @@ describe('phone alerts', () => {
     expect(prisma.notification.createMany.mock.calls[0][0].data.map((r: { dedupeKey: string }) => r.dedupeKey)).toEqual([
       'phone:battery_restricted:mia:alex',
     ]);
+  });
+});
+
+describe('a stream that closes', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    clearStreams();
+    clearPhoneWatches();
+    prisma.supervision.findMany.mockResolvedValue([link('alex')]);
+    prisma.notification.findMany.mockResolvedValue([]);
+    prisma.phoneStatus.findMany.mockResolvedValue([]);
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('pings a supervised phone that stays away, then checks its alerts without waiting for the sweep', async () => {
+    await recordStream(H, 'mia', 'i1', { opened: false }, now);
+    expect(prisma.phoneStatus.updateMany.mock.calls[0][0]).toMatchObject({
+      where: { installId: 'i1', userId: 'mia' },
+      data: { streamAt: now },
+    });
+    await vi.advanceTimersByTimeAsync(PING_AFTER_MS);
+    expect(push.pingInstall).toHaveBeenCalledWith(H, 'mia', 'i1');
+    prisma.supervision.findMany.mockClear();
+    await vi.advanceTimersByTimeAsync(21 * 60_000);
+    // refreshPhoneAlerts ran for Mia only.
+    const [args] = prisma.supervision.findMany.mock.calls[0] as unknown as [{ where: unknown }];
+    expect(args.where).toMatchObject({ supervisedId: { in: ['mia'] } });
+  });
+
+  it('forgets the follow-up when the phone is back, and never follows an adult', async () => {
+    await recordStream(H, 'mia', 'i1', { opened: false }, now);
+    await recordStream(H, 'mia', 'i1', { opened: true, status: { battery: 50 } }, now);
+    expect(prisma.phoneStatus.updateMany.mock.calls[1][0].data).toMatchObject({
+      streamAt: now,
+      batteryPct: 50,
+      shutdownAt: null,
+      pushGoneAt: null,
+    });
+    await vi.advanceTimersByTimeAsync(30 * 60_000);
+    expect(push.pingInstall).not.toHaveBeenCalled();
+
+    prisma.supervision.findMany.mockResolvedValue([]);
+    await recordStream(H, 'alex', 'i2', { opened: false }, now);
+    await vi.advanceTimersByTimeAsync(30 * 60_000);
+    expect(push.pingInstall).not.toHaveBeenCalled();
   });
 });
 

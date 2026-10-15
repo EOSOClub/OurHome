@@ -1,8 +1,75 @@
 import { describe, expect, it } from 'vitest';
-import { PHONE_QUIET_MS, freshestPhone, phoneAlertText, phoneProblems } from '@/lib/phoneHealth';
+import {
+  PHONE_QUICK_QUIET_MS,
+  PHONE_QUIET_MS,
+  SILENT_PROBLEMS,
+  freshestPhone,
+  phoneAlertText,
+  phoneProblems,
+  phoneSilence,
+} from '@/lib/phoneHealth';
 
 const now = new Date('2026-10-12T18:00:00Z');
 const hoursAgo = (h: number) => new Date(now.getTime() - h * 3_600_000);
+const minsAgo = (m: number) => new Date(now.getTime() - m * 60_000);
+
+describe('why a phone went quiet', () => {
+  // A phone holding Stay connected with Unrestricted battery: its stream closed 25 minutes ago.
+  const watched = {
+    lastSeenAt: hoursAgo(1),
+    locationAlways: true,
+    stayConnected: true,
+    batteryUnrestricted: true,
+    streamAt: minsAgo(25),
+  };
+
+  it('misses a phone that holds a connection after 20 minutes, any other after 8 hours', () => {
+    expect(PHONE_QUICK_QUIET_MS).toBe(20 * 60_000);
+    expect(phoneSilence(watched, now)).toBe('quiet');
+    expect(phoneSilence({ ...watched, streamAt: minsAgo(15) }, now)).toBeNull();
+    // Still connected: never quiet.
+    expect(phoneSilence({ ...watched, connected: true }, now)).toBeNull();
+    // Battery saving can hold its connection back for hours, so it isn't trusted to be quick.
+    expect(phoneSilence({ ...watched, batteryUnrestricted: false }, now)).toBeNull();
+    expect(phoneSilence({ ...watched, stayConnected: false }, now)).toBeNull();
+    expect(phoneSilence({ lastSeenAt: hoursAgo(7), locationAlways: true }, now)).toBeNull();
+    expect(phoneSilence({ lastSeenAt: hoursAgo(8), locationAlways: true }, now)).toBe('quiet');
+  });
+
+  it('says OurHome was removed once Firebase calls its token dead, without waiting', () => {
+    const phone = { lastSeenAt: hoursAgo(1), locationAlways: true, streamAt: minsAgo(12), pushGoneAt: minsAgo(4) };
+    expect(phoneSilence(phone, now)).toBe('app_removed');
+    // Only a few minutes quiet: a rotated token is re-registered by then.
+    expect(phoneSilence({ ...phone, streamAt: minsAgo(6) }, now)).toBeNull();
+    // A dead token from before the phone's last word says nothing.
+    expect(phoneSilence({ ...phone, pushGoneAt: minsAgo(30), streamAt: minsAgo(12) }, now)).toBeNull();
+  });
+
+  it('tells a switched-off phone, a flat battery and no signal apart by its last word', () => {
+    expect(phoneSilence({ ...watched, shutdownAt: minsAgo(26) }, now)).toBe('switched_off');
+    expect(phoneSilence({ ...watched, shutdownAt: minsAgo(26), batteryPct: 2, batteryCharging: false }, now)).toBe(
+      'battery_flat',
+    );
+    const status = { statusAt: minsAgo(40) };
+    expect(phoneSilence({ ...watched, ...status, batteryPct: 4, batteryCharging: false }, now)).toBe('battery_flat');
+    // Charging: it didn't run flat.
+    expect(phoneSilence({ ...watched, ...status, batteryPct: 4, batteryCharging: true }, now)).toBe('quiet');
+    expect(phoneSilence({ ...watched, ...status, network: 'none' }, now)).toBe('no_signal');
+    expect(phoneSilence({ ...watched, ...status, network: 'cellular', signalLevel: 1 }, now)).toBe('no_signal');
+    expect(phoneSilence({ ...watched, ...status, network: 'cellular', signalLevel: 3 }, now)).toBe('quiet');
+    expect(phoneSilence({ ...watched, ...status, network: 'wifi', signalLevel: 0 }, now)).toBe('quiet');
+    // A status read long before its last word is too old to say.
+    expect(phoneSilence({ ...watched, statusAt: hoursAgo(2), network: 'none' }, now)).toBe('quiet');
+  });
+
+  it('gives each reason its own alert and line, and only one at a time', () => {
+    for (const p of SILENT_PROBLEMS) expect(phoneAlertText(p, 'Mia').title).toMatch(/Mia/);
+    expect(phoneAlertText('app_removed', 'Mia').title).toBe('OurHome may have been removed from Mia’s phone');
+    expect(phoneProblems({ ...watched, closeGuard: false, network: 'none', statusAt: minsAgo(40) }, { sharing: 'on' }, now)).toEqual([
+      'no_signal',
+    ]);
+  });
+});
 
 describe('phone problems', () => {
   it('says nothing about a phone that never checked in', () => {

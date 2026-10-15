@@ -1,5 +1,6 @@
 import { parseQuery, withAuth } from '@/server/api/http';
 import { addStream } from '@/server/push/streamHub';
+import { recordStream } from '@/server/services/phoneStatusService';
 import { phoneStreamQuerySchema } from '@/lib/validation/phone';
 
 // Stay connected (the Android app's StayConnectedService): one long-lived
@@ -20,12 +21,20 @@ const PING_MS = 45_000;
  */
 const MAX_MS = 30 * 60_000;
 
+/** Opening and closing are both heard from the phone; a failure to note it never ends the stream. */
+function noteStream(...args: Parameters<typeof recordStream>) {
+  recordStream(...args).catch((err) => console.warn('[stream] noting the phone failed:', err));
+}
+
 export const GET = withAuth(async (ctx) => {
-  const { installId } = parseQuery(ctx.req, phoneStreamQuerySchema);
+  const { installId, ...status } = parseQuery(ctx.req, phoneStreamQuerySchema);
   const householdId = ctx.user.householdId!;
   const userId = ctx.user.id;
   const encoder = new TextEncoder();
   let cleanup = () => {};
+  let closed = false;
+  // Status fields come only from a phone an adult looks after.
+  const sentStatus = Object.values(status).some((v) => v !== undefined);
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -53,13 +62,18 @@ export const GET = withAuth(async (ctx) => {
       }, PING_MS);
       const end = setTimeout(close, MAX_MS);
       cleanup = () => {
+        if (closed) return;
+        closed = true;
         clearInterval(ping);
         clearTimeout(end);
         remove();
+        // Gone: if it doesn't come back, the supervisors hear why (phoneStatusService).
+        noteStream(householdId, userId, installId, { opened: false });
       };
       ctx.req.signal.addEventListener('abort', close);
       // The phone counts the connection as up once this arrives.
       write('event: hello\ndata: {}\n\n');
+      noteStream(householdId, userId, installId, { opened: true, status: sentStatus ? status : undefined });
       console.log(`[stream] phone connected (user ${userId})`);
     },
     cancel() {

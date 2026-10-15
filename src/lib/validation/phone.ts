@@ -1,5 +1,18 @@
 import { z } from 'zod';
 
+/**
+ * How the phone is doing, so a phone that goes quiet can be told apart (flat,
+ * out of signal, switched off, or OurHome removed). network: "wifi" |
+ * "cellular" | "other" | "none"; signal: mobile signal 0 (none) to 4 (great).
+ */
+export const phoneStatusSchema = z.object({
+  battery: z.number().int().min(0).max(100).optional(),
+  charging: z.boolean().optional(),
+  network: z.enum(['wifi', 'cellular', 'other', 'none']).optional(),
+  signal: z.number().int().min(0).max(4).optional(),
+});
+export type PhoneStatusInput = z.infer<typeof phoneStatusSchema>;
+
 /** The Android app checking in (hourly): which install, and what it may do. */
 export const phoneCheckInSchema = z.object({
   installId: z.string().trim().min(8).max(100),
@@ -21,12 +34,23 @@ export const phoneCheckInSchema = z.object({
   stayConnected: z.boolean().optional(),
   /** "Keep Our Home running" is on in Android's Accessibility settings (left out by older apps). */
   closeGuard: z.boolean().optional(),
+  /** Sent only while an adult looks after the member (phoneStatusSchema). */
+  status: phoneStatusSchema.optional(),
+  /** Android is switching the phone off: this is its last word until it's back. */
+  shuttingDown: z.boolean().optional(),
 });
 export type PhoneCheckInInput = z.infer<typeof phoneCheckInSchema>;
 
-/** A phone opening its Stay connected stream: which install (the check-in's id). */
+/**
+ * A phone opening its Stay connected stream: which install (the check-in's
+ * id), and its status as query fields (only while an adult looks after them).
+ */
 export const phoneStreamQuerySchema = z.object({
   installId: z.string().trim().min(8).max(100),
+  battery: z.coerce.number().int().min(0).max(100).optional(),
+  charging: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
+  network: z.enum(['wifi', 'cellular', 'other', 'none']).optional(),
+  signal: z.coerce.number().int().min(0).max(4).optional(),
 });
 
 /** A phone's app usage: today and yesterday, as it measured them. */

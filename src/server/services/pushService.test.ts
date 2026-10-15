@@ -3,9 +3,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const prisma = {
   pushDevice: {
     upsert: vi.fn(),
-    findMany: vi.fn(async (): Promise<{ token: string; userId?: string }[]> => []),
+    findMany: vi.fn(async (): Promise<{ token: string; userId?: string; installId?: string | null }[]> => []),
     deleteMany: vi.fn(async () => ({ count: 0 })),
   },
+  phoneStatus: { updateMany: vi.fn() },
   user: { findMany: vi.fn(async (): Promise<unknown[]> => []) },
 };
 vi.mock('@/server/db/prisma', () => ({ prisma }));
@@ -19,6 +20,7 @@ vi.mock('@/server/services/permissionService', () => ({ membersWithAccess: vi.fn
 const {
   canPush,
   forgetStaleDevices,
+  pingInstall,
   PUSH_DEVICE_STALE_MS,
   pushSync,
   pushToMember,
@@ -125,6 +127,39 @@ describe('test notification', () => {
     expect((await sendTestPush(H, 'alex', 1_005_000)).tooSoon).toBe(true);
     expect(fcm.sendData).toHaveBeenCalledTimes(1);
     expect((await sendTestPush(H, 'alex', 1_011_000)).tooSoon).toBe(false);
+  });
+});
+
+describe('a quiet phone', () => {
+  it('ties a token to its phone, and clears an earlier "gone" when it registers', async () => {
+    await registerDevice(H, 'mia', 'tok', 'install-1');
+    expect(prisma.pushDevice.upsert.mock.calls[0][0].create.installId).toBe('install-1');
+    expect(prisma.phoneStatus.updateMany).toHaveBeenCalledWith({
+      where: { installId: 'install-1', userId: 'mia' },
+      data: { pushGoneAt: null },
+    });
+  });
+
+  it('marks the phone when Firebase says its app is gone', async () => {
+    prisma.pushDevice.findMany.mockResolvedValue([{ token: 'tok', installId: 'install-1' }]);
+    fcm.sendData.mockResolvedValueOnce('invalid_token');
+    expect(await pingInstall(H, 'mia', 'install-1')).toBe('gone');
+    expect(fcm.sendData.mock.calls[0]).toEqual(['tok', expect.objectContaining({ type: 'ping' }), 600, 'normal']);
+    expect(prisma.pushDevice.deleteMany).toHaveBeenCalledWith({ where: { token: { in: ['tok'] } } });
+    expect(prisma.phoneStatus.updateMany.mock.calls[0][0]).toMatchObject({
+      where: { installId: { in: ['install-1'] } },
+      data: { pushGoneAt: expect.any(Date) },
+    });
+  });
+
+  it('says so when a ping went, or when there is nothing to ping with', async () => {
+    prisma.pushDevice.findMany.mockResolvedValue([{ token: 'tok', installId: 'install-1' }]);
+    expect(await pingInstall(H, 'mia', 'install-1')).toBe('sent');
+    expect(prisma.phoneStatus.updateMany).not.toHaveBeenCalled();
+    prisma.pushDevice.findMany.mockResolvedValue([]);
+    expect(await pingInstall(H, 'mia', 'install-1')).toBe('none');
+    fcm.isPushConfigured.mockReturnValue(false);
+    expect(await pingInstall(H, 'mia', 'install-1')).toBe('none');
   });
 });
 

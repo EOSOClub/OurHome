@@ -1,5 +1,7 @@
+import { randomUUID } from 'node:crypto';
 import { prisma } from '@/server/db/prisma';
-import { isPushConfigured, sendData } from '@/server/push/fcm';
+import { isPushConfigured, sendData, type PushPriority } from '@/server/push/fcm';
+import { deliverToStreams, hasStreams, isStreamConnected } from '@/server/push/streamHub';
 import { membersWithAccess } from '@/server/services/permissionService';
 import { can, type AccessAction, type AccessPage, type Permission } from '@/lib/permissions';
 
@@ -9,10 +11,40 @@ import { can, type AccessAction, type AccessPage, type Permission } from '@/lib/
 // then fetches from this server and posts its own notification, exactly as its
 // hourly background check does. So names, amounts and request text never pass
 // through Google, and the app's lock-screen rules still apply to everything.
-// Off (a no-op) until FIREBASE_SERVICE_ACCOUNT is set.
+// Firebase is off (a no-op) until FIREBASE_SERVICE_ACCOUNT is set.
+//
+// Phones that "Stay connected" also get every message down their open stream
+// (streamHub), with or without Firebase. Each message carries a random `id`,
+// so a phone that gets it both ways acts on it once.
 
 /** Why the phones were woken; the app logs it. */
-export type PushReason = 'request' | 'bug_report' | 'app_update' | 'reminder' | 'task' | 'map_places' | 'location' | 'usage';
+export type PushReason =
+  | 'request'
+  | 'bug_report'
+  | 'app_update'
+  | 'reminder'
+  | 'task'
+  | 'map_places'
+  | 'location'
+  | 'usage'
+  | 'supervision';
+
+/**
+ * Reasons the phone handles without posting anything: its geofences, its
+ * sharing state, its usage report, whether it must Stay connected. Sent at
+ * normal priority, because Firebase demotes an install's high-priority
+ * messages when they keep ending without a visible notification (fcm.ts), and
+ * that would slow its rings and live checks. The rest usually end in a
+ * notification and stay high.
+ */
+const SILENT_REASONS: ReadonlySet<PushReason> = new Set(['map_places', 'location', 'usage', 'supervision']);
+
+export function syncPriority(reason: PushReason): PushPriority {
+  return SILENT_REASONS.has(reason) ? 'normal' : 'high';
+}
+
+/** A phone that hasn't re-registered for this long is treated as gone (the app re-registers daily). */
+export const PUSH_DEVICE_STALE_MS = 60 * 24 * 60 * 60_000;
 
 /** Saves (or moves) this install's FCM token to the signed-in user. */
 export async function registerDevice(
@@ -23,10 +55,25 @@ export async function registerDevice(
   await prisma.pushDevice.upsert({
     where: { token },
     // Same token, different account: the phone signed in as someone else.
-    update: { householdId, userId },
+    // updatedAt set even when nothing else changed: it's how a live phone
+    // is told from a stale one (forgetStaleDevices).
+    update: { householdId, userId, updatedAt: new Date() },
     create: { householdId, userId, token, platform: 'android' },
   });
   return { pushEnabled: isPushConfigured() };
+}
+
+/**
+ * Drops tokens no phone has re-registered for [PUSH_DEVICE_STALE_MS]: the app
+ * was uninstalled or its data cleared without Firebase saying so yet. From the
+ * reminder sweep. Returns how many went.
+ */
+export async function forgetStaleDevices(now: Date = new Date()): Promise<number> {
+  const { count } = await prisma.pushDevice.deleteMany({
+    where: { updatedAt: { lt: new Date(now.getTime() - PUSH_DEVICE_STALE_MS) } },
+  });
+  if (count > 0) console.log(`[push] ${count} stale device(s) forgotten`);
+  return count;
 }
 
 /** Forgets this install on sign-out. Only the owner's own token is removed. */
@@ -51,15 +98,21 @@ export interface PushAudience {
  * the phone catches up on its next hourly check.
  */
 export function pushSync(householdId: string, audience: PushAudience, reason: PushReason): void {
-  if (!isPushConfigured()) return;
+  if (!isPushConfigured() && !hasStreams(householdId)) return;
   sendSync(householdId, audience, reason).catch((err) => {
     console.warn(`[push] sync (${reason}) failed:`, err);
   });
 }
 
-/** Whether this server can push at all (Firebase set up). */
-export function canPush(): boolean {
-  return isPushConfigured();
+/**
+ * Whether a push can reach anyone: always with Firebase; without it, only
+ * phones that Stay connected. [householdId] alone: anyone in the household;
+ * with [userId]: that member's phones.
+ */
+export function canPush(householdId?: string, userId?: string): boolean {
+  if (isPushConfigured()) return true;
+  if (!householdId) return false;
+  return userId ? isStreamConnected(householdId, userId) : hasStreams(householdId);
 }
 
 /**
@@ -76,23 +129,55 @@ export async function pushToMember(
     // A supervising adult ringing this child's phone (supervisionService).
     | { type: 'ring'; ringerId: string }
     // A supervisor looking at this child's app usage: send it now (supervisionService).
-    | { type: 'usage_refresh' },
-  opts: { ttlSec?: number } = {},
+    | { type: 'usage_refresh' }
+    // The member asked for a test notification on their own phones (Profile).
+    | { type: 'test' },
+  // priority: 'normal' for anything the phone handles without a notification (fcm.ts).
+  opts: { ttlSec?: number; priority?: PushPriority } = {},
 ): Promise<number> {
-  if (!isPushConfigured()) return 0;
+  const message = { ...data, id: randomUUID() };
+  // A phone reached both ways counts twice; callers only ask "anyone?".
+  const streamed = deliverToStreams(householdId, [userId], message);
+  if (!isPushConfigured()) {
+    console.log(`[push] ${data.type}: ${streamed} connected phone(s) reached, no Firebase`);
+    return streamed;
+  }
   const devices = await prisma.pushDevice.findMany({
     where: { householdId, userId },
     select: { token: true },
   });
-  if (devices.length === 0) return 0;
   const results = await Promise.all(
-    devices.map(async (d) => ({ token: d.token, result: await sendData(d.token, data, opts.ttlSec) })),
+    devices.map(async (d) => ({ token: d.token, result: await sendData(d.token, message, opts.ttlSec, opts.priority) })),
   );
   const dead = results.filter((r) => r.result === 'invalid_token').map((r) => r.token);
   if (dead.length > 0) await prisma.pushDevice.deleteMany({ where: { token: { in: dead } } });
   const sent = results.filter((r) => r.result === 'sent').length;
-  console.log(`[push] ${data.type}: ${sent}/${devices.length} device(s) reached`);
-  return sent;
+  console.log(`[push] ${data.type}: ${sent}/${devices.length} device(s) reached, ${streamed} connected`);
+  return sent + streamed;
+}
+
+/** One test per member per this long, so the button can't be used to flood Firebase. */
+export const TEST_PUSH_COOLDOWN_MS = 10_000;
+const lastTestAt = new Map<string, number>();
+
+/**
+ * "Send me a test notification" (the app's Profile): a high-priority push to
+ * the member's own phones, which post a visible notification (so it also
+ * keeps Firebase's priority healthy). reached: phones Firebase accepted it for
+ * plus connected phones; 0 says why in firebase / connected.
+ */
+export async function sendTestPush(
+  householdId: string,
+  userId: string,
+  now: number = Date.now(),
+): Promise<{ reached: number; firebase: boolean; connected: boolean; tooSoon: boolean }> {
+  const firebase = isPushConfigured();
+  const connected = isStreamConnected(householdId, userId);
+  const last = lastTestAt.get(userId);
+  if (last !== undefined && now - last < TEST_PUSH_COOLDOWN_MS) return { reached: 0, firebase, connected, tooSoon: true };
+  lastTestAt.set(userId, now);
+  const reached = await pushToMember(householdId, userId, { type: 'test' }, { ttlSec: 300 });
+  return { reached, firebase, connected, tooSoon: false };
 }
 
 async function sendSync(householdId: string, audience: PushAudience, reason: PushReason) {
@@ -114,14 +199,24 @@ async function sendSync(householdId: string, audience: PushAudience, reason: Pus
   }
   if (ids.size === 0) return;
 
+  const message = { type: 'sync', reason, id: randomUUID() };
+  const streamed = deliverToStreams(householdId, ids, message);
+  if (!isPushConfigured()) {
+    if (streamed > 0) console.log(`[push] sync (${reason}): ${streamed} connected phone(s) reached, no Firebase`);
+    return;
+  }
+
   const devices = await prisma.pushDevice.findMany({
     where: { householdId, userId: { in: [...ids] } },
     select: { token: true },
   });
-  if (devices.length === 0) return;
+  if (devices.length === 0 && streamed === 0) return;
 
   const results = await Promise.all(
-    devices.map(async (d) => ({ token: d.token, result: await sendData(d.token, { type: 'sync', reason }) })),
+    devices.map(async (d) => ({
+      token: d.token,
+      result: await sendData(d.token, message, undefined, syncPriority(reason)),
+    })),
   );
   const dead = results.filter((r) => r.result === 'invalid_token').map((r) => r.token);
   if (dead.length > 0) {
@@ -129,7 +224,7 @@ async function sendSync(householdId: string, audience: PushAudience, reason: Pus
   }
   const sent = results.filter((r) => r.result === 'sent').length;
   console.log(
-    `[push] sync (${reason}): ${sent}/${devices.length} device(s) reached` +
+    `[push] sync (${reason}): ${sent}/${devices.length} device(s) reached, ${streamed} connected` +
       (dead.length > 0 ? `, ${dead.length} dead token(s) removed` : ''),
   );
 }

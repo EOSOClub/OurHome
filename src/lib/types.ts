@@ -619,7 +619,17 @@ export interface LookAfterDTO {
     id: string;
     name: string;
     sharing: LocationSharing;
-    phone: { lastSeenAt: string; deviceName: string | null; problems: PhoneProblem[] } | null;
+    /** lastPushAt: when an instant alert last reached it (null: none yet, or an
+     *  older app). stayConnected: turned on in the app; connected: holding its
+     *  connection to this server right now. */
+    phone: {
+      lastSeenAt: string;
+      deviceName: string | null;
+      problems: PhoneProblem[];
+      lastPushAt: string | null;
+      stayConnected: boolean;
+      connected: boolean;
+    } | null;
     /** shared: a supervisor turned app usage sharing on. latest: the newest day
      *  their phone reported (the phone's own date), with the top apps (app:
      *  the package name; icon: whether /api/supervision/usage/icon has it). */

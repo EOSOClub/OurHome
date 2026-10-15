@@ -4,8 +4,34 @@ import {
   buildAssertion,
   isDeadTokenResponse,
   parseServiceAccount,
+  retryDelayMs,
+  SEND_ATTEMPTS,
   type ServiceAccount,
 } from '@/server/push/fcm';
+
+describe('retryDelayMs', () => {
+  it('backs off on FCM busy or down, and on a connection that never got through', () => {
+    expect(retryDelayMs(503, null, 0)).toBe(500);
+    expect(retryDelayMs(500, null, 1)).toBe(1000);
+    expect(retryDelayMs(429, null, 0)).toBe(500);
+    expect(retryDelayMs(null, null, 0)).toBe(500);
+  });
+
+  it('honours Retry-After, but not one so long the push is better left to the hourly check', () => {
+    expect(retryDelayMs(429, '3', 0)).toBe(3000);
+    expect(retryDelayMs(503, '0', 0)).toBe(0);
+    expect(retryDelayMs(429, '60', 0)).toBeNull();
+    // An HTTP date isn't parsed: the usual backoff instead.
+    expect(retryDelayMs(503, 'Wed, 21 Oct 2026 07:28:00 GMT', 0)).toBe(500);
+  });
+
+  it('gives up after the last attempt, and never retries our own mistakes', () => {
+    expect(retryDelayMs(503, null, SEND_ATTEMPTS - 1)).toBeNull();
+    expect(retryDelayMs(400, null, 0)).toBeNull();
+    expect(retryDelayMs(403, null, 0)).toBeNull();
+    expect(retryDelayMs(404, null, 0)).toBeNull();
+  });
+});
 
 const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const account: ServiceAccount = {

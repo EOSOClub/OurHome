@@ -17,7 +17,8 @@ const push = { pushSync: vi.fn() };
 vi.mock('@/server/services/pushService', () => push);
 vi.mock('@/server/services/serverAdminService', () => ({ isFeatureEnabled: vi.fn(async () => true) }));
 
-const { checkIn, refreshPhoneAlerts } = await import('./phoneStatusService');
+const { checkIn, phoneSummaries, refreshPhoneAlerts } = await import('./phoneStatusService');
+const { addStream, clearStreams } = await import('@/server/push/streamHub');
 
 const now = new Date('2026-10-12T18:00:00Z');
 const hoursAgo = (h: number) => new Date(now.getTime() - h * 3_600_000);
@@ -106,5 +107,98 @@ describe('phone alerts', () => {
     expect(prisma.notification.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { householdId: H, type: 'phone_alert', subjectId: { in: ['mia'] } } }),
     );
+  });
+
+  it('tells the phone to Stay connected while an adult looks after its member, and only then', async () => {
+    const base = { installId: 'install-123', locationAlways: true, notifications: true };
+    prisma.supervision.findMany.mockResolvedValue([link('alex')]);
+    expect(await checkIn(H, 'mia', base, now)).toEqual({ stayConnectedRequired: true });
+    // A link whose supervisor became a guest no longer counts.
+    prisma.supervision.findMany.mockResolvedValue([link('alex', 'guest')]);
+    expect(await checkIn(H, 'mia', base, now)).toEqual({ stayConnectedRequired: false });
+    prisma.supervision.findMany.mockResolvedValue([]);
+    expect(await checkIn(H, 'alex', base, now)).toEqual({ stayConnectedRequired: false });
+  });
+
+  it('records how alerts reach the phone, never trusting a phone clock ahead of the server', async () => {
+    const base = { installId: 'install-123', locationAlways: true, notifications: true };
+    await checkIn(
+      H,
+      'mia',
+      {
+        ...base,
+        lastPushAtMs: now.getTime() + 3_600_000,
+        lastPushVia: 'connection',
+        batteryUnrestricted: false,
+        standbyBucket: 40,
+        stayConnected: true,
+        closeGuard: false,
+      },
+      now,
+    );
+    expect(prisma.phoneStatus.upsert.mock.calls[0][0].update).toMatchObject({
+      lastPushAt: now,
+      lastPushVia: 'connection',
+      batteryUnrestricted: false,
+      standbyBucket: 40,
+      stayConnected: true,
+      closeGuard: false,
+    });
+
+    // An older app says none of it: stored as unknown, not as false.
+    vi.clearAllMocks();
+    await checkIn(H, 'mia', base, now);
+    expect(prisma.phoneStatus.upsert.mock.calls[0][0].update).toMatchObject({
+      lastPushAt: null,
+      lastPushVia: null,
+      batteryUnrestricted: null,
+      standbyBucket: null,
+      stayConnected: null,
+      closeGuard: null,
+    });
+  });
+
+  it('alerts supervisors while battery saving still holds OurHome back', async () => {
+    prisma.phoneStatus.findMany.mockResolvedValue([
+      { userId: 'mia', installId: 'i1', lastSeenAt: hoursAgo(1), locationAlways: true, batteryUnrestricted: false, deviceName: null },
+    ]);
+    prisma.supervision.findMany.mockResolvedValue([link('alex')]);
+    await refreshPhoneAlerts(H, now);
+    expect(prisma.notification.createMany.mock.calls[0][0].data.map((r: { dedupeKey: string }) => r.dedupeKey)).toEqual([
+      'phone:battery_restricted:mia:alex',
+    ]);
+  });
+});
+
+describe('phone summaries', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearStreams();
+  });
+
+  it('says whether the phone is connected right now, by its install', async () => {
+    prisma.phoneStatus.findMany.mockResolvedValue([
+      {
+        userId: 'mia',
+        installId: 'i1',
+        lastSeenAt: hoursAgo(1),
+        locationAlways: true,
+        deviceName: 'Pixel',
+        lastPushAt: hoursAgo(2),
+        stayConnected: true,
+      },
+    ]);
+    const kids = [{ id: 'mia', locationSharing: 'on' }];
+    expect((await phoneSummaries(H, kids, now)).get('mia')).toMatchObject({
+      stayConnected: true,
+      connected: false,
+      lastPushAt: hoursAgo(2).toISOString(),
+    });
+    const remove = addStream({ householdId: H, userId: 'mia', installId: 'i1', send: () => {} });
+    expect((await phoneSummaries(H, kids, now)).get('mia')?.connected).toBe(true);
+    remove();
+    // Another household's connection with the same install id doesn't count.
+    addStream({ householdId: 'h2', userId: 'mia', installId: 'i1', send: () => {} });
+    expect((await phoneSummaries(H, kids, now)).get('mia')?.connected).toBe(false);
   });
 });

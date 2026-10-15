@@ -96,7 +96,8 @@ export function LiveChecksCard({
 
         {!overview.available ? (
           <p className="text-sm text-muted-foreground">
-            Live checks need instant phone alerts (Firebase), which this server doesn&apos;t have set up.
+            Live checks need instant phone alerts: Firebase on this server, or Stay connected turned on in the app on
+            their phone.
           </p>
         ) : idle.length === 0 && overview.started.length === 0 ? (
           <p className="text-sm text-muted-foreground">

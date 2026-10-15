@@ -34,6 +34,27 @@ describe('phone problems', () => {
     ).toEqual(['location_off', 'usage_off']);
   });
 
+  it('flags battery saving still applying, only when the app says, and not on a quiet phone', () => {
+    const phone = { lastSeenAt: hoursAgo(1), locationAlways: true };
+    expect(phoneProblems({ ...phone, batteryUnrestricted: false }, { sharing: 'on' }, now)).toEqual(['battery_restricted']);
+    expect(phoneProblems({ ...phone, batteryUnrestricted: true }, { sharing: 'on' }, now)).toEqual([]);
+    // An app from before the delivery check can't say: no alert.
+    expect(phoneProblems({ ...phone, batteryUnrestricted: null }, { sharing: 'on' }, now)).toEqual([]);
+    expect(phoneProblems({ ...phone, lastSeenAt: hoursAgo(9), batteryUnrestricted: false }, { sharing: 'on' }, now)).toEqual([
+      'quiet',
+    ]);
+    expect(phoneAlertText('battery_restricted', 'Mia').body).toMatch(/allow Unrestricted battery/);
+  });
+
+  it('flags a phone where OurHome can be closed, only when the app says', () => {
+    const phone = { lastSeenAt: hoursAgo(1), locationAlways: true };
+    expect(phoneProblems({ ...phone, closeGuard: false }, { sharing: 'on' }, now)).toEqual(['close_guard_off']);
+    expect(phoneProblems({ ...phone, closeGuard: true }, { sharing: 'on' }, now)).toEqual([]);
+    // An app from before the close guard can't say: no alert.
+    expect(phoneProblems({ ...phone, closeGuard: null }, { sharing: 'on' }, now)).toEqual([]);
+    expect(phoneAlertText('close_guard_off', 'Mia').body).toMatch(/Keep Our Home running/);
+  });
+
   it('judges a member by their freshest phone', () => {
     const old = { id: 'a', lastSeenAt: hoursAgo(20) };
     const fresh = { id: 'b', lastSeenAt: hoursAgo(1) };

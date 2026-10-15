@@ -9,8 +9,25 @@ export const phoneCheckInSchema = z.object({
   notifications: z.boolean(),
   /** Android's Usage access granted; left out by apps from before usage reporting. */
   usageAccess: z.boolean().optional(),
+  // Left out by apps from before the delivery check:
+  /** When the last instant alert reached the phone (its clock, epoch ms), and which way. */
+  lastPushAtMs: z.number().int().positive().optional(),
+  lastPushVia: z.enum(['firebase', 'connection']).optional(),
+  /** Battery "Unrestricted": Android's battery optimization doesn't hold the app back. */
+  batteryUnrestricted: z.boolean().optional(),
+  /** Android's app standby bucket (10 active ... 45 restricted), for diagnosing late alerts. */
+  standbyBucket: z.number().int().min(0).max(100).optional(),
+  /** Stay connected is turned on in the app. */
+  stayConnected: z.boolean().optional(),
+  /** "Keep Our Home running" is on in Android's Accessibility settings (left out by older apps). */
+  closeGuard: z.boolean().optional(),
 });
 export type PhoneCheckInInput = z.infer<typeof phoneCheckInSchema>;
+
+/** A phone opening its Stay connected stream: which install (the check-in's id). */
+export const phoneStreamQuerySchema = z.object({
+  installId: z.string().trim().min(8).max(100),
+});
 
 /** A phone's app usage: today and yesterday, as it measured them. */
 export const reportUsageSchema = z.object({

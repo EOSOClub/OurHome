@@ -148,6 +148,8 @@ describe('setSupervisors', () => {
     );
     // Who gets Sam's phone alerts changed with it.
     expect(phones.refreshPhoneAlerts).toHaveBeenCalledWith(H, expect.any(Date), ['sam']);
+    // Sam's phone checks in at once, to learn it must now Stay connected.
+    expect(push.pushSync).toHaveBeenCalledWith(H, { userIds: ['sam'] }, 'supervision');
   });
 
   it('can clear everyone, which gives required sharing back to them', async () => {
@@ -170,6 +172,7 @@ describe('setSupervisors', () => {
     await setSupervisors(H, head, { supervisedId: 'sam', supervisorIds: ['alex'] });
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(logActivity).not.toHaveBeenCalled();
+    expect(push.pushSync).not.toHaveBeenCalled();
   });
 });
 
@@ -394,9 +397,13 @@ describe('ringing a phone', () => {
     findLinks.mockReset();
   });
 
-  it('needs Firebase', async () => {
+  it('needs Firebase, or their phone using Stay connected', async () => {
+    findLinks.mockResolvedValueOnce(linksOf(sam));
     push.canPush.mockReturnValue(false);
-    await expect(ringPhone(H, { id: 'alex' }, 'sam', clock)).rejects.toThrow(/Firebase/);
+    await expect(ringPhone(H, { id: 'alex' }, 'sam', clock)).rejects.toThrow(/Firebase.*Sam’s phone isn’t using Stay connected/);
+    // Asked about Sam's phones in particular, not just the server.
+    expect(push.canPush).toHaveBeenCalledWith(H, 'sam');
+    expect(push.pushToMember).not.toHaveBeenCalled();
   });
 });
 
@@ -416,10 +423,16 @@ describe('fresh app usage when a supervisor looks', () => {
     clock += 3_600_000; // every test well past the last one's cooldown
   });
 
-  it('wakes the child’s phone with a short-lived push, and says it did', async () => {
+  it('wakes the child’s phone with a short-lived, normal-priority push, and says it did', async () => {
     findLinks.mockResolvedValueOnce(sharing(sam, true));
     expect(await refreshUsage(H, { id: 'alex' }, 'sam', clock)).toEqual({ asked: true });
-    expect(push.pushToMember).toHaveBeenCalledWith(H, 'sam', { type: 'usage_refresh' }, { ttlSec: 120 });
+    // Normal: silent high-priority pushes would get the ring demoted.
+    expect(push.pushToMember).toHaveBeenCalledWith(
+      H,
+      'sam',
+      { type: 'usage_refresh' },
+      { ttlSec: 120, priority: 'normal' },
+    );
     // Only reads what the supervisor may already see: not logged.
     expect(logActivity).not.toHaveBeenCalled();
   });

@@ -95,7 +95,9 @@ export function LookAfterView({ initial }: { initial: LookAfterDTO }) {
               on the Map without them allowing it. They always see when you check. <strong>Share app usage</strong>{' '}
               shows you how long they spend in each app; their phone needs Usage access for it. Their phone sends it
               every 15 minutes, and opening this page asks it for the latest numbers.
-              {data.canRing ? null : ' Ringing needs instant phone alerts, which this server doesn’t have set up.'}
+              {data.canRing
+                ? null
+                : ' Ringing needs instant phone alerts: Firebase on this server, or Stay connected turned on in the app on their phone.'}
             </p>
           </CardContent>
         </Card>
@@ -104,27 +106,49 @@ export function LookAfterView({ initial }: { initial: LookAfterDTO }) {
   );
 }
 
-/** Their phone: what's wrong with it (red), or when it last checked in. */
+/**
+ * Their phone: what's wrong with it (red), or when it last checked in; then
+ * how instant alerts reach it (Stay connected, or when the last one arrived).
+ */
 function PhoneLine({ phone }: { phone: LookAfterDTO['people'][number]['phone'] }) {
   if (!phone) {
     return <span className="block text-xs text-muted-foreground">Their phone hasn&apos;t checked in yet</span>;
   }
-  if (phone.problems.length > 0) {
+  return (
+    <>
+      {phone.problems.length > 0 ? (
+        <span className="block text-xs font-medium text-destructive">
+          {phone.problems.map((p) => PHONE_PROBLEM_LABELS[p]).join(' · ')}
+          {phone.problems.includes('quiet') ? (
+            <>
+              {' '}
+              (last seen <RelativeTime date={phone.lastSeenAt} />)
+            </>
+          ) : null}
+        </span>
+      ) : (
+        <span className="block text-xs text-muted-foreground">
+          Phone checked in <RelativeTime date={phone.lastSeenAt} />
+        </span>
+      )}
+      <AlertsLine phone={phone} />
+    </>
+  );
+}
+
+/** How instant alerts reach their phone; nothing for an app too old to say. */
+function AlertsLine({ phone }: { phone: NonNullable<LookAfterDTO['people'][number]['phone']> }) {
+  if (phone.stayConnected) {
     return (
-      <span className="block text-xs font-medium text-destructive">
-        {phone.problems.map((p) => PHONE_PROBLEM_LABELS[p]).join(' · ')}
-        {phone.problems.includes('quiet') ? (
-          <>
-            {' '}
-            (last seen <RelativeTime date={phone.lastSeenAt} />)
-          </>
-        ) : null}
+      <span className="block text-xs text-muted-foreground">
+        {phone.connected ? 'Stay connected: connected now' : 'Stay connected is on, but it isn’t connected right now'}
       </span>
     );
   }
+  if (!phone.lastPushAt) return null;
   return (
     <span className="block text-xs text-muted-foreground">
-      Phone checked in <RelativeTime date={phone.lastSeenAt} />
+      Last instant alert reached it <RelativeTime date={phone.lastPushAt} />
     </span>
   );
 }

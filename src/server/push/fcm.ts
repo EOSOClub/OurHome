@@ -105,40 +105,83 @@ export function isDeadTokenResponse(status: number, body: string): boolean {
 }
 
 /**
+ * How urgently Firebase delivers. `high` reaches a dozing phone at once, but
+ * Firebase quietly demotes an install's high-priority messages when they
+ * keep ending without a visible notification, and that would slow a ring or a
+ * live check too. So anything the phone handles silently is `normal`: it still
+ * arrives at once on a phone in use, and at Doze's next window otherwise.
+ */
+export type PushPriority = 'high' | 'normal';
+
+/**
  * Sends a data-only message (no `notification` block, so Android never shows
- * anything by itself: the app decides what to post). High priority so it
- * reaches a dozing phone promptly. [ttlSec]: how long Firebase keeps trying a
- * phone that's offline (a ring is pointless an hour late). Never throws.
+ * anything by itself: the app decides what to post). [ttlSec]: how long
+ * Firebase keeps trying a phone that's offline (a ring is pointless an hour
+ * late). Never throws.
  */
 export async function sendData(
   token: string,
   data: Record<string, string>,
   ttlSec: number = 3600,
+  priority: PushPriority = 'high',
 ): Promise<SendResult> {
   if (!account) return 'failed';
-  try {
-    const res = await fetch(
-      `https://fcm.googleapis.com/v1/projects/${account.project_id}/messages:send`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${await accessToken(account)}`,
-          'Content-Type': 'application/json',
+  for (let attempt = 0; ; attempt++) {
+    let wait: number | null;
+    try {
+      const res = await fetch(
+        `https://fcm.googleapis.com/v1/projects/${account.project_id}/messages:send`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${await accessToken(account)}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            message: { token, data, android: { priority, ttl: `${ttlSec}s` } },
+          }),
+          signal: AbortSignal.timeout(TIMEOUT_MS),
         },
-        body: JSON.stringify({
-          message: { token, data, android: { priority: 'high', ttl: `${ttlSec}s` } },
-        }),
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-      },
-    );
-    if (res.ok) return 'sent';
-    const body = await res.text();
-    if (res.status === 401) cached = null; // revoked or expired early; re-mint next time
-    if (isDeadTokenResponse(res.status, body)) return 'invalid_token';
-    console.warn(`[push] FCM send failed (${res.status}): ${body.slice(0, 300)}`);
-    return 'failed';
-  } catch (err) {
-    console.warn('[push] FCM send failed:', err);
-    return 'failed';
+      );
+      if (res.ok) return 'sent';
+      const body = await res.text();
+      if (res.status === 401) cached = null; // revoked or expired early; re-mint next time
+      if (isDeadTokenResponse(res.status, body)) return 'invalid_token';
+      wait = retryDelayMs(res.status, res.headers.get('retry-after'), attempt);
+      console.warn(
+        `[push] FCM send failed (${res.status})${wait === null ? '' : `, retrying in ${wait} ms`}: ${body.slice(0, 300)}`,
+      );
+    } catch (err) {
+      // A timeout may still have been delivered, and a ring waits on this:
+      // only a connection that never got through is tried again.
+      const timedOut = err instanceof Error && err.name === 'TimeoutError';
+      wait = timedOut ? null : retryDelayMs(null, null, attempt);
+      console.warn(`[push] FCM send failed${wait === null ? '' : `, retrying in ${wait} ms`}:`, err);
+    }
+    if (wait === null) return 'failed';
+    await new Promise((resolve) => setTimeout(resolve, wait));
   }
+}
+
+/** Tries per message, the first included. */
+export const SEND_ATTEMPTS = 3;
+/** The longest a `Retry-After` is honoured; past it the push waits for the hourly check. */
+const MAX_RETRY_WAIT_MS = 10_000;
+
+/**
+ * How long to wait before trying a failed send again, or null to give up.
+ * [status] null: the request never got an answer (connection refused, DNS).
+ * Retried: that, 429 (FCM's quota) and 5xx (FCM down for a moment), as
+ * Firebase asks: its `Retry-After` when given, else 0.5 s then 1 s.
+ */
+export function retryDelayMs(status: number | null, retryAfter: string | null, attempt: number): number | null {
+  if (attempt >= SEND_ATTEMPTS - 1) return null;
+  const retryable = status === null || status === 429 || (status >= 500 && status <= 599);
+  if (!retryable) return null;
+  const seconds = retryAfter === null ? NaN : Number(retryAfter);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    const ms = seconds * 1000;
+    return ms > MAX_RETRY_WAIT_MS ? null : ms;
+  }
+  return 500 * 2 ** attempt;
 }

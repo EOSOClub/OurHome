@@ -5,6 +5,7 @@ import { runPaperlessSync } from '@/server/services/paperlessSync';
 import { announceAppRelease } from '@/server/services/appReleaseService';
 import { isFeatureEnabled } from '@/server/services/serverAdminService';
 import { refreshPhoneAlerts } from '@/server/services/phoneStatusService';
+import { forgetStaleDevices } from '@/server/services/pushService';
 
 // One reminder sweep over every household. Runs every 15 minutes inside the
 // production server (startReminderSchedule, from src/instrumentation.ts) and on
@@ -20,6 +21,11 @@ export async function runReminderSweep(): Promise<{ households: number }> {
   // A new Android app build (from the deploy) → tell everyone, once per version.
   await announceAppRelease().catch((err) => {
     console.warn('[app] announcing the new app failed; retrying next sweep:', err instanceof Error ? err.message : err);
+  });
+
+  // Phones that stopped re-registering their push token (the app does daily).
+  await forgetStaleDevices().catch((err) => {
+    console.warn('[push] forgetting stale devices failed; retrying next sweep:', err instanceof Error ? err.message : err);
   });
 
   // Turned-off households are left alone (no rollovers, reminders or email).

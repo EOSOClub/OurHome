@@ -16,9 +16,13 @@ export const PHONE_QUIET_MS = 8 * 60 * 60_000;
  * quiet: hasn't checked in for [PHONE_QUIET_MS]. location_off: their sharing
  * is required, but the phone no longer lets OurHome use location all the time.
  * usage_off: their app usage is shared, but the phone no longer allows Usage
- * access (so nothing can be measured).
+ * access (so nothing can be measured). battery_restricted: Android's battery
+ * optimization still applies to OurHome there, which can delay rings, live
+ * checks and alerts, or stop the app in the background. close_guard_off:
+ * "Keep Our Home running" is off in Android's Accessibility settings, so the
+ * child can close OurHome (Android's Stop or Force stop).
  */
-export const PHONE_PROBLEMS = ['quiet', 'location_off', 'usage_off'] as const;
+export const PHONE_PROBLEMS = ['quiet', 'location_off', 'usage_off', 'battery_restricted', 'close_guard_off'] as const;
 export type PhoneProblem = (typeof PHONE_PROBLEMS)[number];
 
 export interface PhoneSnapshot {
@@ -26,6 +30,10 @@ export interface PhoneSnapshot {
   locationAlways: boolean;
   /** null: an app from before usage reporting, which can't say. */
   usageAccess?: boolean | null;
+  /** null: an app from before the delivery check, which can't say. */
+  batteryUnrestricted?: boolean | null;
+  /** null: an app from before the close guard, which can't say. */
+  closeGuard?: boolean | null;
 }
 
 /** What the child's settings ask of their phone. */
@@ -55,6 +63,8 @@ export function phoneProblems(phone: PhoneSnapshot | null, expect: PhoneExpectat
   const out: PhoneProblem[] = [];
   if (expect.locationOn !== false && expect.sharing === 'required' && !phone.locationAlways) out.push('location_off');
   if (expect.usageShared && phone.usageAccess === false) out.push('usage_off');
+  if (phone.batteryUnrestricted === false) out.push('battery_restricted');
+  if (phone.closeGuard === false) out.push('close_guard_off');
   return out;
 }
 
@@ -72,6 +82,18 @@ export function phoneAlertText(problem: PhoneProblem, name: string): { title: st
       body: `${name}’s app usage is shared, but their phone no longer gives OurHome Usage access, so their screen time can’t be seen.`,
     };
   }
+  if (problem === 'battery_restricted') {
+    return {
+      title: `Battery saving may hold OurHome back on ${name}’s phone`,
+      body: `Battery saving on ${name}’s phone can delay rings, live checks and alerts, or stop OurHome in the background. On their phone, open Profile in OurHome and allow Unrestricted battery.`,
+    };
+  }
+  if (problem === 'close_guard_off') {
+    return {
+      title: `${name} can close OurHome on their phone`,
+      body: `“Keep Our Home running” is off on ${name}’s phone, so Android’s Stop button can close OurHome there. On their phone, open Profile in OurHome and follow the steps under Keep Our Home running.`,
+    };
+  }
   return {
     title: `${name}’s location is off`,
     body: `${name}’s sharing is required, but their phone no longer lets OurHome use location all the time, so the household can’t see where they are.`,
@@ -83,4 +105,6 @@ export const PHONE_PROBLEM_LABELS: Record<PhoneProblem, string> = {
   quiet: 'Phone hasn’t checked in',
   location_off: 'Location turned off on their phone',
   usage_off: 'Usage access turned off on their phone',
+  battery_restricted: 'Battery saving can delay OurHome on their phone',
+  close_guard_off: 'OurHome can be closed on their phone',
 };

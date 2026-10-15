@@ -183,6 +183,21 @@ model PhoneStatus {
   // Android's Usage access granted (needed while app usage is shared). null =
   // an app from before usage reporting.
   usageAccess    Boolean?
+  // The last instant alert that reached the phone, and which way ("firebase"
+  // or "connection"). null = none yet, or an app from before the delivery check.
+  lastPushAt     DateTime?
+  lastPushVia    String?
+  // Battery "Unrestricted" (exempt from battery optimization). null = an older app.
+  batteryUnrestricted Boolean?
+  // Android's app standby bucket (10 active, 20 working set, 30 frequent,
+  // 40 rare, 45 restricted), for diagnosing late alerts.
+  standbyBucket  Int?
+  // Stay connected turned on in the app (whether it's connected now is in memory).
+  stayConnected  Boolean?
+  // "Keep Our Home running" on in Android's Accessibility settings: no Stop
+  // button in Android's active apps, and a supervised child can't open
+  // OurHome's App info to force stop it. null = an older app.
+  closeGuard     Boolean?
   createdAt      DateTime @default(now())
 
   household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)

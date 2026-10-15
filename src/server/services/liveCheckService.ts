@@ -216,7 +216,7 @@ export async function liveChecksOverview(
       .map((m) => ({ id: m.id, name: m.name })),
     settings,
     choices: liveCheckChoices(settings),
-    available: canPush(),
+    available: canPush(householdId),
   };
 }
 
@@ -243,9 +243,9 @@ export async function startLiveCheck(
   input: StartLiveCheckInput,
   now: Date = new Date(),
 ): Promise<LiveCheckDTO> {
-  if (!canPush()) {
+  if (!canPush(householdId)) {
     throw new ConflictError(
-      'Live checks need instant phone alerts (Firebase), and this server doesn’t have them set up.',
+      'Live checks need instant phone alerts. This server doesn’t have Firebase set up, and no phone here uses Stay connected.',
     );
   }
   const target = await prisma.user.findFirst({
@@ -253,6 +253,11 @@ export async function startLiveCheck(
     select: { id: true, name: true, locationSharing: true, liveChecks: true },
   });
   if (!target) throw new NotFoundError('Member not found.');
+  if (!canPush(householdId, target.id)) {
+    throw new ConflictError(
+      `Live checks need instant phone alerts. This server doesn’t have Firebase set up, and ${target.name}’s phone isn’t using Stay connected.`,
+    );
+  }
   if (target.id === actor.id) throw new ForbiddenError('You can’t start a live check on yourself.');
   if (!canStartLiveCheck(actor, { id: target.id, consent: { sharing: 'on', liveChecks: true } })) {
     throw new ForbiddenError('Only adults can start a live location check.');

@@ -140,6 +140,8 @@ export async function setSupervisors(
     });
     // Who gets this child's phone alerts just changed.
     await refreshPhoneAlerts(householdId, new Date(), [supervised.id]);
+    // Their phone checks in at once and learns whether it must Stay connected.
+    pushSync(householdId, { userIds: [supervised.id] }, 'supervision');
   }
 
   return getSupervision(householdId);
@@ -204,7 +206,7 @@ export async function lookAfterOverview(householdId: string, actorId: string): P
     usageSummaries(householdId, kids.filter((k) => k.shareAppUsage === true).map((k) => k.id)),
   ]);
   return {
-    canRing: canPush(),
+    canRing: canPush(householdId),
     people: kids.map((k) => ({
       id: k.id,
       name: k.name,
@@ -308,15 +310,15 @@ export async function ringPhone(
   targetId: string,
   now: number = Date.now(),
 ): Promise<void> {
-  if (!canPush()) {
-    throw new ConflictError(
-      'Ringing a phone needs instant phone alerts (Firebase), and this server doesn’t have them set up.',
-    );
-  }
   const kid = (await supervisedBy(householdId, actor.id)).find((k) => k.id === targetId);
   if (!kid) {
     throw new ForbiddenError(
       'Only an adult who supervises them can ring their phone. The Head of House chooses that on the Members page.',
+    );
+  }
+  if (!canPush(householdId, kid.id)) {
+    throw new ConflictError(
+      `Ringing a phone needs instant phone alerts. This server doesn’t have Firebase set up, and ${kid.name}’s phone isn’t using Stay connected.`,
     );
   }
   const last = lastRingAt.get(kid.id);
@@ -366,11 +368,18 @@ export async function refreshUsage(
       'Only an adult who supervises them can see their app usage. The Head of House chooses that on the Members page.',
     );
   }
-  if (kid.shareAppUsage !== true || !canPush()) return { asked: false };
+  if (kid.shareAppUsage !== true || !canPush(householdId, kid.id)) return { asked: false };
   const last = lastUsageRefreshAt.get(kid.id);
   if (last !== undefined && now - last < USAGE_REFRESH_COOLDOWN_MS) return { asked: false };
   lastUsageRefreshAt.set(kid.id, now);
-  const reached = await pushToMember(householdId, kid.id, { type: 'usage_refresh' }, { ttlSec: USAGE_REFRESH_TTL_SEC });
+  // Normal priority: the phone answers without a notification, and a stream of
+  // silent high-priority pushes would get its ring demoted (fcm.ts).
+  const reached = await pushToMember(
+    householdId,
+    kid.id,
+    { type: 'usage_refresh' },
+    { ttlSec: USAGE_REFRESH_TTL_SEC, priority: 'normal' },
+  );
   if (reached === 0) lastUsageRefreshAt.delete(kid.id);
   return { asked: reached > 0 };
 }

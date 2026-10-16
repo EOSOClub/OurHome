@@ -127,6 +127,14 @@ model User {
   // usage (screen time per app) with their supervisors; the child can't turn
   // it off. null = off. See appUsageService.
   shareAppUsage   Boolean?
+  // Parental controls: what a supervised child's phone must have on, chosen
+  // by a supervising adult on People you look after (src/lib/phoneHealth.ts
+  // PHONE_RULES). null = required, the default, so a child supervised before
+  // these existed keeps every alert; false = an adult turned it off. They only
+  // count while someone supervises them.
+  requireKeepRunning         Boolean?
+  requirePreventUninstall    Boolean?
+  requireBatteryUnrestricted Boolean?
   // Audit: which user provisioned this member (plain id, no relation).
   createdById   String?
   householdId   String?

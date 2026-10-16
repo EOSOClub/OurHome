@@ -10,12 +10,19 @@ import { Card, CardContent } from '@/components/ui/card';
 import { toast } from '@/components/ui/toast';
 import { LIVE_CHECKS_KEY } from '@/components/profile/location-card';
 import { RelativeTime } from '@/components/household-zone';
-import { PHONE_PROBLEM_LABELS, SILENT_PROBLEMS } from '@/lib/phoneHealth';
+import {
+  PHONE_PROBLEM_LABELS,
+  PHONE_RULES,
+  PHONE_RULE_LABELS,
+  SILENT_PROBLEMS,
+  type PhoneRule,
+} from '@/lib/phoneHealth';
 import { formatMinutes, usageDayLabel, usageIconUrl } from '@/lib/appUsage';
 
 // The "People you look after" page: the children and teens the viewer
 // supervises (the Head's supervision list). Ring their phone, make their
-// location sharing required, share their app usage. Only linked for adults
+// location sharing required, share their app usage, choose which protections
+// their phone must have on (PHONE_RULES). Only linked for adults
 // who supervise someone; the server checks it again.
 
 const LOOK_AFTER_KEY = ['look-after'];
@@ -94,7 +101,13 @@ export function LookAfterView({ initial }: { initial: LookAfterDTO }) {
               <strong>Location required</strong> keeps their location sharing on, and lets you check where they are
               on the Map without them allowing it. They always see when you check. <strong>Share app usage</strong>{' '}
               shows you how long they spend in each app; their phone needs Usage access for it. Their phone sends it
-              every 15 minutes, and opening this page asks it for the latest numbers.
+              every 15 minutes, and opening this page asks it for the latest numbers.{' '}
+              <strong>Require Keep Our Home running</strong> stops OurHome being closed on their phone.{' '}
+              <strong>Require Prevent uninstall</strong> stops it being removed without your PIN.{' '}
+              <strong>Require Unrestricted battery</strong> stops battery saving from holding back rings and alerts.
+              Each one you require is a step in Set up this phone in the app on their phone, and you&apos;re told if
+              it gets turned off. Not requiring one only stops the step and the alert: whatever is already on stays
+              on.
               {data.canRing
                 ? null
                 : ' Ringing needs instant phone alerts: Firebase on this server, or Stay connected turned on in the app on their phone.'}
@@ -314,6 +327,46 @@ function PersonRow({ person, canRing }: { person: LookAfterDTO['people'][number]
         {usage.isPending ? <Loader2 className="size-3.5 animate-spin text-muted-foreground" /> : null}
       </label>
       {person.appUsage.shared ? <UsageLine latest={person.appUsage.latest} /> : null}
+      {PHONE_RULES.map((rule) => (
+        <RuleBox key={rule} person={person} rule={rule} />
+      ))}
     </li>
+  );
+}
+
+/** One protection their phone must have on, saved with each tick. */
+function RuleBox({ person, rule }: { person: LookAfterDTO['people'][number]; rule: PhoneRule }) {
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    // A refetch already on its way (window focus) mustn't put the old value back.
+    onMutate: () => queryClient.cancelQueries({ queryKey: LOOK_AFTER_KEY }),
+    mutationFn: (required: boolean) =>
+      apiFetch<LookAfterDTO>('/api/supervision/phone-rules', {
+        method: 'POST',
+        body: JSON.stringify({ supervisedId: person.id, rule, required }),
+      }),
+    onSuccess: (next, required) => {
+      queryClient.setQueryData(LOOK_AFTER_KEY, next);
+      toast.success(
+        required
+          ? `${PHONE_RULE_LABELS[rule]} is now required on ${person.name}’s phone`
+          : `${PHONE_RULE_LABELS[rule]} is no longer required on ${person.name}’s phone`,
+      );
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not change it.'),
+  });
+  const checked = save.isPending ? save.variables : person.rules[rule];
+  return (
+    <label className="flex items-center gap-2 text-sm">
+      <input
+        type="checkbox"
+        className="size-4 rounded border-input"
+        checked={checked}
+        disabled={save.isPending}
+        onChange={(e) => save.mutate(e.target.checked)}
+      />
+      Require {PHONE_RULE_LABELS[rule]}
+      {save.isPending ? <Loader2 className="size-3.5 animate-spin text-muted-foreground" /> : null}
+    </label>
   );
 }

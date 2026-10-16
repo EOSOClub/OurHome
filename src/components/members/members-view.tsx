@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import type { HouseholdMemberDTO } from '@/lib/types';
 import { USER_ROLES, USER_ROLE_LABELS, type UserRole } from '@/lib/enums';
-import { can, canAssignRole, canManageMember } from '@/lib/permissions';
+import { can, canAssignRole, canBeSupervised, canManageMember } from '@/lib/permissions';
 import { apiFetch, ApiError } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import {
@@ -35,7 +35,14 @@ import { Dialog } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { toast } from '@/components/ui/toast';
 import { PermissionsCard } from '@/components/members/permissions-card';
-import { SupervisionCard } from '@/components/members/supervision-card';
+import {
+  MemberSupervisors,
+  SUPERVISION_HINT,
+  SupervisorChecks,
+  supervisedByText,
+  toggled,
+  useSupervision,
+} from '@/components/members/supervisors';
 
 const MEMBERS_KEY = ['members'];
 
@@ -110,6 +117,8 @@ export function MembersView({
   const membersVersion = members.map((m) => `${m.id}:${m.role}`).join(',');
   // Names too, so the supervision list picks up a rename.
   const supervisionVersion = members.map((m) => `${m.id}:${m.role}:${m.name}`).join(',');
+  // Who supervises whom is the head's call (household:manage).
+  const supervision = useSupervision(supervisionVersion, canRename);
 
   return (
     <div className="space-y-6">
@@ -134,21 +143,24 @@ export function MembersView({
         </p>
       </div>
 
-      <AddMemberCard actorRole={currentUser.role} />
+      <AddMemberCard
+        actorRole={currentUser.role}
+        supervision={canRename ? supervision : null}
+      />
 
       <ul className="space-y-3">
         {members.map((m) => (
-          <MemberRow key={m.id} member={m} currentUser={currentUser} />
+          <MemberRow
+            key={m.id}
+            member={m}
+            currentUser={currentUser}
+            supervision={canRename ? supervision : null}
+          />
         ))}
       </ul>
 
-      {/* Page permissions and supervision are the head's call (household:manage). */}
-      {canRename ? (
-        <>
-          <SupervisionCard membersVersion={supervisionVersion} />
-          <PermissionsCard membersVersion={membersVersion} />
-        </>
-      ) : null}
+      {/* Page permissions are the head's call (household:manage). */}
+      {canRename ? <PermissionsCard membersVersion={membersVersion} /> : null}
 
       {renaming ? (
         <RenameHouseholdDialog
@@ -229,29 +241,36 @@ function RenameHouseholdDialog({
   );
 }
 
-function AddMemberCard({ actorRole }: { actorRole: string }) {
+type Supervision = ReturnType<typeof useSupervision>;
+
+function AddMemberCard({
+  actorRole,
+  supervision,
+}: {
+  actorRole: string;
+  /** The supervision list when the viewer may choose supervisors (the head), else null. */
+  supervision: Supervision | null;
+}) {
   const queryClient = useQueryClient();
   const roles = assignableRoles(actorRole);
   const [open, setOpen] = useState(false);
   const [created, setCreated] = useState<{ name: string; username: string } | null>(
     null,
   );
-  const [form, setForm] = useState({
+  const blank = () => ({
     name: '',
     username: '',
     email: '',
     role: (roles.includes('adult') ? 'adult' : roles[0]) as UserRole,
     password: '',
+    supervisorIds: [] as string[],
   });
+  const [form, setForm] = useState(blank);
 
-  const reset = () =>
-    setForm({
-      name: '',
-      username: '',
-      email: '',
-      role: (roles.includes('adult') ? 'adult' : roles[0]) as UserRole,
-      password: '',
-    });
+  const reset = () => setForm(blank());
+
+  // Only a child or teen can be supervised, and only the head chooses who by.
+  const supervised = canBeSupervised(form.role);
 
   const create = useMutation({
     mutationFn: (payload: typeof form) =>
@@ -263,11 +282,16 @@ function AddMemberCard({ actorRole }: { actorRole: string }) {
           email: payload.email.trim() || undefined,
           role: payload.role,
           password: payload.password,
+          supervisorIds:
+            supervision && canBeSupervised(payload.role) && payload.supervisorIds.length
+              ? payload.supervisorIds
+              : undefined,
         }),
       }),
     onSuccess: (member) => {
       setCreated({ name: member.name, username: member.username ?? '' });
       reset();
+      // The supervision list follows: its key has the roster in it.
       queryClient.invalidateQueries({ queryKey: MEMBERS_KEY });
     },
     // Errors surface via the global mutation-error toast.
@@ -378,6 +402,32 @@ function AddMemberCard({ actorRole }: { actorRole: string }) {
                 ))}
               </Select>
             </div>
+            {supervised ? (
+              <div className="space-y-1.5 sm:col-span-2">
+                <p className="text-sm font-medium">Who supervises them</p>
+                {!supervision ? (
+                  <p className="text-xs text-muted-foreground">
+                    The Head of House chooses who supervises them, on this page.
+                  </p>
+                ) : !supervision.data ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="size-4 animate-spin" /> Loading…
+                  </div>
+                ) : (
+                  <>
+                    <SupervisorChecks
+                      supervisors={supervision.data.supervisors}
+                      checked={form.supervisorIds}
+                      kidName={form.name.trim() || 'them'}
+                      onToggle={(id) =>
+                        setForm({ ...form, supervisorIds: toggled(form.supervisorIds, id) })
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">{SUPERVISION_HINT}</p>
+                  </>
+                )}
+              </div>
+            ) : null}
             <div className="space-y-1.5 sm:col-span-2">
               <Label htmlFor="m-password">Temporary password</Label>
               <div className="flex flex-wrap gap-2">
@@ -428,9 +478,12 @@ function AddMemberCard({ actorRole }: { actorRole: string }) {
 function MemberRow({
   member,
   currentUser,
+  supervision,
 }: {
   member: HouseholdMemberDTO;
   currentUser: CurrentUser;
+  /** The supervision list when the viewer may change it (the head), else null. */
+  supervision: Supervision | null;
 }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -452,7 +505,10 @@ function MemberRow({
   const canRemove = manageable && !isSelf && !isHead;
   const canTransfer = currentUser.role === 'head' && !isHead && !isSelf;
   const canEdit = isSelf || manageable;
-  const showManage = canEdit || canChangeRole || canResetPw || canRemove || canTransfer;
+  // A child or teen, as the supervision list has them (built from current roles).
+  const kid = supervision?.data?.supervised.find((k) => k.id === member.id) ?? null;
+  const showManage =
+    canEdit || canChangeRole || canResetPw || canRemove || canTransfer || kid !== null;
 
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: MEMBERS_KEY });
@@ -553,6 +609,11 @@ function MemberRow({
           <p className="truncate text-xs text-muted-foreground">
             {member.username ? `@${member.username}` : member.email}
           </p>
+          {kid && supervision?.data ? (
+            <p className="truncate text-xs text-muted-foreground">
+              {supervisedByText(kid.supervisorIds, supervision.data.supervisors)}
+            </p>
+          ) : null}
         </div>
         <Badge variant={roleVariant}>
           {USER_ROLE_LABELS[member.role as UserRole] ?? member.role}
@@ -656,6 +717,14 @@ function MemberRow({
                 <Loader2 className="mb-3 size-4 animate-spin text-muted-foreground" />
               ) : null}
             </div>
+          ) : null}
+
+          {kid && supervision?.data ? (
+            <MemberSupervisors
+              kid={kid}
+              supervisors={supervision.data.supervisors}
+              queryKey={supervision.queryKey}
+            />
           ) : null}
 
           {canResetPw ? (

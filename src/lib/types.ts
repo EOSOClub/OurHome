@@ -4,7 +4,7 @@
 import type { AccessMatrix, EditableRole } from '@/lib/permissions';
 import type { Feature } from '@/lib/features';
 import type { BatteryReading, LocationSharing } from '@/lib/location';
-import type { PhoneProblem } from '@/lib/phoneHealth';
+import type { PhoneProblem, PhoneRules } from '@/lib/phoneHealth';
 
 export interface CategoryDTO {
   id: string;
@@ -600,7 +600,7 @@ export interface AccessSettingsMatrixDTO {
   }[];
 }
 
-/** The head's supervision list (Members → Supervision, GET /api/supervision). */
+/** The head's supervision list (the Members page, GET /api/supervision). */
 export interface SupervisionDTO {
   /** Everyone who may supervise (adults and up), highest role first. */
   supervisors: { id: string; name: string; role: string }[];
@@ -642,7 +642,16 @@ export interface LookAfterDTO {
         updatedAt: string;
       } | null;
     };
+    /** The protections their phone must have on (POST /api/supervision/phone-rules). */
+    rules: PhoneRules;
   }[];
+}
+
+/** GET /api/phone/setup: what the signed-in member's phone must have on. */
+export interface PhoneSetupDTO {
+  /** An adult looks after them; while not, nothing is required. */
+  supervised: boolean;
+  required: { notifications: boolean; location: boolean; usageAccess: boolean } & PhoneRules;
 }
 
 /** The signed-in user's own page access (GET /api/permissions/me). */

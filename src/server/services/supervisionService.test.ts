@@ -31,7 +31,17 @@ const logActivity = vi.fn();
 vi.mock('@/server/services/activityService', () => ({ logActivity }));
 const push = { canPush: vi.fn(() => true), pushToMember: vi.fn(async () => 1), pushSync: vi.fn() };
 vi.mock('@/server/services/pushService', () => push);
-const phones = { phoneSummaries: vi.fn(async () => new Map()), refreshPhoneAlerts: vi.fn() };
+const phones = {
+  phoneSummaries: vi.fn(async () => new Map()),
+  refreshPhoneAlerts: vi.fn(),
+  SUPERVISED_SELECT: {
+    locationSharing: true,
+    shareAppUsage: true,
+    requireKeepRunning: true,
+    requirePreventUninstall: true,
+    requireBatteryUnrestricted: true,
+  },
+};
 vi.mock('@/server/services/phoneStatusService', () => phones);
 const usage = {
   usageSummaries: vi.fn(async () => new Map()),
@@ -45,10 +55,13 @@ const {
   dropBrokenSupervision,
   getSupervision,
   isSupervising,
+  linkNewSupervisors,
   lookAfterOverview,
+  newMemberSupervisors,
   releaseIfUnsupervised,
   refreshUsage,
   ringPhone,
+  setPhoneRule,
   setRequiredSharing,
   setSupervisors,
   setUsageSharing,
@@ -63,6 +76,7 @@ const gran: Person = { id: 'gran', name: 'Gran', role: 'manager' };
 const sam: Person = { id: 'sam', name: 'Sam', role: 'child' };
 const jo: Person = { id: 'jo', name: 'Jo', role: 'teen' };
 const guest: Person = { id: 'guest', name: 'Guest', role: 'guest' };
+const ALL_RULES = { keepRunning: true, preventUninstall: true, batteryUnrestricted: true };
 
 describe('getSupervision', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -86,6 +100,58 @@ describe('getSupervision', () => {
     prisma.supervision.findMany.mockResolvedValueOnce([{ supervisorId: 'alex', supervisedId: 'sam' }]);
     const list = await getSupervision(H);
     expect(list.supervised[0].supervisorIds).toEqual([]);
+  });
+});
+
+describe('newMemberSupervisors (Add a member)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('checks nothing when nobody was ticked, whoever adds them', async () => {
+    const manager = { id: 'gran', role: 'manager' };
+    await expect(newMemberSupervisors(H, manager, 'child', undefined)).resolves.toEqual([]);
+    await expect(newMemberSupervisors(H, manager, 'adult', [])).resolves.toEqual([]);
+    expect(prisma.user.findMany).not.toHaveBeenCalled();
+  });
+
+  it('is for the Head of House only', async () => {
+    await expect(newMemberSupervisors(H, { id: 'gran', role: 'manager' }, 'child', ['gran'])).rejects.toThrow(
+      /Only the Head of House/,
+    );
+  });
+
+  it('only for a child or teen', async () => {
+    await expect(newMemberSupervisors(H, head, 'adult', ['head'])).rejects.toThrow(/Only children and teens/);
+  });
+
+  it('refuses a supervisor from another household or below adult', async () => {
+    prisma.user.findMany.mockResolvedValueOnce([alex]);
+    await expect(newMemberSupervisors(H, head, 'child', ['alex', 'stranger'])).rejects.toThrow(
+      /not in this household/,
+    );
+    prisma.user.findMany.mockResolvedValueOnce([jo]);
+    await expect(newMemberSupervisors(H, head, 'teen', ['jo'])).rejects.toThrow(/Jo can’t supervise anyone/);
+  });
+
+  it('gives the supervisors highest role first, each once', async () => {
+    prisma.user.findMany.mockResolvedValueOnce([alex, pat]);
+    const got = await newMemberSupervisors(H, head, 'child', ['alex', 'head', 'alex']);
+    expect(got.map((s) => s.id)).toEqual(['head', 'alex']);
+    expect(prisma.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: { in: ['alex', 'head'] }, householdId: H } }),
+    );
+  });
+
+  it('saves the links for the new member', async () => {
+    await linkNewSupervisors(tx as never, H, 'head', 'newkid', [pat, alex]);
+    expect(tx.supervision.createMany).toHaveBeenCalledWith({
+      data: [
+        { householdId: H, supervisorId: 'head', supervisedId: 'newkid', createdById: 'head' },
+        { householdId: H, supervisorId: 'alex', supervisedId: 'newkid', createdById: 'head' },
+      ],
+    });
+    tx.supervision.createMany.mockClear();
+    await linkNewSupervisors(tx as never, H, 'head', 'newkid', []);
+    expect(tx.supervision.createMany).not.toHaveBeenCalled();
   });
 });
 
@@ -261,15 +327,18 @@ describe('required sharing', () => {
     expect(await lookAfterOverview(H, 'alex')).toEqual({
       canRing: true,
       people: [
-        { id: 'jo', name: 'Jo', sharing: 'off', phone: null, appUsage: { shared: false, latest: null } },
-        { id: 'sam', name: 'Sam', sharing: 'required', phone: null, appUsage: { shared: false, latest: null } },
+        { id: 'jo', name: 'Jo', sharing: 'off', phone: null, appUsage: { shared: false, latest: null }, rules: ALL_RULES },
+        { id: 'sam', name: 'Sam', sharing: 'required', phone: null, appUsage: { shared: false, latest: null }, rules: ALL_RULES },
       ],
     });
   });
 
-  it('shows each one’s phone, and their app usage only where it is shared', async () => {
+  it('shows each one’s phone, their app usage only where it is shared, and their phone rules', async () => {
     findLinks.mockResolvedValueOnce([
-      { supervisor: { role: 'adult' }, supervised: { ...sam, locationSharing: 'on', shareAppUsage: true } },
+      {
+        supervisor: { role: 'adult' },
+        supervised: { ...sam, locationSharing: 'on', shareAppUsage: true, requirePreventUninstall: false },
+      },
       { supervisor: { role: 'adult' }, supervised: { ...jo, locationSharing: 'on', shareAppUsage: null } },
     ]);
     const phone = { lastSeenAt: '2026-10-12T17:00:00.000Z', deviceName: 'Pixel 8', problems: ['quiet'] };
@@ -280,9 +349,54 @@ describe('required sharing', () => {
     // Jo's usage isn't shared, so it isn't even looked up.
     expect(usage.usageSummaries).toHaveBeenCalledWith(H, ['sam']);
     expect(people).toEqual([
-      { id: 'jo', name: 'Jo', sharing: 'on', phone: null, appUsage: { shared: false, latest: null } },
-      { id: 'sam', name: 'Sam', sharing: 'on', phone, appUsage: { shared: true, latest } },
+      { id: 'jo', name: 'Jo', sharing: 'on', phone: null, appUsage: { shared: false, latest: null }, rules: ALL_RULES },
+      {
+        id: 'sam',
+        name: 'Sam',
+        sharing: 'on',
+        phone,
+        appUsage: { shared: true, latest },
+        rules: { ...ALL_RULES, preventUninstall: false },
+      },
     ]);
+  });
+
+  it('a supervisor stops requiring a protection: stored as off, logged, phone woken, alerts refreshed', async () => {
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    await setPhoneRule(H, { id: 'alex' }, { supervisedId: 'sam', rule: 'preventUninstall', required: false });
+    expect(tx.user.update).toHaveBeenCalledWith({ where: { id: 'sam' }, data: { requirePreventUninstall: false } });
+    expect(logActivity).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'stopped requiring Prevent uninstall on Sam’s phone' }),
+      tx,
+    );
+    expect(push.pushSync).toHaveBeenCalledWith(H, { userIds: ['sam'] }, 'supervision');
+    expect(phones.refreshPhoneAlerts).toHaveBeenCalledWith(H, expect.any(Date), ['sam']);
+  });
+
+  it('requiring it again stores the default (null), and an unchanged rule writes nothing', async () => {
+    findLinks.mockResolvedValueOnce([
+      { supervisor: { role: 'adult' }, supervised: { ...sam, locationSharing: 'on', requireKeepRunning: false } },
+    ]);
+    await setPhoneRule(H, { id: 'alex' }, { supervisedId: 'sam', rule: 'keepRunning', required: true });
+    expect(tx.user.update).toHaveBeenCalledWith({ where: { id: 'sam' }, data: { requireKeepRunning: null } });
+    expect(logActivity).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'required Keep Our Home running on Sam’s phone' }),
+      tx,
+    );
+
+    vi.clearAllMocks();
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    await setPhoneRule(H, { id: 'alex' }, { supervisedId: 'sam', rule: 'batteryUnrestricted', required: true });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(push.pushSync).not.toHaveBeenCalled();
+  });
+
+  it('refuses a phone rule from someone who doesn’t supervise them', async () => {
+    findLinks.mockResolvedValueOnce([]);
+    await expect(
+      setPhoneRule(H, { id: 'gran' }, { supervisedId: 'sam', rule: 'keepRunning', required: false }),
+    ).rejects.toThrow(/Only an adult who supervises them/);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it('a supervisor makes it required, logs it, and wakes their phone', async () => {

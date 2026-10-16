@@ -6,6 +6,7 @@ import {
   freshestPhone,
   phoneAlertText,
   phoneProblems,
+  phoneRules,
   phoneSilence,
 } from '@/lib/phoneHealth';
 
@@ -128,6 +129,52 @@ describe('phone problems', () => {
     expect(phoneProblems({ ...phone, uninstallGuard: true }, { sharing: 'on' }, now)).toEqual([]);
     expect(phoneProblems({ ...phone, uninstallGuard: null }, { sharing: 'on' }, now)).toEqual([]);
     expect(phoneAlertText('uninstall_guard_off', 'Mia').title).toBe('OurHome can be uninstalled on Mia’s phone');
+  });
+
+  it('flags battery and the guards only while their supervisors require them', () => {
+    const phone = {
+      lastSeenAt: hoursAgo(1),
+      locationAlways: true,
+      batteryUnrestricted: false,
+      closeGuard: false,
+      uninstallGuard: false,
+    };
+    const all = phoneRules({});
+    expect(phoneProblems(phone, { sharing: 'on', rules: all }, now)).toEqual([
+      'battery_restricted',
+      'close_guard_off',
+      'uninstall_guard_off',
+    ]);
+    expect(phoneProblems(phone, { sharing: 'on', rules: { ...all, keepRunning: false } }, now)).toEqual([
+      'battery_restricted',
+      'uninstall_guard_off',
+    ]);
+    expect(
+      phoneProblems(phone, { sharing: 'on', rules: { keepRunning: false, preventUninstall: false, batteryUnrestricted: false } }, now),
+    ).toEqual([]);
+    // The emergency unlock is still said: the guard is on that phone either way.
+    expect(
+      phoneProblems(
+        { ...phone, emergencyUnlockStage: 'started' },
+        { sharing: 'on', rules: { ...all, preventUninstall: false } },
+        now,
+      ),
+    ).toEqual(['battery_restricted', 'emergency_unlock_started']);
+  });
+
+  it('only an adult’s explicit off turns a rule off; never chosen means required', () => {
+    expect(phoneRules({})).toEqual({ keepRunning: true, preventUninstall: true, batteryUnrestricted: true });
+    expect(
+      phoneRules({ requireKeepRunning: null, requirePreventUninstall: false, requireBatteryUnrestricted: true }),
+    ).toEqual({ keepRunning: true, preventUninstall: false, batteryUnrestricted: true });
+  });
+
+  it('flags notifications turned off, but not on a snapshot that doesn’t say', () => {
+    const phone = { lastSeenAt: hoursAgo(1), locationAlways: true };
+    expect(phoneProblems({ ...phone, notifications: false }, { sharing: 'on' }, now)).toEqual(['notifications_off']);
+    expect(phoneProblems({ ...phone, notifications: true }, { sharing: 'on' }, now)).toEqual([]);
+    expect(phoneProblems(phone, { sharing: 'on' }, now)).toEqual([]);
+    expect(phoneAlertText('notifications_off', 'Mia').title).toBe('Notifications are off for OurHome on Mia’s phone');
   });
 
   it('says only the emergency unlock milestone while one runs, not the guards it turned off', () => {

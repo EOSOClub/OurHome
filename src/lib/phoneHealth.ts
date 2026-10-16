@@ -37,7 +37,9 @@ const SHUTDOWN_NEAR_MS = 5 * 60_000;
  * - no_signal: it had no network, or barely any mobile signal.
  * - quiet: nothing to tell why.
  *
- * Problems while it's not quiet: location_off: their sharing is required, but
+ * Problems while it's not quiet: notifications_off: Android's notifications
+ * are off for OurHome there, so rings can't show Stop and the child misses
+ * the household's alerts. location_off: their sharing is required, but
  * the phone no longer lets OurHome use location all the time. usage_off: their
  * app usage is shared, but the phone no longer allows Usage access (so nothing
  * can be measured). battery_restricted: Android's battery optimization still
@@ -49,7 +51,9 @@ const SHUTDOWN_NEAR_MS = 5 * 60_000;
  * emergency_unlock_*: the child started the emergency unlock (it can't be
  * cancelled; the parent chose its length, 1, 5 or 10 hours, when setting
  * the PIN), one alert per milestone; while it runs, the guards being off is
- * part of it and isn't alerted separately.
+ * part of it and isn't alerted separately. battery_restricted,
+ * close_guard_off and uninstall_guard_off only while a supervising adult
+ * requires that protection ([PHONE_RULES]).
  */
 export const PHONE_PROBLEMS = [
   'quiet',
@@ -57,6 +61,7 @@ export const PHONE_PROBLEMS = [
   'switched_off',
   'battery_flat',
   'no_signal',
+  'notifications_off',
   'location_off',
   'usage_off',
   'battery_restricted',
@@ -116,9 +121,48 @@ export const SILENT_PROBLEMS: ReadonlySet<PhoneProblem> = new Set([
   'no_signal',
 ]);
 
+/**
+ * The protections a supervising adult chooses for each child's phone, on
+ * People you look after (User.requireKeepRunning and the rest; never chosen
+ * means required). keepRunning: "Keep Our Home running" (the close guard,
+ * an Accessibility service), so OurHome can't be closed. preventUninstall:
+ * OurHome as a device admin with the parent's PIN, so it can't be removed.
+ * batteryUnrestricted: battery optimization off for OurHome, so rings and
+ * alerts aren't held back.
+ */
+export const PHONE_RULES = ['keepRunning', 'preventUninstall', 'batteryUnrestricted'] as const;
+export type PhoneRule = (typeof PHONE_RULES)[number];
+export type PhoneRules = Record<PhoneRule, boolean>;
+
+export const PHONE_RULE_LABELS: Record<PhoneRule, string> = {
+  keepRunning: 'Keep Our Home running',
+  preventUninstall: 'Prevent uninstall',
+  batteryUnrestricted: 'Unrestricted battery',
+};
+
+/** The User column that holds each rule. */
+export const PHONE_RULE_COLUMNS = {
+  keepRunning: 'requireKeepRunning',
+  preventUninstall: 'requirePreventUninstall',
+  batteryUnrestricted: 'requireBatteryUnrestricted',
+} as const satisfies Record<PhoneRule, string>;
+
+export type PhoneRuleColumns = { [K in (typeof PHONE_RULE_COLUMNS)[PhoneRule]]: boolean | null };
+
+/** A member's rules as stored: only an adult's explicit "off" (false) turns one off. */
+export function phoneRules(user: Partial<PhoneRuleColumns>): PhoneRules {
+  return {
+    keepRunning: user.requireKeepRunning !== false,
+    preventUninstall: user.requirePreventUninstall !== false,
+    batteryUnrestricted: user.requireBatteryUnrestricted !== false,
+  };
+}
+
 export interface PhoneSnapshot {
   lastSeenAt: Date;
   locationAlways: boolean;
+  /** Notifications allowed for OurHome; undefined: not known here. */
+  notifications?: boolean;
   /** null: an app from before usage reporting, which can't say. */
   usageAccess?: boolean | null;
   /** null: an app from before the delivery check, which can't say. */
@@ -152,6 +196,8 @@ export interface PhoneExpectations {
   usageShared?: boolean;
   /** The household uses Location (server admin). */
   locationOn?: boolean;
+  /** The protections their supervisors require; omitted: all of them. */
+  rules?: PhoneRules;
 }
 
 /** The phone that checked in most recently, or null if none ever did. */
@@ -202,21 +248,26 @@ function isFlat(phone: PhoneSnapshot): boolean {
  * stale, so only why it's quiet is said then. Location matters only while
  * their sharing is required and the household uses Location; Usage access
  * only while their app usage is shared, and only from apps that report it.
+ * Battery, the close guard and the uninstall guard only while their
+ * supervisors require them ([PHONE_RULES]). The emergency unlock's milestones
+ * always: the guard is there, and the child is taking it off.
  */
 export function phoneProblems(phone: PhoneSnapshot | null, expect: PhoneExpectations, now: Date): PhoneProblem[] {
   if (!phone) return [];
   const silence = phoneSilence(phone, now);
   if (silence) return [silence];
+  const rules = expect.rules ?? phoneRules({});
   const out: PhoneProblem[] = [];
+  if (phone.notifications === false) out.push('notifications_off');
   if (expect.locationOn !== false && expect.sharing === 'required' && !phone.locationAlways) out.push('location_off');
   if (expect.usageShared && phone.usageAccess === false) out.push('usage_off');
-  if (phone.batteryUnrestricted === false) out.push('battery_restricted');
+  if (rules.batteryUnrestricted && phone.batteryUnrestricted === false) out.push('battery_restricted');
   const emergency = EMERGENCY_PROBLEMS[phone.emergencyUnlockStage as EmergencyUnlockStage] ?? null;
   if (emergency) {
     out.push(emergency);
   } else {
-    if (phone.closeGuard === false) out.push('close_guard_off');
-    if (phone.uninstallGuard === false) out.push('uninstall_guard_off');
+    if (rules.keepRunning && phone.closeGuard === false) out.push('close_guard_off');
+    if (rules.preventUninstall && phone.uninstallGuard === false) out.push('uninstall_guard_off');
   }
   return out;
 }
@@ -251,6 +302,12 @@ export function phoneAlertText(problem: PhoneProblem, name: string): { title: st
     return {
       title: `${name}’s phone may be out of signal`,
       body: `${name}’s phone went quiet with little or no signal. It checks in again once it’s back in coverage.`,
+    };
+  }
+  if (problem === 'notifications_off') {
+    return {
+      title: `Notifications are off for OurHome on ${name}’s phone`,
+      body: `${name}’s phone doesn’t let OurHome show notifications, so they miss the household’s alerts and can’t stop a ring from the notification. On their phone, open OurHome and follow Set up this phone.`,
     };
   }
   if (problem === 'usage_off') {
@@ -309,6 +366,7 @@ export const PHONE_PROBLEM_LABELS: Record<PhoneProblem, string> = {
   switched_off: 'Their phone is switched off',
   battery_flat: 'Their phone probably ran out of battery',
   no_signal: 'Their phone may be out of signal',
+  notifications_off: 'Notifications turned off on their phone',
   location_off: 'Location turned off on their phone',
   usage_off: 'Usage access turned off on their phone',
   battery_restricted: 'Battery saving can delay OurHome on their phone',

@@ -8,6 +8,7 @@ const prisma = {
     findMany: vi.fn(async (): Promise<unknown[]> => []),
   },
   supervision: { findMany: vi.fn(async (): Promise<unknown[]> => []) },
+  user: { findFirst: vi.fn(async (): Promise<unknown> => null) },
   notification: {
     findMany: vi.fn(async (): Promise<{ id: string; dedupeKey: string | null }[]> => []),
     deleteMany: vi.fn(),
@@ -17,11 +18,11 @@ const prisma = {
 vi.mock('@/server/db/prisma', () => ({ prisma }));
 const push = { pushSync: vi.fn(), pingInstall: vi.fn(async () => 'sent') };
 vi.mock('@/server/services/pushService', () => push);
-vi.mock('@/server/services/serverAdminService', () => ({ isFeatureEnabled: vi.fn(async () => true) }));
+const isFeatureEnabled = vi.fn(async () => true);
+vi.mock('@/server/services/serverAdminService', () => ({ isFeatureEnabled }));
 
-const { checkIn, clearPhoneWatches, phoneSummaries, PING_AFTER_MS, recordStream, refreshPhoneAlerts } = await import(
-  './phoneStatusService'
-);
+const { checkIn, clearPhoneWatches, phoneSetup, phoneSummaries, PING_AFTER_MS, recordStream, refreshPhoneAlerts } =
+  await import('./phoneStatusService');
 const { addStream, clearStreams } = await import('@/server/push/streamHub');
 
 const now = new Date('2026-10-12T18:00:00Z');
@@ -327,6 +328,87 @@ describe('phone summaries', () => {
     // A stream older than its check-in doesn't move it back.
     prisma.phoneStatus.findMany.mockResolvedValue([{ ...phone, streamAt: hoursAgo(3) }]);
     expect((await phoneSummaries(H, kids, now)).get('mia')?.lastSeenAt).toBe(hoursAgo(1).toISOString());
+  });
+
+  it('judges each child on the protections their supervisors require, and notifications', async () => {
+    prisma.phoneStatus.findMany.mockResolvedValue([
+      {
+        userId: 'mia',
+        installId: 'i1',
+        lastSeenAt: hoursAgo(1),
+        locationAlways: true,
+        notifications: false,
+        closeGuard: false,
+        uninstallGuard: false,
+        batteryUnrestricted: false,
+        deviceName: null,
+      },
+    ]);
+    const kid = { id: 'mia', locationSharing: 'on' };
+    expect((await phoneSummaries(H, [kid], now)).get('mia')?.problems).toEqual([
+      'notifications_off',
+      'battery_restricted',
+      'close_guard_off',
+      'uninstall_guard_off',
+    ]);
+    const relaxed = { ...kid, requireKeepRunning: false, requireBatteryUnrestricted: false };
+    expect((await phoneSummaries(H, [relaxed], now)).get('mia')?.problems).toEqual([
+      'notifications_off',
+      'uninstall_guard_off',
+    ]);
+  });
+});
+
+describe('what a phone must set up', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    isFeatureEnabled.mockResolvedValue(true);
+  });
+
+  it('asks nothing of a member nobody looks after', async () => {
+    prisma.supervision.findMany.mockResolvedValueOnce([]);
+    prisma.user.findFirst.mockResolvedValueOnce({ locationSharing: 'required', shareAppUsage: true });
+    const setup = await phoneSetup(H, 'mia');
+    expect(setup.supervised).toBe(false);
+    expect(Object.values(setup.required).every((v) => v === false)).toBe(true);
+  });
+
+  it('asks a supervised child for notifications, what their settings need, and the chosen protections', async () => {
+    prisma.supervision.findMany.mockResolvedValueOnce([link('alex')]);
+    prisma.user.findFirst.mockResolvedValueOnce({
+      locationSharing: 'required',
+      shareAppUsage: true,
+      requirePreventUninstall: false,
+    });
+    expect(await phoneSetup(H, 'mia')).toEqual({
+      supervised: true,
+      required: {
+        notifications: true,
+        location: true,
+        usageAccess: true,
+        keepRunning: true,
+        preventUninstall: false,
+        batteryUnrestricted: true,
+      },
+    });
+    expect(prisma.user.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'mia', householdId: H } }));
+  });
+
+  it('leaves location out when it isn’t required, or the household doesn’t use Location', async () => {
+    prisma.supervision.findMany.mockResolvedValueOnce([link('alex')]);
+    prisma.user.findFirst.mockResolvedValueOnce({ locationSharing: 'on', shareAppUsage: null });
+    expect((await phoneSetup(H, 'mia')).required).toMatchObject({ location: false, usageAccess: false });
+
+    prisma.supervision.findMany.mockResolvedValueOnce([link('alex')]);
+    prisma.user.findFirst.mockResolvedValueOnce({ locationSharing: 'required' });
+    isFeatureEnabled.mockResolvedValueOnce(false);
+    expect((await phoneSetup(H, 'mia')).required.location).toBe(false);
+  });
+
+  it('asks nothing when the supervisor is no longer an adult', async () => {
+    prisma.supervision.findMany.mockResolvedValueOnce([link('jo', 'teen')]);
+    prisma.user.findFirst.mockResolvedValueOnce({ locationSharing: 'required' });
+    expect((await phoneSetup(H, 'mia')).supervised).toBe(false);
   });
 });
 

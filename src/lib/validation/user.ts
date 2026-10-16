@@ -29,6 +29,8 @@ export const createMemberSchema = z.object({
   email: z.string().trim().email().max(160).optional(),
   role: z.enum(USER_ROLES).default('adult'),
   password: passwordSchema,
+  // Who looks after a new child or teen (Head of House only; supervisionService).
+  supervisorIds: z.array(z.string().min(1)).max(50).optional(),
 });
 export type CreateMemberInput = z.infer<typeof createMemberSchema>;
 

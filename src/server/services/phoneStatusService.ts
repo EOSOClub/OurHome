@@ -10,9 +10,21 @@ import {
   lastWordAt,
   phoneAlertText,
   phoneProblems,
+  phoneRules,
   type PhoneProblem,
+  type PhoneRuleColumns,
 } from '@/lib/phoneHealth';
+import type { PhoneSetupDTO } from '@/lib/types';
 import type { PhoneCheckInInput, PhoneStatusInput } from '@/lib/validation/phone';
+
+/** What a supervised member's phone alerts are judged on (their User row). */
+export const SUPERVISED_SELECT = {
+  locationSharing: true,
+  shareAppUsage: true,
+  requireKeepRunning: true,
+  requirePreventUninstall: true,
+  requireBatteryUnrestricted: true,
+} as const;
 
 // Phone check-ins and the alerts they feed (parental controls). Every phone
 // with the app checks in about hourly; for a supervised child, the 15-minute
@@ -168,6 +180,44 @@ export function clearPhoneWatches(): void {
   for (const id of [...watches.keys()]) clearWatch(id);
 }
 
+/**
+ * What [userId]'s phone must have on, for its Set up this phone checklist:
+ * nothing while nobody looks after them. Otherwise notifications always (the
+ * household's alerts and the ring's Stop need them), location all the time
+ * while their sharing is required and the household uses Location, Usage
+ * access while their app usage is shared, and the protections their
+ * supervisors require.
+ */
+export async function phoneSetup(householdId: string, userId: string): Promise<PhoneSetupDTO> {
+  const [supervised, user, locationOn] = await Promise.all([
+    isSupervised(householdId, userId),
+    prisma.user.findFirst({ where: { id: userId, householdId }, select: SUPERVISED_SELECT }),
+    isFeatureEnabled(householdId, 'location').catch(() => true),
+  ]);
+  if (!supervised || !user) {
+    return {
+      supervised: false,
+      required: {
+        notifications: false,
+        location: false,
+        usageAccess: false,
+        keepRunning: false,
+        preventUninstall: false,
+        batteryUnrestricted: false,
+      },
+    };
+  }
+  return {
+    supervised: true,
+    required: {
+      notifications: true,
+      location: locationOn && sharingMode(user.locationSharing) === 'required',
+      usageAccess: user.shareAppUsage === true,
+      ...phoneRules(user),
+    },
+  };
+}
+
 /** Whether an adult looks after [userId] right now (both roles still fit). */
 async function isSupervised(householdId: string, userId: string): Promise<boolean> {
   const links = await prisma.supervision.findMany({
@@ -194,7 +244,7 @@ export interface PhoneSummary {
 /** Each child's freshest phone and what's wrong with it, for the Map card. */
 export async function phoneSummaries(
   householdId: string,
-  kids: { id: string; locationSharing: string | null; shareAppUsage?: boolean | null }[],
+  kids: ({ id: string; locationSharing: string | null; shareAppUsage?: boolean | null } & Partial<PhoneRuleColumns>)[],
   now: Date = new Date(),
 ): Promise<Map<string, PhoneSummary>> {
   const out = new Map<string, PhoneSummary>();
@@ -207,6 +257,7 @@ export async function phoneSummaries(
         installId: true,
         lastSeenAt: true,
         locationAlways: true,
+        notifications: true,
         usageAccess: true,
         batteryUnrestricted: true,
         deviceName: true,
@@ -240,7 +291,12 @@ export async function phoneSummaries(
       connected: connected.has(phone.installId),
       problems: phoneProblems(
         { ...phone, connected: connected.has(phone.installId) },
-        { sharing: sharingMode(kid.locationSharing), usageShared: kid.shareAppUsage === true, locationOn },
+        {
+          sharing: sharingMode(kid.locationSharing),
+          usageShared: kid.shareAppUsage === true,
+          locationOn,
+          rules: phoneRules(kid),
+        },
         now,
       ),
     });
@@ -260,7 +316,7 @@ export async function refreshPhoneAlerts(householdId: string, now: Date = new Da
     select: {
       supervisorId: true,
       supervisor: { select: { role: true } },
-      supervised: { select: { id: true, name: true, role: true, locationSharing: true, shareAppUsage: true } },
+      supervised: { select: { id: true, name: true, role: true, ...SUPERVISED_SELECT } },
     },
   });
   const valid = links.filter((l) => canSupervise(l.supervisor.role) && canBeSupervised(l.supervised.role));

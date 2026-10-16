@@ -2,7 +2,11 @@ import type { User } from '@prisma/client';
 import { prisma } from '@/server/db/prisma';
 import { auth } from '@/server/auth/auth';
 import { logActivity } from '@/server/services/activityService';
-import { dropBrokenSupervision } from '@/server/services/supervisionService';
+import {
+  dropBrokenSupervision,
+  linkNewSupervisors,
+  newMemberSupervisors,
+} from '@/server/services/supervisionService';
 import { refreshPhoneAlerts } from '@/server/services/phoneStatusService';
 import { ConflictError, ForbiddenError, NotFoundError } from '@/server/services/errors';
 import { ROLE_RANK, USER_ROLE_LABELS, isUserRole, type UserRole } from '@/lib/enums';
@@ -94,6 +98,8 @@ export async function createMember(
   const username = displayUsername.toLowerCase();
   const email = (input.email?.trim() || `${username}@household.local`).toLowerCase();
   await assertUnique(username, email);
+  // Checked before anything is made, so a refusal leaves no half-set-up member.
+  const supervisors = await newMemberSupervisors(householdId, actor, role, input.supervisorIds);
 
   const authCtx = await auth.$context;
   const hashed = await authCtx.password.hash(input.password);
@@ -120,6 +126,10 @@ export async function createMember(
         password: hashed,
       },
     });
+    await linkNewSupervisors(tx, householdId, actor.id, created.id, supervisors);
+    const lookedAfter = supervisors.length
+      ? `, supervised by ${supervisors.map((s) => s.name).join(', ')}`
+      : '';
     await logActivity(
       {
         householdId,
@@ -127,7 +137,7 @@ export async function createMember(
         verb: 'created',
         subjectType: 'member',
         subjectId: created.id,
-        message: `added ${USER_ROLE_LABELS[role]} “${created.name}”`,
+        message: `added ${USER_ROLE_LABELS[role]} “${created.name}”${lookedAfter}`,
       },
       tx,
     );

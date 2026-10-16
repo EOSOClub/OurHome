@@ -80,8 +80,11 @@ const shots = {
   // Needs demo/seed/12-supervision.mjs, and push set up (dummy Firebase) for the Ring buttons.
   // Its own page since 2026-10-12 (it was a card on the Map).
   'location-look-after.png': async p => { await go(p, 'look-after'); await view(p, 'location-look-after.png'); },
-  // Needs demo/seed/12-supervision.mjs.
-  'members-supervision.png': async p => { await go(p, 'members'); await el(p, 'members-supervision.png', card(p, 'Supervision')); },
+  // Needs demo/seed/12-supervision.mjs. Riley's row, opened: who supervises them (since 2026-10-16; it was its own card).
+  'members-supervision.png': async p => {
+    await go(p, 'members'); await btn(p, 'Manage Riley').click(); await p.waitForTimeout(500);
+    await el(p, 'members-supervision.png', btn(p, 'Manage Riley').locator('xpath=ancestor::li[1]'));
+  },
   'notifications-page-view.png': async p => { await go(p, 'notifications'); await view(p, 'notifications-page-view.png'); },
   'profile-overview.png': async p => { await go(p, 'profile'); await view(p, 'profile-overview.png'); },
   'profile-about-me-card.png': async p => { await go(p, 'profile'); await el(p, 'profile-about-me-card.png', card(p, 'About me')); },

@@ -3,7 +3,13 @@ import { prisma } from '@/server/db/prisma';
 import { logActivity } from '@/server/services/activityService';
 import { ConflictError, ForbiddenError, NotFoundError } from '@/server/services/errors';
 import { canPush, pushSync, pushToMember } from '@/server/services/pushService';
-import { phoneSummaries, refreshPhoneAlerts } from '@/server/services/phoneStatusService';
+import { SUPERVISED_SELECT, phoneSummaries, refreshPhoneAlerts } from '@/server/services/phoneStatusService';
+import {
+  PHONE_RULE_COLUMNS,
+  PHONE_RULE_LABELS,
+  phoneRules,
+  type PhoneRuleColumns,
+} from '@/lib/phoneHealth';
 import { findIcon, forgetUsage, usageNamesApp, usageSummaries } from '@/server/services/appUsageService';
 import { USAGE_REFRESH_COOLDOWN_MS } from '@/lib/appUsage';
 import { ROLE_RANK, isUserRole } from '@/lib/enums';
@@ -11,6 +17,7 @@ import { can, canBeSupervised, canSupervise } from '@/lib/permissions';
 import { sharingMode } from '@/lib/location';
 import type { LookAfterDTO, SupervisionDTO } from '@/lib/types';
 import type {
+  SetPhoneRuleInput,
   SetRequiredSharingInput,
   SetSupervisorsInput,
   SetUsageSharingInput,
@@ -31,7 +38,7 @@ function byRankThenName(a: Person, b: Person): number {
   return a.name.localeCompare(b.name);
 }
 
-/** Everything the Members → Supervision card shows. */
+/** Who supervises each child and teen, as the Members page shows and edits it. */
 export async function getSupervision(householdId: string): Promise<SupervisionDTO> {
   const [users, links] = await Promise.all([
     prisma.user.findMany({
@@ -82,19 +89,7 @@ export async function setSupervisors(
   }
 
   const wanted = [...new Set(input.supervisorIds)];
-  const supervisors = wanted.length
-    ? await prisma.user.findMany({
-        where: { id: { in: wanted }, householdId },
-        select: { id: true, name: true, role: true },
-      })
-    : [];
-  if (supervisors.length !== wanted.length) {
-    throw new NotFoundError('That member is not in this household.');
-  }
-  const notAdult = supervisors.find((s) => !canSupervise(s.role));
-  if (notAdult) {
-    throw new ForbiddenError(`${notAdult.name} can’t supervise anyone: only adults, managers and the Head of House can.`);
-  }
+  const supervisors = await loadSupervisors(householdId, wanted);
 
   const current = await prisma.supervision.findMany({
     where: { supervisedId: supervised.id },
@@ -147,6 +142,66 @@ export async function setSupervisors(
   return getSupervision(householdId);
 }
 
+/** The members [ids] of this household, each of whom must be allowed to supervise. */
+async function loadSupervisors(householdId: string, ids: string[]): Promise<Person[]> {
+  const supervisors = ids.length
+    ? await prisma.user.findMany({
+        where: { id: { in: ids }, householdId },
+        select: { id: true, name: true, role: true },
+      })
+    : [];
+  if (supervisors.length !== ids.length) {
+    throw new NotFoundError('That member is not in this household.');
+  }
+  const notAdult = supervisors.find((s) => !canSupervise(s.role));
+  if (notAdult) {
+    throw new ForbiddenError(`${notAdult.name} can’t supervise anyone: only adults, managers and the Head of House can.`);
+  }
+  return supervisors.sort(byRankThenName);
+}
+
+/**
+ * Who will look after a member being added (Members → Add a member), checked
+ * before the account is made with the same rules as [setSupervisors]: Head of
+ * House only, a child or teen, adults or above from this household. Nothing
+ * asked, nothing checked. Saved with [linkNewSupervisors].
+ */
+export async function newMemberSupervisors(
+  householdId: string,
+  actor: { id: string; role: string },
+  role: string,
+  supervisorIds: string[] | undefined,
+): Promise<Person[]> {
+  const wanted = [...new Set(supervisorIds ?? [])];
+  if (wanted.length === 0) return [];
+  if (!can(actor.role, 'household:manage')) {
+    throw new ForbiddenError('Only the Head of House can choose who supervises whom.');
+  }
+  if (!canBeSupervised(role)) {
+    throw new ForbiddenError('Only children and teens can be supervised.');
+  }
+  return loadSupervisors(householdId, wanted);
+}
+
+/** Saves [newMemberSupervisors]' answer for the member just made, in its transaction. */
+export async function linkNewSupervisors(
+  db: Db,
+  householdId: string,
+  actorId: string,
+  supervisedId: string,
+  supervisors: Person[],
+): Promise<void> {
+  if (supervisors.length === 0) return;
+  await db.supervision.createMany({
+    data: supervisors.map((s) => ({
+      householdId,
+      supervisorId: s.id,
+      supervisedId,
+      createdById: actorId,
+    })),
+  });
+}
+
 // --- What a supervising adult can do -------------------------------------------
 // Only the adults the Head chose for a child; each action is logged in
 // Activity, so nothing is done behind anyone's back.
@@ -170,12 +225,12 @@ const lastRingAt = new Map<string, number>();
 async function supervisedBy(
   householdId: string,
   actorId: string,
-): Promise<(Person & { locationSharing: string | null; shareAppUsage: boolean | null })[]> {
+): Promise<(Person & { locationSharing: string | null; shareAppUsage: boolean | null } & PhoneRuleColumns)[]> {
   const links = await prisma.supervision.findMany({
     where: { householdId, supervisorId: actorId },
     select: {
       supervisor: { select: { role: true } },
-      supervised: { select: { id: true, name: true, role: true, locationSharing: true, shareAppUsage: true } },
+      supervised: { select: { id: true, name: true, role: true, ...SUPERVISED_SELECT } },
     },
   });
   return links
@@ -213,8 +268,55 @@ export async function lookAfterOverview(householdId: string, actorId: string): P
       sharing: sharingMode(k.locationSharing),
       phone: phones.get(k.id) ?? null,
       appUsage: { shared: k.shareAppUsage === true, latest: usage.get(k.id) ?? null },
+      rules: phoneRules(k),
     })),
   };
+}
+
+/**
+ * Require one protection on a supervised child's phone, or stop requiring
+ * it ([PHONE_RULES]). Stopping only ends the alert and drops the step from
+ * their phone's checklist: whatever is already on there stays on. Wakes
+ * their phone so its checklist catches up.
+ */
+export async function setPhoneRule(
+  householdId: string,
+  actor: { id: string },
+  input: SetPhoneRuleInput,
+): Promise<LookAfterDTO> {
+  const kid = (await supervisedBy(householdId, actor.id)).find((k) => k.id === input.supervisedId);
+  if (!kid) {
+    throw new ForbiddenError(
+      'Only an adult who supervises them can change this. The Head of House chooses that on the Members page.',
+    );
+  }
+  if (phoneRules(kid)[input.rule] !== input.required) {
+    const label = PHONE_RULE_LABELS[input.rule];
+    await prisma.$transaction(async (tx) => {
+      // Required is stored as null (the default), so only "off" is ever written.
+      await tx.user.update({
+        where: { id: kid.id },
+        data: { [PHONE_RULE_COLUMNS[input.rule]]: input.required ? null : false },
+      });
+      await logActivity(
+        {
+          householdId,
+          actorId: actor.id,
+          verb: 'updated',
+          subjectType: 'member',
+          subjectId: kid.id,
+          message: input.required
+            ? `required ${label} on ${kid.name}’s phone`
+            : `stopped requiring ${label} on ${kid.name}’s phone`,
+        },
+        tx,
+      );
+    });
+    pushSync(householdId, { userIds: [kid.id] }, 'supervision');
+    // Its alert only holds while it's required.
+    await refreshPhoneAlerts(householdId, new Date(), [kid.id]);
+  }
+  return lookAfterOverview(householdId, actor.id);
 }
 
 /**

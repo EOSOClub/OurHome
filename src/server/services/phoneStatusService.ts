@@ -7,6 +7,7 @@ import { sharingMode } from '@/lib/location';
 import {
   PHONE_QUICK_QUIET_MS,
   freshestPhone,
+  lastWordAt,
   phoneAlertText,
   phoneProblems,
   type PhoneProblem,
@@ -231,7 +232,8 @@ export async function phoneSummaries(
     const phone = freshestPhone(phones.filter((p) => p.userId === kid.id));
     if (!phone) continue;
     out.set(kid.id, {
-      lastSeenAt: phone.lastSeenAt.toISOString(),
+      // Its stream counts too, so "last seen" matches when the quiet alert counts from.
+      lastSeenAt: lastWordAt(phone).toISOString(),
       deviceName: phone.deviceName,
       lastPushAt: phone.lastPushAt?.toISOString() ?? null,
       stayConnected: phone.stayConnected === true,

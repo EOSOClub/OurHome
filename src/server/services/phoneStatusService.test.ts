@@ -314,4 +314,32 @@ describe('phone summaries', () => {
     addStream({ householdId: 'h2', userId: 'mia', installId: 'i1', send: () => {} });
     expect((await phoneSummaries(H, kids, now)).get('mia')?.connected).toBe(false);
   });
+
+  it('counts its stream as last seen, the same moment its quiet alert counts from', async () => {
+    const phone = { userId: 'mia', installId: 'i1', lastSeenAt: hoursAgo(1), locationAlways: true, deviceName: null };
+    const kids = [{ id: 'mia', locationSharing: 'on' }];
+    const streamAt = new Date(now.getTime() - 25 * 60_000);
+    prisma.phoneStatus.findMany.mockResolvedValue([{ ...phone, stayConnected: true, batteryUnrestricted: true, streamAt }]);
+    expect((await phoneSummaries(H, kids, now)).get('mia')).toMatchObject({
+      lastSeenAt: streamAt.toISOString(),
+      problems: ['quiet'],
+    });
+    // A stream older than its check-in doesn't move it back.
+    prisma.phoneStatus.findMany.mockResolvedValue([{ ...phone, streamAt: hoursAgo(3) }]);
+    expect((await phoneSummaries(H, kids, now)).get('mia')?.lastSeenAt).toBe(hoursAgo(1).toISOString());
+  });
+});
+
+describe('check-in fields', () => {
+  const base = { installId: 'install-123', locationAlways: true, notifications: true };
+
+  it('takes every emergency unlock milestone the app sends, and drops one it doesn’t know instead of refusing', async () => {
+    const { phoneCheckInSchema } = await import('@/lib/validation/phone');
+    for (const stage of ['started', '30m_left', '2h_elapsed', '3h_elapsed', '6h_elapsed', '1h_left', 'unlocked']) {
+      expect(phoneCheckInSchema.parse({ ...base, emergencyUnlockStage: stage }).emergencyUnlockStage).toBe(stage);
+    }
+    const parsed = phoneCheckInSchema.parse({ ...base, emergencyUnlockStage: '12h_left', emergencyUnlockReadyAtMs: 5 });
+    expect(parsed.emergencyUnlockStage).toBeUndefined();
+    expect(parsed.emergencyUnlockReadyAtMs).toBe(5);
+  });
 });

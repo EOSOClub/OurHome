@@ -46,9 +46,10 @@ const SHUTDOWN_NEAR_MS = 5 * 60_000;
  * off in Android's Accessibility settings, so the child can close OurHome
  * (Android's Stop or Force stop). uninstall_guard_off: OurHome isn't a device
  * admin there, so it can be uninstalled without the parent's PIN.
- * emergency_unlock_*: the child started the 5-hour emergency unlock (it can't
- * be cancelled), one alert per milestone; while it runs, the guards being off
- * is part of it and isn't alerted separately.
+ * emergency_unlock_*: the child started the emergency unlock (it can't be
+ * cancelled; the parent chose its length, 1, 5 or 10 hours, when setting
+ * the PIN), one alert per milestone; while it runs, the guards being off is
+ * part of it and isn't alerted separately.
  */
 export const PHONE_PROBLEMS = [
   'quiet',
@@ -64,19 +65,46 @@ export const PHONE_PROBLEMS = [
   'emergency_unlock_started',
   'emergency_unlock_2h',
   'emergency_unlock_1h',
+  'emergency_unlock_30m_left',
+  'emergency_unlock_4h_left',
+  'emergency_unlock_7h_left',
   'emergency_unlock_unlocked',
 ] as const;
 export type PhoneProblem = (typeof PHONE_PROBLEMS)[number];
 
-/** The emergency unlock's milestones, as the phone sends them. */
-export const EMERGENCY_UNLOCK_STAGES = ['started', '2h_elapsed', '1h_left', 'unlocked'] as const;
+/**
+ * The emergency unlock's milestones, as the phone sends them (its
+ * CloseGuard.EmergencyDuration). "2h_elapsed" is only in the 5-hour unlock,
+ * "3h_elapsed" and "6h_elapsed" only in the 10-hour one.
+ */
+export const EMERGENCY_UNLOCK_STAGES = [
+  'started',
+  '30m_left',
+  '2h_elapsed',
+  '3h_elapsed',
+  '6h_elapsed',
+  '1h_left',
+  'unlocked',
+] as const;
 export type EmergencyUnlockStage = (typeof EMERGENCY_UNLOCK_STAGES)[number];
 
 const EMERGENCY_PROBLEMS: Record<EmergencyUnlockStage, PhoneProblem> = {
   started: 'emergency_unlock_started',
+  '30m_left': 'emergency_unlock_30m_left',
   '2h_elapsed': 'emergency_unlock_2h',
+  '3h_elapsed': 'emergency_unlock_7h_left',
+  '6h_elapsed': 'emergency_unlock_4h_left',
   '1h_left': 'emergency_unlock_1h',
   unlocked: 'emergency_unlock_unlocked',
+};
+
+/** How long a running emergency unlock has left at each countdown milestone. */
+const EMERGENCY_LEFT: Partial<Record<PhoneProblem, string>> = {
+  emergency_unlock_30m_left: '30 minutes',
+  emergency_unlock_1h: '1 hour',
+  emergency_unlock_2h: '3 hours',
+  emergency_unlock_4h_left: '4 hours',
+  emergency_unlock_7h_left: '7 hours',
 };
 
 /** The problems that mean the phone went quiet (only one is ever given). */
@@ -252,19 +280,14 @@ export function phoneAlertText(problem: PhoneProblem, name: string): { title: st
   if (problem === 'emergency_unlock_started') {
     return {
       title: `${name} started an emergency unlock`,
-      body: `${name} started the 5-hour emergency unlock on their phone. It can’t be cancelled: when it ends, OurHome can be uninstalled there without your PIN.`,
+      body: `${name} started the emergency unlock on their phone. It can’t be cancelled: when it ends, OurHome can be uninstalled there without your PIN.`,
     };
   }
-  if (problem === 'emergency_unlock_2h') {
+  const left = EMERGENCY_LEFT[problem];
+  if (left) {
     return {
-      title: `Emergency unlock on ${name}’s phone: 3 hours left`,
-      body: `The emergency unlock on ${name}’s phone ends in about 3 hours. Then OurHome can be uninstalled there without your PIN.`,
-    };
-  }
-  if (problem === 'emergency_unlock_1h') {
-    return {
-      title: `Emergency unlock on ${name}’s phone: 1 hour left`,
-      body: `The emergency unlock on ${name}’s phone ends in about an hour. Then OurHome can be uninstalled there without your PIN.`,
+      title: `Emergency unlock on ${name}’s phone: ${left} left`,
+      body: `The emergency unlock on ${name}’s phone ends in about ${left === '1 hour' ? 'an hour' : left}. Then OurHome can be uninstalled there without your PIN.`,
     };
   }
   if (problem === 'emergency_unlock_unlocked') {
@@ -291,8 +314,11 @@ export const PHONE_PROBLEM_LABELS: Record<PhoneProblem, string> = {
   battery_restricted: 'Battery saving can delay OurHome on their phone',
   close_guard_off: 'OurHome can be closed on their phone',
   uninstall_guard_off: 'OurHome can be uninstalled on their phone',
-  emergency_unlock_started: '5-hour emergency unlock started on their phone',
+  emergency_unlock_started: 'Emergency unlock started on their phone',
   emergency_unlock_2h: 'Emergency unlock on their phone: 3 hours left',
   emergency_unlock_1h: 'Emergency unlock on their phone: 1 hour left',
+  emergency_unlock_30m_left: 'Emergency unlock on their phone: 30 minutes left',
+  emergency_unlock_4h_left: 'Emergency unlock on their phone: 4 hours left',
+  emergency_unlock_7h_left: 'Emergency unlock on their phone: 7 hours left',
   emergency_unlock_unlocked: 'Emergency unlock finished on their phone',
 };

@@ -37,8 +37,12 @@ export const phoneCheckInSchema = z.object({
   closeGuard: z.boolean().optional(),
   /** OurHome is a device admin there, so uninstalling needs the parent's PIN (left out by older apps). */
   uninstallGuard: z.boolean().optional(),
-  /** An emergency unlock milestone due now; sent once each. */
-  emergencyUnlockStage: z.enum(EMERGENCY_UNLOCK_STAGES).optional(),
+  /**
+   * An emergency unlock milestone due now; sent once each. One this server
+   * doesn't know (a newer app) is dropped rather than refusing the check-in:
+   * a refused check-in leaves the phone looking quiet to its supervisors.
+   */
+  emergencyUnlockStage: z.enum(EMERGENCY_UNLOCK_STAGES).optional().catch(undefined),
   /** When a running emergency unlock finishes (the phone's clock); left out when none is running. */
   emergencyUnlockReadyAtMs: z.number().int().positive().optional(),
   /** Sent only while an adult looks after the member (phoneStatusSchema). */

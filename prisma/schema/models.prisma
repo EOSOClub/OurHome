@@ -201,10 +201,10 @@ model PhoneStatus {
   // OurHome is a device admin there, so it can't be uninstalled without the
   // parent's PIN. null = an older app.
   uninstallGuard Boolean?
-  // The child's 5-hour emergency unlock (it can't be cancelled): the last
-  // milestone the phone reported ("started" | "2h_elapsed" | "1h_left" |
-  // "unlocked"), null when none is running. "unlocked" stays until the
-  // uninstall guard is back on.
+  // The child's emergency unlock (it can't be cancelled; 1, 5 or 10 hours,
+  // chosen by the parent): the last milestone the phone reported (one
+  // of lib/phoneHealth.ts EMERGENCY_UNLOCK_STAGES), null when none is
+  // running. "unlocked" stays until the uninstall guard is back on.
   emergencyUnlockStage String?
   // How the phone was doing at its last word (check-in, or Stay connected
   // opening), sent only while an adult looks after its member, so a phone that

@@ -151,6 +151,20 @@ describe('phone problems', () => {
     expect(phoneAlertText('emergency_unlock_2h', 'Mia').title).toBe('Emergency unlock on Mia’s phone: 3 hours left');
   });
 
+  it('knows every milestone of every unlock length the parent can choose', () => {
+    const phone = { lastSeenAt: hoursAgo(1), locationAlways: true, closeGuard: false, uninstallGuard: false };
+    const at = (stage: string) => phoneProblems({ ...phone, emergencyUnlockStage: stage }, { sharing: 'on' }, now);
+    // The app's CloseGuard.EmergencyDuration stages: 1 h, 5 h and 10 h.
+    expect(at('30m_left')).toEqual(['emergency_unlock_30m_left']);
+    expect(at('3h_elapsed')).toEqual(['emergency_unlock_7h_left']);
+    expect(at('6h_elapsed')).toEqual(['emergency_unlock_4h_left']);
+    expect(phoneAlertText('emergency_unlock_30m_left', 'Mia').title).toBe('Emergency unlock on Mia’s phone: 30 minutes left');
+    expect(phoneAlertText('emergency_unlock_7h_left', 'Mia').body).toMatch(/ends in about 7 hours/);
+    expect(phoneAlertText('emergency_unlock_1h', 'Mia').body).toMatch(/ends in about an hour/);
+    // The length is the parent's choice, so the start never names one.
+    expect(phoneAlertText('emergency_unlock_started', 'Mia').body).not.toMatch(/hour/);
+  });
+
   it('judges a member by their freshest phone', () => {
     const old = { id: 'a', lastSeenAt: hoursAgo(20) };
     const fresh = { id: 'b', lastSeenAt: hoursAgo(1) };

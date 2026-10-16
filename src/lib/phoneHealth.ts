@@ -44,7 +44,11 @@ const SHUTDOWN_NEAR_MS = 5 * 60_000;
  * applies to OurHome there, which can delay rings, live checks and alerts, or
  * stop the app in the background. close_guard_off: "Keep Our Home running" is
  * off in Android's Accessibility settings, so the child can close OurHome
- * (Android's Stop or Force stop).
+ * (Android's Stop or Force stop). uninstall_guard_off: OurHome isn't a device
+ * admin there, so it can be uninstalled without the parent's PIN.
+ * emergency_unlock_*: the child started the 5-hour emergency unlock (it can't
+ * be cancelled), one alert per milestone; while it runs, the guards being off
+ * is part of it and isn't alerted separately.
  */
 export const PHONE_PROBLEMS = [
   'quiet',
@@ -56,8 +60,24 @@ export const PHONE_PROBLEMS = [
   'usage_off',
   'battery_restricted',
   'close_guard_off',
+  'uninstall_guard_off',
+  'emergency_unlock_started',
+  'emergency_unlock_2h',
+  'emergency_unlock_1h',
+  'emergency_unlock_unlocked',
 ] as const;
 export type PhoneProblem = (typeof PHONE_PROBLEMS)[number];
+
+/** The emergency unlock's milestones, as the phone sends them. */
+export const EMERGENCY_UNLOCK_STAGES = ['started', '2h_elapsed', '1h_left', 'unlocked'] as const;
+export type EmergencyUnlockStage = (typeof EMERGENCY_UNLOCK_STAGES)[number];
+
+const EMERGENCY_PROBLEMS: Record<EmergencyUnlockStage, PhoneProblem> = {
+  started: 'emergency_unlock_started',
+  '2h_elapsed': 'emergency_unlock_2h',
+  '1h_left': 'emergency_unlock_1h',
+  unlocked: 'emergency_unlock_unlocked',
+};
 
 /** The problems that mean the phone went quiet (only one is ever given). */
 export const SILENT_PROBLEMS: ReadonlySet<PhoneProblem> = new Set([
@@ -77,6 +97,10 @@ export interface PhoneSnapshot {
   batteryUnrestricted?: boolean | null;
   /** null: an app from before the close guard, which can't say. */
   closeGuard?: boolean | null;
+  /** null: an app from before the uninstall guard, which can't say. */
+  uninstallGuard?: boolean | null;
+  /** The emergency unlock's last milestone; null while none is running. */
+  emergencyUnlockStage?: string | null;
   /** Stay connected is on in the app. */
   stayConnected?: boolean | null;
   /** Holding its stream to this server right now (in memory, not stored). */
@@ -159,7 +183,13 @@ export function phoneProblems(phone: PhoneSnapshot | null, expect: PhoneExpectat
   if (expect.locationOn !== false && expect.sharing === 'required' && !phone.locationAlways) out.push('location_off');
   if (expect.usageShared && phone.usageAccess === false) out.push('usage_off');
   if (phone.batteryUnrestricted === false) out.push('battery_restricted');
-  if (phone.closeGuard === false) out.push('close_guard_off');
+  const emergency = EMERGENCY_PROBLEMS[phone.emergencyUnlockStage as EmergencyUnlockStage] ?? null;
+  if (emergency) {
+    out.push(emergency);
+  } else {
+    if (phone.closeGuard === false) out.push('close_guard_off');
+    if (phone.uninstallGuard === false) out.push('uninstall_guard_off');
+  }
   return out;
 }
 
@@ -213,6 +243,36 @@ export function phoneAlertText(problem: PhoneProblem, name: string): { title: st
       body: `“Keep Our Home running” is off on ${name}’s phone, so Android’s Stop button can close OurHome there. On their phone, open Profile in OurHome and follow the steps under Keep Our Home running.`,
     };
   }
+  if (problem === 'uninstall_guard_off') {
+    return {
+      title: `OurHome can be uninstalled on ${name}’s phone`,
+      body: `The uninstall guard is off on ${name}’s phone, so OurHome can be removed there without your PIN. On their phone, open Profile in OurHome to turn it back on.`,
+    };
+  }
+  if (problem === 'emergency_unlock_started') {
+    return {
+      title: `${name} started an emergency unlock`,
+      body: `${name} started the 5-hour emergency unlock on their phone. It can’t be cancelled: when it ends, OurHome can be uninstalled there without your PIN.`,
+    };
+  }
+  if (problem === 'emergency_unlock_2h') {
+    return {
+      title: `Emergency unlock on ${name}’s phone: 3 hours left`,
+      body: `The emergency unlock on ${name}’s phone ends in about 3 hours. Then OurHome can be uninstalled there without your PIN.`,
+    };
+  }
+  if (problem === 'emergency_unlock_1h') {
+    return {
+      title: `Emergency unlock on ${name}’s phone: 1 hour left`,
+      body: `The emergency unlock on ${name}’s phone ends in about an hour. Then OurHome can be uninstalled there without your PIN.`,
+    };
+  }
+  if (problem === 'emergency_unlock_unlocked') {
+    return {
+      title: `Emergency unlock finished on ${name}’s phone`,
+      body: `The emergency unlock on ${name}’s phone has finished, so OurHome can now be uninstalled there without your PIN.`,
+    };
+  }
   return {
     title: `${name}’s location is off`,
     body: `${name}’s sharing is required, but their phone no longer lets OurHome use location all the time, so the household can’t see where they are.`,
@@ -230,4 +290,9 @@ export const PHONE_PROBLEM_LABELS: Record<PhoneProblem, string> = {
   usage_off: 'Usage access turned off on their phone',
   battery_restricted: 'Battery saving can delay OurHome on their phone',
   close_guard_off: 'OurHome can be closed on their phone',
+  uninstall_guard_off: 'OurHome can be uninstalled on their phone',
+  emergency_unlock_started: '5-hour emergency unlock started on their phone',
+  emergency_unlock_2h: 'Emergency unlock on their phone: 3 hours left',
+  emergency_unlock_1h: 'Emergency unlock on their phone: 1 hour left',
+  emergency_unlock_unlocked: 'Emergency unlock finished on their phone',
 };

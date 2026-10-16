@@ -198,6 +198,14 @@ model PhoneStatus {
   // button in Android's active apps, and a supervised child can't open
   // OurHome's App info to force stop it. null = an older app.
   closeGuard     Boolean?
+  // OurHome is a device admin there, so it can't be uninstalled without the
+  // parent's PIN. null = an older app.
+  uninstallGuard Boolean?
+  // The child's 5-hour emergency unlock (it can't be cancelled): the last
+  // milestone the phone reported ("started" | "2h_elapsed" | "1h_left" |
+  // "unlocked"), null when none is running. "unlocked" stays until the
+  // uninstall guard is back on.
+  emergencyUnlockStage String?
   // How the phone was doing at its last word (check-in, or Stay connected
   // opening), sent only while an adult looks after its member, so a phone that
   // goes quiet can be told apart: battery (0-100) and charging, network

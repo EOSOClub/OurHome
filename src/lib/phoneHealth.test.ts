@@ -122,6 +122,35 @@ describe('phone problems', () => {
     expect(phoneAlertText('close_guard_off', 'Mia').body).toMatch(/Keep Our Home running/);
   });
 
+  it('flags a phone where OurHome can be uninstalled, only when the app says', () => {
+    const phone = { lastSeenAt: hoursAgo(1), locationAlways: true };
+    expect(phoneProblems({ ...phone, uninstallGuard: false }, { sharing: 'on' }, now)).toEqual(['uninstall_guard_off']);
+    expect(phoneProblems({ ...phone, uninstallGuard: true }, { sharing: 'on' }, now)).toEqual([]);
+    expect(phoneProblems({ ...phone, uninstallGuard: null }, { sharing: 'on' }, now)).toEqual([]);
+    expect(phoneAlertText('uninstall_guard_off', 'Mia').title).toBe('OurHome can be uninstalled on Mia’s phone');
+  });
+
+  it('says only the emergency unlock milestone while one runs, not the guards it turned off', () => {
+    const phone = { lastSeenAt: hoursAgo(1), locationAlways: true, closeGuard: false, uninstallGuard: false };
+    const at = (stage: string) => phoneProblems({ ...phone, emergencyUnlockStage: stage }, { sharing: 'on' }, now);
+    expect(at('started')).toEqual(['emergency_unlock_started']);
+    expect(at('2h_elapsed')).toEqual(['emergency_unlock_2h']);
+    expect(at('1h_left')).toEqual(['emergency_unlock_1h']);
+    expect(at('unlocked')).toEqual(['emergency_unlock_unlocked']);
+    // None running (or a milestone this server doesn't know): the guards are alerted as usual.
+    expect(phoneProblems({ ...phone, emergencyUnlockStage: null }, { sharing: 'on' }, now)).toEqual([
+      'close_guard_off',
+      'uninstall_guard_off',
+    ]);
+    expect(at('later')).toEqual(['close_guard_off', 'uninstall_guard_off']);
+    // A quiet phone says only why it's quiet.
+    expect(phoneProblems({ ...phone, lastSeenAt: hoursAgo(9), emergencyUnlockStage: 'started' }, { sharing: 'on' }, now)).toEqual([
+      'quiet',
+    ]);
+    expect(phoneAlertText('emergency_unlock_started', 'Mia').body).toMatch(/can’t be cancelled/);
+    expect(phoneAlertText('emergency_unlock_2h', 'Mia').title).toBe('Emergency unlock on Mia’s phone: 3 hours left');
+  });
+
   it('judges a member by their freshest phone', () => {
     const old = { id: 'a', lastSeenAt: hoursAgo(20) };
     const fresh = { id: 'b', lastSeenAt: hoursAgo(1) };

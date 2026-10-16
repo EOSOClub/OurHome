@@ -52,6 +52,8 @@ export async function checkIn(
     standbyBucket: input.standbyBucket ?? null,
     stayConnected: input.stayConnected ?? null,
     closeGuard: input.closeGuard ?? null,
+    uninstallGuard: input.uninstallGuard ?? null,
+    ...(await emergencyData(input)),
     ...statusData(input.status, now),
     // Its last word before Android switches it off; any other word clears it.
     shutdownAt: input.shuttingDown ? now : null,
@@ -66,6 +68,25 @@ export async function checkIn(
   });
   await refreshPhoneAlerts(householdId, now, [userId]);
   return { stayConnectedRequired: await isSupervised(householdId, userId) };
+}
+
+/**
+ * The emergency unlock's milestone as stored. The phone sends each milestone
+ * once; between them it sends only when the unlock ends, so the last one is
+ * kept while that's sent. "unlocked" is kept while the uninstall guard is
+ * still off, so the alert stays until a parent has put it back.
+ */
+async function emergencyData(input: PhoneCheckInInput): Promise<{ emergencyUnlockStage?: string | null }> {
+  if (input.emergencyUnlockStage) return { emergencyUnlockStage: input.emergencyUnlockStage };
+  if (input.emergencyUnlockReadyAtMs) return {};
+  if (input.uninstallGuard === false) {
+    const stored = await prisma.phoneStatus.findUnique({
+      where: { installId: input.installId },
+      select: { emergencyUnlockStage: true },
+    });
+    if (stored?.emergencyUnlockStage === 'unlocked') return {};
+  }
+  return { emergencyUnlockStage: null };
 }
 
 /** A phone's status as stored; nothing when it sent none (an older app, or nobody looks after them). */
@@ -191,6 +212,8 @@ export async function phoneSummaries(
         lastPushAt: true,
         stayConnected: true,
         closeGuard: true,
+        uninstallGuard: true,
+        emergencyUnlockStage: true,
         streamAt: true,
         batteryPct: true,
         batteryCharging: true,

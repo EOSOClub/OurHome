@@ -4,6 +4,7 @@ const prisma = {
   phoneStatus: {
     upsert: vi.fn(),
     updateMany: vi.fn(),
+    findUnique: vi.fn(async (): Promise<unknown> => null),
     findMany: vi.fn(async (): Promise<unknown[]> => []),
   },
   supervision: { findMany: vi.fn(async (): Promise<unknown[]> => []) },
@@ -159,6 +160,49 @@ describe('phone alerts', () => {
       stayConnected: null,
       closeGuard: null,
     });
+  });
+
+  it('stores the uninstall guard and keeps the emergency unlock’s milestone between milestones', async () => {
+    const base = { installId: 'install-123', locationAlways: true, notifications: true };
+    const stored = () => prisma.phoneStatus.upsert.mock.calls.at(-1)?.[0].update;
+    const readyAt = now.getTime() + 5 * 3_600_000;
+
+    await checkIn(H, 'mia', { ...base, uninstallGuard: false, emergencyUnlockStage: 'started', emergencyUnlockReadyAtMs: readyAt }, now);
+    expect(stored()).toMatchObject({ uninstallGuard: false, emergencyUnlockStage: 'started' });
+    // An hourly check-in while it runs: the milestone stays as it was.
+    await checkIn(H, 'mia', { ...base, uninstallGuard: false, emergencyUnlockReadyAtMs: readyAt }, now);
+    expect(stored()).not.toHaveProperty('emergencyUnlockStage');
+    // None running: cleared.
+    await checkIn(H, 'mia', { ...base, uninstallGuard: true }, now);
+    expect(stored()).toMatchObject({ uninstallGuard: true, emergencyUnlockStage: null });
+
+    // "unlocked" stays while the guard is still off, and goes once it's back on.
+    prisma.phoneStatus.findUnique.mockResolvedValue({ emergencyUnlockStage: 'unlocked' });
+    await checkIn(H, 'mia', { ...base, uninstallGuard: false }, now);
+    expect(stored()).not.toHaveProperty('emergencyUnlockStage');
+    await checkIn(H, 'mia', { ...base, uninstallGuard: true }, now);
+    expect(stored()).toMatchObject({ emergencyUnlockStage: null });
+    // Any other milestone with no unlock running is over.
+    prisma.phoneStatus.findUnique.mockResolvedValue({ emergencyUnlockStage: '1h_left' });
+    await checkIn(H, 'mia', { ...base, uninstallGuard: false }, now);
+    expect(stored()).toMatchObject({ emergencyUnlockStage: null });
+
+    // An older app says nothing about it.
+    await checkIn(H, 'mia', base, now);
+    expect(stored()).toMatchObject({ uninstallGuard: null, emergencyUnlockStage: null });
+  });
+
+  it('alerts each emergency unlock milestone once, replacing the one before', async () => {
+    const phone = { userId: 'mia', lastSeenAt: hoursAgo(1), locationAlways: true, deviceName: null, uninstallGuard: false };
+    prisma.supervision.findMany.mockResolvedValue([link('alex')]);
+    prisma.phoneStatus.findMany.mockResolvedValue([{ ...phone, emergencyUnlockStage: '2h_elapsed' }]);
+    prisma.notification.findMany.mockResolvedValue([{ id: 'n1', dedupeKey: 'phone:emergency_unlock_started:mia:alex' }]);
+    await refreshPhoneAlerts(H, now);
+    expect(prisma.notification.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ['n1'] } } });
+    expect(prisma.notification.createMany.mock.calls[0][0].data.map((r: { dedupeKey: string }) => r.dedupeKey)).toEqual([
+      'phone:emergency_unlock_2h:mia:alex',
+    ]);
+    expect(push.pushSync).toHaveBeenCalledWith(H, { userIds: ['alex'] }, 'reminder');
   });
 
   it('stores the status a supervised phone sends, and its last word before switching off', async () => {

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { EMERGENCY_UNLOCK_STAGES } from '@/lib/phoneHealth';
 
 /**
  * How the phone is doing, so a phone that goes quiet can be told apart (flat,
@@ -34,6 +35,12 @@ export const phoneCheckInSchema = z.object({
   stayConnected: z.boolean().optional(),
   /** "Keep Our Home running" is on in Android's Accessibility settings (left out by older apps). */
   closeGuard: z.boolean().optional(),
+  /** OurHome is a device admin there, so uninstalling needs the parent's PIN (left out by older apps). */
+  uninstallGuard: z.boolean().optional(),
+  /** An emergency unlock milestone due now; sent once each. */
+  emergencyUnlockStage: z.enum(EMERGENCY_UNLOCK_STAGES).optional(),
+  /** When a running emergency unlock finishes (the phone's clock); left out when none is running. */
+  emergencyUnlockReadyAtMs: z.number().int().positive().optional(),
   /** Sent only while an adult looks after the member (phoneStatusSchema). */
   status: phoneStatusSchema.optional(),
   /** Android is switching the phone off: this is its last word until it's back. */

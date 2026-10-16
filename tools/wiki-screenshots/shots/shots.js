@@ -52,7 +52,7 @@ const shots = {
   },
   'calendar-event-modal.png': async p => { await go(p, 'calendar'); await openDialog(p, 'New event'); await el(p, 'calendar-event-modal.png', dialog(p)); },
   'settings-overview.png': async p => { await go(p, 'settings'); await view(p, 'settings-overview.png'); },
-  'settings-points-timezone.png': async p => { await go(p, 'settings'); await el(p, 'settings-points-timezone.png', card(p, 'Task points')); },
+  'settings-points-timezone.png': async p => { await go(p, 'settings'); await el(p, 'settings-points-timezone.png', card(p, 'Time zone and week'), card(p, 'Task points')); },
   'settings-categories-card.png': async p => { await go(p, 'settings'); await el(p, 'settings-categories-card.png', card(p, 'Categories')); },
   'settings-integrations-nfc.png': async p => { await go(p, 'settings'); await el(p, 'settings-integrations-nfc.png', card(p, 'Home Assistant connection'), card(p, 'NFC tags')); },
   'rooms-settings-card.png': async p => { await go(p, 'settings'); await el(p, 'rooms-settings-card.png', card(p, 'Rooms & floors')); },

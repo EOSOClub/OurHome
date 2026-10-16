@@ -10,31 +10,20 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select } from '@/components/ui/select';
 
-const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
-/** Head only: the time→points rate, and the calendar the stats and task
- *  cycles use (time zone, first day of the week). */
+/** Head only: the time→points rate. The time zone and week start are on
+ *  their own card (time-zone-card.tsx). */
 export function PointsCard({ initial }: { initial: PointsSettingsDTO }) {
   const [minutesPerPoint, setMinutesPerPoint] = useState(String(initial.minutesPerPoint));
-  const [timezone, setTimezone] = useState(initial.timezone);
-  const [weekStartsOn, setWeekStartsOn] = useState(initial.weekStartsOn);
 
   const save = useMutation({
     mutationFn: () =>
       apiFetch<PointsSettingsDTO>('/api/points/settings', {
         method: 'POST',
-        body: JSON.stringify({
-          minutesPerPoint: Number(minutesPerPoint),
-          timezone: timezone.trim(),
-          weekStartsOn,
-        }),
+        body: JSON.stringify({ minutesPerPoint: Number(minutesPerPoint) }),
       }),
     onSuccess: (s) => {
       setMinutesPerPoint(String(s.minutesPerPoint));
-      setTimezone(s.timezone);
-      setWeekStartsOn(s.weekStartsOn);
       toast.success('Points settings saved');
     },
   });
@@ -62,21 +51,6 @@ export function PointsCard({ initial }: { initial: PointsSettingsDTO }) {
               {rate > 0 ? `45 min of work = ${Math.round((45 / rate) * 100) / 100} pts.` : ''} Only new
               calculations use it; existing tasks keep their points.
             </p>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="tz">Time zone</Label>
-            <Input id="tz" value={timezone} onChange={(e) => setTimezone(e.target.value)} placeholder="America/Chicago" />
-            <p className="text-xs text-muted-foreground">Days, weeks and task cycles start at midnight here.</p>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="wk">Weeks start on</Label>
-            <Select id="wk" value={weekStartsOn} onChange={(e) => setWeekStartsOn(Number(e.target.value))}>
-              {WEEKDAYS.map((d, i) => (
-                <option key={d} value={i}>
-                  {d}
-                </option>
-              ))}
-            </Select>
           </div>
         </div>
         <div className="flex justify-end">

@@ -27,6 +27,7 @@ import { LiveCheckCard } from '@/components/settings/live-check-card';
 import type { LiveCheckSettings } from '@/lib/location';
 import { ExportCard } from '@/components/settings/export-card';
 import { PointsCard } from '@/components/settings/points-card';
+import { TimeZoneCard } from '@/components/settings/time-zone-card';
 import { Button, type ButtonProps } from '@/components/ui/button';
 import {
   Card,
@@ -122,6 +123,8 @@ export function SettingsView({
           Manage categories, connect Home Assistant, and map NFC tags.
         </p>
       </div>
+      {/* One household row holds both; the time zone isn't a points setting. */}
+      {initialPoints ? <TimeZoneCard initial={initialPoints} /> : null}
       {initialPoints ? <PointsCard initial={initialPoints} /> : null}
       {/* Rooms are where tasks are done and stock is kept: shown while either is on. */}
       {placesEnabled(features) ? <PlacesCard initial={initialPlaces} /> : null}

@@ -7,7 +7,7 @@ import { formatRelativeTime } from '@/lib/format';
 // (the viewer's zone). Any date label computed from "now" or a local day then
 // came out differently in the two renders - e.g. "Due tomorrow" flipping to
 // "Due today" in the evening. Formatting every date in the household's zone
-// (Settings → Task points) makes both renders produce the same text.
+// (Settings → Time zone and week) makes both renders produce the same text.
 
 const HouseholdZoneContext = createContext<string | undefined>(undefined);
 

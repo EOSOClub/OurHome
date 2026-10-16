@@ -140,7 +140,8 @@ follows the Tasks grid like any other edit. Everyone sees the `/points` stats.
 | --- | --- |
 | Undo a completion (restores the task, voids its points) | the completer within 10 minutes; the head any time |
 | Void a points entry in the ledger (with a reason) | head |
-| Change the rate, time zone, week start | head (Settings → Task points) |
+| Change the rate | head (Settings → Task points) |
+| Change the time zone, week start | head (Settings → Time zone and week) |
 
 Rules: `docs/points.md`.
 

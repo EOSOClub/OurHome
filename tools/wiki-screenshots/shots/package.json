@@ -1,9 +1,0 @@
-{
-  "name": "wiki-screenshots",
-  "private": true,
-  "description": "Takes the wiki's web app screenshots from the Maple House demo household",
-  "type": "commonjs",
-  "dependencies": {
-    "playwright-core": "^1.48.2"
-  }
-}

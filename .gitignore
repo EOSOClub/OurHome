@@ -49,6 +49,14 @@ yarn-error.log*
 # IDE + local AI-assistant notes
 /.idea/
 /.claude/
+/CLAUDE.md
+# Written and rewritten by `next dev` for AI coding tools.
+/AGENTS.md
+
+# The maintainer's own dev work: planning notes, and the demo household and
+# scripts that take the wiki's screenshots. Not needed to build, run or deploy.
+/TODO.md
+/tools/wiki-screenshots/
 
 # vercel
 .vercel

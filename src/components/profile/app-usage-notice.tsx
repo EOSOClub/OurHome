@@ -26,7 +26,7 @@ export function AppUsageNotice() {
       </CardHeader>
       <CardContent className="space-y-2 pt-0 text-sm text-muted-foreground">
         <p>
-          The OurHome app on your phone sends how long you spend in each app, about once an hour. Only the adults
+          The OurHome app on your phone sends how long you spend in each app, about every 15 minutes. Only the adults
           who look after you can see it, and only the last {USAGE_KEEP_DAYS} days are kept. Nothing is blocked or
           limited.
         </p>

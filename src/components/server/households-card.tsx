@@ -32,6 +32,10 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { FieldNote } from '@/components/ui/field-note';
+import { useFieldErrors } from '@/lib/use-field-errors';
+import { fieldProblem } from '@/lib/validation/messages';
+import { emailSchema, passwordSchema, usernameSchema } from '@/lib/validation/user';
 import { toast } from '@/components/ui/toast';
 
 const KEY = ['server', 'households'] as const;
@@ -244,6 +248,7 @@ function CreateHouseholdDialog({ onClose, onCreated }: { onClose: () => void; on
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const fe = useFieldErrors('hh');
 
   const create = useMutation({
     mutationFn: () =>
@@ -263,14 +268,24 @@ function CreateHouseholdDialog({ onClose, onCreated }: { onClose: () => void; on
       toast.success(`Created “${h.name}”. Give ${name.trim()} their username and temporary password.`);
       onCreated();
     },
-    // Errors (e.g. username taken) surface via the global mutation toast.
+    // Says why (e.g. username taken) and marks the field.
+    onError: fe.fail,
   });
 
+  // Checked as they type, by the server's own rules; the server's word wins.
+  // A taken username or email comes back as "head.username" / "head.email";
+  // anything else about the head as "head", saying which field.
+  const usernameError = fe.get('head.username') ?? fieldProblem(usernameSchema, username);
+  const emailError = fe.get('head.email') ?? fieldProblem(emailSchema, email);
+  const passwordError = fieldProblem(passwordSchema, password);
   const valid =
     householdName.trim().length > 0 &&
     name.trim().length > 0 &&
-    /^[a-zA-Z0-9._-]{3,30}$/.test(username.trim()) &&
-    password.length >= 8;
+    !!username.trim() &&
+    !usernameError &&
+    !emailError &&
+    !!password &&
+    !passwordError;
 
   return (
     <Dialog open onClose={onClose} title="New household">
@@ -280,18 +295,27 @@ function CreateHouseholdDialog({ onClose, onCreated }: { onClose: () => void; on
           e.preventDefault();
           if (valid && !create.isPending) create.mutate();
         }}
+        {...fe.formProps}
       >
-        <div className="space-y-1.5">
+        <div className="space-y-1.5" data-field="householdName">
           <Label htmlFor="hh-name">Household name</Label>
-          <Input id="hh-name" autoFocus value={householdName} onChange={(e) => setHouseholdName(e.target.value)} />
+          <Input
+            id="hh-name"
+            autoFocus
+            value={householdName}
+            onChange={(e) => setHouseholdName(e.target.value)}
+            {...fe.invalid('householdName')}
+          />
+          <FieldNote id={fe.noteId('householdName')} error={fe.get('householdName')} />
         </div>
         <p className="text-sm font-medium">Head of House</p>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <FieldNote id={fe.noteId('head')} error={fe.get('head')} />
+        <div className="grid gap-4 sm:grid-cols-2" data-field="head">
           <div className="space-y-1.5">
             <Label htmlFor="hh-head-name">Name</Label>
             <Input id="hh-head-name" value={name} onChange={(e) => setName(e.target.value)} />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="head head.username">
             <Label htmlFor="hh-head-username">Username</Label>
             <Input
               id="hh-head-username"
@@ -299,11 +323,22 @@ function CreateHouseholdDialog({ onClose, onCreated }: { onClose: () => void; on
               autoCapitalize="none"
               spellCheck={false}
               onChange={(e) => setUsername(e.target.value)}
+              aria-invalid={usernameError ? true : undefined}
+              aria-describedby="hh-head-username-note"
             />
+            <FieldNote id="hh-head-username-note" error={usernameError} />
           </div>
-          <div className="space-y-1.5 sm:col-span-2">
+          <div className="space-y-1.5 sm:col-span-2" data-field="head head.email">
             <Label htmlFor="hh-head-email">Email (optional, for password resets)</Label>
-            <Input id="hh-head-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <Input
+              id="hh-head-email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              aria-invalid={emailError ? true : undefined}
+              aria-describedby="hh-head-email-note"
+            />
+            <FieldNote id="hh-head-email-note" error={emailError} />
           </div>
           <div className="space-y-1.5 sm:col-span-2">
             <Label htmlFor="hh-head-password">Temporary password</Label>
@@ -313,11 +348,14 @@ function CreateHouseholdDialog({ onClose, onCreated }: { onClose: () => void; on
               autoComplete="off"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              aria-invalid={passwordError ? true : undefined}
+              aria-describedby="hh-head-password-note"
             />
-            <p className="text-xs text-muted-foreground">
-              At least 8 characters. They must choose their own the first time they sign in.
-              Usernames are unique across the whole server.
-            </p>
+            <FieldNote
+              id="hh-head-password-note"
+              error={passwordError}
+              hint="At least 8 characters. They must choose their own the first time they sign in. Usernames are unique across the whole server."
+            />
           </div>
         </div>
         <div className="flex justify-end gap-2">
@@ -425,6 +463,7 @@ function FeaturesDialog({
 
 function ResetHeadDialog({ household, onClose }: { household: HouseholdSummaryDTO; onClose: () => void }) {
   const [password, setPassword] = useState('');
+  const fe = useFieldErrors('reset-head');
   const reset = useMutation({
     mutationFn: () =>
       apiFetch('/api/server/households/reset-head-password', {
@@ -435,17 +474,20 @@ function ResetHeadDialog({ household, onClose }: { household: HouseholdSummaryDT
       toast.success(`Password reset. ${household.head?.name ?? 'They'} must choose a new one at sign-in.`);
       onClose();
     },
+    onError: fe.fail,
   });
+  const passwordError = fe.get('password') ?? fieldProblem(passwordSchema, password);
   return (
     <Dialog open onClose={onClose} title={`Reset ${household.head?.name ?? 'head'}’s password`}>
       <form
         className="space-y-4"
         onSubmit={(e) => {
           e.preventDefault();
-          if (password.length >= 8 && !reset.isPending) reset.mutate();
+          if (password.length >= 8 && !passwordError && !reset.isPending) reset.mutate();
         }}
+        {...fe.formProps}
       >
-        <div className="space-y-1.5">
+        <div className="space-y-1.5" data-field="password">
           <Label htmlFor="reset-head-password">Temporary password</Label>
           <Input
             id="reset-head-password"
@@ -454,10 +496,14 @@ function ResetHeadDialog({ household, onClose }: { household: HouseholdSummaryDT
             autoComplete="off"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            aria-invalid={passwordError ? true : undefined}
+            aria-describedby={fe.noteId('password')}
           />
-          <p className="text-xs text-muted-foreground">
-            They’re signed out everywhere and must choose their own password at next sign-in.
-          </p>
+          <FieldNote
+            id={fe.noteId('password')}
+            error={passwordError}
+            hint="They’re signed out everywhere and must choose their own password at next sign-in."
+          />
         </div>
         <div className="flex justify-end gap-2">
           <Button type="button" variant="ghost" onClick={onClose}>
@@ -489,6 +535,7 @@ function DeleteHouseholdDialog({
   onDeleted: () => void;
 }) {
   const [typed, setTyped] = useState('');
+  const fe = useFieldErrors('delete-household');
   const remove = useMutation({
     mutationFn: () =>
       apiFetch('/api/server/households/delete', {
@@ -499,6 +546,7 @@ function DeleteHouseholdDialog({
       toast.success(`Deleted “${household.name}”`);
       onDeleted();
     },
+    onError: fe.fail,
   });
   const matches = typed.trim() === household.name.trim();
   return (
@@ -509,6 +557,7 @@ function DeleteHouseholdDialog({
           e.preventDefault();
           if (matches && !remove.isPending) remove.mutate();
         }}
+        {...fe.formProps}
       >
         <div className="space-y-2 text-sm">
           <p>
@@ -521,7 +570,7 @@ function DeleteHouseholdDialog({
             household data.
           </p>
         </div>
-        <div className="space-y-1.5">
+        <div className="space-y-1.5" data-field="confirmName">
           <Label htmlFor="delete-household-name">Type the household’s name to confirm</Label>
           <Input
             id="delete-household-name"
@@ -530,7 +579,9 @@ function DeleteHouseholdDialog({
             value={typed}
             placeholder={household.name}
             onChange={(e) => setTyped(e.target.value)}
+            {...fe.invalid('confirmName')}
           />
+          <FieldNote id={fe.noteId('confirmName')} error={fe.get('confirmName')} />
         </div>
         <div className="flex justify-end gap-2">
           <Button type="button" variant="ghost" onClick={onClose}>
@@ -589,6 +640,7 @@ function RestoreHouseholdDialog({ onClose, onRestored }: { onClose: () => void; 
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [report, setReport] = useState<RestoreReport | null>(null);
+  const fe = useFieldErrors('restore');
 
   const restore = useMutation({
     mutationFn: () =>
@@ -600,7 +652,8 @@ function RestoreHouseholdDialog({ onClose, onRestored }: { onClose: () => void; 
       setReport(r);
       onRestored();
     },
-    // Clashing usernames etc. come from the global mutation toast.
+    // Says why (a clashing username, a file the server can't read) and marks the field it names.
+    onError: fe.fail,
   });
 
   async function pickFile(file: File | undefined) {
@@ -640,7 +693,9 @@ function RestoreHouseholdDialog({ onClose, onRestored }: { onClose: () => void; 
     );
   }
 
-  const valid = !!preview && name.trim().length > 0 && password.length >= 8;
+  const passwordError = fe.get('headPassword') ?? fieldProblem(passwordSchema, password);
+  const fileProblem = fileError ?? fe.get('data');
+  const valid = !!preview && name.trim().length > 0 && !!password && !passwordError;
   return (
     <Dialog open onClose={onClose} title="Restore a household">
       <form
@@ -649,20 +704,23 @@ function RestoreHouseholdDialog({ onClose, onRestored }: { onClose: () => void; 
           e.preventDefault();
           if (valid && !restore.isPending) restore.mutate();
         }}
+        {...fe.formProps}
       >
-        <div className="space-y-1.5">
+        <div className="space-y-1.5" data-field="data">
           <Label htmlFor="restore-file">Export file</Label>
           <Input
             id="restore-file"
             type="file"
             accept="application/json,.json"
             onChange={(e) => void pickFile(e.target.files?.[0])}
+            aria-invalid={fileProblem ? true : undefined}
+            aria-describedby={fe.noteId('data')}
           />
-          <p className="text-xs text-muted-foreground">
-            The JSON file from Settings → Export household data. It comes back as a new household; nothing on
-            this server is changed or replaced.
-          </p>
-          {fileError ? <p className="text-xs text-destructive">{fileError}</p> : null}
+          <FieldNote
+            id={fe.noteId('data')}
+            error={fileProblem}
+            hint="The JSON file from Settings → Export household data. It comes back as a new household; nothing on this server is changed or replaced."
+          />
         </div>
         {preview ? (
           <>
@@ -671,11 +729,12 @@ function RestoreHouseholdDialog({ onClose, onRestored }: { onClose: () => void; 
               {preview.head ? ` · head @${preview.head}` : ''}
               {preview.exportedAt ? ` · exported ${formatDate(preview.exportedAt, timeZone)}` : ''}
             </p>
-            <div className="space-y-1.5">
+            <div className="space-y-1.5" data-field="name">
               <Label htmlFor="restore-name">Household name</Label>
-              <Input id="restore-name" value={name} onChange={(e) => setName(e.target.value)} />
+              <Input id="restore-name" value={name} onChange={(e) => setName(e.target.value)} {...fe.invalid('name')} />
+              <FieldNote id={fe.noteId('name')} error={fe.get('name')} />
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-1.5" data-field="headPassword">
               <Label htmlFor="restore-password">Temporary password for the Head of House</Label>
               <Input
                 id="restore-password"
@@ -683,11 +742,14 @@ function RestoreHouseholdDialog({ onClose, onRestored }: { onClose: () => void; 
                 autoComplete="off"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                aria-invalid={passwordError ? true : undefined}
+                aria-describedby={fe.noteId('headPassword')}
               />
-              <p className="text-xs text-muted-foreground">
-                At least 8 characters; they choose their own at first sign-in. Exports hold no passwords, so the
-                other members get theirs from the head (Members → Reset password).
-              </p>
+              <FieldNote
+                id={fe.noteId('headPassword')}
+                error={passwordError}
+                hint="At least 8 characters; they choose their own at first sign-in. Exports hold no passwords, so the other members get theirs from the head (Members → Reset password)."
+              />
             </div>
           </>
         ) : null}

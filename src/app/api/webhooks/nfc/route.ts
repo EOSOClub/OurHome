@@ -1,6 +1,6 @@
 import { type NextRequest } from 'next/server';
-import { z, ZodError } from 'zod';
-import { fail, ok, parseBody } from '@/server/api/http';
+import { ZodError } from 'zod';
+import { fail, ok, parseBody, validationFailed } from '@/server/api/http';
 import {
   extractIntegrationToken,
   resolveHouseholdByToken,
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     return ok(item);
   } catch (err) {
     if (err instanceof ZodError) {
-      return fail('Validation failed', 422, z.flattenError(err));
+      return validationFailed(err);
     }
     if (err instanceof NotFoundError) {
       return fail(err.message, 404);

@@ -4,7 +4,9 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { KeyRound, Loader2, LogOut } from 'lucide-react';
 import { changePassword, signOut } from '@/lib/auth-client';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, fieldErrors } from '@/lib/api';
+import { passwordChangeError } from '@/lib/auth-errors';
+import { FieldNote } from '@/components/ui/field-note';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -22,16 +24,21 @@ export function ForcedPasswordChange({ userName }: { userName: string }) {
   const [next, setNext] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // Which field the refusal is about: the temporary one, the new one, or the confirmation.
+  const [bad, setBad] = useState<'current' | 'next' | 'confirm' | null>(null);
   const [loading, setLoading] = useState(false);
 
   const canSubmit =
     current.length > 0 && next.length >= 8 && confirm.length > 0 && !loading;
+  const nextTooShort = next.length > 0 && next.length < 8;
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setBad(null);
     if (next !== confirm) {
       setError('New passwords do not match.');
+      setBad('confirm');
       return;
     }
     setLoading(true);
@@ -42,7 +49,11 @@ export function ForcedPasswordChange({ userName }: { userName: string }) {
     });
     if (error) {
       setLoading(false);
-      setError(error.message || 'Could not set your password.');
+      const refused = passwordChangeError(error, 'Could not set your password.');
+      // "Current password" is this form's temporary one.
+      setError(error.code === 'INVALID_PASSWORD' ? 'That temporary password is incorrect.' : refused.message);
+      const fields = fieldErrors(refused);
+      setBad(fields.currentPassword ? 'current' : fields.newPassword ? 'next' : null);
       return;
     }
     try {
@@ -76,7 +87,12 @@ export function ForcedPasswordChange({ userName }: { userName: string }) {
               autoComplete="current-password"
               required
               value={current}
-              onChange={(e) => setCurrent(e.target.value)}
+              onChange={(e) => {
+                setCurrent(e.target.value);
+                if (bad === 'current') setBad(null);
+              }}
+              aria-invalid={bad === 'current' || undefined}
+              aria-describedby={error ? 'forced-error' : undefined}
             />
           </div>
           <div className="space-y-2">
@@ -87,9 +103,15 @@ export function ForcedPasswordChange({ userName }: { userName: string }) {
               autoComplete="new-password"
               required
               value={next}
-              onChange={(e) => setNext(e.target.value)}
+              onChange={(e) => {
+                setNext(e.target.value);
+                if (bad === 'next') setBad(null);
+              }}
               placeholder="at least 8 characters"
+              aria-invalid={bad === 'next' || nextTooShort || undefined}
+              aria-describedby="forced-next-note"
             />
+            <FieldNote id="forced-next-note" error={nextTooShort ? 'At least 8 characters.' : null} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="confirm-password">Confirm new password</Label>
@@ -99,11 +121,16 @@ export function ForcedPasswordChange({ userName }: { userName: string }) {
               autoComplete="new-password"
               required
               value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
+              onChange={(e) => {
+                setConfirm(e.target.value);
+                if (bad === 'confirm') setBad(null);
+              }}
+              aria-invalid={bad === 'confirm' || undefined}
+              aria-describedby={error ? 'forced-error' : undefined}
             />
           </div>
           {error ? (
-            <p className="text-sm text-destructive" role="alert">
+            <p id="forced-error" className="text-sm text-destructive" role="alert">
               {error}
             </p>
           ) : null}

@@ -14,6 +14,7 @@ import { groupByPlace, moveId } from '@/lib/places';
 import { TASK_STATUSES, TASK_STATUS_LABELS, TASK_TYPES, TASK_TYPE_LABELS } from '@/lib/enums';
 import { cn } from '@/lib/utils';
 import { apiFetch } from '@/lib/api';
+import { useFieldErrors } from '@/lib/use-field-errors';
 import { toast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -195,6 +196,9 @@ export function TasksView({
     queryClient.invalidateQueries({ queryKey: ['tasks'] });
   }
 
+  // The open task form's field errors (one form is open at a time).
+  const taskForm = useFieldErrors('task');
+
   const createMutation = useMutation({
     mutationFn: (payload: TaskFormPayload) =>
       apiFetch<TaskDTO>('/api/tasks', {
@@ -206,6 +210,7 @@ export function TasksView({
       toast.success('Task created');
       invalidate();
     },
+    onError: taskForm.fail,
   });
 
   const updateMutation = useMutation({
@@ -219,6 +224,7 @@ export function TasksView({
       toast.success('Task updated');
       invalidate();
     },
+    onError: taskForm.fail,
   });
 
   // Deliberately not optimistic: completing a recurring task doesn't flip its
@@ -494,6 +500,7 @@ export function TasksView({
     onDelete: (id: string) =>
       setConfirmDelete(tasks.find((t) => t.id === id) ?? null),
     onEdit: (task: TaskDTO) => {
+      taskForm.clear();
       setEditing(task);
       setShowForm(false);
     },
@@ -502,14 +509,15 @@ export function TasksView({
     onToggleSubtask: (subtaskId: string, done: boolean) =>
       toggleSubtaskMutation.mutate({ subtaskId, done }),
     onUndoCompletion: (completionId: string) => undoMutation.mutate(completionId),
+    // Resolve once saved, so the inline field stays (and is marked) when refused.
     onAddSubtask: (taskId: string, title: string) =>
-      addSubtaskMutation.mutate({ taskId, title }),
+      addSubtaskMutation.mutateAsync({ taskId, title }),
     onDeleteSubtask: (subtaskId: string) =>
       deleteSubtaskMutation.mutate(subtaskId),
     onEditSubtask: (
       subtaskId: string,
       patch: { title: string; resetIntervalDays: number | null },
-    ) => editSubtaskMutation.mutate({ subtaskId, ...patch }),
+    ) => editSubtaskMutation.mutateAsync({ subtaskId, ...patch }),
     onMoveSubtask: (task: TaskDTO, subtaskId: string, direction: -1 | 1) => {
       const ids = task.subtasks.map((s) => s.id);
       const from = ids.indexOf(subtaskId);
@@ -537,7 +545,12 @@ export function TasksView({
             </Button>
           ) : null}
           {access.create && !showForm && !editing ? (
-            <Button onClick={() => setShowForm(true)}>
+            <Button
+              onClick={() => {
+                taskForm.clear();
+                setShowForm(true);
+              }}
+            >
               <Plus /> New task
             </Button>
           ) : null}
@@ -551,8 +564,12 @@ export function TasksView({
           members={members}
           minutesPerPoint={minutesPerPoint}
           submitting={createMutation.isPending}
+          errors={taskForm}
           onSubmit={(payload) => createMutation.mutate(payload)}
-          onCancel={() => setShowForm(false)}
+          onCancel={() => {
+            taskForm.clear();
+            setShowForm(false);
+          }}
         />
       ) : null}
 
@@ -567,10 +584,14 @@ export function TasksView({
           minutesPerPoint={minutesPerPoint}
           initial={tasks.find((t) => t.id === editing.id) ?? editing}
           submitting={updateMutation.isPending}
+          errors={taskForm}
           onSubmit={(payload) =>
             updateMutation.mutate({ taskId: editing.id, payload })
           }
-          onCancel={() => setEditing(null)}
+          onCancel={() => {
+            taskForm.clear();
+            setEditing(null);
+          }}
         />
       ) : null}
 

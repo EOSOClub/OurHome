@@ -12,21 +12,26 @@ import {
 export const usernameSchema = z
   .string()
   .trim()
-  .min(3)
-  .max(30)
-  .regex(/^[a-zA-Z0-9._-]+$/, 'Use letters, numbers, and . _ - only.');
+  .min(3, 'At least 3 characters.')
+  .max(30, 'At most 30 characters.')
+  .regex(/^[a-zA-Z0-9._-]+$/, 'Use only letters, numbers and . _ - (no spaces).');
 
 // Better Auth's emailAndPassword minimum is 8.
-export const passwordSchema = z.string().min(8).max(128);
+export const passwordSchema = z
+  .string()
+  .min(8, 'At least 8 characters.')
+  .max(128, 'At most 128 characters.');
 
-export const nameSchema = z.string().trim().min(1).max(80);
+export const nameSchema = z.string().trim().min(1, 'Enter a name.').max(80, 'At most 80 characters.');
+
+export const emailSchema = z.string().trim().email('Enter a valid email address, like name@example.com.').max(160);
 
 // Members may be created with a username only; email is optional and used for
 // password recovery. When omitted the service synthesizes a local placeholder.
 export const createMemberSchema = z.object({
   name: nameSchema,
   username: usernameSchema,
-  email: z.string().trim().email().max(160).optional(),
+  email: emailSchema.optional(),
   role: z.enum(USER_ROLES).default('adult'),
   password: passwordSchema,
   // Who looks after a new child or teen (Head of House only; supervisionService).
@@ -38,7 +43,7 @@ export const updateMemberSchema = z.object({
   id: z.string().cuid(),
   name: nameSchema.optional(),
   username: usernameSchema.optional(),
-  email: z.string().trim().email().max(160).optional(),
+  email: emailSchema.optional(),
 });
 export type UpdateMemberInput = z.infer<typeof updateMemberSchema>;
 
@@ -90,7 +95,7 @@ export const updateProfileSchema = z
   .object({
     name: nameSchema.optional(),
     username: usernameSchema.optional(),
-    email: z.string().trim().email().max(160).optional(),
+    email: emailSchema.optional(),
     bio: optionalText(BIO_MAX),
     avatarEmoji: optionalText(32).refine((v) => v == null || isSingleEmoji(v), {
       message: 'Pick a single emoji.',

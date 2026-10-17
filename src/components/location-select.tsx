@@ -107,6 +107,7 @@ export function LocationSelect({
   onChange,
   emptyLabel,
   roomsOnly = false,
+  ...aria
 }: {
   id: string;
   places: PlacesDTO;
@@ -116,6 +117,9 @@ export function LocationSelect({
   emptyLabel: string;
   /** Rooms only (NFC location tags open a room, not a floor). */
   roomsOnly?: boolean;
+  /** Marks the choice as the problem (red), read out with its note. */
+  'aria-invalid'?: boolean;
+  'aria-describedby'?: string;
 }) {
   const floorIds = new Set(places.floors.map((f) => f.id));
   const loose = places.rooms.filter((r) => !r.floorId || !floorIds.has(r.floorId));
@@ -125,7 +129,7 @@ export function LocationSelect({
     </option>
   );
   return (
-    <Select id={id} value={value} onChange={(e) => onChange(e.target.value)}>
+    <Select id={id} value={value} onChange={(e) => onChange(e.target.value)} {...aria}>
       <option value="">{emptyLabel}</option>
       {places.floors.map((f) => (
         <optgroup key={f.id} label={f.name}>

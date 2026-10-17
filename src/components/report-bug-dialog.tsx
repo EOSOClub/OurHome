@@ -11,6 +11,8 @@ import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { FieldNote } from '@/components/ui/field-note';
+import { useFieldErrors } from '@/lib/use-field-errors';
 
 /**
  * The "Report a bug" form, opened from the user menu. The current page path
@@ -20,11 +22,13 @@ export function ReportBugDialog({ open, onClose }: { open: boolean; onClose: () 
   const pathname = usePathname();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const fe = useFieldErrors('bug');
 
   const close = () => {
     onClose();
     setTitle('');
     setDescription('');
+    fe.clear();
   };
 
   const submit = useMutation({
@@ -42,10 +46,12 @@ export function ReportBugDialog({ open, onClose }: { open: boolean; onClose: () 
       toast.success('Thanks - your bug report was sent.');
       close();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: fe.fail,
   });
 
   const canSubmit = title.trim().length >= 3 && description.trim().length > 0 && !submit.isPending;
+  const titleError =
+    fe.get('title') ?? (title.length > 0 && title.trim().length < 3 ? 'At least 3 characters.' : null);
 
   return (
     <>
@@ -66,8 +72,8 @@ export function ReportBugDialog({ open, onClose }: { open: boolean; onClose: () 
           </>
         }
       >
-        <div className="space-y-4">
-          <div className="space-y-1.5">
+        <div className="space-y-4" {...fe.formProps}>
+          <div className="space-y-1.5" data-field="title">
             <Label htmlFor="bug-title">What&apos;s wrong?</Label>
             <Input
               id="bug-title"
@@ -75,9 +81,12 @@ export function ReportBugDialog({ open, onClose }: { open: boolean; onClose: () 
               maxLength={150}
               placeholder="e.g. Bills page won't load"
               onChange={(e) => setTitle(e.target.value)}
+              aria-invalid={titleError ? true : undefined}
+              aria-describedby={fe.noteId('title')}
             />
+            <FieldNote id={fe.noteId('title')} error={titleError} />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="description">
             <Label htmlFor="bug-description">Details</Label>
             <Textarea
               id="bug-description"
@@ -86,7 +95,9 @@ export function ReportBugDialog({ open, onClose }: { open: boolean; onClose: () 
               rows={5}
               placeholder="What did you do, what did you expect, and what happened instead?"
               onChange={(e) => setDescription(e.target.value)}
+              {...fe.invalid('description')}
             />
+            <FieldNote id={fe.noteId('description')} error={fe.get('description')} />
           </div>
           <p className="text-xs text-muted-foreground">Page: {pathname}</p>
         </div>

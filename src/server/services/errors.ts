@@ -9,18 +9,28 @@ export class NotFoundError extends Error {
   }
 }
 
-/** Thrown when the caller is authenticated but lacks permission for the action. */
+/**
+ * Thrown when the caller is authenticated but lacks permission for the action.
+ * [field]: the form field whose value caused it (a wrong current password), so the form can mark it.
+ */
 export class ForbiddenError extends Error {
-  constructor(message = 'Forbidden') {
+  readonly field?: string;
+  constructor(message = 'Forbidden', field?: string) {
     super(message);
     this.name = 'ForbiddenError';
+    this.field = field;
   }
 }
 
-/** Thrown when an action conflicts with existing state (e.g. a duplicate name). */
+/**
+ * Thrown when an action conflicts with existing state (e.g. a duplicate name).
+ * [field]: the form field whose value caused it, so the form can mark it.
+ */
 export class ConflictError extends Error {
-  constructor(message: string) {
+  readonly field?: string;
+  constructor(message: string, field?: string) {
     super(message);
     this.name = 'ConflictError';
+    this.field = field;
   }
 }

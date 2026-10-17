@@ -15,15 +15,14 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { FieldNote } from '@/components/ui/field-note';
+import { useFieldErrors } from '@/lib/use-field-errors';
+import { fieldProblem } from '@/lib/validation/messages';
+import { emailSchema, passwordSchema, usernameSchema } from '@/lib/validation/user';
 
-/** The first field error from a 422, or the error's own message. */
+/** Why it failed: the server's message names each field and what's wrong with it. */
 export function errorMessage(err: unknown): string {
-  if (err instanceof ApiError) {
-    const fields = (err.details as { fieldErrors?: Record<string, string[]> })?.fieldErrors;
-    const [field, messages] = Object.entries(fields ?? {})[0] ?? [];
-    if (field && messages?.[0]) return `${field}: ${messages[0]}`;
-    return err.message;
-  }
+  if (err instanceof ApiError) return err.message;
   return 'Something went wrong. Try again.';
 }
 
@@ -38,12 +37,20 @@ export function SetupForm({ appName, local }: { appName: string; local: boolean 
   });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const fe = useFieldErrors('setup');
 
   const mismatch = form.confirm.length > 0 && form.password !== form.confirm;
+  // Checked as they type, by the server's own rules; the server's word wins.
+  const usernameError = fe.get('username') ?? fieldProblem(usernameSchema, form.username);
+  const emailError = fe.get('email') ?? fieldProblem(emailSchema, form.email);
+  const passwordError = fe.get('password') ?? fieldProblem(passwordSchema, form.password);
   const canSubmit =
     form.householdName.trim() &&
-    form.username.trim().length >= 3 &&
-    form.password.length >= 8 &&
+    form.username.trim() &&
+    !usernameError &&
+    !emailError &&
+    form.password &&
+    !passwordError &&
     form.password === form.confirm;
 
   async function onSubmit(e: React.FormEvent) {
@@ -64,6 +71,7 @@ export function SetupForm({ appName, local }: { appName: string; local: boolean 
     } catch (err) {
       setLoading(false);
       setError(errorMessage(err));
+      fe.mark(err);
       return;
     }
 
@@ -103,17 +111,19 @@ export function SetupForm({ appName, local }: { appName: string; local: boolean 
             <code className="rounded bg-background px-1">http://192.168.1.20:3000</code>.
           </p>
         ) : null}
-        <form onSubmit={onSubmit} className="space-y-4">
-          <div className="space-y-2">
+        <form onSubmit={onSubmit} className="space-y-4" {...fe.formProps}>
+          <div className="space-y-2" data-field="householdName">
             <Label htmlFor="household">Household name</Label>
             <Input
               id="household"
               required
               value={form.householdName}
               onChange={(e) => setForm({ ...form, householdName: e.target.value })}
+              {...fe.invalid('householdName')}
             />
+            <FieldNote id={fe.noteId('householdName')} error={fe.get('householdName')} />
           </div>
-          <div className="space-y-2">
+          <div className="space-y-2" data-field="username">
             <Label htmlFor="username">Admin username</Label>
             <Input
               id="username"
@@ -124,12 +134,16 @@ export function SetupForm({ appName, local }: { appName: string; local: boolean 
               value={form.username}
               onChange={(e) => setForm({ ...form, username: e.target.value })}
               placeholder="e.g. alex"
+              aria-invalid={usernameError ? true : undefined}
+              aria-describedby={fe.noteId('username')}
             />
-            <p className="text-xs text-muted-foreground">
-              At least 3 characters: letters, numbers, . _ -
-            </p>
+            <FieldNote
+              id={fe.noteId('username')}
+              error={usernameError}
+              hint="3 to 30 letters, numbers or . _ - (no spaces)."
+            />
           </div>
-          <div className="space-y-2">
+          <div className="space-y-2" data-field="email">
             <Label htmlFor="email">Email (optional)</Label>
             <Input
               id="email"
@@ -138,9 +152,12 @@ export function SetupForm({ appName, local }: { appName: string; local: boolean 
               value={form.email}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
               placeholder="for password recovery"
+              aria-invalid={emailError ? true : undefined}
+              aria-describedby={fe.noteId('email')}
             />
+            <FieldNote id={fe.noteId('email')} error={emailError} />
           </div>
-          <div className="space-y-2">
+          <div className="space-y-2" data-field="password">
             <Label htmlFor="password">Password</Label>
             <Input
               id="password"
@@ -149,8 +166,10 @@ export function SetupForm({ appName, local }: { appName: string; local: boolean 
               required
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
+              aria-invalid={passwordError ? true : undefined}
+              aria-describedby={fe.noteId('password')}
             />
-            <p className="text-xs text-muted-foreground">At least 8 characters.</p>
+            <FieldNote id={fe.noteId('password')} error={passwordError} hint="At least 8 characters." />
           </div>
           <div className="space-y-2">
             <Label htmlFor="confirm">Confirm password</Label>
@@ -161,6 +180,7 @@ export function SetupForm({ appName, local }: { appName: string; local: boolean 
               required
               value={form.confirm}
               onChange={(e) => setForm({ ...form, confirm: e.target.value })}
+              aria-invalid={mismatch || undefined}
             />
             {mismatch ? (
               <p className="text-xs text-destructive">Passwords don’t match.</p>

@@ -3,8 +3,9 @@
 import { useState } from 'react';
 import { Loader2, Sparkles } from 'lucide-react';
 import type { LinkPreviewDTO } from '@/lib/types';
-import { apiFetch, ApiError } from '@/lib/api';
+import { apiFetch, ApiError, fieldErrors } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { FieldNote } from '@/components/ui/field-note';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
@@ -18,23 +19,30 @@ export function LinkField({
   id,
   url,
   imageUrl,
+  error,
   onUrlChange,
   onPreview,
 }: {
   id: string;
   url: string;
   imageUrl: string | null;
+  /** What the server said is wrong with the link when saving the item (marks it red). */
+  error?: string | null;
   onUrlChange: (value: string) => void;
   onPreview: (preview: LinkPreviewDTO) => void;
 }) {
   const [fetching, setFetching] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  // "Fetch details" refused the link itself (not a link it simply couldn't read).
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const shownError = error ?? fetchError;
 
   async function fetchPreview() {
     const trimmed = url.trim();
     if (!trimmed) return;
     setFetching(true);
     setNote(null);
+    setFetchError(null);
     try {
       const preview = await apiFetch<LinkPreviewDTO>(
         '/api/shopping/items/preview',
@@ -45,9 +53,10 @@ export function LinkField({
         setNote("Couldn't read that link - fill the details in manually.");
       }
     } catch (err) {
-      setNote(
-        err instanceof ApiError ? err.message : 'Failed to fetch link details.',
-      );
+      const message = err instanceof ApiError ? err.message : 'Failed to fetch link details.';
+      // A link the server calls invalid is marked; a page it couldn't reach is just a note.
+      if (fieldErrors(err).url) setFetchError(fieldErrors(err).url);
+      else setNote(message);
     } finally {
       setFetching(false);
     }
@@ -65,8 +74,11 @@ export function LinkField({
           onChange={(e) => {
             onUrlChange(e.target.value);
             if (note) setNote(null);
+            if (fetchError) setFetchError(null);
           }}
           placeholder="Paste an Amazon (or other) product link…"
+          aria-invalid={shownError ? true : undefined}
+          aria-describedby={`${id}-note`}
         />
         <Button
           type="button"
@@ -94,7 +106,11 @@ export function LinkField({
           </span>
         </div>
       ) : null}
-      {note ? <p className="text-xs text-muted-foreground">{note}</p> : null}
+      {shownError ? (
+        <FieldNote id={`${id}-note`} error={shownError} />
+      ) : note ? (
+        <p id={`${id}-note`} className="text-xs text-muted-foreground">{note}</p>
+      ) : null}
     </div>
   );
 }

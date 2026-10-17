@@ -45,6 +45,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { FieldNote } from '@/components/ui/field-note';
+import { useFieldErrors, type FieldErrorsState } from '@/lib/use-field-errors';
 import { EmptyState } from '@/components/empty-state';
 import { useHouseholdZone } from '@/components/household-zone';
 import { isOverdue } from '@/lib/format';
@@ -112,6 +114,11 @@ export function RequestsView({
   const post = <T,>(path: string, body: unknown) =>
     apiFetch<T>(path, { method: 'POST', body: JSON.stringify(body) });
 
+  // Each form's field errors: the new-request card, the edit dialog, the accept date.
+  const createForm = useFieldErrors('request-new');
+  const editForm = useFieldErrors('request-edit');
+  const acceptForm = useFieldErrors('request-accept');
+
   const createMutation = useMutation({
     mutationFn: (payload: RequestPayload) => post<RequestDTO>('/api/requests', payload),
     onSuccess: (r) => {
@@ -121,7 +128,7 @@ export function RequestsView({
       setFormKey((k) => k + 1);
       invalidate();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: createForm.fail,
   });
 
   const updateMutation = useMutation({
@@ -132,7 +139,7 @@ export function RequestsView({
       setEditing(null);
       invalidate();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: editForm.fail,
   });
 
   const deleteMutation = useMutation({
@@ -154,7 +161,7 @@ export function RequestsView({
       setAccepting(null);
       invalidate();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: acceptForm.fail,
   });
 
   const completeMutation = useMutation({
@@ -197,6 +204,7 @@ export function RequestsView({
               assignees={others}
               submitLabel="Request"
               pending={createMutation.isPending}
+              errors={createForm}
               onSubmit={(payload) => createMutation.mutate(payload)}
             />
           </CardContent>
@@ -225,9 +233,15 @@ export function RequestsView({
                       request={r}
                       currentUserId={currentUserId}
                       busy={busyId === r.id}
-                      onAccept={() => setAccepting(r)}
+                      onAccept={() => {
+                        acceptForm.clear();
+                        setAccepting(r);
+                      }}
                       onComplete={() => completeMutation.mutate(r.id)}
-                      onEdit={() => setEditing(r)}
+                      onEdit={() => {
+                        editForm.clear();
+                        setEditing(r);
+                      }}
                       onDelete={() => setConfirmDelete(r)}
                     />
                   ))}
@@ -261,7 +275,10 @@ export function RequestsView({
                         canManage={canManageMedia}
                         busy={busyId === r.id}
                         onComplete={() => completeMutation.mutate(r.id)}
-                        onEdit={() => setEditing(r)}
+                        onEdit={() => {
+                        editForm.clear();
+                        setEditing(r);
+                      }}
                         onDelete={() => setConfirmDelete(r)}
                       />
                     ))}
@@ -281,6 +298,7 @@ export function RequestsView({
             assignees={others}
             submitLabel="Save changes"
             pending={updateMutation.isPending}
+            errors={editForm}
             onCancel={() => setEditing(null)}
             onSubmit={(payload) => updateMutation.mutate({ ...payload, id: editing.id })}
           />
@@ -288,8 +306,11 @@ export function RequestsView({
       </Dialog>
 
       <AcceptDialog
+        // A fresh date box for each request (it isn't cleared on Accept, so a refused date stays to fix).
+        key={accepting?.id ?? 'none'}
         request={accepting}
         pending={acceptMutation.isPending}
+        errors={acceptForm}
         onClose={() => setAccepting(null)}
         onAccept={(dueAt) => accepting && acceptMutation.mutate({ id: accepting.id, dueAt })}
       />
@@ -469,11 +490,14 @@ function MaintenanceRow({
 function AcceptDialog({
   request,
   pending,
+  errors,
   onClose,
   onAccept,
 }: {
   request: RequestDTO | null;
   pending: boolean;
+  /** The last try's field errors: a refused date is marked with why. */
+  errors: FieldErrorsState;
   onClose: () => void;
   onAccept: (dueAt: string) => void;
 }) {
@@ -497,23 +521,28 @@ function AcceptDialog({
           <Button variant="ghost" onClick={close} disabled={pending}>
             Cancel
           </Button>
-          <Button
-            disabled={!valid || pending}
-            onClick={() => {
-              onAccept(noonIso(date));
-              setDate('');
-            }}
-          >
+          <Button disabled={!valid || pending} onClick={() => onAccept(noonIso(date))}>
             {pending ? <Loader2 className="animate-spin" /> : null}
             {rescheduling ? 'Save date' : 'Accept'}
           </Button>
         </>
       }
     >
-      <div className="space-y-1.5">
+      <div className="space-y-1.5" data-field="dueAt" {...errors.formProps}>
         <Label htmlFor="request-due">When will you have it done?</Label>
-        <Input id="request-due" type="date" min={min} value={date} onChange={(e) => setDate(e.target.value)} />
-        <p className="text-xs text-muted-foreground">This becomes the deadline for the request.</p>
+        <Input
+          id="request-due"
+          type="date"
+          min={min}
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          {...errors.invalid('dueAt')}
+        />
+        <FieldNote
+          id={errors.noteId('dueAt')}
+          error={errors.get('dueAt') ?? (date !== '' && date < min ? 'Pick today or a later day.' : null)}
+          hint="This becomes the deadline for the request."
+        />
       </div>
     </Dialog>
   );
@@ -529,6 +558,7 @@ export function RequestForm({
   assignees,
   submitLabel,
   pending,
+  errors,
   onSubmit,
   onCancel,
 }: {
@@ -536,6 +566,8 @@ export function RequestForm({
   assignees: MemberDTO[];
   submitLabel: string;
   pending: boolean;
+  /** The last save's field errors: those fields are marked with why. */
+  errors: FieldErrorsState;
   onSubmit: (payload: RequestPayload) => void;
   onCancel?: () => void;
 }) {
@@ -578,6 +610,11 @@ export function RequestForm({
     }
   }
 
+  // Why each is red: the server's word first, then what's checked here.
+  const seasonError = errors.get('season') ?? (seasonValid ? null : 'Enter a season from 1 to 100, or leave it blank.');
+  const yearError =
+    errors.get('year') ?? (year !== '' && !yearValid ? 'Enter a 4-digit year from 1870 to 2100.' : null);
+
   return (
     <form
       className="space-y-4"
@@ -585,14 +622,16 @@ export function RequestForm({
         e.preventDefault();
         submit();
       }}
+      {...errors.formProps}
     >
-      <div className="space-y-1.5">
+      <div className="space-y-1.5" data-field="category">
         <Label htmlFor="request-category">What would you like to request?</Label>
         <Select
           id="request-category"
           value={category}
           disabled={initial !== undefined}
           onChange={(e) => setCategory(e.target.value as RequestCategory | '')}
+          {...errors.invalid('category')}
         >
           <option value="" disabled>
             Choose…
@@ -603,15 +642,17 @@ export function RequestForm({
             </option>
           ))}
         </Select>
+        <FieldNote id={errors.noteId('category')} error={errors.get('category')} />
       </div>
 
       {category === 'media' ? (
-        <div className="space-y-1.5">
+        <div className="space-y-1.5" data-field="mediaType">
           <Label htmlFor="request-media-type">Type of media</Label>
           <Select
             id="request-media-type"
             value={mediaType}
             onChange={(e) => setMediaType(e.target.value as MediaType | '')}
+            {...errors.invalid('mediaType')}
           >
             <option value="" disabled>
               Choose…
@@ -622,12 +663,13 @@ export function RequestForm({
               </option>
             ))}
           </Select>
+          <FieldNote id={errors.noteId('mediaType')} error={errors.get('mediaType')} />
         </div>
       ) : null}
 
       {category === 'media' && mediaType !== '' ? (
         <>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="title">
             <Label htmlFor="request-title">Name</Label>
             <Input
               id="request-title"
@@ -636,11 +678,13 @@ export function RequestForm({
               placeholder={mediaType === 'tv' ? 'e.g. Severance' : 'e.g. Dune'}
               maxLength={200}
               required
+              {...errors.invalid('title')}
             />
+            <FieldNote id={errors.noteId('title')} error={errors.get('title')} />
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             {mediaType === 'tv' ? (
-              <div className="space-y-1.5">
+              <div className="space-y-1.5" data-field="season">
                 <Label htmlFor="request-season">Season (optional)</Label>
                 <Input
                   id="request-season"
@@ -648,12 +692,17 @@ export function RequestForm({
                   value={season}
                   onChange={(e) => setSeason(e.target.value.replace(/\D/g, '').slice(0, 3))}
                   placeholder="Whole show"
-                  aria-invalid={!seasonValid}
+                  aria-invalid={seasonError ? true : undefined}
+                  aria-describedby={errors.noteId('season')}
                 />
-                <p className="text-xs text-muted-foreground">Leave blank to request the whole show.</p>
+                <FieldNote
+                  id={errors.noteId('season')}
+                  error={seasonError}
+                  hint="Leave blank to request the whole show."
+                />
               </div>
             ) : null}
-            <div className="space-y-1.5">
+            <div className="space-y-1.5" data-field="year">
               <Label htmlFor="request-year">{yearLabel}</Label>
               <Input
                 id="request-year"
@@ -661,9 +710,11 @@ export function RequestForm({
                 value={year}
                 onChange={(e) => setYear(e.target.value.replace(/\D/g, '').slice(0, 4))}
                 placeholder="YYYY"
-                aria-invalid={year !== '' && !yearValid}
+                aria-invalid={yearError ? true : undefined}
+                aria-describedby={errors.noteId('year')}
                 required
               />
+              <FieldNote id={errors.noteId('year')} error={yearError} />
             </div>
           </div>
         </>
@@ -671,7 +722,7 @@ export function RequestForm({
 
       {category === 'maintenance' ? (
         <>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="title">
             <Label htmlFor="request-title">What needs doing?</Label>
             <Input
               id="request-title"
@@ -680,9 +731,11 @@ export function RequestForm({
               placeholder="e.g. Fix the leaky kitchen faucet"
               maxLength={200}
               required
+              {...errors.invalid('title')}
             />
+            <FieldNote id={errors.noteId('title')} error={errors.get('title')} />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="details">
             <Label htmlFor="request-details">Details (optional)</Label>
             <Textarea
               id="request-details"
@@ -690,11 +743,18 @@ export function RequestForm({
               onChange={(e) => setDetails(e.target.value)}
               placeholder="Where it is, what's wrong, anything that helps"
               maxLength={2000}
+              {...errors.invalid('details')}
             />
+            <FieldNote id={errors.noteId('details')} error={errors.get('details')} />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="assigneeId">
             <Label htmlFor="request-assignee">Who should do it?</Label>
-            <Select id="request-assignee" value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)}>
+            <Select
+              id="request-assignee"
+              value={assigneeId}
+              onChange={(e) => setAssigneeId(e.target.value)}
+              {...errors.invalid('assigneeId')}
+            >
               <option value="" disabled>
                 Choose someone…
               </option>
@@ -704,6 +764,7 @@ export function RequestForm({
                 </option>
               ))}
             </Select>
+            <FieldNote id={errors.noteId('assigneeId')} error={errors.get('assigneeId')} />
             {initial?.status === 'accepted' && assigneeId !== initial.assignee?.id ? (
               <p className="text-xs text-muted-foreground">
                 Changing who does it sends the request back for them to accept.

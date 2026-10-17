@@ -10,6 +10,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import { FieldNote } from '@/components/ui/field-note';
+import { useFieldErrors } from '@/lib/use-field-errors';
 
 /** "5 minutes", "1 hour", "2 hours"; "15 seconds", "1 minute". */
 export function minutesLabel(m: number): string {
@@ -32,6 +34,7 @@ export function everyLabel(s: number): string {
 export function LiveCheckCard({ initial }: { initial: LiveCheckSettings }) {
   const [maxMinutes, setMaxMinutes] = useState(initial.maxMinutes);
   const [minIntervalSec, setMinIntervalSec] = useState(initial.minIntervalSec);
+  const fe = useFieldErrors('lc-card');
 
   const save = useMutation({
     mutationFn: () =>
@@ -44,11 +47,12 @@ export function LiveCheckCard({ initial }: { initial: LiveCheckSettings }) {
       setMinIntervalSec(s.minIntervalSec);
       toast.success('Live check limits saved');
     },
+    onError: fe.fail,
   });
 
   return (
     <Card>
-      <CardContent className="space-y-4 p-5">
+      <CardContent className="space-y-4 p-5" {...fe.formProps}>
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <Radio className="size-4" />
@@ -60,22 +64,29 @@ export function LiveCheckCard({ initial }: { initial: LiveCheckSettings }) {
           </p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
+          <div className="space-y-2" data-field="maxMinutes">
             <Label htmlFor="lc-max">Longest check</Label>
-            <Select id="lc-max" value={maxMinutes} onChange={(e) => setMaxMinutes(Number(e.target.value))}>
+            <Select
+              id="lc-max"
+              value={maxMinutes}
+              onChange={(e) => setMaxMinutes(Number(e.target.value))}
+              {...fe.invalid('maxMinutes')}
+            >
               {LIVE_CHECK_MINUTES.map((m) => (
                 <option key={m} value={m}>
                   {minutesLabel(m)}
                 </option>
               ))}
             </Select>
+            <FieldNote id={fe.noteId('maxMinutes')} error={fe.get('maxMinutes')} />
           </div>
-          <div className="space-y-2">
+          <div className="space-y-2" data-field="minIntervalSec">
             <Label htmlFor="lc-interval">Most often</Label>
             <Select
               id="lc-interval"
               value={minIntervalSec}
               onChange={(e) => setMinIntervalSec(Number(e.target.value))}
+              {...fe.invalid('minIntervalSec')}
             >
               {LIVE_CHECK_INTERVALS.map((s) => (
                 <option key={s} value={s}>
@@ -83,7 +94,11 @@ export function LiveCheckCard({ initial }: { initial: LiveCheckSettings }) {
                 </option>
               ))}
             </Select>
-            <p className="text-xs text-muted-foreground">More often uses more of their phone&apos;s battery.</p>
+            <FieldNote
+              id={fe.noteId('minIntervalSec')}
+              error={fe.get('minIntervalSec')}
+              hint="More often uses more of their phone's battery."
+            />
           </div>
         </div>
         <div className="flex justify-end">

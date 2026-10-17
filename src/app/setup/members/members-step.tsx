@@ -17,6 +17,10 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import { FieldNote } from '@/components/ui/field-note';
+import { useFieldErrors } from '@/lib/use-field-errors';
+import { fieldProblem } from '@/lib/validation/messages';
+import { emailSchema, passwordSchema, usernameSchema } from '@/lib/validation/user';
 import { errorMessage } from '../setup-form';
 
 // The Head of House can hand out any role but head (see canAssignRole).
@@ -30,8 +34,15 @@ export function MembersStep() {
   const [added, setAdded] = useState<HouseholdMemberDTO[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const fe = useFieldErrors('setup-member');
 
-  const canSubmit = form.username.trim().length >= 3 && form.password.length >= 8;
+  // Checked as they type, by the server's own rules; the server's word wins.
+  // The display name is sent as the username, so its problems show there too.
+  const usernameError = fe.first('username', 'name') ?? fieldProblem(usernameSchema, form.username);
+  const emailError = fe.get('email') ?? fieldProblem(emailSchema, form.email);
+  const passwordError = fe.get('password') ?? fieldProblem(passwordSchema, form.password);
+  const canSubmit =
+    !!form.username.trim() && !usernameError && !emailError && !!form.password && !passwordError && !fe.has('role');
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -55,6 +66,7 @@ export function MembersStep() {
       setForm(EMPTY);
     } catch (err) {
       setError(errorMessage(err));
+      fe.mark(err);
     } finally {
       setLoading(false);
     }
@@ -94,8 +106,8 @@ export function MembersStep() {
           </ul>
         ) : null}
 
-        <form onSubmit={onSubmit} className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1.5">
+        <form onSubmit={onSubmit} className="grid gap-3 sm:grid-cols-2" {...fe.formProps}>
+          <div className="space-y-1.5" data-field="username name">
             <Label htmlFor="s-username">Username</Label>
             <Input
               id="s-username"
@@ -104,9 +116,12 @@ export function MembersStep() {
               value={form.username}
               onChange={(e) => setForm({ ...form, username: e.target.value })}
               placeholder="e.g. jordan"
+              aria-invalid={usernameError ? true : undefined}
+              aria-describedby={fe.noteId('username')}
             />
+            <FieldNote id={fe.noteId('username')} error={usernameError} />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="password">
             <Label htmlFor="s-password">Starting password</Label>
             <Input
               id="s-password"
@@ -114,9 +129,12 @@ export function MembersStep() {
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
               placeholder="8+ characters"
+              aria-invalid={passwordError ? true : undefined}
+              aria-describedby={fe.noteId('password')}
             />
+            <FieldNote id={fe.noteId('password')} error={passwordError} />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="email">
             <Label htmlFor="s-email">Email (optional)</Label>
             <Input
               id="s-email"
@@ -124,14 +142,18 @@ export function MembersStep() {
               value={form.email}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
               placeholder="for password recovery"
+              aria-invalid={emailError ? true : undefined}
+              aria-describedby={fe.noteId('email')}
             />
+            <FieldNote id={fe.noteId('email')} error={emailError} />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="role">
             <Label htmlFor="s-role">Role</Label>
             <Select
               id="s-role"
               value={form.role}
               onChange={(e) => setForm({ ...form, role: e.target.value as UserRole })}
+              {...fe.invalid('role')}
             >
               {ROLES.map((r) => (
                 <option key={r} value={r}>
@@ -139,6 +161,7 @@ export function MembersStep() {
                 </option>
               ))}
             </Select>
+            <FieldNote id={fe.noteId('role')} error={fe.get('role')} />
           </div>
           {error ? (
             <p className="text-sm text-destructive sm:col-span-2" role="alert">

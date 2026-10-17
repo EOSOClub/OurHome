@@ -77,6 +77,20 @@ describe('createMember with supervisors', () => {
     );
   });
 
+  it('names the field that clashes, so the form can mark it', async () => {
+    prisma.user.findFirst.mockResolvedValueOnce({ id: 'other', username: 'mia' });
+    await expect(createMember(HOUSEHOLD, head, kidInput)).rejects.toMatchObject({
+      message: 'That username is already taken. Try another.',
+      field: 'username',
+    });
+    prisma.user.findFirst.mockResolvedValueOnce({ id: 'other', username: 'someone' });
+    await expect(createMember(HOUSEHOLD, head, { ...kidInput, email: 'taken@example.com' })).rejects.toMatchObject({
+      message: 'That email is already used by another account.',
+      field: 'email',
+    });
+    expect(prisma.user.create).not.toHaveBeenCalled();
+  });
+
   it('logs as before when nobody was ticked', async () => {
     prisma.user.create.mockResolvedValueOnce(row({ id: 'newkid', name: 'Mia', role: 'child' }));
     await createMember(HOUSEHOLD, head, kidInput);

@@ -21,6 +21,8 @@ import { canModify, type PageAccess } from '@/lib/permissions';
 import { BILL_STATUS_LABELS, type BillStatus } from '@/lib/enums';
 import { formatDueDate, formatMoney, isDueWithinDays, isOverdue } from '@/lib/format';
 import { apiFetch, ApiError } from '@/lib/api';
+import { useFieldErrors } from '@/lib/use-field-errors';
+import { FieldNote } from '@/components/ui/field-note';
 import { toast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -543,6 +545,8 @@ export function BillDialog({
     bill?.recurrence?.until ? dateValue(new Date(bill.recurrence.until)) : '',
   );
   const [error, setError] = useState<string | null>(null);
+  // Which fields the server named; the reason is said in the alert at the top.
+  const fe = useFieldErrors('bill');
 
   const save = useMutation({
     mutationFn: () => {
@@ -584,8 +588,10 @@ export function BillDialog({
           });
     },
     onSuccess: onSaved,
-    onError: (err) =>
-      setError(err instanceof ApiError ? err.message : 'Failed to save bill'),
+    onError: (err) => {
+      setError(err instanceof ApiError ? err.message : 'Failed to save bill');
+      fe.mark(err);
+    },
   });
 
   const canSubmit = name.trim() && Number(amount) >= 0 && amount !== '';
@@ -619,6 +625,7 @@ export function BillDialog({
           e.preventDefault();
           if (canSubmit && !save.isPending) save.mutate();
         }}
+        {...fe.formProps}
       >
         {error ? (
           <p className="text-sm text-destructive" role="alert">
@@ -626,7 +633,7 @@ export function BillDialog({
           </p>
         ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="name">
             <Label htmlFor="bill-name">Name</Label>
             <Input
               id="bill-name"
@@ -634,9 +641,11 @@ export function BillDialog({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Electric"
+              {...fe.invalid('name')}
             />
+            <FieldNote id={fe.noteId('name')} error={fe.get('name')} />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="amount">
             <Label htmlFor="bill-amount">Amount</Label>
             <Input
               id="bill-amount"
@@ -646,32 +655,39 @@ export function BillDialog({
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               placeholder="0.00"
+              {...fe.invalid('amount')}
             />
+            <FieldNote id={fe.noteId('amount')} error={fe.get('amount')} />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="dueDate">
             <Label htmlFor="bill-due">Due date</Label>
             <Input
               id="bill-due"
               type="date"
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
+              {...fe.invalid('dueDate')}
             />
+            <FieldNote id={fe.noteId('dueDate')} error={fe.get('dueDate')} />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="category">
             <Label htmlFor="bill-category">Category</Label>
             <Input
               id="bill-category"
               value={category}
               onChange={(e) => setCategory(e.target.value)}
               placeholder="e.g. Utilities"
+              {...fe.invalid('category')}
             />
+            <FieldNote id={fe.noteId('category')} error={fe.get('category')} />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="assignedUserId">
             <Label htmlFor="bill-assignee">Responsible</Label>
             <Select
               id="bill-assignee"
               value={assignedUserId}
               onChange={(e) => setAssignedUserId(e.target.value)}
+              {...fe.invalid('assignedUserId')}
             >
               <option value="">Unassigned</option>
               {members.map((m) => (
@@ -680,8 +696,10 @@ export function BillDialog({
                 </option>
               ))}
             </Select>
+            <FieldNote id={fe.noteId('assignedUserId')} error={fe.get('assignedUserId')} />
           </div>
-          <div className="space-y-1.5">
+          {/* Every repeat field comes back as "recurrence"; editing any of them clears it. */}
+          <div className="space-y-1.5" data-field="recurrence">
             <Label htmlFor="bill-repeat" className="flex items-center gap-1.5">
               <Repeat className="size-3.5" /> Repeats
             </Label>
@@ -689,6 +707,7 @@ export function BillDialog({
               id="bill-repeat"
               value={repeat}
               onChange={(e) => setRepeat(e.target.value as Repeat)}
+              {...fe.invalid('recurrence')}
             >
               <option value="none">Does not repeat</option>
               <option value="daily">Daily</option>
@@ -696,9 +715,10 @@ export function BillDialog({
               <option value="monthly">Monthly</option>
               <option value="interval">Every N days</option>
             </Select>
+            <FieldNote id={fe.noteId('recurrence')} error={fe.get('recurrence')} />
           </div>
           {repeat !== 'none' ? (
-            <div className="space-y-1.5">
+            <div className="space-y-1.5" data-field="recurrence">
               <Label htmlFor="bill-interval">
                 {repeat === 'weekly' ? 'Every N weeks' : repeat === 'monthly' ? 'Every N months' : 'Every N days'}
               </Label>
@@ -709,11 +729,12 @@ export function BillDialog({
                 max={365}
                 value={interval}
                 onChange={(e) => setInterval(Number(e.target.value) || 1)}
+                {...fe.invalid('recurrence')}
               />
             </div>
           ) : null}
           {repeat === 'weekly' ? (
-            <div className="space-y-1.5 sm:col-span-2">
+            <div className="space-y-1.5 sm:col-span-2" data-field="recurrence">
               <Label>On days (optional)</Label>
               <div className="flex flex-wrap items-center gap-1.5">
                 {WEEKDAY_LABELS.map((label, day) => (
@@ -734,7 +755,7 @@ export function BillDialog({
             </div>
           ) : null}
           {repeat === 'monthly' ? (
-            <div className="space-y-1.5 sm:col-span-2">
+            <div className="space-y-1.5 sm:col-span-2" data-field="recurrence">
               <Label>On days of month (optional)</Label>
               <div className="grid grid-cols-7 gap-1.5 sm:grid-cols-10">
                 {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
@@ -755,19 +776,20 @@ export function BillDialog({
             </div>
           ) : null}
           {repeat !== 'none' ? (
-            <div className="space-y-1.5">
+            <div className="space-y-1.5" data-field="recurrence">
               <Label htmlFor="bill-until">Ends on (optional)</Label>
               <Input
                 id="bill-until"
                 type="date"
                 value={until}
                 onChange={(e) => setUntil(e.target.value)}
+                {...fe.invalid('recurrence')}
               />
             </div>
           ) : null}
         </div>
 
-        <label className="flex items-center gap-2 text-sm">
+        <label className="flex items-center gap-2 text-sm" data-field="autoPay">
           <input
             type="checkbox"
             className="size-4 rounded border-input"
@@ -776,15 +798,18 @@ export function BillDialog({
           />
           Auto-pay enabled
         </label>
+        <FieldNote id={fe.noteId('autoPay')} error={fe.get('autoPay')} />
 
-        <div className="space-y-1.5">
+        <div className="space-y-1.5" data-field="notes">
           <Label htmlFor="bill-notes">Notes</Label>
           <Textarea
             id="bill-notes"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             placeholder="optional"
+            {...fe.invalid('notes')}
           />
+          <FieldNote id={fe.noteId('notes')} error={fe.get('notes')} />
         </div>
       </form>
     </Dialog>

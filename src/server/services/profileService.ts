@@ -97,10 +97,14 @@ export async function updateProfile(
     if (email) or.push({ email });
     const clash = await prisma.user.findFirst({
       where: { OR: or, NOT: { id: userId } },
-      select: { id: true },
+      select: { id: true, username: true },
     });
     if (clash) {
-      throw new ConflictError('That username or email is already in use.');
+      // Say which one, so the form marks that field.
+      if (username && clash.username === username) {
+        throw new ConflictError('That username is already taken. Try another.', 'username');
+      }
+      throw new ConflictError('That email is already used by another account.', 'email');
     }
   }
 
@@ -148,12 +152,12 @@ export async function listHouseholdProfiles(householdId: string): Promise<Househ
 
 /** Throws unless [password] is the user's current password. */
 async function assertCurrentPassword(userId: string, password: string | undefined): Promise<void> {
-  if (!password) throw new ForbiddenError('Enter your current password to change your email.');
+  if (!password) throw new ForbiddenError('Enter your current password to change your email.', 'currentPassword');
   const cred = await prisma.account.findFirst({
     where: { userId, providerId: 'credential' },
     select: { password: true },
   });
   const authCtx = await auth.$context;
   const okPassword = !!cred?.password && (await authCtx.password.verify({ hash: cred.password, password }));
-  if (!okPassword) throw new ForbiddenError('Your current password is incorrect.');
+  if (!okPassword) throw new ForbiddenError('Your current password is incorrect.', 'currentPassword');
 }

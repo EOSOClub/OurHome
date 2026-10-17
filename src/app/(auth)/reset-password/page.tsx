@@ -15,6 +15,8 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { fieldErrors } from '@/lib/api';
+import { passwordChangeError } from '@/lib/auth-errors';
 
 function ResetPasswordForm() {
   const router = useRouter();
@@ -25,6 +27,8 @@ function ResetPasswordForm() {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // Which field the refusal is about: the new password, or the confirmation not matching.
+  const [bad, setBad] = useState<'password' | 'confirm' | null>(null);
   const [loading, setLoading] = useState(false);
 
   // The callback redirect appends ?error=INVALID_TOKEN when the link is bad or
@@ -48,15 +52,19 @@ function ResetPasswordForm() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setBad(null);
     if (password !== confirm) {
       setError('Passwords do not match.');
+      setBad('confirm');
       return;
     }
     setLoading(true);
     const { error } = await resetPassword({ newPassword: password, token: token! });
     setLoading(false);
     if (error) {
-      setError(error.message || 'Could not reset password. The link may have expired.');
+      const refused = passwordChangeError(error, 'Could not reset password. The link may have expired.');
+      setError(refused.message);
+      if (fieldErrors(refused).newPassword) setBad('password');
       return;
     }
     router.push('/login');
@@ -73,7 +81,12 @@ function ResetPasswordForm() {
           autoComplete="new-password"
           required
           value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          onChange={(e) => {
+            setPassword(e.target.value);
+            if (bad === 'password') setBad(null);
+          }}
+          aria-invalid={bad === 'password' || undefined}
+          aria-describedby={error ? 'reset-error' : undefined}
         />
       </div>
       <div className="space-y-2">
@@ -84,11 +97,16 @@ function ResetPasswordForm() {
           autoComplete="new-password"
           required
           value={confirm}
-          onChange={(e) => setConfirm(e.target.value)}
+          onChange={(e) => {
+            setConfirm(e.target.value);
+            if (bad === 'confirm') setBad(null);
+          }}
+          aria-invalid={bad === 'confirm' || undefined}
+          aria-describedby={error ? 'reset-error' : undefined}
         />
       </div>
       {error ? (
-        <p className="text-sm text-destructive" role="alert">
+        <p id="reset-error" className="text-sm text-destructive" role="alert">
           {error}
         </p>
       ) : null}

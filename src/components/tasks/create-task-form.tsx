@@ -16,12 +16,17 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { FieldNote } from '@/components/ui/field-note';
+import type { FieldErrorsState } from '@/lib/use-field-errors';
 import { LocationMultiSelect, placeIdLists, placeValues } from '@/components/location-select';
 import {
   PointsEditor,
   draftFromTask,
   type PointsDraft,
 } from '@/components/tasks/points-editor';
+
+/** The keys the server reports the time, points and checklist under. */
+const POINTS_KEYS = ['estimatedMinutes', 'points', 'pointsFollowTime', 'subtasks'];
 
 const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 const WEEKDAY_VALUES = [1, 2, 3, 4, 5];
@@ -96,6 +101,7 @@ export function CreateTaskForm({
   members,
   initial,
   submitting,
+  errors,
   onSubmit,
   onCancel,
   minutesPerPoint,
@@ -106,6 +112,8 @@ export function CreateTaskForm({
   members: MemberDTO[];
   initial?: TaskDTO;
   submitting: boolean;
+  /** The last save's field errors: those fields are marked with why. */
+  errors: FieldErrorsState;
   onSubmit: (payload: TaskFormPayload) => void;
   onCancel: () => void;
   /** Household rate (points settings), for live points. */
@@ -227,8 +235,8 @@ export function CreateTaskForm({
   return (
     <Card>
       <CardContent className="p-5">
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
+        <form onSubmit={handleSubmit} className="space-y-4" {...errors.formProps}>
+          <div className="space-y-2" data-field="title">
             <Label htmlFor="title">Title</Label>
             <Input
               id="title"
@@ -237,26 +245,31 @@ export function CreateTaskForm({
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. Take the trash out"
+              {...errors.invalid('title')}
             />
+            <FieldNote id={errors.noteId('title')} error={errors.get('title')} />
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-2" data-field="notes">
             <Label htmlFor="notes">Notes</Label>
             <Textarea
               id="notes"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Optional details…"
+              {...errors.invalid('notes')}
             />
+            <FieldNote id={errors.noteId('notes')} error={errors.get('notes')} />
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
+            <div className="space-y-2" data-field="type">
               <Label htmlFor="type">Type</Label>
               <Select
                 id="type"
                 value={type}
                 onChange={(e) => setType(e.target.value)}
+                {...errors.invalid('type')}
               >
                 {TASK_TYPES.map((t) => (
                   <option key={t} value={t}>
@@ -264,13 +277,15 @@ export function CreateTaskForm({
                   </option>
                 ))}
               </Select>
+              <FieldNote id={errors.noteId('type')} error={errors.get('type')} />
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2" data-field="priority">
               <Label htmlFor="priority">Priority</Label>
               <Select
                 id="priority"
                 value={priority}
                 onChange={(e) => setPriority(e.target.value)}
+                {...errors.invalid('priority')}
               >
                 {TASK_PRIORITIES.map((p) => (
                   <option key={p} value={p}>
@@ -278,17 +293,20 @@ export function CreateTaskForm({
                   </option>
                 ))}
               </Select>
+              <FieldNote id={errors.noteId('priority')} error={errors.get('priority')} />
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2" data-field="dueDate">
               <Label htmlFor="dueDate">Due date</Label>
               <Input
                 id="dueDate"
                 type="date"
                 value={dueDate}
                 onChange={(e) => setDueDate(e.target.value)}
+                {...errors.invalid('dueDate')}
               />
+              <FieldNote id={errors.noteId('dueDate')} error={errors.get('dueDate')} />
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2" data-field="dueDate">
               <Label htmlFor="dueTime">Due time</Label>
               <Input
                 id="dueTime"
@@ -296,14 +314,16 @@ export function CreateTaskForm({
                 value={dueTime}
                 disabled={!dueDate}
                 onChange={(e) => setDueTime(e.target.value)}
+                {...errors.invalid('dueDate')}
               />
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2" data-field="assigneeId">
               <Label htmlFor="assignee">{rotating ? 'Whose turn now' : 'Assignee'}</Label>
               <Select
                 id="assignee"
                 value={currentTurn}
                 onChange={(e) => setAssigneeId(e.target.value)}
+                {...errors.invalid('assigneeId')}
               >
                 {rotating ? null : <option value="">Unassigned</option>}
                 {turnMembers.map((m) => (
@@ -312,13 +332,15 @@ export function CreateTaskForm({
                   </option>
                 ))}
               </Select>
+              <FieldNote id={errors.noteId('assigneeId')} error={errors.get('assigneeId')} />
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2" data-field="categoryId">
               <Label htmlFor="category">Category</Label>
               <Select
                 id="category"
                 value={categoryId}
                 onChange={(e) => setCategoryId(e.target.value)}
+                {...errors.invalid('categoryId')}
               >
                 <option value="">None</option>
                 {categories.map((c) => (
@@ -327,11 +349,12 @@ export function CreateTaskForm({
                   </option>
                 ))}
               </Select>
+              <FieldNote id={errors.noteId('categoryId')} error={errors.get('categoryId')} />
             </div>
           </div>
 
           {places.floors.length || places.rooms.length ? (
-            <div className="space-y-2">
+            <div className="space-y-2" data-field="roomIds floorIds roomId floorId">
               <Label>Location</Label>
               <LocationMultiSelect
                 id="location"
@@ -340,11 +363,20 @@ export function CreateTaskForm({
                 onChange={setLocations}
                 emptyLabel="Whole house"
               />
+              <FieldNote id="task-location-note" error={errors.first('roomIds', 'floorIds', 'roomId', 'floorId')} />
             </div>
           ) : null}
 
           {isRecurring ? (
-            <div className="space-y-4 rounded-md border border-border bg-muted/40 p-4">
+            <div
+              className={cn(
+                'space-y-4 rounded-md border bg-muted/40 p-4',
+                // Anything in the repeat rule comes back as "recurrence".
+                errors.has('recurrence') ? 'border-destructive' : 'border-border',
+              )}
+              data-field="recurrence"
+            >
+              <FieldNote id={errors.noteId('recurrence')} error={errors.get('recurrence')} />
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="recurKind">Repeats</Label>
@@ -451,8 +483,9 @@ export function CreateTaskForm({
                 />
               </div>
 
-              <div className="space-y-2 border-t border-border pt-4">
+              <div className="space-y-2 border-t border-border pt-4" data-field="rotationUserIds">
                 <Label>Take turns (optional)</Label>
+                <FieldNote id={errors.noteId('rotationUserIds')} error={errors.get('rotationUserIds')} />
                 <p className="text-xs text-muted-foreground">
                   Pick people in turn order. Each time the task is done
                   {rollover ? ' or its cycle ends (even if missed)' : ''}, it passes to the next person.
@@ -575,7 +608,15 @@ export function CreateTaskForm({
             </div>
           ) : null}
 
-          <div className="space-y-2 rounded-md border border-border p-4">
+          <div
+            className={cn(
+              'space-y-2 rounded-md border p-4',
+              errors.first(...POINTS_KEYS) ? 'border-destructive' : 'border-border',
+            )}
+            data-field={POINTS_KEYS.join(' ')}
+          >
+            {/* Time, points and the checklist; a step's problem says which step. */}
+            <FieldNote id="task-points-note" error={errors.first(...POINTS_KEYS)} />
             <PointsEditor value={points} onChange={setPoints} minutesPerPoint={minutesPerPoint} />
           </div>
 

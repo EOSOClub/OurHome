@@ -9,6 +9,8 @@ import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { FieldNote } from '@/components/ui/field-note';
+import { useFieldErrors } from '@/lib/use-field-errors';
 
 // Minimal typing for the Turnstile global injected by the Cloudflare script.
 interface TurnstileApi {
@@ -50,6 +52,8 @@ export function ContactDialog({
   const [token, setToken] = useState('');
   const [scriptReady, setScriptReady] = useState(false);
   const [scriptRequested, setScriptRequested] = useState(false);
+  // Which fields the server named; the reason is said in the alert below the form.
+  const fe = useFieldErrors('contact');
 
   const openedAt = useRef(0);
   const widgetContainer = useRef<HTMLDivElement>(null);
@@ -61,6 +65,7 @@ export function ContactDialog({
     setDescription('');
     setCompany('');
     setError(null);
+    fe.clear();
     setSent(false);
     setToken('');
     openedAt.current = Date.now();
@@ -126,6 +131,7 @@ export function ContactDialog({
           ? err.message
           : 'Something went wrong. Please try again.',
       );
+      fe.mark(err);
       // Let the visitor retry with a fresh challenge.
       if (widgetId.current && window.turnstile) window.turnstile.reset(widgetId.current);
       setToken('');
@@ -176,8 +182,8 @@ export function ContactDialog({
             </Button>
           </div>
         ) : (
-          <form onSubmit={onSubmit} className="space-y-4">
-            <div className="space-y-2">
+          <form onSubmit={onSubmit} className="space-y-4" {...fe.formProps}>
+            <div className="space-y-2" data-field="name">
               <Label htmlFor="contact-name">Name</Label>
               <Input
                 id="contact-name"
@@ -187,9 +193,11 @@ export function ContactDialog({
                 maxLength={100}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                {...fe.invalid('name')}
               />
+              <FieldNote id={fe.noteId('name')} error={fe.get('name')} />
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2" data-field="email">
               <Label htmlFor="contact-email">Email</Label>
               <Input
                 id="contact-email"
@@ -201,9 +209,11 @@ export function ContactDialog({
                 maxLength={254}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                {...fe.invalid('email')}
               />
+              <FieldNote id={fe.noteId('email')} error={fe.get('email')} />
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2" data-field="description">
               <Label htmlFor="contact-description">Description</Label>
               <Textarea
                 id="contact-description"
@@ -214,7 +224,9 @@ export function ContactDialog({
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="How can we help?"
+                {...fe.invalid('description')}
               />
+              <FieldNote id={fe.noteId('description')} error={fe.get('description')} />
             </div>
 
             {/* Honeypot: hidden from humans; bots that fill it are dropped. */}

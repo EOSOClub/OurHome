@@ -17,6 +17,8 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { FieldNote } from '@/components/ui/field-note';
+import { useFieldErrors } from '@/lib/use-field-errors';
 import { toast } from '@/components/ui/toast';
 import { useHouseholdZone } from '@/components/household-zone';
 
@@ -246,6 +248,7 @@ function ConnectionForm({
   const [url, setUrl] = useState(own?.url ?? '');
   const [publicUrl, setPublicUrl] = useState(own?.publicUrl ?? '');
   const [token, setToken] = useState('');
+  const fe = useFieldErrors('pl');
 
   const save = useMutation({
     mutationFn: () =>
@@ -259,10 +262,14 @@ function ConnectionForm({
       setToken('');
       onDone();
     },
-    // "Couldn't use that Paperless: …" comes from the global mutation toast.
+    // Says why ("Couldn't use that Paperless: …", or which field is wrong) and marks it.
+    onError: fe.fail,
   });
 
-  const canSave = /^https?:\/\/\S+$/i.test(url.trim()) && (token.trim().length > 0 || !!own) && !save.isPending;
+  const urlLooksRight = /^https?:\/\/\S+$/i.test(url.trim());
+  const canSave = urlLooksRight && (token.trim().length > 0 || !!own) && !save.isPending;
+  const urlError =
+    fe.get('url') ?? (url.trim() && !urlLooksRight ? 'Start with http:// or https://, with no spaces.' : null);
 
   return (
     <form
@@ -271,33 +278,45 @@ function ConnectionForm({
         e.preventDefault();
         if (canSave) save.mutate();
       }}
+      {...fe.formProps}
     >
       <p className="text-sm font-medium">{own ? 'Change your Paperless' : 'Connect your Paperless'}</p>
-      <div className="space-y-1.5">
+      <div className="space-y-1.5" data-field="url">
         <Label htmlFor="pl-url">Paperless address</Label>
         <Input
           id="pl-url"
           placeholder={status.privateNetworkAllowed ? 'http://paperless:8000' : 'https://paperless.example.com'}
           value={url}
           onChange={(e) => setUrl(e.target.value)}
+          aria-invalid={urlError ? true : undefined}
+          aria-describedby={fe.noteId('url')}
         />
-        <p className="text-xs text-muted-foreground">
-          {status.privateNetworkAllowed
-            ? 'How this server reaches it: a Docker or home-network address works.'
-            : 'Must be a public internet address. To use one on this server’s own network, ask the server admin to allow it.'}
-        </p>
+        <FieldNote
+          id={fe.noteId('url')}
+          error={urlError}
+          hint={
+            status.privateNetworkAllowed
+              ? 'How this server reaches it: a Docker or home-network address works.'
+              : 'Must be a public internet address. To use one on this server’s own network, ask the server admin to allow it.'
+          }
+        />
       </div>
-      <div className="space-y-1.5">
+      <div className="space-y-1.5" data-field="publicUrl">
         <Label htmlFor="pl-public">Address you open it at (optional)</Label>
         <Input
           id="pl-public"
           placeholder="https://paperless.example.com"
           value={publicUrl}
           onChange={(e) => setPublicUrl(e.target.value)}
+          {...fe.invalid('publicUrl')}
         />
-        <p className="text-xs text-muted-foreground">For “Open in Paperless” links on skipped documents.</p>
+        <FieldNote
+          id={fe.noteId('publicUrl')}
+          error={fe.get('publicUrl')}
+          hint="For “Open in Paperless” links on skipped documents."
+        />
       </div>
-      <div className="space-y-1.5">
+      <div className="space-y-1.5" data-field="token">
         <Label htmlFor="pl-token">API token</Label>
         <Input
           id="pl-token"
@@ -306,11 +325,16 @@ function ConnectionForm({
           placeholder={own ? 'Leave blank to keep the saved token' : ''}
           value={token}
           onChange={(e) => setToken(e.target.value)}
+          {...fe.invalid('token')}
         />
-        <p className="text-xs text-muted-foreground">
-          Of a read-only Paperless user that can see the <code>bill</code> / <code>bill-payment</code> tags and
-          the Amount field. Stored encrypted. Saving checks the connection first.
-        </p>
+        {fe.get('token') ? (
+          <FieldNote id={fe.noteId('token')} error={fe.get('token')} />
+        ) : (
+          <p id={fe.noteId('token')} className="text-xs text-muted-foreground">
+            Of a read-only Paperless user that can see the <code>bill</code> / <code>bill-payment</code> tags and
+            the Amount field. Stored encrypted. Saving checks the connection first.
+          </p>
+        )}
       </div>
       <div className="flex justify-end gap-2">
         {onCancel ? (

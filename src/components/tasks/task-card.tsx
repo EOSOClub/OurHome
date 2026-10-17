@@ -30,6 +30,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { FieldNote } from '@/components/ui/field-note';
+import { fieldErrors } from '@/lib/api';
 import { CompletionHistory } from '@/components/tasks/completion-history';
 import { SubtaskRow } from '@/components/tasks/subtask-row';
 import { formatDueDate, isOverdue } from '@/lib/format';
@@ -88,12 +90,14 @@ export function TaskCard({
   /** Park the task out of the active list (true) or bring it back (false). */
   onArchive: (taskId: string, archived: boolean) => void;
   onToggleSubtask: (subtaskId: string, done: boolean) => void;
-  onAddSubtask: (taskId: string, title: string) => void;
+  /** Resolves once saved; rejects when refused (the draft stays, marked). */
+  onAddSubtask: (taskId: string, title: string) => Promise<unknown>;
   onDeleteSubtask: (subtaskId: string) => void;
+  /** Resolves once saved; rejects when refused (the row stays in edit, marked). */
   onEditSubtask: (
     subtaskId: string,
     patch: { title: string; resetIntervalDays: number | null },
-  ) => void;
+  ) => Promise<unknown>;
   onMoveSubtask: (task: TaskDTO, subtaskId: string, direction: -1 | 1) => void;
   onUndoCompletion: (completionId: string) => void;
   completing: boolean;
@@ -118,15 +122,23 @@ export function TaskCard({
     if (focused) document.getElementById(`task-${task.id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }, [focused, task.id]);
   const [subtaskDraft, setSubtaskDraft] = useState('');
+  // Why the server refused the draft (the global toast says it too); cleared on typing.
+  const [subtaskError, setSubtaskError] = useState<string | null>(null);
 
   const doneCount = task.subtasks.filter((s) => s.done).length;
   const hasChecklist = task.subtasks.length > 0;
 
-  function submitSubtask() {
+  async function submitSubtask() {
     const t = subtaskDraft.trim();
     if (!t) return;
-    onAddSubtask(task.id, t);
-    setSubtaskDraft('');
+    setSubtaskError(null);
+    try {
+      await onAddSubtask(task.id, t);
+      // Only once it's added, so a refused title stays to fix.
+      setSubtaskDraft('');
+    } catch (err) {
+      setSubtaskError(fieldErrors(err).title ?? (err instanceof Error ? err.message : 'Could not add it.'));
+    }
   }
 
   return (
@@ -335,28 +347,37 @@ export function TaskCard({
               />
             ))}
             {canEdit ? (
-              <div className="flex gap-2">
-                <Input
-                  value={subtaskDraft}
-                  onChange={(e) => setSubtaskDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      submitSubtask();
-                    }
-                  }}
-                  placeholder="Add a checklist item…"
-                  className="h-9"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={submitSubtask}
-                  aria-label="Add checklist item"
-                >
-                  <Plus />
-                </Button>
+              <div className="space-y-1">
+                <div className="flex gap-2">
+                  <Input
+                    value={subtaskDraft}
+                    onChange={(e) => {
+                      setSubtaskDraft(e.target.value);
+                      setSubtaskError(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void submitSubtask();
+                      }
+                    }}
+                    placeholder="Add a checklist item…"
+                    aria-label="New checklist item"
+                    aria-invalid={subtaskError ? true : undefined}
+                    aria-describedby={`task-${task.id}-new-step-note`}
+                    className="h-9"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void submitSubtask()}
+                    aria-label="Add checklist item"
+                  >
+                    <Plus />
+                  </Button>
+                </div>
+                <FieldNote id={`task-${task.id}-new-step-note`} error={subtaskError} />
               </div>
             ) : null}
           </div>

@@ -12,6 +12,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import { FieldNote } from '@/components/ui/field-note';
+import { useFieldErrors } from '@/lib/use-field-errors';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -22,6 +24,7 @@ export function TimeZoneCard({ initial }: { initial: PointsSettingsDTO }) {
   const [timezone, setTimezone] = useState(initial.timezone);
   const [weekStartsOn, setWeekStartsOn] = useState(initial.weekStartsOn);
   const [savedZone, setSavedZone] = useState(initial.timezone);
+  const fe = useFieldErrors('tz-card');
 
   const save = useMutation({
     mutationFn: () =>
@@ -37,11 +40,12 @@ export function TimeZoneCard({ initial }: { initial: PointsSettingsDTO }) {
       setSavedZone(s.timezone);
       toast.success('Time zone and week saved');
     },
+    onError: fe.fail,
   });
 
   return (
     <Card>
-      <CardContent className="space-y-4 p-5">
+      <CardContent className="space-y-4 p-5" {...fe.formProps}>
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <CalendarClock className="size-4" />
@@ -52,20 +56,36 @@ export function TimeZoneCard({ initial }: { initial: PointsSettingsDTO }) {
           </p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
+          <div className="space-y-2" data-field="timezone">
             <Label htmlFor="tz">Time zone</Label>
-            <Input id="tz" value={timezone} onChange={(e) => setTimezone(e.target.value)} placeholder="America/Chicago" />
-            <p className="text-xs text-muted-foreground">Days, weeks and task cycles start at midnight here.</p>
+            <Input
+              id="tz"
+              value={timezone}
+              onChange={(e) => setTimezone(e.target.value)}
+              placeholder="America/Chicago"
+              {...fe.invalid('timezone')}
+            />
+            <FieldNote
+              id={fe.noteId('timezone')}
+              error={fe.get('timezone')}
+              hint="Days, weeks and task cycles start at midnight here."
+            />
           </div>
-          <div className="space-y-2">
+          <div className="space-y-2" data-field="weekStartsOn">
             <Label htmlFor="wk">Weeks start on</Label>
-            <Select id="wk" value={weekStartsOn} onChange={(e) => setWeekStartsOn(Number(e.target.value))}>
+            <Select
+              id="wk"
+              value={weekStartsOn}
+              onChange={(e) => setWeekStartsOn(Number(e.target.value))}
+              {...fe.invalid('weekStartsOn')}
+            >
               {WEEKDAYS.map((d, i) => (
                 <option key={d} value={i}>
                   {d}
                 </option>
               ))}
             </Select>
+            <FieldNote id={fe.noteId('weekStartsOn')} error={fe.get('weekStartsOn')} />
           </div>
         </div>
         <div className="flex justify-end">

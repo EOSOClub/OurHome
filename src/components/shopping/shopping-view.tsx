@@ -12,7 +12,8 @@ import {
   SHOPPING_PRIORITIES,
   SHOPPING_PRIORITY_LABELS,
 } from '@/lib/enums';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, fieldErrors } from '@/lib/api';
+import { useFieldErrors, type FieldErrorsState } from '@/lib/use-field-errors';
 import { formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { toast } from '@/components/ui/toast';
@@ -21,6 +22,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Dialog } from '@/components/ui/dialog';
+import { FieldNote } from '@/components/ui/field-note';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
 import { LinkField } from '@/components/shopping/link-field';
@@ -139,6 +141,10 @@ export function ShoppingView({
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: LISTS_KEY });
 
+  // Field errors for the new-list form and the rename dialog.
+  const newListForm = useFieldErrors('nl');
+  const renameForm = useFieldErrors('rename-list');
+
   const createList = useMutation({
     mutationFn: (payload: { name: string; kind: string }) =>
       apiFetch<ShoppingListDTO>('/api/shopping/lists', {
@@ -150,6 +156,7 @@ export function ShoppingView({
       selectList(list.id);
       invalidate();
     },
+    onError: newListForm.fail,
   });
 
   const renameList = useMutation({
@@ -162,6 +169,7 @@ export function ShoppingView({
       setRenamingList(false);
       invalidate();
     },
+    onError: renameForm.fail,
   });
 
   const deleteList = useMutation({
@@ -320,7 +328,13 @@ export function ShoppingView({
           </p>
         </div>
         {listAccess.create && !showNewList ? (
-          <Button variant="outline" onClick={() => setShowNewList(true)}>
+          <Button
+            variant="outline"
+            onClick={() => {
+              newListForm.clear();
+              setShowNewList(true);
+            }}
+          >
             <Plus /> New list
           </Button>
         ) : null}
@@ -329,6 +343,7 @@ export function ShoppingView({
       {showNewList ? (
         <NewListForm
           submitting={createList.isPending}
+          errors={newListForm}
           onSubmit={(payload) => createList.mutate(payload)}
           onCancel={() => setShowNewList(false)}
         />
@@ -361,7 +376,10 @@ export function ShoppingView({
                   variant="ghost"
                   size="icon"
                   className="size-8 text-muted-foreground hover:text-foreground"
-                  onClick={() => setRenamingList(true)}
+                  onClick={() => {
+                    renameForm.clear();
+                    setRenamingList(true);
+                  }}
                   aria-label={`Rename ${selected.name}`}
                 >
                   <Pencil />
@@ -413,6 +431,7 @@ export function ShoppingView({
           open={renamingList}
           list={selected}
           pending={renameList.isPending}
+          errors={renameForm}
           onClose={() => setRenamingList(false)}
           onRename={(name) =>
             renameList.mutate({ listId: selected.id, name })
@@ -617,6 +636,9 @@ function QuickAddItem({
   const [url, setUrl] = useState('');
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [showDetails, setShowDetails] = useState(false);
+  const fe = useFieldErrors('qa');
+  // A refused option is hidden under "More options": open them so it can be seen.
+  const detailKeys = ['priority', 'categoryId', 'estimatedPrice', 'notes', 'url', 'imageUrl'];
 
   function reset() {
     setName('');
@@ -652,8 +674,11 @@ function QuickAddItem({
       // Only clear the form once the item is saved so a failed add keeps the
       // user's input for a retry.
       reset();
-    } catch {
-      // The global mutation error handler surfaces a toast.
+      fe.clear();
+    } catch (err) {
+      // The global mutation error handler says why; mark the fields it names.
+      fe.mark(err);
+      if (Object.keys(fieldErrors(err)).some((k) => detailKeys.includes(k))) setShowDetails(true);
     }
   }
 
@@ -661,24 +686,31 @@ function QuickAddItem({
     <form
       onSubmit={handleSubmit}
       className="space-y-3 rounded-lg border border-border bg-card p-3"
+      {...fe.formProps}
     >
       <div className="flex gap-2">
-        <Input
-          aria-label="Item name"
-          value={name}
-          autoFocus
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Add an item…"
-        />
-        <Input
-          aria-label="Quantity"
-          type="number"
-          min={1}
-          max={999}
-          value={quantity}
-          onChange={(e) => setQuantity(Number(e.target.value))}
-          className="w-16 shrink-0"
-        />
+        <div className="min-w-0 flex-1" data-field="name">
+          <Input
+            aria-label="Item name"
+            value={name}
+            autoFocus
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Add an item…"
+            {...fe.invalid('name')}
+          />
+        </div>
+        <div className="shrink-0" data-field="quantity">
+          <Input
+            aria-label="Quantity"
+            type="number"
+            min={1}
+            max={999}
+            value={quantity}
+            onChange={(e) => setQuantity(Number(e.target.value))}
+            className="w-16"
+            {...fe.invalid('quantity')}
+          />
+        </div>
         <Button
           type="submit"
           size="icon"
@@ -688,6 +720,8 @@ function QuickAddItem({
           {submitting ? <Loader2 className="animate-spin" /> : <Plus />}
         </Button>
       </div>
+      <FieldNote id={fe.noteId('name')} error={fe.get('name')} />
+      <FieldNote id={fe.noteId('quantity')} error={fe.get('quantity')} />
 
       <div className="flex items-center justify-between">
         <button
@@ -697,7 +731,7 @@ function QuickAddItem({
         >
           {showDetails ? 'Hide options' : 'More options'}
         </button>
-        <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <label className="flex items-center gap-1.5 text-xs text-muted-foreground" data-field="recurring">
           <input
             type="checkbox"
             checked={recurring}
@@ -707,15 +741,17 @@ function QuickAddItem({
           Recurring
         </label>
       </div>
+      <FieldNote id={fe.noteId('recurring')} error={fe.get('recurring')} />
 
       {showDetails ? (
         <div className="grid gap-3 sm:grid-cols-3">
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="priority">
             <Label htmlFor="qa-priority">Priority</Label>
             <Select
               id="qa-priority"
               value={priority}
               onChange={(e) => setPriority(e.target.value)}
+              {...fe.invalid('priority')}
             >
               {SHOPPING_PRIORITIES.map((p) => (
                 <option key={p} value={p}>
@@ -723,13 +759,15 @@ function QuickAddItem({
                 </option>
               ))}
             </Select>
+            <FieldNote id={fe.noteId('priority')} error={fe.get('priority')} />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="categoryId">
             <Label htmlFor="qa-category">Category</Label>
             <Select
               id="qa-category"
               value={categoryId}
               onChange={(e) => setCategoryId(e.target.value)}
+              {...fe.invalid('categoryId')}
             >
               <option value="">None</option>
               {categories.map((c) => (
@@ -738,8 +776,9 @@ function QuickAddItem({
                 </option>
               ))}
             </Select>
+            <FieldNote id={fe.noteId('categoryId')} error={fe.get('categoryId')} />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="estimatedPrice">
             <Label htmlFor="qa-price">Est. price</Label>
             <Input
               id="qa-price"
@@ -749,22 +788,27 @@ function QuickAddItem({
               value={price}
               onChange={(e) => setPrice(e.target.value)}
               placeholder="0.00"
+              {...fe.invalid('estimatedPrice')}
             />
+            <FieldNote id={fe.noteId('estimatedPrice')} error={fe.get('estimatedPrice')} />
           </div>
-          <div className="space-y-1.5 sm:col-span-3">
+          <div className="space-y-1.5 sm:col-span-3" data-field="notes">
             <Label htmlFor="qa-notes">Notes</Label>
             <Input
               id="qa-notes"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Optional details…"
+              {...fe.invalid('notes')}
             />
+            <FieldNote id={fe.noteId('notes')} error={fe.get('notes')} />
           </div>
-          <div className="sm:col-span-3">
+          <div className="sm:col-span-3" data-field="url imageUrl">
             <LinkField
               id="qa-url"
               url={url}
               imageUrl={imageUrl}
+              error={fe.first('url', 'imageUrl')}
               onUrlChange={(value) => {
                 setUrl(value);
                 setImageUrl(null);
@@ -788,12 +832,15 @@ function RenameListDialog({
   open,
   list,
   pending,
+  errors,
   onClose,
   onRename,
 }: {
   open: boolean;
   list: ShoppingListDTO;
   pending: boolean;
+  /** The last save's field errors: the name is marked with why. */
+  errors: FieldErrorsState;
   onClose: () => void;
   onRename: (name: string) => void;
 }) {
@@ -813,15 +860,17 @@ function RenameListDialog({
 
   return (
     <Dialog open={open} onClose={onClose} title="Rename list">
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="space-y-1.5">
+      <form onSubmit={handleSubmit} className="space-y-4" {...errors.formProps}>
+        <div className="space-y-1.5" data-field="name">
           <Label htmlFor="rename-list-name">List name</Label>
           <Input
             id="rename-list-name"
             autoFocus
             value={name}
             onChange={(e) => setName(e.target.value)}
+            {...errors.invalid('name')}
           />
+          <FieldNote id={errors.noteId('name')} error={errors.get('name')} />
         </div>
         <div className="flex justify-end gap-2">
           <Button type="button" variant="ghost" onClick={onClose} disabled={pending}>
@@ -839,10 +888,13 @@ function RenameListDialog({
 
 function NewListForm({
   submitting,
+  errors,
   onSubmit,
   onCancel,
 }: {
   submitting: boolean;
+  /** The last save's field errors: those fields are marked with why. */
+  errors: FieldErrorsState;
   onSubmit: (payload: { name: string; kind: string }) => void;
   onCancel: () => void;
 }) {
@@ -859,8 +911,9 @@ function NewListForm({
     <form
       onSubmit={handleSubmit}
       className="grid gap-3 rounded-lg border border-border bg-card p-4 sm:grid-cols-[1fr_auto_auto]"
+      {...errors.formProps}
     >
-      <div className="space-y-1.5">
+      <div className="space-y-1.5" data-field="name">
         <Label htmlFor="nl-name">List name</Label>
         <Input
           id="nl-name"
@@ -868,17 +921,20 @@ function NewListForm({
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="e.g. Weekly groceries"
+          {...errors.invalid('name')}
         />
+        <FieldNote id={errors.noteId('name')} error={errors.get('name')} />
       </div>
-      <div className="space-y-1.5">
+      <div className="space-y-1.5" data-field="kind">
         <Label htmlFor="nl-kind">Type</Label>
-        <Select id="nl-kind" value={kind} onChange={(e) => setKind(e.target.value)}>
+        <Select id="nl-kind" value={kind} onChange={(e) => setKind(e.target.value)} {...errors.invalid('kind')}>
           {SHOPPING_LIST_KINDS.map((k) => (
             <option key={k} value={k}>
               {SHOPPING_LIST_KIND_LABELS[k]}
             </option>
           ))}
         </Select>
+        <FieldNote id={errors.noteId('kind')} error={errors.get('kind')} />
       </div>
       <div className="flex items-end gap-2">
         <Button type="submit" disabled={submitting || !name.trim()}>

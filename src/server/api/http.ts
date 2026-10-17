@@ -24,6 +24,7 @@ import {
   isServerAdmin,
 } from '@/server/services/serverAdminService';
 import { FEATURE_LABELS, featureForPath } from '@/lib/features';
+import { fieldErrors, validationMessage } from '@/lib/validation/messages';
 
 // Thin, reusable HTTP layer so route handlers contain no business logic:
 //   route handler -> withAuth -> parse (Zod) -> service.
@@ -203,18 +204,34 @@ export function parseQuery<T>(req: NextRequest, schema: z.ZodType<T>): T {
   return schema.parse(params);
 }
 
+/**
+ * A form that didn't pass validation: a message saying what's wrong with
+ * which field (shown as is in the toast), and in details, Zod's per-field
+ * errors so a form can mark the fields (fieldErrors in lib/api.ts).
+ */
+export function validationFailed(err: ZodError): Response {
+  // Zod's flattened shape, with each field's message saying where inside it a nested problem is.
+  const fields = Object.fromEntries(Object.entries(fieldErrors(err.issues)).map(([key, message]) => [key, [message]]));
+  return fail(validationMessage(err.issues), 422, { formErrors: z.flattenError(err).formErrors, fieldErrors: fields });
+}
+
+/** A refusal that names the field it's about: the same shape as a validation failure, so the form marks it. */
+function fieldDetails(field: string | undefined, message: string) {
+  return field ? { fieldErrors: { [field]: [message] } } : undefined;
+}
+
 function handleError(err: unknown, user: AuthUser, req: NextRequest): Response {
   if (err instanceof ZodError) {
-    return fail('Validation failed', 422, z.flattenError(err));
+    return validationFailed(err);
   }
   if (err instanceof NotFoundError) {
     return fail(err.message, 404);
   }
   if (err instanceof ForbiddenError) {
-    return fail(err.message, 403);
+    return fail(err.message, 403, fieldDetails(err.field, err.message));
   }
   if (err instanceof ConflictError) {
-    return fail(err.message, 409);
+    return fail(err.message, 409, fieldDetails(err.field, err.message));
   }
   console.error('[api] unhandled error', {
     path: new URL(req.url).pathname,

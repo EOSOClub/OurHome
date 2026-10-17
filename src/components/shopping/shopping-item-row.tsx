@@ -12,6 +12,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import { FieldNote } from '@/components/ui/field-note';
+import { useFieldErrors } from '@/lib/use-field-errors';
 import { LinkField } from '@/components/shopping/link-field';
 
 export interface UpdateItemPayload {
@@ -229,6 +231,7 @@ function EditItemForm({
   const [url, setUrl] = useState(item.url ?? '');
   const [imageUrl, setImageUrl] = useState<string | null>(item.imageUrl);
   const [saving, setSaving] = useState(false);
+  const fe = useFieldErrors(`edit-${item.id}`);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -254,26 +257,29 @@ function EditItemForm({
     setSaving(true);
     try {
       await onSave(payload);
-    } catch {
-      // The parent mutation surfaces the error message; keep the form open.
+    } catch (err) {
+      // The parent mutation's toast says why; keep the form open with the fields marked.
+      fe.mark(err);
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3 py-3">
+    <form onSubmit={handleSubmit} className="space-y-3 py-3" {...fe.formProps}>
       <div className="grid gap-3 sm:grid-cols-[1fr_5rem]">
-        <div className="space-y-1.5">
+        <div className="space-y-1.5" data-field="name">
           <Label htmlFor={`edit-name-${item.id}`}>Name</Label>
           <Input
             id={`edit-name-${item.id}`}
             value={name}
             autoFocus
             onChange={(e) => setName(e.target.value)}
+            {...fe.invalid('name')}
           />
+          <FieldNote id={fe.noteId('name')} error={fe.get('name')} />
         </div>
-        <div className="space-y-1.5">
+        <div className="space-y-1.5" data-field="quantity">
           <Label htmlFor={`edit-qty-${item.id}`}>Qty</Label>
           <Input
             id={`edit-qty-${item.id}`}
@@ -282,17 +288,20 @@ function EditItemForm({
             max={999}
             value={quantity}
             onChange={(e) => setQuantity(Number(e.target.value))}
+            {...fe.invalid('quantity')}
           />
+          <FieldNote id={fe.noteId('quantity')} error={fe.get('quantity')} />
         </div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
-        <div className="space-y-1.5">
+        <div className="space-y-1.5" data-field="priority">
           <Label htmlFor={`edit-priority-${item.id}`}>Priority</Label>
           <Select
             id={`edit-priority-${item.id}`}
             value={priority}
             onChange={(e) => setPriority(e.target.value)}
+            {...fe.invalid('priority')}
           >
             {SHOPPING_PRIORITIES.map((p) => (
               <option key={p} value={p}>
@@ -300,13 +309,15 @@ function EditItemForm({
               </option>
             ))}
           </Select>
+          <FieldNote id={fe.noteId('priority')} error={fe.get('priority')} />
         </div>
-        <div className="space-y-1.5">
+        <div className="space-y-1.5" data-field="categoryId">
           <Label htmlFor={`edit-category-${item.id}`}>Category</Label>
           <Select
             id={`edit-category-${item.id}`}
             value={categoryId}
             onChange={(e) => setCategoryId(e.target.value)}
+            {...fe.invalid('categoryId')}
           >
             <option value="">None</option>
             {categories.map((c) => (
@@ -315,8 +326,9 @@ function EditItemForm({
               </option>
             ))}
           </Select>
+          <FieldNote id={fe.noteId('categoryId')} error={fe.get('categoryId')} />
         </div>
-        <div className="space-y-1.5">
+        <div className="space-y-1.5" data-field="estimatedPrice">
           <Label htmlFor={`edit-price-${item.id}`}>Est. price</Label>
           <Input
             id={`edit-price-${item.id}`}
@@ -326,37 +338,45 @@ function EditItemForm({
             value={price}
             onChange={(e) => setPrice(e.target.value)}
             placeholder="0.00"
+            {...fe.invalid('estimatedPrice')}
           />
+          <FieldNote id={fe.noteId('estimatedPrice')} error={fe.get('estimatedPrice')} />
         </div>
       </div>
 
-      <LinkField
-        id={`edit-url-${item.id}`}
-        url={url}
-        imageUrl={imageUrl}
-        onUrlChange={(value) => {
-          setUrl(value);
-          setImageUrl(null);
-        }}
-        onPreview={(preview) => {
-          if (preview.imageUrl) setImageUrl(preview.imageUrl);
-          if (preview.title && !name.trim()) setName(preview.title);
-          if (preview.price != null && !price) setPrice(String(preview.price));
-        }}
-      />
+      <div data-field="url imageUrl">
+        <LinkField
+          id={`edit-url-${item.id}`}
+          url={url}
+          imageUrl={imageUrl}
+          error={fe.first('url', 'imageUrl')}
+          onUrlChange={(value) => {
+            setUrl(value);
+            setImageUrl(null);
+          }}
+          onPreview={(preview) => {
+            if (preview.imageUrl) setImageUrl(preview.imageUrl);
+            if (preview.title && !name.trim()) setName(preview.title);
+            if (preview.price != null && !price) setPrice(String(preview.price));
+          }}
+        />
+      </div>
 
-      <div className="space-y-1.5">
+      <div className="space-y-1.5" data-field="notes">
         <Label htmlFor={`edit-notes-${item.id}`}>Notes</Label>
         <Input
           id={`edit-notes-${item.id}`}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           placeholder="Optional details…"
+          {...fe.invalid('notes')}
         />
+        <FieldNote id={fe.noteId('notes')} error={fe.get('notes')} />
       </div>
+      <FieldNote id={fe.noteId('recurring')} error={fe.get('recurring')} />
 
       <div className="flex items-center justify-between">
-        <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <label className="flex items-center gap-1.5 text-xs text-muted-foreground" data-field="recurring">
           <input
             type="checkbox"
             checked={recurring}

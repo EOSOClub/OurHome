@@ -6,6 +6,8 @@ import { Loader2 } from 'lucide-react';
 import type { BillDTO, BillPaymentDTO } from '@/lib/types';
 import { formatMoney } from '@/lib/format';
 import { apiFetch, ApiError } from '@/lib/api';
+import { useFieldErrors } from '@/lib/use-field-errors';
+import { FieldNote } from '@/components/ui/field-note';
 import { toast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -52,6 +54,8 @@ export function PaymentDialog({
     payment?.confirmationNo ?? '',
   );
   const [error, setError] = useState<string | null>(null);
+  // Which fields the server named; the reason is said in the alert at the top.
+  const fe = useFieldErrors('pay');
 
   const save = useMutation({
     mutationFn: () =>
@@ -85,12 +89,14 @@ export function PaymentDialog({
       toast.success(payment ? 'Payment updated' : 'Payment recorded');
       onSaved();
     },
-    onError: (err) =>
+    onError: (err) => {
       setError(
         err instanceof ApiError
           ? err.message
           : `Failed to ${payment ? 'update' : 'record'} payment`,
-      ),
+      );
+      fe.mark(err);
+    },
   });
 
   const canSubmit = amount !== '' && Number(amount) >= 0;
@@ -127,6 +133,7 @@ export function PaymentDialog({
           e.preventDefault();
           submit();
         }}
+        {...fe.formProps}
       >
         {error ? (
           <p className="text-sm text-destructive" role="alert">
@@ -134,7 +141,7 @@ export function PaymentDialog({
           </p>
         ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="amount">
             <Label htmlFor="pay-amount">Amount paid</Label>
             <Input
               id="pay-amount"
@@ -145,9 +152,11 @@ export function PaymentDialog({
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               placeholder="0.00"
+              {...fe.invalid('amount')}
             />
+            <FieldNote id={fe.noteId('amount')} error={fe.get('amount')} />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="fee">
             <Label htmlFor="pay-fee">Card fee (optional)</Label>
             <Input
               id="pay-fee"
@@ -157,37 +166,46 @@ export function PaymentDialog({
               value={fee}
               onChange={(e) => setFee(e.target.value)}
               placeholder="0.00"
+              {...fe.invalid('fee')}
             />
+            <FieldNote id={fe.noteId('fee')} error={fe.get('fee')} />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="paidAt">
             <Label htmlFor="pay-date">Date</Label>
             <Input
               id="pay-date"
               type="date"
               value={paidAt}
               onChange={(e) => setPaidAt(e.target.value)}
+              {...fe.invalid('paidAt')}
             />
+            <FieldNote id={fe.noteId('paidAt')} error={fe.get('paidAt')} />
           </div>
           {payment ? (
-            <div className="space-y-1.5">
+            <div className="space-y-1.5" data-field="confirmationNo">
               <Label htmlFor="pay-confirmation">Confirmation #</Label>
               <Input
                 id="pay-confirmation"
                 value={confirmationNo}
                 onChange={(e) => setConfirmationNo(e.target.value)}
                 placeholder="optional"
+                {...fe.invalid('confirmationNo')}
               />
+              <FieldNote id={fe.noteId('confirmationNo')} error={fe.get('confirmationNo')} />
             </div>
           ) : null}
         </div>
-        <div className="space-y-1.5">
+        {/* Sent as "note" when recording, "notes" when editing. */}
+        <div className="space-y-1.5" data-field="note notes">
           <Label htmlFor="pay-note">Note</Label>
           <Textarea
             id="pay-note"
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="optional"
+            {...fe.invalid('note', 'notes')}
           />
+          <FieldNote id={fe.noteId('note')} error={fe.first('note', 'notes')} />
         </div>
         <p className="text-xs text-muted-foreground">
           Applied to a {formatMoney(bill.amount, bill.currency)} balance ·{' '}

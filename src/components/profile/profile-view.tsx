@@ -23,7 +23,12 @@ import { AppUsageNotice } from '@/components/profile/app-usage-notice';
 import { useHouseholdFeatures } from '@/components/household-features';
 import type { LocationConsent } from '@/lib/location';
 import { changePassword, updateUser } from '@/lib/auth-client';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, ApiError } from '@/lib/api';
+import { passwordChangeError } from '@/lib/auth-errors';
+import { useFieldErrors } from '@/lib/use-field-errors';
+import { fieldProblem } from '@/lib/validation/messages';
+import { emailSchema, usernameSchema } from '@/lib/validation/user';
+import { FieldNote } from '@/components/ui/field-note';
 import { USER_ROLE_LABELS, type UserRole } from '@/lib/enums';
 import { StatCard } from '@/components/dashboard/stat-card';
 import { Button } from '@/components/ui/button';
@@ -173,6 +178,11 @@ function EditProfileCard({ overview }: { overview: ProfileOverview }) {
   const dirtyUsername = username.trim() !== (overview.username ?? '');
   const dirtyEmail = email.trim() !== overview.email;
   const dirty = dirtyName || dirtyUsername || dirtyEmail;
+  const fe = useFieldErrors('profile');
+  // Checked as they type, by the server's own rules; the server's word wins.
+  const usernameError = fe.get('username') ?? fieldProblem(usernameSchema, username);
+  const emailError = fe.get('email') ?? fieldProblem(emailSchema, email);
+  const nameError = fe.get('name') ?? (name.trim() ? null : 'Enter a name.');
 
   const save = useMutation({
     mutationFn: async () => {
@@ -181,7 +191,9 @@ function EditProfileCard({ overview }: { overview: ProfileOverview }) {
       if (dirtyName) {
         const { error } = await updateUser({ name: name.trim() });
         if (error) {
-          throw new Error(error.message || 'Could not update your name.');
+          const message = error.message || 'Could not update your name.';
+          // Better Auth names no field: this one is about the name.
+          throw new ApiError(message, error.status ?? 400, { fieldErrors: { name: [message] } });
         }
       }
       if (dirtyUsername || dirtyEmail) {
@@ -200,14 +212,17 @@ function EditProfileCard({ overview }: { overview: ProfileOverview }) {
       setEmailPassword('');
       router.refresh();
     },
-    // Errors surface via the global mutation-error toast.
+    // Says why and marks the field (a taken username, a wrong current password).
+    onError: fe.fail,
   });
 
   const canSubmit =
     dirty &&
-    name.trim().length > 0 &&
-    username.trim().length >= 3 &&
-    email.trim().length > 0 &&
+    !nameError &&
+    !!username.trim() &&
+    !usernameError &&
+    !!email.trim() &&
+    !emailError &&
     (!dirtyEmail || emailPassword.length > 0) &&
     !save.isPending;
 
@@ -228,18 +243,22 @@ function EditProfileCard({ overview }: { overview: ProfileOverview }) {
             if (canSubmit) save.mutate();
           }}
           className="space-y-4"
+          {...fe.formProps}
         >
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
+            <div className="space-y-1.5" data-field="name">
               <Label htmlFor="profile-name">Display name</Label>
               <Input
                 id="profile-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 autoComplete="name"
+                aria-invalid={nameError ? true : undefined}
+                aria-describedby={fe.noteId('name')}
               />
+              <FieldNote id={fe.noteId('name')} error={nameError} />
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-1.5" data-field="username">
               <Label htmlFor="profile-username">Username</Label>
               <Input
                 id="profile-username"
@@ -248,9 +267,12 @@ function EditProfileCard({ overview }: { overview: ProfileOverview }) {
                 spellCheck={false}
                 onChange={(e) => setUsername(e.target.value)}
                 autoComplete="username"
+                aria-invalid={usernameError ? true : undefined}
+                aria-describedby={fe.noteId('username')}
               />
+              <FieldNote id={fe.noteId('username')} error={usernameError} />
             </div>
-            <div className="space-y-1.5 sm:col-span-2">
+            <div className="space-y-1.5 sm:col-span-2" data-field="email">
               <Label htmlFor="profile-email">Email</Label>
               <Input
                 id="profile-email"
@@ -258,10 +280,13 @@ function EditProfileCard({ overview }: { overview: ProfileOverview }) {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 autoComplete="email"
+                aria-invalid={emailError ? true : undefined}
+                aria-describedby={fe.noteId('email')}
               />
+              <FieldNote id={fe.noteId('email')} error={emailError} />
             </div>
             {dirtyEmail ? (
-              <div className="space-y-1.5 sm:col-span-2">
+              <div className="space-y-1.5 sm:col-span-2" data-field="currentPassword">
                 <Label htmlFor="profile-email-password">Current password</Label>
                 <Input
                   id="profile-email-password"
@@ -269,10 +294,13 @@ function EditProfileCard({ overview }: { overview: ProfileOverview }) {
                   value={emailPassword}
                   onChange={(e) => setEmailPassword(e.target.value)}
                   autoComplete="current-password"
+                  {...fe.invalid('currentPassword')}
                 />
-                <p className="text-xs text-muted-foreground">
-                  Needed to change your email, since password resets go there.
-                </p>
+                <FieldNote
+                  id={fe.noteId('currentPassword')}
+                  error={fe.get('currentPassword')}
+                  hint="Needed to change your email, since password resets go there."
+                />
               </div>
             ) : null}
           </div>
@@ -291,6 +319,7 @@ function ChangePasswordCard() {
   const [next, setNext] = useState('');
   const [confirm, setConfirm] = useState('');
   const [revokeOthers, setRevokeOthers] = useState(true);
+  const fe = useFieldErrors('password');
 
   const change = useMutation({
     mutationFn: async () => {
@@ -299,9 +328,7 @@ function ChangePasswordCard() {
         newPassword: next,
         revokeOtherSessions: revokeOthers,
       });
-      if (error) {
-        throw new Error(error.message || 'Could not change your password.');
-      }
+      if (error) throw passwordChangeError(error, 'Could not change your password.');
       // Lift the temp-password gate if it was set.
       try {
         await apiFetch('/api/profile/clear-password-flag', { method: 'POST' });
@@ -315,7 +342,8 @@ function ChangePasswordCard() {
       setNext('');
       setConfirm('');
     },
-    // Server errors surface via the global mutation-error toast.
+    // Says why and marks the field (a wrong current password, a refused new one).
+    onError: fe.fail,
   });
 
   const nextTooShort = next.length > 0 && next.length < 8;
@@ -343,8 +371,9 @@ function ChangePasswordCard() {
             if (canSubmit) change.mutate();
           }}
           className="space-y-4"
+          {...fe.formProps}
         >
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="currentPassword">
             <Label htmlFor="current-password">Current password</Label>
             <Input
               id="current-password"
@@ -352,27 +381,26 @@ function ChangePasswordCard() {
               autoComplete="current-password"
               value={current}
               onChange={(e) => setCurrent(e.target.value)}
+              {...fe.invalid('currentPassword')}
             />
+            <FieldNote id={fe.noteId('currentPassword')} error={fe.get('currentPassword')} />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="newPassword">
             <Label htmlFor="new-password">New password</Label>
             <Input
               id="new-password"
               type="password"
               autoComplete="new-password"
               value={next}
+              aria-invalid={nextTooShort || fe.has('newPassword') || undefined}
               aria-describedby="new-password-hint"
               onChange={(e) => setNext(e.target.value)}
             />
-            <p
+            <FieldNote
               id="new-password-hint"
-              className={
-                'text-xs ' +
-                (nextTooShort ? 'text-destructive' : 'text-muted-foreground')
-              }
-            >
-              At least 8 characters.
-            </p>
+              error={fe.get('newPassword') ?? (nextTooShort ? 'At least 8 characters.' : null)}
+              hint="At least 8 characters."
+            />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="confirm-password">Confirm new password</Label>
@@ -382,6 +410,7 @@ function ChangePasswordCard() {
               autoComplete="new-password"
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
+              aria-invalid={mismatch || undefined}
             />
             {mismatch ? (
               <p className="text-xs text-destructive" role="alert">

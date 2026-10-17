@@ -20,10 +20,13 @@ export default function ForgotPasswordPage() {
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The one field: marked when the refusal is about what was typed (not a busy server).
+  const [emailBad, setEmailBad] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setEmailBad(false);
     setLoading(true);
     const { error } = await requestPasswordReset({
       email,
@@ -31,7 +34,14 @@ export default function ForgotPasswordPage() {
     });
     setLoading(false);
     if (error) {
-      setError(error.message || 'Something went wrong. Please try again.');
+      if (error.status === 429) {
+        setError('Too many attempts. Wait a few seconds and try again.');
+      } else if (error.status === 400 || error.code === 'INVALID_EMAIL') {
+        setError('Enter a valid email address, like name@example.com.');
+        setEmailBad(true);
+      } else {
+        setError(error.message || 'Something went wrong. Please try again.');
+      }
       return;
     }
     // Always show the same confirmation to avoid leaking which emails exist.
@@ -74,12 +84,17 @@ export default function ForgotPasswordPage() {
                   autoComplete="email"
                   required
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    setEmailBad(false);
+                  }}
                   placeholder="you@example.com"
+                  aria-invalid={emailBad || undefined}
+                  aria-describedby={error ? 'forgot-error' : undefined}
                 />
               </div>
               {error ? (
-                <p className="text-sm text-destructive" role="alert">
+                <p id="forgot-error" className="text-sm text-destructive" role="alert">
                   {error}
                 </p>
               ) : null}

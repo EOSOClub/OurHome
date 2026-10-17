@@ -69,9 +69,14 @@ async function assertUnique(
   if (or.length === 0) return;
   const clash = await prisma.user.findFirst({
     where: { OR: or, NOT: exceptUserId ? { id: exceptUserId } : undefined },
-    select: { id: true },
+    select: { id: true, username: true },
   });
-  if (clash) throw new ConflictError('That username or email is already in use.');
+  if (!clash) return;
+  // Say which one, so the form marks that field.
+  if (normalizedUsername && clash.username === normalizedUsername) {
+    throw new ConflictError('That username is already taken. Try another.', 'username');
+  }
+  throw new ConflictError('That email is already used by another account.', 'email');
 }
 
 /**

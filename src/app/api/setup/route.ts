@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
-import { z, ZodError } from 'zod';
-import { clientIp, fail, ok, rateLimit } from '@/server/api/http';
+import { ZodError } from 'zod';
+import { clientIp, fail, ok, rateLimit, validationFailed } from '@/server/api/http';
 import { isFromLocalNetwork } from '@/server/security/network';
 import { ConflictError } from '@/server/services/errors';
 import {
@@ -41,7 +41,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     return ok(await completeSetup(input), { status: 201 });
   } catch (err) {
     if (err instanceof ZodError) {
-      return fail('Validation failed', 422, z.flattenError(err));
+      return validationFailed(err);
     }
     if (err instanceof ConflictError) return fail(err.message, 409);
     console.error('[setup] failed', err);

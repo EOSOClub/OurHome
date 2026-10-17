@@ -21,6 +21,8 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import { FieldNote } from '@/components/ui/field-note';
+import { useFieldErrors } from '@/lib/use-field-errors';
 import { Dialog } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
@@ -185,6 +187,8 @@ function CategoryDialog({
   const [color, setColor] = useState(category?.color ?? '#38bdf8');
   const [icon, setIcon] = useState(category?.icon ?? '');
   const [error, setError] = useState<string | null>(null);
+  // Which fields the server named; the reason is said in the alert at the top.
+  const fe = useFieldErrors('cat');
 
   const save = useMutation({
     mutationFn: () => {
@@ -205,8 +209,10 @@ function CategoryDialog({
           });
     },
     onSuccess: onSaved,
-    onError: (err) =>
-      setError(err instanceof ApiError ? err.message : 'Failed to save'),
+    onError: (err) => {
+      setError(err instanceof ApiError ? err.message : 'Failed to save');
+      fe.mark(err);
+    },
   });
 
   return (
@@ -229,28 +235,31 @@ function CategoryDialog({
         </>
       }
     >
-      <div className="space-y-4">
+      <div className="space-y-4" {...fe.formProps}>
         {error ? (
           <p className="text-sm text-destructive" role="alert">
             {error}
           </p>
         ) : null}
-        <div className="space-y-1.5">
+        <div className="space-y-1.5" data-field="name">
           <Label htmlFor="cat-name">Name</Label>
           <Input
             id="cat-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. Cleaning"
+            {...fe.invalid('name')}
           />
+          <FieldNote id={fe.noteId('name')} error={fe.get('name')} />
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="kind">
             <Label htmlFor="cat-kind">Used for</Label>
             <Select
               id="cat-kind"
               value={kind}
               onChange={(e) => setKind(e.target.value as CategoryKind)}
+              {...fe.invalid('kind')}
             >
               {CATEGORY_KINDS.map((k) => (
                 <option key={k} value={k}>
@@ -258,18 +267,21 @@ function CategoryDialog({
                 </option>
               ))}
             </Select>
+            <FieldNote id={fe.noteId('kind')} error={fe.get('kind')} />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="icon">
             <Label htmlFor="cat-icon">Icon / emoji (optional)</Label>
             <Input
               id="cat-icon"
               value={icon}
               onChange={(e) => setIcon(e.target.value)}
               placeholder="e.g. 🧹"
+              {...fe.invalid('icon')}
             />
+            <FieldNote id={fe.noteId('icon')} error={fe.get('icon')} />
           </div>
         </div>
-        <div className="space-y-1.5">
+        <div className="space-y-1.5" data-field="color">
           <Label htmlFor="cat-color">Color</Label>
           <div className="flex items-center gap-2">
             <input
@@ -283,8 +295,11 @@ function CategoryDialog({
               value={color}
               onChange={(e) => setColor(e.target.value)}
               className="max-w-[10rem] font-mono"
+              aria-label="Colour as hex"
+              {...fe.invalid('color')}
             />
           </div>
+          <FieldNote id={fe.noteId('color')} error={fe.get('color')} />
         </div>
       </div>
     </Dialog>

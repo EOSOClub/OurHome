@@ -24,18 +24,34 @@ export function LoginForm({ appName }: { appName: string }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // Which fields the refusal is about (Better Auth names none; its code says).
+  const [bad, setBad] = useState<{ username?: boolean; password?: boolean }>({});
   const [loading, setLoading] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setBad({});
     setLoading(true);
     // Better Auth validates the characters before normalising, so a stray
     // space (autofill, phone keyboards) fails as "Invalid username".
     const { error } = await signIn.username({ username: username.trim(), password });
     setLoading(false);
     if (error) {
-      setError(error.message || 'Invalid username or password.');
+      const code = error.code ?? '';
+      if (code === 'INVALID_USERNAME') {
+        setError('That isn’t a valid username: use only letters, numbers and . _ - (no spaces).');
+        setBad({ username: true });
+      } else if (code === 'USERNAME_TOO_SHORT' || code === 'USERNAME_TOO_LONG') {
+        setError('Usernames are 3 to 30 characters long.');
+        setBad({ username: true });
+      } else if (error.status === 429) {
+        setError('Too many attempts. Wait a few seconds and try again.');
+      } else {
+        // Wrong username or password: both are marked, so it doesn't say which.
+        setError(error.message || 'Invalid username or password.');
+        if (error.status === 401) setBad({ username: true, password: true });
+      }
       return;
     }
     router.push(redirectTo);
@@ -63,8 +79,13 @@ export function LoginForm({ appName }: { appName: string }) {
               spellCheck={false}
               required
               value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              onChange={(e) => {
+                setUsername(e.target.value);
+                setBad((b) => ({ ...b, username: false }));
+              }}
               placeholder="username"
+              aria-invalid={bad.username || undefined}
+              aria-describedby={error ? 'login-error' : undefined}
             />
           </div>
           <div className="space-y-2">
@@ -83,11 +104,16 @@ export function LoginForm({ appName }: { appName: string }) {
               autoComplete="current-password"
               required
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setBad((b) => ({ ...b, password: false }));
+              }}
+              aria-invalid={bad.password || undefined}
+              aria-describedby={error ? 'login-error' : undefined}
             />
           </div>
           {error ? (
-            <p className="text-sm text-destructive" role="alert">
+            <p id="login-error" className="text-sm text-destructive" role="alert">
               {error}
             </p>
           ) : null}

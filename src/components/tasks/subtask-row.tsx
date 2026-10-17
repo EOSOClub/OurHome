@@ -9,6 +9,8 @@ import { usePointsShown } from '@/components/household-features';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
+import { FieldNote } from '@/components/ui/field-note';
+import { fieldErrors } from '@/lib/api';
 
 /**
  * One checklist item - shared by the task card's expanded checklist and the
@@ -16,6 +18,14 @@ import { Input } from '@/components/ui/input';
  * delete confirmation; toggling/reordering/saving go through the caller's
  * mutations.
  */
+
+/** [errs] with [key]'s error dropped (that field was edited). */
+function without(errs: Record<string, string>, key: string): Record<string, string> {
+  if (!(key in errs)) return errs;
+  const next = { ...errs };
+  delete next[key];
+  return next;
+}
 
 function resetBadgeLabel(days: number): string {
   return days === 1 ? 'daily' : `${days}d`;
@@ -37,52 +47,73 @@ export function SubtaskRow({
   isLast: boolean;
   onToggle: (subtaskId: string, done: boolean) => void;
   onDelete: (subtaskId: string) => void;
+  /** Resolves once saved; rejects when refused, and the row stays in edit with the field marked. */
   onSave: (
     subtaskId: string,
     patch: { title: string; resetIntervalDays: number | null },
-  ) => void;
+  ) => Promise<unknown>;
   onMove: (subtaskId: string, direction: -1 | 1) => void;
 }) {
   const showPoints = usePointsShown();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [titleDraft, setTitleDraft] = useState(subtask.title);
   const [resetDraft, setResetDraft] = useState(
     subtask.resetIntervalDays?.toString() ?? '',
   );
+  // What the server said was wrong with each field (the global toast says it too).
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   function startEdit() {
     setTitleDraft(subtask.title);
     setResetDraft(subtask.resetIntervalDays?.toString() ?? '');
+    setErrors({});
     setEditing(true);
   }
 
-  function save() {
+  async function save() {
     const title = titleDraft.trim();
-    if (!title) return;
+    if (!title || saving) return;
     const parsed = parseInt(resetDraft, 10);
     const resetIntervalDays =
       Number.isFinite(parsed) && parsed >= 1 ? Math.min(parsed, 365) : null;
-    onSave(subtask.id, { title, resetIntervalDays });
-    setEditing(false);
+    setSaving(true);
+    setErrors({});
+    try {
+      await onSave(subtask.id, { title, resetIntervalDays });
+      setEditing(false);
+    } catch (err) {
+      const fields = fieldErrors(err);
+      setErrors(Object.keys(fields).length ? fields : { title: err instanceof Error ? err.message : 'Could not save it.' });
+    } finally {
+      setSaving(false);
+    }
   }
 
   if (editing) {
+    const noteId = `step-${subtask.id}-note`;
+    const error = errors.title ?? errors.resetIntervalDays ?? null;
     return (
       <div className="space-y-1.5 rounded-md border border-border p-2">
         <Input
           value={titleDraft}
-          onChange={(e) => setTitleDraft(e.target.value)}
+          onChange={(e) => {
+            setTitleDraft(e.target.value);
+            setErrors((errs) => without(errs, 'title'));
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
               e.preventDefault();
-              save();
+              void save();
             } else if (e.key === 'Escape') {
               setEditing(false);
             }
           }}
           className="h-8 text-sm"
           aria-label="Checklist item title"
+          aria-invalid={errors.title ? true : undefined}
+          aria-describedby={noteId}
           autoFocus
         />
         <div className="flex items-center justify-between gap-2">
@@ -93,10 +124,15 @@ export function SubtaskRow({
               min={1}
               max={365}
               value={resetDraft}
-              onChange={(e) => setResetDraft(e.target.value)}
+              onChange={(e) => {
+                setResetDraft(e.target.value);
+                setErrors((errs) => without(errs, 'resetIntervalDays'));
+              }}
               placeholder="-"
               className="h-7 w-16 text-xs"
               aria-label="Reset interval in days"
+              aria-invalid={errors.resetIntervalDays ? true : undefined}
+              aria-describedby={noteId}
             />
             days
           </label>
@@ -114,16 +150,20 @@ export function SubtaskRow({
               type="button"
               size="sm"
               className="h-7"
-              onClick={save}
-              disabled={!titleDraft.trim()}
+              onClick={() => void save()}
+              disabled={!titleDraft.trim() || saving}
             >
               Save
             </Button>
           </div>
         </div>
-        <p className="text-xs text-muted-foreground">
-          Leave empty to reset only when the task repeats.
-        </p>
+        {error ? (
+          <FieldNote id={noteId} error={error} />
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Leave empty to reset only when the task repeats.
+          </p>
+        )}
       </div>
     );
   }

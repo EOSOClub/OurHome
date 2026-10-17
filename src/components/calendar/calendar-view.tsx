@@ -26,6 +26,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { FieldNote } from '@/components/ui/field-note';
+import { useFieldErrors } from '@/lib/use-field-errors';
 import { Dialog } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { toast } from '@/components/ui/toast';
@@ -772,6 +774,9 @@ function EventDialog({
     };
   };
 
+  // Which fields the server named; the reason is said in the alert at the top.
+  const fe = useFieldErrors('ev');
+
   const save = useMutation({
     mutationFn: () => {
       const payload = buildPayload();
@@ -789,8 +794,10 @@ function EventDialog({
       toast.success(occurrence ? 'Event updated' : 'Event created');
       onSaved();
     },
-    onError: (err) =>
-      setError(err instanceof ApiError ? err.message : 'Failed to save event'),
+    onError: (err) => {
+      setError(err instanceof ApiError ? err.message : 'Failed to save event');
+      fe.mark(err);
+    },
   });
 
   const remove = useMutation({
@@ -870,6 +877,7 @@ function EventDialog({
           if (!canWrite || save.isPending || !canSave) return;
           save.mutate();
         }}
+        {...fe.formProps}
       >
       <fieldset disabled={editingDisabled} className="space-y-4">
         {error ? (
@@ -878,7 +886,7 @@ function EventDialog({
           </p>
         ) : null}
 
-        <div className="space-y-1.5">
+        <div className="space-y-1.5" data-field="title">
           <Label htmlFor="ev-title">Title</Label>
           <Input
             id="ev-title"
@@ -886,10 +894,12 @@ function EventDialog({
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="e.g. Dentist appointment"
+            {...fe.invalid('title')}
           />
+          <FieldNote id={fe.noteId('title')} error={fe.get('title')} />
         </div>
 
-        <label className="flex items-center gap-2 text-sm">
+        <label className="flex items-center gap-2 text-sm" data-field="allDay">
           <input
             type="checkbox"
             className="size-4 rounded border-input"
@@ -898,6 +908,7 @@ function EventDialog({
           />
           All day
         </label>
+        <FieldNote id={fe.noteId('allDay')} error={fe.get('allDay')} />
         {allDay ? (
           <p className="text-xs text-muted-foreground">
             Times are set automatically - starts at 00:00
@@ -906,43 +917,49 @@ function EventDialog({
         ) : null}
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="startAt">
             <Label htmlFor="ev-start-date">Starts</Label>
             <Input
               id="ev-start-date"
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
+              {...fe.invalid('startAt')}
             />
+            <FieldNote id={fe.noteId('startAt')} error={fe.get('startAt')} />
           </div>
           {!allDay ? (
-            <div className="space-y-1.5">
+            <div className="space-y-1.5" data-field="startAt">
               <Label htmlFor="ev-start-time">Start time</Label>
               <Input
                 id="ev-start-time"
                 type="time"
                 value={startTime}
                 onChange={(e) => setStartTime(e.target.value)}
+                {...fe.invalid('startAt')}
               />
             </div>
           ) : null}
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="endAt">
             <Label htmlFor="ev-end-date">Ends (optional)</Label>
             <Input
               id="ev-end-date"
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
+              {...fe.invalid('endAt')}
             />
+            <FieldNote id={fe.noteId('endAt')} error={fe.get('endAt')} />
           </div>
           {!allDay && endDate ? (
-            <div className="space-y-1.5">
+            <div className="space-y-1.5" data-field="endAt">
               <Label htmlFor="ev-end-time">End time</Label>
               <Input
                 id="ev-end-time"
                 type="time"
                 value={endTime}
                 onChange={(e) => setEndTime(e.target.value)}
+                {...fe.invalid('endAt')}
               />
             </div>
           ) : null}
@@ -953,7 +970,7 @@ function EventDialog({
           ) : null}
         </div>
 
-        <div className="space-y-1.5">
+        <div className="space-y-1.5" data-field="location">
           <Label htmlFor="ev-location" className="flex items-center gap-1.5">
             <MapPin className="size-3.5" /> Location
           </Label>
@@ -962,10 +979,13 @@ function EventDialog({
             value={location}
             onChange={(e) => setLocation(e.target.value)}
             placeholder="optional"
+            {...fe.invalid('location')}
           />
+          <FieldNote id={fe.noteId('location')} error={fe.get('location')} />
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
+        {/* Every repeat field comes back as "recurrence"; editing any of them clears it. */}
+        <div className="grid gap-3 sm:grid-cols-2" data-field="recurrence">
           <div className="space-y-1.5">
             <Label htmlFor="ev-repeat" className="flex items-center gap-1.5">
               <Repeat className="size-3.5" /> Repeats
@@ -974,12 +994,14 @@ function EventDialog({
               id="ev-repeat"
               value={repeat}
               onChange={(e) => setRepeat(e.target.value as Repeat)}
+              {...fe.invalid('recurrence')}
             >
               <option value="none">Does not repeat</option>
               <option value="daily">Daily</option>
               <option value="weekly">Weekly</option>
               <option value="monthly">Monthly</option>
             </Select>
+            <FieldNote id={fe.noteId('recurrence')} error={fe.get('recurrence')} />
           </div>
           {repeat !== 'none' ? (
             <div className="space-y-1.5">
@@ -991,6 +1013,7 @@ function EventDialog({
                 max={365}
                 value={interval}
                 onChange={(e) => setInterval(Number(e.target.value) || 1)}
+                {...fe.invalid('recurrence')}
               />
             </div>
           ) : null}
@@ -1044,16 +1067,18 @@ function EventDialog({
                 type="date"
                 value={until}
                 onChange={(e) => setUntil(e.target.value)}
+                {...fe.invalid('recurrence')}
               />
             </div>
           ) : null}
         </div>
 
         {members.length > 0 ? (
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="attendeeIds">
             <Label className="flex items-center gap-1.5">
               <Users className="size-3.5" /> Attendees
             </Label>
+            <FieldNote id={fe.noteId('attendeeIds')} error={fe.get('attendeeIds')} />
             <div className="flex flex-wrap gap-2">
               {members.map((m) => {
                 const on = attendees.has(m.id);
@@ -1076,14 +1101,16 @@ function EventDialog({
           </div>
         ) : null}
 
-        <div className="space-y-1.5">
+        <div className="space-y-1.5" data-field="description">
           <Label htmlFor="ev-desc">Notes</Label>
           <Textarea
             id="ev-desc"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="optional"
+            {...fe.invalid('description')}
           />
+          <FieldNote id={fe.noteId('description')} error={fe.get('description')} />
         </div>
       </fieldset>
       </form>

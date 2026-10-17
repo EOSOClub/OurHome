@@ -22,6 +22,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import { FieldNote } from '@/components/ui/field-note';
+import { useFieldErrors } from '@/lib/use-field-errors';
 
 export function InventoryRow({
   item,
@@ -51,7 +53,8 @@ export function InventoryRow({
   /** Viewer may add to shopping lists (Shopping "Add"). */
   canAddToShopping: boolean;
   onAdjust: (delta: number) => void;
-  onUpdate: (payload: UpdateItemPayload) => void;
+  /** Resolves once saved; rejects when refused (the edit form stays open, marked). */
+  onUpdate: (payload: UpdateItemPayload) => Promise<unknown>;
   onDelete: () => void;
   onAddToShopping: () => void;
   addingToShopping: boolean;
@@ -79,8 +82,9 @@ export function InventoryRow({
         places={places}
         busy={busy}
         onCancel={() => setEditing(false)}
-        onSave={(payload) => {
-          onUpdate(payload);
+        onSave={async (payload) => {
+          // Closes only once saved: a refusal leaves the form open with the field marked.
+          await onUpdate(payload);
           setEditing(false);
         }}
       />
@@ -245,7 +249,8 @@ function EditForm({
   places: PlacesDTO;
   busy: boolean;
   onCancel: () => void;
-  onSave: (payload: UpdateItemPayload) => void;
+  /** Resolves once saved; rejects when refused. */
+  onSave: (payload: UpdateItemPayload) => Promise<unknown>;
 }) {
   const [name, setName] = useState(item.name);
   const [unit, setUnit] = useState(item.unit ?? '');
@@ -256,50 +261,61 @@ function EditForm({
   const [categoryId, setCategoryId] = useState(item.category?.id ?? '');
   const [location, setLocation] = useState(placeValue(item));
   const hasPlaces = places.floors.length > 0 || places.rooms.length > 0;
+  const fe = useFieldErrors(`inv-edit-${item.id}`);
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return;
     const low = Number.parseFloat(lowThreshold);
     const interval = Number.parseInt(reorderIntervalDays, 10);
-    onSave({
-      itemId: item.id,
-      name: name.trim(),
-      unit: unit.trim() ? unit.trim() : null,
-      lowThreshold: Number.isFinite(low) && low >= 0 ? low : 0,
-      reorderIntervalDays:
-        Number.isFinite(interval) && interval > 0 ? interval : null,
-      categoryId: categoryId || null,
-      // Without places there's no picker: leave the stored place alone.
-      ...(hasPlaces ? placeIds(location) : {}),
-    });
+    try {
+      await onSave({
+        itemId: item.id,
+        name: name.trim(),
+        unit: unit.trim() ? unit.trim() : null,
+        lowThreshold: Number.isFinite(low) && low >= 0 ? low : 0,
+        reorderIntervalDays:
+          Number.isFinite(interval) && interval > 0 ? interval : null,
+        categoryId: categoryId || null,
+        // Without places there's no picker: leave the stored place alone.
+        ...(hasPlaces ? placeIds(location) : {}),
+      });
+    } catch (err) {
+      // The global toast says why; mark the fields it names.
+      fe.mark(err);
+    }
   }
 
   return (
     <form
       onSubmit={handleSubmit}
       className={cn('grid gap-3 py-3 sm:grid-cols-[1fr_auto_auto]')}
+      {...fe.formProps}
     >
       <div className="grid gap-3 sm:grid-cols-3">
-        <div className="space-y-1.5">
+        <div className="space-y-1.5" data-field="name">
           <Label htmlFor={`edit-name-${item.id}`}>Name</Label>
           <Input
             id={`edit-name-${item.id}`}
             autoFocus
             value={name}
             onChange={(e) => setName(e.target.value)}
+            {...fe.invalid('name')}
           />
+          <FieldNote id={fe.noteId('name')} error={fe.get('name')} />
         </div>
-        <div className="space-y-1.5">
+        <div className="space-y-1.5" data-field="unit">
           <Label htmlFor={`edit-unit-${item.id}`}>Unit</Label>
           <Input
             id={`edit-unit-${item.id}`}
             value={unit}
             onChange={(e) => setUnit(e.target.value)}
             placeholder="e.g. rolls"
+            {...fe.invalid('unit')}
           />
+          <FieldNote id={fe.noteId('unit')} error={fe.get('unit')} />
         </div>
-        <div className="space-y-1.5">
+        <div className="space-y-1.5" data-field="lowThreshold">
           <Label htmlFor={`edit-low-${item.id}`}>Low at</Label>
           <Input
             id={`edit-low-${item.id}`}
@@ -308,9 +324,11 @@ function EditForm({
             min={0}
             value={lowThreshold}
             onChange={(e) => setLowThreshold(e.target.value)}
+            {...fe.invalid('lowThreshold')}
           />
+          <FieldNote id={fe.noteId('lowThreshold')} error={fe.get('lowThreshold')} />
         </div>
-        <div className="space-y-1.5 sm:col-span-2">
+        <div className="space-y-1.5 sm:col-span-2" data-field="reorderIntervalDays">
           <Label htmlFor={`edit-restock-${item.id}`}>
             Restock every (days)
           </Label>
@@ -322,17 +340,21 @@ function EditForm({
             value={reorderIntervalDays}
             onChange={(e) => setReorderIntervalDays(e.target.value)}
             placeholder="e.g. 14"
+            {...fe.invalid('reorderIntervalDays')}
           />
-          <p className="text-xs text-muted-foreground">
-            Used to predict when you&apos;ll run out and remind you to restock.
-          </p>
+          <FieldNote
+            id={fe.noteId('reorderIntervalDays')}
+            error={fe.get('reorderIntervalDays')}
+            hint="Used to predict when you'll run out and remind you to restock."
+          />
         </div>
-        <div className="space-y-1.5">
+        <div className="space-y-1.5" data-field="categoryId">
           <Label htmlFor={`edit-cat-${item.id}`}>Category</Label>
           <Select
             id={`edit-cat-${item.id}`}
             value={categoryId}
             onChange={(e) => setCategoryId(e.target.value)}
+            {...fe.invalid('categoryId')}
           >
             <option value="">None</option>
             {categories.map((c) => (
@@ -341,9 +363,10 @@ function EditForm({
               </option>
             ))}
           </Select>
+          <FieldNote id={fe.noteId('categoryId')} error={fe.get('categoryId')} />
         </div>
         {hasPlaces ? (
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="roomId floorId">
             <Label htmlFor={`edit-location-${item.id}`}>Kept in</Label>
             <LocationSelect
               id={`edit-location-${item.id}`}
@@ -351,7 +374,9 @@ function EditForm({
               value={location}
               onChange={setLocation}
               emptyLabel="Not set"
+              {...fe.invalid('roomId', 'floorId')}
             />
+            <FieldNote id={fe.noteId('roomId')} error={fe.first('roomId', 'floorId')} />
           </div>
         ) : null}
       </div>

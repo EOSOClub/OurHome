@@ -39,6 +39,8 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import { FieldNote } from '@/components/ui/field-note';
+import { useFieldErrors } from '@/lib/use-field-errors';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { toast } from '@/components/ui/toast';
 import { EmptyState } from '@/components/empty-state';
@@ -176,6 +178,7 @@ function HomeAssistantCard({
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: INTEGRATIONS_KEY });
 
+  const fe = useFieldErrors('ha');
   const create = useMutation({
     mutationFn: (payload: { name: string }) =>
       apiFetch<{ integration: IntegrationDTO; token: string }>(
@@ -187,7 +190,7 @@ function HomeAssistantCard({
       setNewToken(result.token);
       invalidate();
     },
-    // Errors surface via the global mutation-error toast.
+    onError: fe.fail,
   });
 
   const remove = useMutation({
@@ -243,18 +246,23 @@ function HomeAssistantCard({
             e.preventDefault();
             if (name.trim()) create.mutate({ name: name.trim() });
           }}
-          className="flex gap-2"
+          className="space-y-1.5"
+          {...fe.formProps}
         >
-          <Input
-            aria-label="Connection name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Home Assistant (LAN)"
-          />
-          <Button type="submit" disabled={create.isPending || !name.trim()}>
-            {create.isPending ? <Loader2 className="animate-spin" /> : <Plus />}
-            Create token
-          </Button>
+          <div className="flex gap-2" data-field="name">
+            <Input
+              aria-label="Connection name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Home Assistant (LAN)"
+              {...fe.invalid('name')}
+            />
+            <Button type="submit" disabled={create.isPending || !name.trim()}>
+              {create.isPending ? <Loader2 className="animate-spin" /> : <Plus />}
+              Create token
+            </Button>
+          </div>
+          <FieldNote id={fe.noteId('name')} error={fe.get('name')} />
         </form>
 
         {integrations.length === 0 ? (
@@ -350,6 +358,7 @@ function NfcTagsCard({
   const isLocation = represents === 'location';
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: TAGS_KEY });
+  const tagForm = useFieldErrors('tag');
 
   const register = useMutation({
     mutationFn: (payload: {
@@ -368,7 +377,7 @@ function NfcTagsCard({
       setLabel('');
       invalidate();
     },
-    // Errors surface via the global mutation-error toast.
+    onError: tagForm.fail,
   });
 
   const remove = useMutation({
@@ -418,27 +427,32 @@ function NfcTagsCard({
                 });
             }}
             className="grid gap-3 sm:grid-cols-2"
+            {...tagForm.formProps}
           >
-            <div className="space-y-1.5">
+            <div className="space-y-1.5" data-field="tagId">
               <Label htmlFor="tag-id">Tag id</Label>
               <Input
                 id="tag-id"
                 value={tagId}
                 onChange={(e) => setTagId(e.target.value)}
                 placeholder="e.g. pantry_coffee"
+                {...tagForm.invalid('tagId')}
               />
+              <FieldNote id={tagForm.noteId('tagId')} error={tagForm.get('tagId')} />
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-1.5" data-field="label">
               <Label htmlFor="tag-label">Label</Label>
               <Input
                 id="tag-label"
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
                 placeholder="e.g. Coffee shelf"
+                {...tagForm.invalid('label')}
               />
+              <FieldNote id={tagForm.noteId('label')} error={tagForm.get('label')} />
             </div>
             {isLocation ? (
-              <div className="space-y-1.5">
+              <div className="space-y-1.5" data-field="roomId">
                 <Label htmlFor="tag-room">Opens room</Label>
                 {hasRooms ? (
                   <LocationSelect
@@ -448,21 +462,24 @@ function NfcTagsCard({
                     onChange={setRoom}
                     emptyLabel="Choose a room…"
                     roomsOnly
+                    {...tagForm.invalid('roomId')}
                   />
                 ) : (
                   <p className="text-sm text-muted-foreground">
                     Add a room in Rooms &amp; floors first.
                   </p>
                 )}
+                <FieldNote id={tagForm.noteId('roomId')} error={tagForm.get('roomId')} />
               </div>
             ) : (
-              <div className="space-y-1.5">
+              <div className="space-y-1.5" data-field="itemId">
                 <Label htmlFor="tag-item">Inventory item</Label>
                 {items.length ? (
                   <Select
                     id="tag-item"
                     value={itemId}
                     onChange={(e) => setItemId(e.target.value)}
+                    {...tagForm.invalid('itemId')}
                   >
                     {items.map((i) => (
                       <option key={i.id} value={i.id}>
@@ -475,9 +492,10 @@ function NfcTagsCard({
                     Add an inventory item first.
                   </p>
                 )}
+                <FieldNote id={tagForm.noteId('itemId')} error={tagForm.get('itemId')} />
               </div>
             )}
-            <div className="space-y-1.5">
+            <div className="space-y-1.5" data-field="represents">
               <Label htmlFor="tag-represents">Represents</Label>
               <Select
                 id="tag-represents"
@@ -485,6 +503,7 @@ function NfcTagsCard({
                 onChange={(e) =>
                   setRepresents(e.target.value as NfcRepresents)
                 }
+                {...tagForm.invalid('represents')}
               >
                 {NFC_REPRESENTS.map((r) => (
                   <option key={r} value={r}>
@@ -492,6 +511,7 @@ function NfcTagsCard({
                   </option>
                 ))}
               </Select>
+              <FieldNote id={tagForm.noteId('represents')} error={tagForm.get('represents')} />
             </div>
             <div className="flex items-end">
               <Button type="submit" disabled={register.isPending || !canSubmit}>

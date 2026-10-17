@@ -1,6 +1,6 @@
 import { type NextRequest } from 'next/server';
-import { z, ZodError } from 'zod';
-import { clientIp, fail, ok, rateLimit } from '@/server/api/http';
+import { ZodError } from 'zod';
+import { clientIp, fail, ok, rateLimit, validationFailed } from '@/server/api/http';
 import { submitContactMessage } from '@/server/services/contactService';
 import { verifyTurnstile } from '@/server/security/turnstile';
 import { contactSchema } from '@/lib/validation/contact';
@@ -27,7 +27,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     input = contactSchema.parse(raw);
   } catch (err) {
     if (err instanceof ZodError) {
-      return fail('Validation failed', 422, z.flattenError(err));
+      return validationFailed(err);
     }
     return fail('Invalid request', 400);
   }

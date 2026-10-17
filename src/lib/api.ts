@@ -17,6 +17,22 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * The first error for each field a failed form sent back (a 422 from
+ * validationFailed in server/api/http.ts, or a 409 naming its field, like a
+ * username already taken), so the form can mark those fields; empty for any
+ * other failure.
+ */
+export function fieldErrors(err: unknown): Record<string, string> {
+  if (!(err instanceof ApiError)) return {};
+  const fields = (err.details as { fieldErrors?: Record<string, string[] | undefined> } | undefined)?.fieldErrors;
+  const out: Record<string, string> = {};
+  for (const [key, messages] of Object.entries(fields ?? {})) {
+    if (messages?.[0]) out[key] = messages[0];
+  }
+  return out;
+}
+
 export async function apiFetch<T>(
   input: string,
   init?: RequestInit,

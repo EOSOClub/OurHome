@@ -18,7 +18,9 @@ import {
 import type { HouseholdMemberDTO } from '@/lib/types';
 import { USER_ROLES, USER_ROLE_LABELS, type UserRole } from '@/lib/enums';
 import { can, canAssignRole, canBeSupervised, canManageMember } from '@/lib/permissions';
-import { apiFetch, ApiError } from '@/lib/api';
+import { apiFetch, ApiError, fieldErrors } from '@/lib/api';
+import { fieldProblem } from '@/lib/validation/messages';
+import { emailSchema, passwordSchema, usernameSchema } from '@/lib/validation/user';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -28,6 +30,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { FieldNote } from '@/components/ui/field-note';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
@@ -266,8 +269,21 @@ function AddMemberCard({
     supervisorIds: [] as string[],
   });
   const [form, setForm] = useState(blank);
+  // What the server said was wrong with each field, until that field is edited.
+  const [serverErrors, setServerErrors] = useState<Record<string, string>>({});
+  const edit = (patch: Partial<ReturnType<typeof blank>>) => {
+    setForm({ ...form, ...patch });
+    setServerErrors((errs) => {
+      const next = { ...errs };
+      for (const key of Object.keys(patch)) delete next[key];
+      return next;
+    });
+  };
 
-  const reset = () => setForm(blank());
+  const reset = () => {
+    setForm(blank());
+    setServerErrors({});
+  };
 
   // Only a child or teen can be supervised, and only the head chooses who by.
   const supervised = canBeSupervised(form.role);
@@ -294,15 +310,27 @@ function AddMemberCard({
       // The supervision list follows: its key has the roster in it.
       queryClient.invalidateQueries({ queryKey: MEMBERS_KEY });
     },
-    // Errors surface via the global mutation-error toast.
+    onError: (err) => {
+      // Mark the fields the server named, and say why (this replaces the global toast).
+      setServerErrors(fieldErrors(err));
+      toast.error(err instanceof Error ? err.message : 'Could not add them.');
+    },
   });
 
-  const usernameTooShort =
-    form.username.trim().length > 0 && form.username.trim().length < 3;
-  const passwordTooShort =
-    form.password.length > 0 && form.password.length < 8;
+  // Checked as they type, by the server's own rules; the server's word wins.
+  const errors = {
+    name: serverErrors.name ?? null,
+    username: serverErrors.username ?? fieldProblem(usernameSchema, form.username),
+    email: serverErrors.email ?? fieldProblem(emailSchema, form.email),
+    role: serverErrors.role ?? null,
+    password: serverErrors.password ?? fieldProblem(passwordSchema, form.password),
+    supervisorIds: serverErrors.supervisorIds ?? null,
+  };
   const canSubmit =
-    form.name.trim() && form.username.trim().length >= 3 && form.password.length >= 8;
+    form.name.trim() &&
+    form.username.trim() &&
+    form.password &&
+    !Object.values(errors).some(Boolean);
 
   return (
     <Card>
@@ -353,28 +381,31 @@ function AddMemberCard({
               <Input
                 id="m-name"
                 value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                aria-invalid={!!errors.name}
+                aria-describedby="m-name-hint"
+                onChange={(e) => edit({ name: e.target.value })}
                 placeholder="e.g. Jordan"
               />
+              <FieldNote id="m-name-hint" error={errors.name} />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="m-username">Username</Label>
               <Input
                 id="m-username"
                 value={form.username}
+                aria-invalid={!!errors.username}
                 aria-describedby="m-username-hint"
-                onChange={(e) => setForm({ ...form, username: e.target.value })}
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                onChange={(e) => edit({ username: e.target.value })}
                 placeholder="e.g. jordan"
               />
-              <p
+              <FieldNote
                 id="m-username-hint"
-                className={
-                  'text-xs ' +
-                  (usernameTooShort ? 'text-destructive' : 'text-muted-foreground')
-                }
-              >
-                At least 3 characters.
-              </p>
+                error={errors.username}
+                hint="3 to 30 letters, numbers or . _ - (no spaces)."
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="m-email">Email (optional)</Label>
@@ -382,18 +413,21 @@ function AddMemberCard({
                 id="m-email"
                 type="email"
                 value={form.email}
-                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                aria-invalid={!!errors.email}
+                aria-describedby="m-email-hint"
+                onChange={(e) => edit({ email: e.target.value })}
                 placeholder="for password recovery"
               />
+              <FieldNote id="m-email-hint" error={errors.email} />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="m-role">Role</Label>
               <Select
                 id="m-role"
                 value={form.role}
-                onChange={(e) =>
-                  setForm({ ...form, role: e.target.value as UserRole })
-                }
+                aria-invalid={!!errors.role}
+                aria-describedby="m-role-hint"
+                onChange={(e) => edit({ role: e.target.value as UserRole })}
               >
                 {roles.map((r) => (
                   <option key={r} value={r}>
@@ -401,6 +435,7 @@ function AddMemberCard({
                   </option>
                 ))}
               </Select>
+              <FieldNote id="m-role-hint" error={errors.role} />
             </div>
             {supervised ? (
               <div className="space-y-1.5 sm:col-span-2">
@@ -419,11 +454,9 @@ function AddMemberCard({
                       supervisors={supervision.data.supervisors}
                       checked={form.supervisorIds}
                       kidName={form.name.trim() || 'them'}
-                      onToggle={(id) =>
-                        setForm({ ...form, supervisorIds: toggled(form.supervisorIds, id) })
-                      }
+                      onToggle={(id) => edit({ supervisorIds: toggled(form.supervisorIds, id) })}
                     />
-                    <p className="text-xs text-muted-foreground">{SUPERVISION_HINT}</p>
+                    <FieldNote id="m-supervisors-hint" error={errors.supervisorIds} hint={SUPERVISION_HINT} />
                   </>
                 )}
               </div>
@@ -435,28 +468,21 @@ function AddMemberCard({
                   id="m-password"
                   className="max-w-xs"
                   value={form.password}
+                  aria-invalid={!!errors.password}
                   aria-describedby="m-password-hint"
-                  onChange={(e) => setForm({ ...form, password: e.target.value })}
+                  onChange={(e) => edit({ password: e.target.value })}
                   placeholder="at least 8 characters"
                 />
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setForm({ ...form, password: generatePassword() })}
+                  onClick={() => edit({ password: generatePassword() })}
                 >
                   <RefreshCw className="size-4" /> Generate
                 </Button>
                 <CopyButton text={form.password} label="Copy temporary password" />
               </div>
-              <p
-                id="m-password-hint"
-                className={
-                  'text-xs ' +
-                  (passwordTooShort ? 'text-destructive' : 'text-muted-foreground')
-                }
-              >
-                At least 8 characters.
-              </p>
+              <FieldNote id="m-password-hint" error={errors.password} hint="At least 8 characters." />
             </div>
             <div className="sm:col-span-2">
               <Button type="submit" disabled={create.isPending || !canSubmit}>
@@ -493,6 +519,20 @@ function MemberRow({
     email: member.email,
   });
   const [newPassword, setNewPassword] = useState('');
+  // What the server said was wrong with each field, until that field is edited.
+  const [serverErrors, setServerErrors] = useState<Record<string, string>>({});
+  const clearError = (key: string) =>
+    setServerErrors((errs) => {
+      const next = { ...errs };
+      delete next[key];
+      return next;
+    });
+  const errors = {
+    name: serverErrors.name ?? null,
+    username: serverErrors.username ?? fieldProblem(usernameSchema, edit.username),
+    email: serverErrors.email ?? fieldProblem(emailSchema, edit.email),
+    password: serverErrors.password ?? fieldProblem(passwordSchema, newPassword),
+  };
   const [confirm, setConfirm] = useState<null | 'head' | 'remove'>(null);
   const [pendingRole, setPendingRole] = useState<UserRole | null>(null);
 
@@ -528,6 +568,11 @@ function MemberRow({
       toast.success(`Saved ${member.name}'s profile`);
       invalidate();
     },
+    onError: (err) => {
+      // Mark the fields the server named, and say why (this replaces the global toast).
+      setServerErrors((errs) => ({ ...errs, ...fieldErrors(err) }));
+      toast.error(err instanceof Error ? err.message : 'Could not save their profile.');
+    },
   });
 
   const changeRole = useMutation({
@@ -561,6 +606,10 @@ function MemberRow({
       setNewPassword('');
       toast.success(`Password reset for ${member.name}`);
       invalidate();
+    },
+    onError: (err) => {
+      setServerErrors((errs) => ({ ...errs, ...fieldErrors(err) }));
+      toast.error(err instanceof Error ? err.message : 'Could not reset their password.');
     },
   });
 
@@ -652,16 +701,31 @@ function MemberRow({
                 <Input
                   id={`name-${member.id}`}
                   value={edit.name}
-                  onChange={(e) => setEdit({ ...edit, name: e.target.value })}
+                  aria-invalid={!!errors.name}
+                  aria-describedby={`name-${member.id}-hint`}
+                  onChange={(e) => {
+                    setEdit({ ...edit, name: e.target.value });
+                    clearError('name');
+                  }}
                 />
+                <FieldNote id={`name-${member.id}-hint`} error={errors.name} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor={`username-${member.id}`}>Username</Label>
                 <Input
                   id={`username-${member.id}`}
                   value={edit.username}
-                  onChange={(e) => setEdit({ ...edit, username: e.target.value })}
+                  aria-invalid={!!errors.username}
+                  aria-describedby={`username-${member.id}-hint`}
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  onChange={(e) => {
+                    setEdit({ ...edit, username: e.target.value });
+                    clearError('username');
+                  }}
                 />
+                <FieldNote id={`username-${member.id}-hint`} error={errors.username} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor={`email-${member.id}`}>Email</Label>
@@ -669,18 +733,27 @@ function MemberRow({
                   id={`email-${member.id}`}
                   type="email"
                   value={edit.email}
+                  aria-invalid={!!errors.email}
+                  aria-describedby={`email-${member.id}-hint`}
                   // Your own email changes on your profile, which asks for your password.
                   disabled={isSelf}
-                  onChange={(e) => setEdit({ ...edit, email: e.target.value })}
+                  onChange={(e) => {
+                    setEdit({ ...edit, email: e.target.value });
+                    clearError('email');
+                  }}
                 />
-                {isSelf ? (
-                  <p className="text-xs text-muted-foreground">
-                    Change your own email on your profile.
-                  </p>
-                ) : null}
+                <FieldNote
+                  id={`email-${member.id}-hint`}
+                  error={errors.email}
+                  hint={isSelf ? 'Change your own email on your profile.' : undefined}
+                />
               </div>
               <div className="sm:col-span-3">
-                <Button type="submit" size="sm" disabled={save.isPending}>
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={save.isPending || !!(errors.name || errors.username || errors.email)}
+                >
                   {save.isPending ? (
                     <Loader2 className="animate-spin" />
                   ) : (
@@ -731,7 +804,7 @@ function MemberRow({
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                if (newPassword.length >= 8) resetPw.mutate();
+                if (newPassword && !errors.password) resetPw.mutate();
               }}
               className="space-y-1.5"
             >
@@ -741,13 +814,21 @@ function MemberRow({
                   id={`pw-${member.id}`}
                   className="max-w-xs"
                   value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
+                  aria-invalid={!!errors.password}
+                  aria-describedby={`pw-${member.id}-hint`}
+                  onChange={(e) => {
+                    setNewPassword(e.target.value);
+                    clearError('password');
+                  }}
                   placeholder="new temporary password"
                 />
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setNewPassword(generatePassword())}
+                  onClick={() => {
+                    setNewPassword(generatePassword());
+                    clearError('password');
+                  }}
                 >
                   <RefreshCw className="size-4" /> Generate
                 </Button>
@@ -755,7 +836,7 @@ function MemberRow({
                 <Button
                   type="submit"
                   variant="secondary"
-                  disabled={resetPw.isPending || newPassword.length < 8}
+                  disabled={resetPw.isPending || !newPassword || !!errors.password}
                 >
                   {resetPw.isPending ? (
                     <Loader2 className="animate-spin" />
@@ -765,6 +846,7 @@ function MemberRow({
                   Set password
                 </Button>
               </div>
+              <FieldNote id={`pw-${member.id}-hint`} error={errors.password} />
             </form>
           ) : null}
 

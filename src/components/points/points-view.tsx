@@ -14,6 +14,8 @@ import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { toast } from '@/components/ui/toast';
+import { FieldNote } from '@/components/ui/field-note';
+import { useFieldErrors } from '@/lib/use-field-errors';
 import { RelativeTime } from '@/components/household-zone';
 
 type Period = PointsSummaryDTO['period'];
@@ -85,6 +87,7 @@ export function PointsView({
     placeholderData: keepPreviousData,
   });
 
+  const voidForm = useFieldErrors('void');
   const voidMutation = useMutation({
     mutationFn: (vars: { awardId: string; reason: string }) =>
       apiFetch<PointAwardDTO>('/api/points/awards/void', { method: 'POST', body: JSON.stringify(vars) }),
@@ -94,6 +97,7 @@ export function PointsView({
       toast.success('Points voided');
       queryClient.invalidateQueries({ queryKey: ['points'] });
     },
+    onError: voidForm.fail,
   });
 
   const isCurrent = !date;
@@ -266,7 +270,17 @@ export function PointsView({
             {voiding ? `${voiding.points} pts for ${voiding.userName ?? 'a former member'} (“${voiding.taskTitle}”).` : ''}{' '}
             It stays in the history, struck through, and stops counting.
           </p>
-          <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason (required)" maxLength={200} />
+          <div data-field="reason" {...voidForm.formProps}>
+            <Input
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Reason (required)"
+              aria-label="Reason"
+              maxLength={200}
+              {...voidForm.invalid('reason')}
+            />
+            <FieldNote id={voidForm.noteId('reason')} error={voidForm.get('reason')} />
+          </div>
         </div>
       </Dialog>
     </div>

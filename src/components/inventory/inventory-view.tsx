@@ -12,6 +12,7 @@ import type {
 } from '@/lib/types';
 import type { PageAccess } from '@/lib/permissions';
 import { apiFetch } from '@/lib/api';
+import { useFieldErrors, type FieldErrorsState } from '@/lib/use-field-errors';
 import { groupByPlace } from '@/lib/places';
 import { cn } from '@/lib/utils';
 import { LocationSelect, placeIds } from '@/components/location-select';
@@ -20,6 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import { FieldNote } from '@/components/ui/field-note';
 import { toast } from '@/components/ui/toast';
 import { Dialog } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -138,7 +140,10 @@ export function InventoryView({
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: ITEMS_KEY });
 
-  // Errors surface via the global MutationCache toast handler in providers.tsx.
+  // Each form's field errors; a failure is said in a toast and marked on the field.
+  const addForm = useFieldErrors('inv-qa');
+  const categoryForm = useFieldErrors('new-category');
+
   const addItem = useMutation({
     mutationFn: (payload: AddItemPayload) =>
       apiFetch<InventoryItemDTO>('/api/inventory/items', {
@@ -146,6 +151,7 @@ export function InventoryView({
         body: JSON.stringify(payload),
       }),
     onSuccess: () => invalidate(),
+    onError: addForm.fail,
   });
 
   const addCategory = useMutation({
@@ -156,6 +162,7 @@ export function InventoryView({
       }),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: CATEGORIES_KEY }),
+    onError: categoryForm.fail,
   });
 
   const deleteCategory = useMutation({
@@ -386,6 +393,7 @@ export function InventoryView({
           categories={categories}
           places={places}
           submitting={addItem.isPending}
+          errors={addForm}
           onAdd={(payload, onSuccess) => addItem.mutate(payload, { onSuccess })}
         />
       ) : null}
@@ -402,7 +410,8 @@ export function InventoryView({
               ? (deleteCategory.variables?.id ?? null)
               : null
           }
-          onAdd={(payload) => addCategory.mutate(payload)}
+          errors={categoryForm}
+          onAdd={(payload, onSuccess) => addCategory.mutate(payload, { onSuccess })}
           onDelete={(category) => setCategoryToDelete(category)}
         />
       ) : null}
@@ -503,7 +512,7 @@ export function InventoryView({
                           onAdjust={(delta) =>
                             adjust.mutate({ itemId: item.id, delta })
                           }
-                          onUpdate={(payload) => updateItem.mutate(payload)}
+                          onUpdate={(payload) => updateItem.mutateAsync(payload)}
                           onDelete={() => setItemToDelete(item)}
                           onAddToShopping={() =>
                             void handleAddToShopping(item)
@@ -607,6 +616,7 @@ function CategoryManager({
   canDelete,
   submitting,
   deletingId,
+  errors,
   onAdd,
   onDelete,
 }: {
@@ -615,7 +625,10 @@ function CategoryManager({
   canDelete: boolean;
   submitting: boolean;
   deletingId: string | null;
-  onAdd: (payload: AddCategoryPayload) => void;
+  /** The last add's field errors: those fields are marked with why. */
+  errors: FieldErrorsState;
+  /** [onSuccess] runs once it's saved, so a refused name stays to fix. */
+  onAdd: (payload: AddCategoryPayload, onSuccess: () => void) => void;
   onDelete: (category: CategoryDTO) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -626,8 +639,7 @@ function CategoryManager({
     e.preventDefault();
     const trimmed = name.trim();
     if (!trimmed) return;
-    onAdd({ name: trimmed, color });
-    setName('');
+    onAdd({ name: trimmed, color }, () => setName(''));
   }
 
   return (
@@ -682,35 +694,44 @@ function CategoryManager({
           )}
 
           {canAdd ? (
-          <form onSubmit={handleSubmit} className="flex items-end gap-2">
-            <div className="flex-1 space-y-1.5">
-              <Label htmlFor="new-category-name">New category</Label>
-              <Input
-                id="new-category-name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Pantry"
-              />
+          <form onSubmit={handleSubmit} className="space-y-1.5" {...errors.formProps}>
+            <div className="flex items-end gap-2">
+              <div className="flex-1 space-y-1.5" data-field="name">
+                <Label htmlFor="new-category-name">New category</Label>
+                <Input
+                  id="new-category-name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. Pantry"
+                  {...errors.invalid('name')}
+                />
+              </div>
+              <div className="space-y-1.5" data-field="color">
+                <Label htmlFor="new-category-color">Color</Label>
+                <input
+                  id="new-category-color"
+                  type="color"
+                  value={color}
+                  onChange={(e) => setColor(e.target.value)}
+                  aria-label="Category color"
+                  className={cn(
+                    'h-9 w-12 cursor-pointer rounded-md border bg-background p-1',
+                    errors.has('color') ? 'border-destructive' : 'border-input',
+                  )}
+                  {...errors.invalid('color')}
+                />
+              </div>
+              <Button
+                type="submit"
+                size="icon"
+                disabled={submitting || !name.trim()}
+                aria-label="Add category"
+              >
+                {submitting ? <Loader2 className="animate-spin" /> : <Plus />}
+              </Button>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="new-category-color">Color</Label>
-              <input
-                id="new-category-color"
-                type="color"
-                value={color}
-                onChange={(e) => setColor(e.target.value)}
-                aria-label="Category color"
-                className="h-9 w-12 cursor-pointer rounded-md border border-input bg-background p-1"
-              />
-            </div>
-            <Button
-              type="submit"
-              size="icon"
-              disabled={submitting || !name.trim()}
-              aria-label="Add category"
-            >
-              {submitting ? <Loader2 className="animate-spin" /> : <Plus />}
-            </Button>
+            <FieldNote id={errors.noteId('name')} error={errors.get('name')} />
+            <FieldNote id={errors.noteId('color')} error={errors.get('color')} />
           </form>
           ) : null}
         </div>
@@ -723,11 +744,14 @@ function QuickAddItem({
   categories,
   places,
   submitting,
+  errors,
   onAdd,
 }: {
   categories: CategoryDTO[];
   places: PlacesDTO;
   submitting: boolean;
+  /** The last add's field errors: those fields are marked with why (options open to show them). */
+  errors: FieldErrorsState;
   onAdd: (payload: AddItemPayload, onSuccess: () => void) => void;
 }) {
   const [name, setName] = useState('');
@@ -738,7 +762,10 @@ function QuickAddItem({
   const [categoryId, setCategoryId] = useState('');
   // "room:<id>", "floor:<id>" or "" (not set).
   const [location, setLocation] = useState('');
-  const [showDetails, setShowDetails] = useState(false);
+  const [showDetailsChoice, setShowDetails] = useState(false);
+  // A refused option is hidden under "More options": show them while one is marked.
+  const showDetails =
+    showDetailsChoice || !!errors.first('unit', 'lowThreshold', 'reorderIntervalDays', 'categoryId', 'roomId', 'floorId');
   const hasPlaces = places.floors.length > 0 || places.rooms.length > 0;
 
   function reset() {
@@ -776,23 +803,30 @@ function QuickAddItem({
     <form
       onSubmit={handleSubmit}
       className="space-y-3 rounded-lg border border-border bg-card p-3"
+      {...errors.formProps}
     >
       <div className="flex gap-2">
-        <Input
-          aria-label="Item name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Add an item…"
-        />
-        <Input
-          aria-label="Starting quantity"
-          type="number"
-          step="any"
-          min={0}
-          value={quantity}
-          onChange={(e) => setQuantity(e.target.value)}
-          className="w-20 shrink-0"
-        />
+        <div className="min-w-0 flex-1" data-field="name">
+          <Input
+            aria-label="Item name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Add an item…"
+            {...errors.invalid('name')}
+          />
+        </div>
+        <div className="shrink-0" data-field="quantity">
+          <Input
+            aria-label="Starting quantity"
+            type="number"
+            step="any"
+            min={0}
+            value={quantity}
+            onChange={(e) => setQuantity(e.target.value)}
+            className="w-20"
+            {...errors.invalid('quantity')}
+          />
+        </div>
         <Button
           type="submit"
           size="icon"
@@ -802,10 +836,12 @@ function QuickAddItem({
           {submitting ? <Loader2 className="animate-spin" /> : <Plus />}
         </Button>
       </div>
+      <FieldNote id={errors.noteId('name')} error={errors.get('name')} />
+      <FieldNote id={errors.noteId('quantity')} error={errors.get('quantity')} />
 
       <button
         type="button"
-        onClick={() => setShowDetails((v) => !v)}
+        onClick={() => setShowDetails(!showDetails)}
         aria-expanded={showDetails}
         className="text-xs font-medium text-muted-foreground hover:text-foreground"
       >
@@ -814,16 +850,18 @@ function QuickAddItem({
 
       {showDetails ? (
         <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="unit">
             <Label htmlFor="qa-unit">Unit</Label>
             <Input
               id="qa-unit"
               value={unit}
               onChange={(e) => setUnit(e.target.value)}
               placeholder="e.g. rolls, oz"
+              {...errors.invalid('unit')}
             />
+            <FieldNote id={errors.noteId('unit')} error={errors.get('unit')} />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="lowThreshold">
             <Label htmlFor="qa-low">Low at</Label>
             <Input
               id="qa-low"
@@ -833,9 +871,11 @@ function QuickAddItem({
               value={lowThreshold}
               onChange={(e) => setLowThreshold(e.target.value)}
               placeholder="0"
+              {...errors.invalid('lowThreshold')}
             />
+            <FieldNote id={errors.noteId('lowThreshold')} error={errors.get('lowThreshold')} />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="reorderIntervalDays">
             <Label htmlFor="qa-restock">Restock every (days)</Label>
             <Input
               id="qa-restock"
@@ -845,18 +885,21 @@ function QuickAddItem({
               value={reorderIntervalDays}
               onChange={(e) => setReorderIntervalDays(e.target.value)}
               placeholder="e.g. 14"
+              {...errors.invalid('reorderIntervalDays')}
             />
-            <p className="text-xs text-muted-foreground">
-              Used to predict when you&apos;ll run out and remind you to
-              restock.
-            </p>
+            <FieldNote
+              id={errors.noteId('reorderIntervalDays')}
+              error={errors.get('reorderIntervalDays')}
+              hint="Used to predict when you'll run out and remind you to restock."
+            />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="categoryId">
             <Label htmlFor="qa-category">Category</Label>
             <Select
               id="qa-category"
               value={categoryId}
               onChange={(e) => setCategoryId(e.target.value)}
+              {...errors.invalid('categoryId')}
             >
               <option value="">None</option>
               {categories.map((c) => (
@@ -865,9 +908,10 @@ function QuickAddItem({
                 </option>
               ))}
             </Select>
+            <FieldNote id={errors.noteId('categoryId')} error={errors.get('categoryId')} />
           </div>
           {hasPlaces ? (
-            <div className="space-y-1.5">
+            <div className="space-y-1.5" data-field="roomId floorId">
               <Label htmlFor="qa-location">Kept in</Label>
               <LocationSelect
                 id="qa-location"
@@ -875,7 +919,9 @@ function QuickAddItem({
                 value={location}
                 onChange={setLocation}
                 emptyLabel="Not set"
+                {...errors.invalid('roomId', 'floorId')}
               />
+              <FieldNote id={errors.noteId('roomId')} error={errors.first('roomId', 'floorId')} />
             </div>
           ) : null}
         </div>

@@ -13,6 +13,8 @@ import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import { FieldNote } from '@/components/ui/field-note';
+import { useFieldErrors } from '@/lib/use-field-errors';
 import { toast } from '@/components/ui/toast';
 
 export const PLACES_KEY = ['places'];
@@ -254,6 +256,7 @@ function PlaceDialog({
   const [floorId, setFloorId] = useState(
     editing.kind === 'room' ? (editing.room?.floorId ?? editing.floorId ?? '') : '',
   );
+  const fe = useFieldErrors('place');
   const save = useMutation({
     mutationFn: () =>
       apiFetch<PlacesDTO>(editing.kind === 'floor' ? '/api/places/floors' : '/api/places/rooms', {
@@ -265,6 +268,7 @@ function PlaceDialog({
         ),
       }),
     onSuccess: onSaved,
+    onError: fe.fail,
   });
   const noun = editing.kind === 'floor' ? 'floor' : 'room';
   return (
@@ -275,8 +279,9 @@ function PlaceDialog({
           e.preventDefault();
           if (name.trim() && !save.isPending) save.mutate();
         }}
+        {...fe.formProps}
       >
-        <div className="space-y-1.5">
+        <div className="space-y-1.5" data-field="name">
           <Label htmlFor="place-name">Name</Label>
           <Input
             id="place-name"
@@ -285,12 +290,19 @@ function PlaceDialog({
             maxLength={60}
             placeholder={editing.kind === 'floor' ? 'Upstairs' : 'Kitchen'}
             onChange={(e) => setName(e.target.value)}
+            {...fe.invalid('name')}
           />
+          <FieldNote id={fe.noteId('name')} error={fe.get('name')} />
         </div>
         {editing.kind === 'room' && floors.length ? (
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="floorId">
             <Label htmlFor="place-floor">Floor</Label>
-            <Select id="place-floor" value={floorId} onChange={(e) => setFloorId(e.target.value)}>
+            <Select
+              id="place-floor"
+              value={floorId}
+              onChange={(e) => setFloorId(e.target.value)}
+              {...fe.invalid('floorId')}
+            >
               <option value="">Not on a floor</option>
               {floors.map((f) => (
                 <option key={f.id} value={f.id}>
@@ -298,6 +310,7 @@ function PlaceDialog({
                 </option>
               ))}
             </Select>
+            <FieldNote id={fe.noteId('floorId')} error={fe.get('floorId')} />
           </div>
         ) : null}
         <div className="flex justify-end gap-2">

@@ -20,6 +20,9 @@ import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import { FieldNote } from '@/components/ui/field-note';
+import { useFieldErrors } from '@/lib/use-field-errors';
+import { cn } from '@/lib/utils';
 import { toast } from '@/components/ui/toast';
 
 export const MAP_PLACES_KEY = ['map-places'];
@@ -199,12 +202,21 @@ function MapPlaceDialog({
     ? RADIUS_CHOICES
     : [...RADIUS_CHOICES, radiusM].sort((a, b) => a - b);
 
+  // The dialog's field errors; the address search's own ("q") lives in the same set.
+  const fe = useFieldErrors('map-place');
+  const pick = (next: LatLng) => {
+    setPoint(next);
+    fe.clear('lat');
+    fe.clear('lng');
+  };
+
   const search = useMutation({
     mutationFn: (q: string) => apiFetch<AddressMatchDTO[]>(`/api/map-places/search?q=${encodeURIComponent(q)}`),
     onSuccess: (found) => {
       setMatches(found);
-      if (found.length === 1) setPoint({ lat: found[0].lat, lng: found[0].lng });
+      if (found.length === 1) pick({ lat: found[0].lat, lng: found[0].lng });
     },
+    onError: fe.fail,
   });
 
   const save = useMutation({
@@ -225,6 +237,7 @@ function MapPlaceDialog({
       toast.success(place ? 'Map place saved' : 'Map place added');
       onSaved(next);
     },
+    onError: fe.fail,
   });
 
   const locateMe = () => {
@@ -240,7 +253,7 @@ function MapPlaceDialog({
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setLocating(false);
-        setPoint({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        pick({ lat: pos.coords.latitude, lng: pos.coords.longitude });
       },
       (err) => {
         setLocating(false);
@@ -260,9 +273,10 @@ function MapPlaceDialog({
           e.preventDefault();
           if (canSave) save.mutate();
         }}
+        {...fe.formProps}
       >
         <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="name">
             <Label htmlFor="map-place-name">Name</Label>
             <Input
               id="map-place-name"
@@ -271,9 +285,11 @@ function MapPlaceDialog({
               maxLength={60}
               placeholder={kind === 'store' ? 'Costco' : kind === 'home' ? 'Home' : 'School'}
               onChange={(e) => setName(e.target.value)}
+              {...fe.invalid('name')}
             />
+            <FieldNote id={fe.noteId('name')} error={fe.get('name')} />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="kind">
             <Label htmlFor="map-place-kind">Kind</Label>
             <Select
               id="map-place-kind"
@@ -284,6 +300,7 @@ function MapPlaceDialog({
                 if (!place && next !== 'home' && name === 'Home') setName('');
                 setKind(next);
               }}
+              {...fe.invalid('kind')}
             >
               {kinds.map((k) => (
                 <option key={k} value={k}>
@@ -291,10 +308,11 @@ function MapPlaceDialog({
                 </option>
               ))}
             </Select>
+            <FieldNote id={fe.noteId('kind')} error={fe.get('kind')} />
           </div>
         </div>
 
-        <div className="space-y-1.5">
+        <div className="space-y-1.5" data-field="q">
           <Label htmlFor="map-place-search">Find an address</Label>
           {/* Its own row, not a nested form: Enter searches instead of saving. */}
           <div className="flex gap-2">
@@ -309,6 +327,7 @@ function MapPlaceDialog({
                   if (query.trim().length >= 3 && !search.isPending) search.mutate(query.trim());
                 }
               }}
+              {...fe.invalid('q')}
             />
             <Button
               type="button"
@@ -331,7 +350,7 @@ function MapPlaceDialog({
                     type="button"
                     className="w-full px-3 py-2 text-left text-xs hover:bg-muted"
                     onClick={() => {
-                      setPoint({ lat: m.lat, lng: m.lng });
+                      pick({ lat: m.lat, lng: m.lng });
                       setMatches(null);
                     }}
                   >
@@ -341,7 +360,7 @@ function MapPlaceDialog({
               ))}
             </ul>
           ) : null}
-          <p className="text-xs text-muted-foreground">Address search uses OpenStreetMap.</p>
+          <FieldNote id={fe.noteId('q')} error={fe.get('q')} hint="Address search uses OpenStreetMap." />
         </div>
 
         <div className="space-y-1.5">
@@ -352,30 +371,42 @@ function MapPlaceDialog({
               Use my location
             </Button>
           </div>
-          <PinPicker value={point} radiusM={radiusM} onPick={setPoint} />
-          <p className="text-xs text-muted-foreground">
-            {point ? 'Tap the map to move the pin.' : 'Tap the map to drop the pin.'}
-          </p>
+          {/* The map has no input of its own: a ring marks a refused pin. */}
+          <div className={cn('rounded-md', fe.first('lat', 'lng') && 'ring-2 ring-destructive')}>
+            <PinPicker value={point} radiusM={radiusM} onPick={pick} />
+          </div>
+          <FieldNote
+            id={fe.noteId('lat')}
+            error={fe.first('lat', 'lng')}
+            hint={point ? 'Tap the map to move the pin.' : 'Tap the map to drop the pin.'}
+          />
         </div>
 
-        <div className="space-y-1.5">
+        <div className="space-y-1.5" data-field="radiusM">
           <Label htmlFor="map-place-radius">Counts as there within</Label>
-          <Select id="map-place-radius" value={String(radiusM)} onChange={(e) => setRadiusM(Number(e.target.value))}>
+          <Select
+            id="map-place-radius"
+            value={String(radiusM)}
+            onChange={(e) => setRadiusM(Number(e.target.value))}
+            {...fe.invalid('radiusM')}
+          >
             {radii.map((m) => (
               <option key={m} value={m}>
                 {radiusLabel(m)}
               </option>
             ))}
           </Select>
-          <p className="text-xs text-muted-foreground">
-            Phones can&apos;t tell much closer than {radiusLabel(MAP_PLACE_RADIUS.min)}. Use more for a big store or
-            its parking lot.
-          </p>
+          <FieldNote
+            id={fe.noteId('radiusM')}
+            error={fe.get('radiusM')}
+            hint={`Phones can't tell much closer than ${radiusLabel(MAP_PLACE_RADIUS.min)}. Use more for a big store or its parking lot.`}
+          />
         </div>
 
         {kind === 'store' && lists.length ? (
-          <fieldset className="space-y-1.5">
+          <fieldset className="space-y-1.5" data-field="shoppingListIds">
             <legend className="text-sm font-medium">Remind about these lists on arrival</legend>
+            <FieldNote id={fe.noteId('shoppingListIds')} error={fe.get('shoppingListIds')} />
             <div className="flex flex-wrap gap-x-4 gap-y-2">
               {lists.map((l) => (
                 <label key={l.id} className="flex items-center gap-2 text-sm">

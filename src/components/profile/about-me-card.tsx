@@ -27,6 +27,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { FieldNote } from '@/components/ui/field-note';
+import { useFieldErrors } from '@/lib/use-field-errors';
 import { toast } from '@/components/ui/toast';
 
 // A few quick picks; any single emoji can be typed instead.
@@ -54,6 +56,7 @@ export function AboutMeCard({ overview }: { overview: ProfileOverview }) {
     color !== p.profileColor ||
     bio.trim() !== (p.bio ?? '') ||
     birthday !== (p.birthday ?? '');
+  const fe = useFieldErrors('about');
 
   const save = useMutation({
     mutationFn: () =>
@@ -70,7 +73,8 @@ export function AboutMeCard({ overview }: { overview: ProfileOverview }) {
       toast.success('About me saved');
       router.refresh();
     },
-    // Errors (e.g. "Pick a single emoji.") surface via the global toast.
+    // Says why (e.g. "Avatar emoji: Pick a single emoji.") and marks that field.
+    onError: fe.fail,
   });
 
   return (
@@ -90,6 +94,7 @@ export function AboutMeCard({ overview }: { overview: ProfileOverview }) {
             if (dirty && !birthdayInvalid && !save.isPending) save.mutate();
           }}
           className="space-y-4"
+          {...fe.formProps}
         >
           <div className="flex items-center gap-3">
             <ProfileAvatar name={overview.name} emoji={emoji.trim() || null} color={color} size="lg" />
@@ -98,7 +103,7 @@ export function AboutMeCard({ overview }: { overview: ProfileOverview }) {
             </div>
           </div>
 
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="avatarEmoji">
             <Label htmlFor="about-emoji">Avatar emoji</Label>
             <div className="flex flex-wrap items-center gap-1.5">
               {EMOJI_PICKS.map((e) => (
@@ -122,6 +127,7 @@ export function AboutMeCard({ overview }: { overview: ProfileOverview }) {
                 placeholder="or type one"
                 className="h-9 w-28"
                 maxLength={16}
+                {...fe.invalid('avatarEmoji')}
               />
               {emoji ? (
                 <Button type="button" variant="ghost" size="sm" onClick={() => setEmoji('')}>
@@ -129,10 +135,12 @@ export function AboutMeCard({ overview }: { overview: ProfileOverview }) {
                 </Button>
               ) : null}
             </div>
+            <FieldNote id={fe.noteId('avatarEmoji')} error={fe.get('avatarEmoji')} />
           </div>
 
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="profileColor">
             <Label>Colour</Label>
+            <FieldNote id={fe.noteId('profileColor')} error={fe.get('profileColor')} />
             <div className="flex flex-wrap gap-2">
               {PROFILE_COLOR_KEYS.map((key) => (
                 <button
@@ -153,7 +161,7 @@ export function AboutMeCard({ overview }: { overview: ProfileOverview }) {
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
+            <div className="space-y-1.5" data-field="birthday">
               <Label htmlFor="about-month">Birthday</Label>
               <div className="flex gap-2">
                 <Select
@@ -161,6 +169,8 @@ export function AboutMeCard({ overview }: { overview: ProfileOverview }) {
                   value={month}
                   onChange={(e) => setMonth(e.target.value)}
                   aria-label="Birthday month"
+                  aria-invalid={birthdayInvalid || fe.has('birthday') || undefined}
+                  aria-describedby={fe.noteId('birthday')}
                 >
                   <option value="">Month</option>
                   {MONTHS.map((m, i) => (
@@ -178,17 +188,19 @@ export function AboutMeCard({ overview }: { overview: ProfileOverview }) {
                   placeholder="Day"
                   aria-label="Birthday day"
                   className="w-20"
+                  aria-invalid={birthdayInvalid || fe.has('birthday') || undefined}
+                  aria-describedby={fe.noteId('birthday')}
                 />
               </div>
-              {birthdayInvalid ? (
-                <p className="text-xs text-destructive">Pick a month and a real day (or neither).</p>
-              ) : (
-                <p className="text-xs text-muted-foreground">Month and day only, no year.</p>
-              )}
+              <FieldNote
+                id={fe.noteId('birthday')}
+                error={fe.get('birthday') ?? (birthdayInvalid ? 'Pick a month and a real day (or neither).' : null)}
+                hint="Month and day only, no year."
+              />
             </div>
           </div>
 
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-field="bio">
             <Label htmlFor="about-bio">About me</Label>
             <Textarea
               id="about-bio"
@@ -196,10 +208,15 @@ export function AboutMeCard({ overview }: { overview: ProfileOverview }) {
               maxLength={BIO_MAX}
               onChange={(e) => setBio(e.target.value)}
               placeholder="Favourite foods, hobbies, what you're up to…"
+              {...fe.invalid('bio')}
             />
-            <p className="text-right text-xs text-muted-foreground">
-              {bio.length}/{BIO_MAX}
-            </p>
+            {fe.get('bio') ? (
+              <FieldNote id={fe.noteId('bio')} error={fe.get('bio')} />
+            ) : (
+              <p className="text-right text-xs text-muted-foreground">
+                {bio.length}/{BIO_MAX}
+              </p>
+            )}
           </div>
 
           <Button type="submit" disabled={!dirty || birthdayInvalid || save.isPending}>

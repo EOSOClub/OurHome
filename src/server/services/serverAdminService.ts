@@ -198,10 +198,21 @@ export async function listHouseholds(adminId: string): Promise<HouseholdSummaryD
   });
 }
 
-/** Usernames and emails are unique across the whole server (one sign-in, no household picker). */
+/**
+ * Usernames and emails are unique across the whole server (one sign-in, no
+ * household picker). Says which one is taken, naming the new head's field
+ * ("head.username" / "head.email") so the form marks it.
+ */
 async function assertAccountFree(db: Tx | typeof prisma, username: string, email: string): Promise<void> {
-  const clash = await db.user.findFirst({ where: { OR: [{ username }, { email }] }, select: { id: true } });
-  if (clash) throw new ConflictError('That username or email is already used on this server.');
+  const clash = await db.user.findFirst({
+    where: { OR: [{ username }, { email }] },
+    select: { id: true, username: true },
+  });
+  if (!clash) return;
+  if (clash.username === username) {
+    throw new ConflictError('That username is already used on this server. Try another.', 'head.username');
+  }
+  throw new ConflictError('That email is already used by an account on this server.', 'head.email');
 }
 
 /**

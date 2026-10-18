@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/server/db/prisma';
 import { logActivity } from '@/server/services/activityService';
@@ -18,12 +19,27 @@ import {
   type PhoneRuleColumns,
 } from '@/lib/phoneHealth';
 import { isFeatureEnabled } from '@/server/services/serverAdminService';
-import { findIcon, forgetUsage, usageNamesApp, usageSummaries } from '@/server/services/appUsageService';
+import {
+  findIcon,
+  forgetUsage,
+  usageHistory,
+  usageNamesApp,
+  usageSummaries,
+} from '@/server/services/appUsageService';
 import { USAGE_REFRESH_COOLDOWN_MS } from '@/lib/appUsage';
+import {
+  RING_MS,
+  RING_SHOWN_MS,
+  RING_TTL_MS,
+  ringPhase,
+  stoppedAfterSec,
+  type RingState,
+} from '@/lib/ring';
 import { ROLE_RANK, isUserRole } from '@/lib/enums';
 import { can, canBeSupervised, canSupervise } from '@/lib/permissions';
 import { sharingMode } from '@/lib/location';
-import type { LookAfterDTO, SupervisionDTO } from '@/lib/types';
+import type { LookAfterDTO, RingDTO, SupervisionDTO, UsageHistoryDTO } from '@/lib/types';
+import type { ReportRingInput } from '@/lib/validation/phone';
 import type {
   SetPhoneRuleInput,
   SetRequiredSharingInput,
@@ -213,7 +229,8 @@ export async function linkNewSupervisors(
 // --- What a supervising adult can do -------------------------------------------
 // Only the adults the Head chose for a child; each action is logged in
 // Activity, so nothing is done behind anyone's back.
-//  - Ring their phone loudly, even on silent (Android: RingService).
+//  - Ring their phone loudly, even on silent (Android: RingService). Their
+//    phone says back that it rang and how it stopped (reportRing).
 //  - Make their location sharing required: they can't turn it off, and their
 //    supervisors may check where they are without their yes (permissions.ts
 //    liveCheckAllowed). It goes back to "on" when nobody supervises them.
@@ -222,12 +239,31 @@ export async function linkNewSupervisors(
 //  - Be told when their phone goes quiet (phoneStatusService).
 
 /** One ring per child at a time: the phone rings for about this long. */
-export const RING_COOLDOWN_MS = 30_000;
+export const RING_COOLDOWN_MS = RING_MS;
 
 /** A ring older than this is no use: Firebase stops trying an offline phone. */
-const RING_TTL_SEC = 60;
+const RING_TTL_SEC = RING_TTL_MS / 1000;
 
-const lastRingAt = new Map<string, number>();
+/**
+ * Each child's last ring, by their id: who rang, and what their phone said
+ * back (POST /api/phone/ring). Kept in memory, only for a few minutes' use
+ * (a restart forgets it, and the page then shows nothing). On globalThis so
+ * the phone's route bundle and the supervisor's share one.
+ */
+type Ring = RingState & { ringId: string; householdId: string; ringerId: string };
+const ringStore = globalThis as unknown as { __ourhomeRings?: Map<string, Ring> };
+const rings = (ringStore.__ourhomeRings ??= new Map<string, Ring>());
+
+/** [kidId]'s last ring, for the adult who rang it, while it's worth showing. */
+function ringFor(kidId: string, viewerId: string, now: number): RingDTO | null {
+  const ring = rings.get(kidId);
+  if (!ring || ring.ringerId !== viewerId || now - ring.sentAt >= RING_SHOWN_MS) return null;
+  return {
+    sentAt: new Date(ring.sentAt).toISOString(),
+    phase: ringPhase(ring, now),
+    stoppedAfterSec: stoppedAfterSec(ring),
+  };
+}
 
 /** The children and teens [actorId] supervises, while both roles still fit. */
 async function supervisedBy(
@@ -270,7 +306,11 @@ export async function isSupervising(supervisorId: string, supervisedId: string):
 }
 
 /** The people the viewer looks after, and whether this server can ring phones. */
-export async function lookAfterOverview(householdId: string, actorId: string): Promise<LookAfterDTO> {
+export async function lookAfterOverview(
+  householdId: string,
+  actorId: string,
+  now: number = Date.now(),
+): Promise<LookAfterDTO> {
   const kids = await supervisedBy(householdId, actorId);
   const [phones, usage, locationOn] = await Promise.all([
     phoneSummaries(householdId, kids),
@@ -298,6 +338,7 @@ export async function lookAfterOverview(householdId: string, actorId: string): P
             checks,
           ),
         },
+        ring: ringFor(k.id, actorId, now),
       };
     }),
   };
@@ -434,14 +475,15 @@ export async function setRequiredSharing(
 
 /**
  * Ring a supervised child's phone. Refused unless the actor supervises them,
- * while it's still ringing from the last time, or when no phone answered.
+ * while it's still ringing from the last time (until their phone says it
+ * stopped), or when no phone answered. Returns the ring, to show how it goes.
  */
 export async function ringPhone(
   householdId: string,
   actor: { id: string },
   targetId: string,
   now: number = Date.now(),
-): Promise<void> {
+): Promise<RingDTO> {
   const kid = (await supervisedBy(householdId, actor.id)).find((k) => k.id === targetId);
   if (!kid) {
     throw new ForbiddenError(
@@ -453,14 +495,22 @@ export async function ringPhone(
       `Ringing a phone needs instant phone alerts. This server doesn’t have Firebase set up, and ${kid.name}’s phone isn’t using Stay connected.`,
     );
   }
-  const last = lastRingAt.get(kid.id);
-  if (last !== undefined && now - last < RING_COOLDOWN_MS) {
+  const last = rings.get(kid.id);
+  if (last && last.ended === null && now - last.sentAt < RING_COOLDOWN_MS) {
     throw new ConflictError(`${kid.name}’s phone is already ringing. Try again in a few seconds.`);
   }
-  lastRingAt.set(kid.id, now);
-  const reached = await pushToMember(householdId, kid.id, { type: 'ring', ringerId: actor.id }, { ttlSec: RING_TTL_SEC });
+  // Set before the push, so a second tap meanwhile is refused.
+  const ringId = randomUUID();
+  rings.set(kid.id, { ringId, householdId, ringerId: actor.id, sentAt: now, ringingAt: null, endedAt: null, ended: null });
+  const reached = await pushToMember(
+    householdId,
+    kid.id,
+    { type: 'ring', ringerId: actor.id, ringId },
+    { ttlSec: RING_TTL_SEC },
+  );
   if (reached === 0) {
-    lastRingAt.delete(kid.id);
+    if (last) rings.set(kid.id, last);
+    else rings.delete(kid.id);
     throw new ConflictError(
       `Couldn’t reach ${kid.name}’s phone. The OurHome app needs to be signed in there with instant alerts working.`,
     );
@@ -473,6 +523,31 @@ export async function ringPhone(
     subjectId: kid.id,
     message: `rang ${kid.name}’s phone`,
   });
+  return ringFor(kid.id, actor.id, now)!;
+}
+
+/**
+ * A rung phone saying what it did: started ringing, Stop was tapped, or it
+ * rang out. Only the child's own phone, for their latest ring; anything else
+ * (an older ring, a restarted server) is ignored, since the phone can't do
+ * anything about it. The first phone to say how it ended decides, and ends
+ * the wait for ringing again. Not logged: the ring itself is.
+ */
+export function reportRing(
+  householdId: string,
+  userId: string,
+  input: ReportRingInput,
+  now: number = Date.now(),
+): { known: boolean } {
+  const ring = rings.get(userId);
+  if (!ring || ring.householdId !== householdId || ring.ringId !== input.ringId) return { known: false };
+  if (input.state === 'ringing') {
+    ring.ringingAt ??= now;
+  } else if (ring.ended === null) {
+    ring.ended = input.state;
+    ring.endedAt = now;
+  }
+  return { known: true };
 }
 
 const lastUsageRefreshAt = new Map<string, number>();
@@ -517,12 +592,35 @@ export async function refreshUsage(
 }
 
 /**
+ * Every stored day of a supervised child's app usage with all its apps: the
+ * week's chart and the full list on "People you look after". Not logged in
+ * Activity, like refreshUsage: the supervisor already sees the latest day.
+ */
+export async function supervisedUsageHistory(
+  householdId: string,
+  actor: { id: string },
+  supervisedId: string,
+): Promise<UsageHistoryDTO> {
+  const kid = (await supervisedBy(householdId, actor.id)).find((k) => k.id === supervisedId);
+  if (!kid) {
+    throw new ForbiddenError(
+      'Only an adult who supervises them can see their app usage. The Head of House chooses that on the Members page.',
+    );
+  }
+  if (kid.shareAppUsage !== true) throw new ConflictError(`${kid.name}’s app usage isn’t shared.`);
+  return usageHistory(householdId, kid.id);
+}
+
+/**
  * An app's icon (PNG), for a supervisor of a child whose shared usage names
- * the app. Not found otherwise, so nobody else can tell which apps a child has.
+ * the app, or for the child themself (their Profile). Not found otherwise, so
+ * nobody else can tell which apps a child has. A member's own days only exist
+ * while their usage is shared: turning it off deletes them.
  */
 export async function usageIcon(householdId: string, actorId: string, app: string): Promise<Uint8Array> {
   const sharing = (await supervisedBy(householdId, actorId)).filter((k) => k.shareAppUsage === true);
-  const png = (await usageNamesApp(sharing.map((k) => k.id), app)) ? await findIcon(householdId, app) : null;
+  const whose = [...sharing.map((k) => k.id), actorId];
+  const png = (await usageNamesApp(whose, app)) ? await findIcon(householdId, app) : null;
   if (!png) throw new NotFoundError('No icon for that app.');
   return png;
 }

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BellRing, HeartHandshake, Loader2 } from 'lucide-react';
-import type { LookAfterDTO } from '@/lib/types';
+import type { LookAfterDTO, RingDTO, UsageHistoryDTO } from '@/lib/types';
 import { apiFetch, ApiError } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -17,8 +17,10 @@ import {
   SILENT_PROBLEMS,
   type PhoneRule,
 } from '@/lib/phoneHealth';
-import { formatMinutes, usageDayLabel, usageIconUrl } from '@/lib/appUsage';
+import { formatMinutes, usageDayLabel } from '@/lib/appUsage';
+import { RING_MS, ringActive, ringOutcome } from '@/lib/ring';
 import { SetupProgress } from '@/components/look-after/setup-progress';
+import { AppList, UsageHistory } from '@/components/look-after/usage-history';
 
 // The "People you look after" page: the children and teens the viewer
 // supervises (the Head's supervision list). Ring their phone, make their
@@ -28,11 +30,17 @@ import { SetupProgress } from '@/components/look-after/setup-progress';
 
 export const LOOK_AFTER_KEY = ['look-after'];
 
-/** How long the phone rings, and so how long the button rests. */
-const RING_MS = 30_000;
+/** A child's usage history, opened under their latest day (keyed by their id after this). */
+const USAGE_HISTORY_KEY = ['usage-history'];
 
 /** Refetched this often while open, so check-ins and usage stay current (the app does the same). */
 const REFETCH_MS = 60_000;
+
+/** While a ring of the viewer's is going, so its "ringing" and "Stop was tapped" show in seconds. */
+const RING_REFETCH_MS = 3_000;
+
+const ringGoing = (data: LookAfterDTO | undefined) =>
+  !!data?.people.some((p) => p.ring && ringActive(p.ring.phase));
 
 /** After asking the phones for fresh usage, look again this long after (they answer in seconds). */
 const AFTER_REFRESH_MS = [10_000, 25_000];
@@ -43,7 +51,7 @@ export function LookAfterView({ initial }: { initial: LookAfterDTO }) {
     queryKey: LOOK_AFTER_KEY,
     queryFn: () => apiFetch<LookAfterDTO>('/api/supervision/mine'),
     initialData: initial,
-    refetchInterval: REFETCH_MS,
+    refetchInterval: (query) => (ringGoing(query.state.data) ? RING_REFETCH_MS : REFETCH_MS),
   });
 
   // Opening the page asks each child's phone whose usage is shared to send it
@@ -67,7 +75,10 @@ export function LookAfterView({ initial }: { initial: LookAfterDTO }) {
     ).then((answers) => {
       if (!answers.some((a) => a.asked)) return;
       for (const ms of AFTER_REFRESH_MS) {
-        setTimeout(() => queryClient.invalidateQueries({ queryKey: LOOK_AFTER_KEY }), ms);
+        setTimeout(() => {
+          queryClient.invalidateQueries({ queryKey: LOOK_AFTER_KEY });
+          queryClient.invalidateQueries({ queryKey: USAGE_HISTORY_KEY });
+        }, ms);
       }
     });
   }, [initial, queryClient]);
@@ -98,11 +109,13 @@ export function LookAfterView({ initial }: { initial: LookAfterDTO }) {
               ))}
             </ul>
             <p className="text-xs text-muted-foreground">
-              <strong>Ring</strong> rings their phone loudly for up to 30 seconds, even on silent.{' '}
+              <strong>Ring</strong> rings their phone loudly for up to 30 seconds, even on silent. You see when it
+              starts ringing, and whether someone tapped Stop.{' '}
               <strong>Location required</strong> keeps their location sharing on, and lets you check where they are
               on the Map without them allowing it. They always see when you check. <strong>Share app usage</strong>{' '}
               shows you how long they spend in each app; their phone needs Usage access for it. Their phone sends it
-              every 15 minutes, and opening this page asks it for the latest numbers.{' '}
+              every 15 minutes, and opening this page asks it for the latest numbers. They see the same numbers on their
+              Profile. While it&apos;s shared, you&apos;re also told when a new app turns up on their phone.{' '}
               <strong>Require Keep Our Home running</strong> stops OurHome being closed on their phone.{' '}
               <strong>Require Prevent uninstall</strong> stops it being removed without your PIN.{' '}
               <strong>Require Unrestricted battery</strong> stops battery saving from holding back rings and alerts.
@@ -167,29 +180,30 @@ function AlertsLine({ phone }: { phone: NonNullable<LookAfterDTO['people'][numbe
   );
 }
 
-type UsageLatest = NonNullable<LookAfterDTO['people'][number]['appUsage']['latest']>;
-
-/** The app's icon from their phone, or its first letter until the phone has sent it. */
-function AppIcon({ app }: { app: UsageLatest['top'][number] }) {
-  const [broken, setBroken] = useState(false);
-  if (app.icon && !broken) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element -- a small private PNG from our own API, no optimising to do
-      <img src={usageIconUrl(app.app)} alt="" className="size-5 shrink-0 rounded" onError={() => setBroken(true)} />
-    );
-  }
+/** The viewer's last ring of their phone and what the phone said back. */
+function RingLine({ ring }: { ring: RingDTO }) {
   return (
     <span
-      aria-hidden
-      className="flex size-5 shrink-0 items-center justify-center rounded bg-muted text-[10px] font-semibold uppercase text-muted-foreground"
+      className={`block text-xs ${ring.phase === 'no_answer' ? 'text-destructive' : 'text-muted-foreground'}`}
+      aria-live="polite"
     >
-      {app.label.slice(0, 1)}
+      You rang <RelativeTime date={ring.sentAt} />: {ringOutcome(ring)}
     </span>
   );
 }
 
-/** The latest day their phone reported: total, then the top apps with their icons. */
-function UsageLine({ latest }: { latest: LookAfterDTO['people'][number]['appUsage']['latest'] }) {
+/**
+ * The latest day their phone reported: total, then the top apps with their
+ * icons; then, on request, the week's chart and every app.
+ */
+function UsageLine({
+  personId,
+  latest,
+}: {
+  personId: string;
+  latest: LookAfterDTO['people'][number]['appUsage']['latest'];
+}) {
+  const [open, setOpen] = useState(false);
   if (!latest) {
     return (
       <p className="text-xs text-muted-foreground">
@@ -207,27 +221,45 @@ function UsageLine({ latest }: { latest: LookAfterDTO['people'][number]['appUsag
         </span>
         {' · '}updated <RelativeTime date={latest.updatedAt} />
       </p>
-      {latest.top.length > 0 ? (
-        <ul className="space-y-1">
-          {latest.top.map((a) => (
-            <li key={a.app} className="flex items-center gap-2 text-xs">
-              <AppIcon app={a} />
-              <span className="min-w-0 flex-1 truncate">{a.label}</span>
-              <span className="shrink-0 tabular-nums text-muted-foreground">{formatMinutes(a.minutes)}</span>
-            </li>
-          ))}
-        </ul>
+      {open ? (
+        <UsageHistoryPanel personId={personId} />
+      ) : latest.top.length > 0 ? (
+        <AppList apps={latest.top} />
       ) : null}
+      <Button
+        size="sm"
+        variant="link"
+        className="h-auto px-0 text-xs"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+      >
+        {open ? 'Show less' : 'All apps and the last 7 days'}
+      </Button>
     </div>
   );
 }
 
+/** Their week's chart and every app, loaded when opened and kept current while open. */
+function UsageHistoryPanel({ personId }: { personId: string }) {
+  const { data, isPending, isError } = useQuery({
+    queryKey: [...USAGE_HISTORY_KEY, personId],
+    queryFn: () =>
+      apiFetch<UsageHistoryDTO>(`/api/supervision/usage/history?supervisedId=${encodeURIComponent(personId)}`),
+    refetchInterval: REFETCH_MS,
+  });
+  if (isPending) return <Loader2 className="size-4 animate-spin text-muted-foreground" />;
+  if (isError) return <p className="text-xs text-destructive">Couldn&apos;t load their app usage.</p>;
+  return <UsageHistory history={data} />;
+}
+
 function PersonRow({ person, canRing }: { person: LookAfterDTO['people'][number]; canRing: boolean }) {
   const queryClient = useQueryClient();
-  // Rests while the phone rings, so a second tap can't be refused by the server.
+  // Rests while the phone rings, so a second tap can't be refused by the
+  // server; until their phone says the ring ended, when the server allows another.
   const [ringingUntil, setRingingUntil] = useState(0);
   const [now, setNow] = useState(() => Date.now());
-  const ringing = now < ringingUntil;
+  const ringEnded = person.ring?.phase === 'stopped' || person.ring?.phase === 'rang_out';
+  const ringing = now < ringingUntil && !ringEnded;
   useEffect(() => {
     if (!ringing) return;
     const t = setTimeout(() => setNow(Date.now()), ringingUntil - now);
@@ -235,13 +267,20 @@ function PersonRow({ person, canRing }: { person: LookAfterDTO['people'][number]
   }, [ringing, ringingUntil, now]);
 
   const ring = useMutation({
+    // A refetch already on its way mustn't put the last ring back.
+    onMutate: () => queryClient.cancelQueries({ queryKey: LOOK_AFTER_KEY }),
     mutationFn: () =>
-      apiFetch<{ rung: boolean }>('/api/supervision/ring', {
+      apiFetch<{ rung: boolean; ring: RingDTO }>('/api/supervision/ring', {
         method: 'POST',
         body: JSON.stringify({ targetId: person.id }),
       }),
-    onSuccess: () => {
+    onSuccess: ({ ring }) => {
       const at = Date.now();
+      // The new ring at once, so the last one's ending doesn't free the button;
+      // the page then looks every few seconds for what their phone says.
+      queryClient.setQueryData<LookAfterDTO>(LOOK_AFTER_KEY, (d) =>
+        d ? { ...d, people: d.people.map((p) => (p.id === person.id ? { ...p, ring } : p)) } : d,
+      );
       setNow(at);
       setRingingUntil(at + RING_MS);
       toast.success(`Ringing ${person.name}’s phone`);
@@ -297,6 +336,7 @@ function PersonRow({ person, canRing }: { person: LookAfterDTO['people'][number]
           <span className="block truncate text-sm font-medium">{person.name}</span>
           {sharingNote ? <span className="block text-xs text-muted-foreground">{sharingNote}</span> : null}
           <PhoneLine phone={person.phone} />
+          {person.ring ? <RingLine ring={person.ring} /> : null}
         </span>
         {canRing ? (
           <Button size="sm" variant="outline" disabled={ring.isPending || ringing} onClick={() => ring.mutate()}>
@@ -327,7 +367,7 @@ function PersonRow({ person, canRing }: { person: LookAfterDTO['people'][number]
         Share app usage
         {usage.isPending ? <Loader2 className="size-3.5 animate-spin text-muted-foreground" /> : null}
       </label>
-      {person.appUsage.shared ? <UsageLine latest={person.appUsage.latest} /> : null}
+      {person.appUsage.shared ? <UsageLine personId={person.id} latest={person.appUsage.latest} /> : null}
       {PHONE_RULES.map((rule) => (
         <RuleBox key={rule} person={person} rule={rule} />
       ))}

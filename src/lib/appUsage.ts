@@ -1,7 +1,7 @@
 // App usage (parental controls): screen time per app, measured on a child's
 // phone while a supervising adult has turned sharing it on. Pure, shared by
-// the server (appUsageService) and the client (the Map's "People you look
-// after" card, the child's Profile).
+// the server (appUsageService) and the client ("People you look after", the
+// child's Profile).
 
 /** Days of usage kept per member; older ones are deleted as new ones arrive. */
 export const USAGE_KEEP_DAYS = 14;
@@ -73,7 +73,58 @@ export function tidyApps(apps: AppMinutes[]): AppMinutes[] {
 
 /** The oldest day ("YYYY-MM-DD") still kept when [newest] is the latest one. */
 export function oldestKeptDay(newest: string): string {
-  const d = new Date(`${newest}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() - (USAGE_KEEP_DAYS - 1));
+  return addDays(newest, -(USAGE_KEEP_DAYS - 1));
+}
+
+/** [day] ("YYYY-MM-DD") moved by [n] days. */
+function addDays(day: string, n: number): string {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
+}
+
+/**
+ * The bell alert for apps new on a child's phone: "Riley installed Roblox",
+ * "... Roblox and YouTube", or "... 3 new apps" with every name in the body.
+ */
+export function newAppText(name: string, labels: string[]): { title: string; body: string } {
+  const where = 'On their phone. Their app usage is on People you look after.';
+  if (labels.length === 1) return { title: `${name} installed ${labels[0]}`, body: where };
+  if (labels.length === 2) return { title: `${name} installed ${labels[0]} and ${labels[1]}`, body: where };
+  const list = `${labels.slice(0, -1).join(', ')} and ${labels.at(-1)}`;
+  return { title: `${name} installed ${labels.length} new apps`, body: `${list}. ${where}` };
+}
+
+/** Days in the usage chart: a week, ending today. */
+export const USAGE_CHART_DAYS = 7;
+
+/** One bar of the chart. minutes: null when their phone sent nothing for that day. */
+export interface ChartDay {
+  day: string;
+  minutes: number | null;
+}
+
+/**
+ * The chart's days, oldest first: the week ending at the viewer's [today], or
+ * at the newest reported day when that's later (a phone a time zone ahead).
+ */
+export function chartDays(days: { day: string; totalMinutes: number }[], today: string): ChartDay[] {
+  const byDay = new Map(days.map((d) => [d.day, d.totalMinutes]));
+  const newest = days.reduce((max, d) => (d.day > max ? d.day : max), today);
+  return Array.from({ length: USAGE_CHART_DAYS }, (_, i) => {
+    const day = addDays(newest, i - (USAGE_CHART_DAYS - 1));
+    return { day, minutes: byDay.get(day) ?? null };
+  });
+}
+
+/** The average day over the chart days their phone reported, in whole minutes; null when none. */
+export function averageMinutes(chart: ChartDay[]): number | null {
+  const reported = chart.filter((c) => c.minutes !== null);
+  if (reported.length === 0) return null;
+  return Math.round(reported.reduce((sum, c) => sum + c.minutes!, 0) / reported.length);
+}
+
+/** A chart bar's short day name: "Mon". */
+export function weekdayLabel(day: string): string {
+  return new Date(`${day}T00:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
 }

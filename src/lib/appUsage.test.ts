@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
   USAGE_TOP_APPS,
+  averageMinutes,
+  chartDays,
   formatMinutes,
   isPng,
+  newAppText,
   oldestKeptDay,
   tidyApps,
   usageDayLabel,
   usageIconUrl,
+  weekdayLabel,
 } from '@/lib/appUsage';
 
 describe('app usage', () => {
@@ -48,5 +52,61 @@ describe('app usage', () => {
   it('keeps two weeks, counting the newest day, across a month end', () => {
     expect(oldestKeptDay('2026-10-12')).toBe('2026-09-29');
     expect(oldestKeptDay('2026-03-01')).toBe('2026-02-16');
+  });
+});
+
+describe('the week chart', () => {
+  it('shows the seven days up to today, oldest first, with nothing for days the phone didn’t send', () => {
+    const chart = chartDays(
+      [
+        { day: '2026-10-18', totalMinutes: 90 },
+        { day: '2026-10-16', totalMinutes: 0 },
+        { day: '2026-10-05', totalMinutes: 300 },
+      ],
+      '2026-10-18',
+    );
+    expect(chart.map((c) => c.day)).toEqual([
+      '2026-10-12',
+      '2026-10-13',
+      '2026-10-14',
+      '2026-10-15',
+      '2026-10-16',
+      '2026-10-17',
+      '2026-10-18',
+    ]);
+    // A reported zero is a day too; a missing day isn't.
+    expect(chart.map((c) => c.minutes)).toEqual([null, null, null, null, 0, null, 90]);
+    expect(averageMinutes(chart)).toBe(45);
+    expect(averageMinutes(chart.slice(0, 3))).toBeNull();
+  });
+
+  it('ends at the phone’s day when it is already tomorrow for the viewer, across a month end', () => {
+    const chart = chartDays([{ day: '2026-11-01', totalMinutes: 10 }], '2026-10-31');
+    expect(chart[0].day).toBe('2026-10-26');
+    expect(chart.at(-1)).toEqual({ day: '2026-11-01', minutes: 10 });
+  });
+
+  it('names each bar by its weekday', () => {
+    expect(weekdayLabel('2026-10-18')).toBe('Sun');
+    expect(weekdayLabel('2026-10-12')).toBe('Mon');
+  });
+
+  it('still keeps two weeks counting the newest day', () => {
+    expect(oldestKeptDay('2026-10-12')).toBe('2026-09-29');
+    expect(oldestKeptDay('2026-03-10')).toBe('2026-02-25');
+  });
+});
+
+describe('the new app alert', () => {
+  it('names one or two apps in the title, and lists three or more in the body', () => {
+    expect(newAppText('Riley', ['Roblox'])).toEqual({
+      title: 'Riley installed Roblox',
+      body: 'On their phone. Their app usage is on People you look after.',
+    });
+    expect(newAppText('Riley', ['Roblox', 'YouTube']).title).toBe('Riley installed Roblox and YouTube');
+    expect(newAppText('Riley', ['Chrome', 'Roblox', 'YouTube'])).toEqual({
+      title: 'Riley installed 3 new apps',
+      body: 'Chrome, Roblox and YouTube. On their phone. Their app usage is on People you look after.',
+    });
   });
 });

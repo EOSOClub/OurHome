@@ -68,9 +68,9 @@ describe('Stay connected streams', () => {
     hub.addStream({ householdId: 'h2', userId: 'mia', installId: 'i3', send: () => got.push({ wrong: 'household' }) });
     prisma.pushDevice.findMany.mockResolvedValue([{ token: 't1' }]);
 
-    expect(await pushToMember(H, 'mia', { type: 'ring', ringerId: 'alex' }, { ttlSec: 60 })).toBe(2);
+    expect(await pushToMember(H, 'mia', { type: 'ring', ringerId: 'alex', ringId: 'r1' }, { ttlSec: 60 })).toBe(2);
     expect(got).toHaveLength(1);
-    expect(got[0]).toMatchObject({ type: 'ring', ringerId: 'alex' });
+    expect(got[0]).toMatchObject({ type: 'ring', ringerId: 'alex', ringId: 'r1' });
     expect(got[0].id).toMatch(/^[0-9a-f-]{36}$/);
     expect(fcm.sendData).toHaveBeenCalledWith('t1', got[0], 60, undefined);
   });

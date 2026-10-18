@@ -10,6 +10,7 @@ import {
   Info,
   Loader2,
   Package,
+  PackagePlus,
   Receipt,
   Clock,
   ListChecks,
@@ -44,6 +45,7 @@ const TYPE_ICON: Record<NotificationType, LucideIcon> = {
   bug_report: Bug,
   task_ready: ListChecks,
   phone_alert: Smartphone,
+  new_app: PackagePlus,
 };
 
 const TYPE_VARIANT: Record<
@@ -58,6 +60,7 @@ const TYPE_VARIANT: Record<
   bug_report: 'destructive',
   task_ready: 'default',
   phone_alert: 'warning',
+  new_app: 'default',
 };
 
 type ReadFilter = 'all' | 'unread' | 'read';

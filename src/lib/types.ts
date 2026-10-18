@@ -5,6 +5,7 @@ import type { AccessMatrix, EditableRole } from '@/lib/permissions';
 import type { Feature } from '@/lib/features';
 import type { BatteryReading, LocationSharing } from '@/lib/location';
 import type { PhoneProblem, PhoneRules, PhoneSetupStep } from '@/lib/phoneHealth';
+import type { RingPhase } from '@/lib/ring';
 
 export interface CategoryDTO {
   id: string;
@@ -649,7 +650,7 @@ export interface LookAfterDTO {
       latest: {
         day: string;
         totalMinutes: number;
-        top: { app: string; label: string; minutes: number; icon: boolean }[];
+        top: UsageAppDTO[];
         updatedAt: string;
       } | null;
     };
@@ -662,7 +663,35 @@ export interface LookAfterDTO {
       passwordChosen: boolean;
       steps: { step: PhoneSetupStep; done: boolean | null }[];
     };
+    /** The viewer's own last ring of their phone and how it went (lib/ring.ts),
+     *  for RING_SHOWN_MS; null when they haven't rung it lately. */
+    ring: RingDTO | null;
   }[];
+}
+
+/** A ring and what the phone said back. stoppedAfterSec: only for "stopped",
+ *  when the phone also said it started ringing. */
+export interface RingDTO {
+  sentAt: string;
+  phase: RingPhase;
+  stoppedAfterSec: number | null;
+}
+
+/** One app's time on a day of someone's app usage. app: the package name; icon: whether /api/supervision/usage/icon has it. */
+export interface UsageAppDTO {
+  app: string;
+  label: string;
+  minutes: number;
+  icon: boolean;
+}
+
+/**
+ * Every stored day of a member's app usage, newest first, each with all its
+ * kept apps (GET /api/supervision/usage/history for a supervisor, GET
+ * /api/phone/usage/history for the member themself).
+ */
+export interface UsageHistoryDTO {
+  days: { day: string; totalMinutes: number; apps: UsageAppDTO[]; updatedAt: string }[];
 }
 
 /** GET /api/phone/setup: what the signed-in member's phone must have on. */

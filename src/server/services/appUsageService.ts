@@ -1,15 +1,20 @@
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/server/db/prisma';
+import { createHash } from 'node:crypto';
 import { ConflictError } from '@/server/services/errors';
+import { pushSync } from '@/server/services/pushService';
+import { canBeSupervised, canSupervise } from '@/lib/permissions';
 import {
   USAGE_CARD_APPS,
   USAGE_ICON_MAX_BYTES,
   isPng,
+  newAppText,
   oldestKeptDay,
   tidyApps,
   type AppMinutes,
 } from '@/lib/appUsage';
-import type { ReportUsageIconsInput, ReportUsageInput } from '@/lib/validation/phone';
+import type { ReportNewAppsInput, ReportUsageIconsInput, ReportUsageInput } from '@/lib/validation/phone';
+import type { UsageHistoryDTO } from '@/lib/types';
 
 // App usage (parental controls): a child's phone reports its screen time per
 // app while a supervising adult has turned sharing it on (User.shareAppUsage,
@@ -17,6 +22,9 @@ import type { ReportUsageIconsInput, ReportUsageInput } from '@/lib/validation/p
 // Only the last USAGE_KEEP_DAYS days are kept; turning sharing off deletes it.
 // The phone also sends each app's icon once (AppIcon), when the server says
 // it has none; an icon goes when no stored day names its app any more.
+// The child sees their own numbers too, on their Profile (myUsageHistory).
+// While it's shared, their supervisors are also told about new apps on their
+// phone (reportNewApps).
 // Rules: src/lib/appUsage.ts.
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -136,6 +144,66 @@ export async function pruneIcons(db: Db, householdId: string): Promise<void> {
   await db.appIcon.deleteMany({ where: { householdId, app: { notIn: named } } });
 }
 
+/** The bell type for an app new on a child's phone. */
+export const NEW_APP_TYPE = 'new_app';
+
+/**
+ * Apps the phone found since its last look (it compares the apps that can be
+ * opened, every 15 minutes; its first look only remembers them). Each adult
+ * who looks after the member gets one bell alert, which wakes their phone.
+ * The same report sent twice the same day (an answer lost on the way) alerts
+ * once. 409 while their usage isn't shared, like the usage itself.
+ */
+export async function reportNewApps(
+  householdId: string,
+  userId: string,
+  input: ReportNewAppsInput,
+  now: Date = new Date(),
+): Promise<{ told: number }> {
+  const user = await prisma.user.findFirst({
+    where: { id: userId, householdId },
+    select: { name: true, shareAppUsage: true },
+  });
+  if (user?.shareAppUsage !== true) throw new ConflictError('Your app usage isn’t shared.');
+  const links = await prisma.supervision.findMany({
+    where: { householdId, supervisedId: userId },
+    select: { supervisorId: true, supervisor: { select: { role: true } }, supervised: { select: { role: true } } },
+  });
+  const supervisors = [
+    ...new Set(
+      links.filter((l) => canSupervise(l.supervisor.role) && canBeSupervised(l.supervised.role)).map((l) => l.supervisorId),
+    ),
+  ];
+  const byApp = new Map(input.apps.map((a) => [a.app, a.label || a.app]));
+  if (supervisors.length === 0 || byApp.size === 0) return { told: 0 };
+  const labels = [...byApp.values()].sort((a, b) => a.localeCompare(b));
+  const which = createHash('sha256').update([...byApp.keys()].sort().join('\n')).digest('hex').slice(0, 16);
+  const keyFor = (supervisorId: string) => `new_app:${userId}:${supervisorId}:${utcDay(now, 0)}:${which}`;
+  const have = await prisma.notification.findMany({
+    where: { householdId, dedupeKey: { in: supervisors.map(keyFor) } },
+    select: { dedupeKey: true },
+  });
+  const sent = new Set(have.map((n) => n.dedupeKey));
+  const fresh = supervisors.filter((s) => !sent.has(keyFor(s)));
+  if (fresh.length === 0) return { told: 0 };
+  await prisma.notification.createMany({
+    data: fresh.map((supervisorId) => ({
+      householdId,
+      userId: supervisorId,
+      type: NEW_APP_TYPE,
+      ...newAppText(user.name, labels),
+      channel: 'in_app',
+      subjectType: 'phone',
+      subjectId: userId,
+      dedupeKey: keyFor(supervisorId),
+      readAt: null,
+      createdAt: now,
+    })),
+  });
+  pushSync(householdId, { userIds: fresh }, 'reminder');
+  return { told: fresh.length };
+}
+
 /** The UTC date [offsetDays] from [now], as "YYYY-MM-DD". */
 function utcDay(now: Date, offsetDays: number): string {
   return new Date(now.getTime() + offsetDays * 86_400_000).toISOString().slice(0, 10);
@@ -176,6 +244,37 @@ export async function usageSummaries(householdId: string, userIds: string[]): Pr
     });
   }
   return out;
+}
+
+/**
+ * Every stored day of [userId]'s usage, newest first, with all the apps kept
+ * for each (up to USAGE_TOP_APPS): the chart and the full list. Callers check
+ * who may see it.
+ */
+export async function usageHistory(householdId: string, userId: string): Promise<UsageHistoryDTO> {
+  const rows = await prisma.appUsageDay.findMany({ where: { userId }, orderBy: { day: 'desc' } });
+  const days = rows.map((row) => ({ row, apps: parseApps(row.apps) }));
+  const named = [...new Set(days.flatMap((d) => d.apps.map((a) => a.app)))];
+  const icons = named.length
+    ? await prisma.appIcon.findMany({ where: { householdId, app: { in: named } }, select: { app: true } })
+    : [];
+  const withIcon = new Set(icons.map((i) => i.app));
+  return {
+    days: days.map(({ row, apps }) => ({
+      day: row.day,
+      totalMinutes: row.totalMinutes,
+      apps: apps.map(({ app, label, minutes }) => ({ app, label, minutes, icon: withIcon.has(app) })),
+      updatedAt: row.updatedAt.toISOString(),
+    })),
+  };
+}
+
+/** The signed-in member's own usage history (their Profile). 409 while it isn't shared. */
+export async function myUsageHistory(householdId: string, userId: string): Promise<UsageHistoryDTO> {
+  if (!(await getMyUsageSharing(userId)).shared) {
+    throw new ConflictError('Your app usage isn’t shared.');
+  }
+  return usageHistory(householdId, userId);
 }
 
 function parseApps(raw: string): AppMinutes[] {

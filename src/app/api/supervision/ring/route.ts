@@ -15,6 +15,6 @@ export const GET = withAuth(async (ctx) => {
 
 export const POST = withAuth(async (ctx) => {
   const input = await parseBody(ctx.req, ringPhoneSchema);
-  await ringPhone(ctx.user.householdId!, ctx.user, input.targetId);
-  return ok({ rung: true });
+  const ring = await ringPhone(ctx.user.householdId!, ctx.user, input.targetId);
+  return ok({ rung: true, ring });
 });

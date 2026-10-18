@@ -175,8 +175,9 @@ export async function pushToMember(
   userId: string,
   data:
     | { type: 'live_check' | 'live_check_stop'; checkId: string }
-    // A supervising adult ringing this child's phone (supervisionService).
-    | { type: 'ring'; ringerId: string }
+    // A supervising adult ringing this child's phone (supervisionService);
+    // the phone reports back on ringId.
+    | { type: 'ring'; ringerId: string; ringId: string }
     // A supervisor looking at this child's app usage: send it now (supervisionService).
     | { type: 'usage_refresh' }
     // The member asked for a test notification on their own phones (Profile).

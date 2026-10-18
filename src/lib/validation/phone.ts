@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { EMERGENCY_UNLOCK_STAGES } from '@/lib/phoneHealth';
+import { RING_REPORTS } from '@/lib/ring';
 
 /**
  * How the phone is doing, so a phone that goes quiet can be told apart (flat,
@@ -101,3 +102,24 @@ export const reportUsageIconsSchema = z.object({
     .max(20),
 });
 export type ReportUsageIconsInput = z.infer<typeof reportUsageIconsSchema>;
+
+/** Apps the phone found since its last look (package name and the name it shows). */
+export const reportNewAppsSchema = z.object({
+  apps: z
+    .array(
+      z.object({
+        app: z.string().trim().min(1).max(200),
+        label: z.string().trim().max(100),
+      }),
+    )
+    .min(1)
+    .max(50),
+});
+export type ReportNewAppsInput = z.infer<typeof reportNewAppsSchema>;
+
+/** What the phone did with a ring (ringId: from the ring push). */
+export const reportRingSchema = z.object({
+  ringId: z.string().trim().min(1).max(100),
+  state: z.enum(RING_REPORTS),
+});
+export type ReportRingInput = z.infer<typeof reportRingSchema>;

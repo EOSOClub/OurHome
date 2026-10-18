@@ -1,7 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const prisma = {
-  user: { findUnique: vi.fn(async (): Promise<unknown> => ({ shareAppUsage: true })) },
+  user: {
+    findUnique: vi.fn(async (): Promise<unknown> => ({ shareAppUsage: true })),
+    findFirst: vi.fn(async (): Promise<unknown> => ({ name: 'Riley', shareAppUsage: true })),
+  },
+  supervision: { findMany: vi.fn(async (): Promise<unknown[]> => []) },
+  notification: {
+    findMany: vi.fn(async (): Promise<unknown[]> => []),
+    createMany: vi.fn(),
+  },
   appUsageDay: {
     upsert: vi.fn(),
     deleteMany: vi.fn(),
@@ -15,10 +23,20 @@ const prisma = {
   },
 };
 vi.mock('@/server/db/prisma', () => ({ prisma }));
+const push = { pushSync: vi.fn() };
+vi.mock('@/server/services/pushService', () => push);
 
-const { findIcon, forgetUsage, reportIcons, reportUsage, usageNamesApp, usageSummaries } = await import(
-  './appUsageService'
-);
+const {
+  findIcon,
+  forgetUsage,
+  myUsageHistory,
+  reportIcons,
+  reportNewApps,
+  reportUsage,
+  usageHistory,
+  usageNamesApp,
+  usageSummaries,
+} = await import('./appUsageService');
 
 const yt = { app: 'com.google.android.youtube', label: 'YouTube' };
 const now = new Date('2026-10-12T18:00:00Z');
@@ -234,5 +252,120 @@ describe('app icons', () => {
     prisma.appUsageDay.findMany.mockResolvedValueOnce([stored('com.roblox.client')]);
     expect(await usageNamesApp(['mia'], yt.app)).toBe(false);
     expect(await usageNamesApp([], yt.app)).toBe(false);
+  });
+});
+
+describe('usage history', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    prisma.user.findUnique.mockResolvedValue({ shareAppUsage: true });
+    prisma.appUsageDay.findMany.mockResolvedValue([]);
+    prisma.appIcon.findMany.mockResolvedValue([]);
+  });
+
+  it('gives every stored day newest first, with all its apps and which have an icon', async () => {
+    const at = new Date('2026-10-12T17:00:00Z');
+    const apps = (n: number) =>
+      JSON.stringify(Array.from({ length: n }, (_, i) => ({ app: `a${i}`, label: `App ${i}`, minutes: 50 - i })));
+    prisma.appUsageDay.findMany.mockResolvedValueOnce([
+      { userId: 'mia', day: '2026-10-12', totalMinutes: 300, apps: apps(5), updatedAt: at },
+      { userId: 'mia', day: '2026-10-11', totalMinutes: 20, apps: 'not json', updatedAt: at },
+    ]);
+    prisma.appIcon.findMany.mockResolvedValueOnce([{ app: 'a4' }]);
+    const out = await usageHistory('h1', 'mia');
+    expect(prisma.appUsageDay.findMany).toHaveBeenCalledWith({ where: { userId: 'mia' }, orderBy: { day: 'desc' } });
+    expect(out.days.map((d) => d.day)).toEqual(['2026-10-12', '2026-10-11']);
+    // Every app, not just the card's top three.
+    expect(out.days[0].apps).toHaveLength(5);
+    expect(out.days[0].apps[4]).toEqual({ app: 'a4', label: 'App 4', minutes: 46, icon: true });
+    expect(out.days[0].apps[0].icon).toBe(false);
+    expect(out.days[0]).toMatchObject({ totalMinutes: 300, updatedAt: at.toISOString() });
+    expect(out.days[1].apps).toEqual([]);
+    // Icons looked up once, in this household.
+    expect(prisma.appIcon.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.appIcon.findMany).toHaveBeenCalledWith({
+      where: { householdId: 'h1', app: { in: ['a0', 'a1', 'a2', 'a3', 'a4'] } },
+      select: { app: true },
+    });
+  });
+
+  it('asks for no icons when nothing is stored', async () => {
+    expect(await usageHistory('h1', 'mia')).toEqual({ days: [] });
+    expect(prisma.appIcon.findMany).not.toHaveBeenCalled();
+  });
+
+  it('shows a member their own history only while it is shared', async () => {
+    expect(await myUsageHistory('h1', 'mia')).toEqual({ days: [] });
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { id: 'mia' }, select: { shareAppUsage: true } });
+    prisma.user.findUnique.mockResolvedValue({ shareAppUsage: null });
+    await expect(myUsageHistory('h1', 'mia')).rejects.toThrow(/isn’t shared/);
+  });
+});
+
+describe('new apps on a child’s phone', () => {
+  const link = (supervisorId: string, supervisorRole = 'adult', supervisedRole = 'teen') => ({
+    supervisorId,
+    supervisor: { role: supervisorRole },
+    supervised: { role: supervisedRole },
+  });
+  const roblox = { app: 'com.roblox.client', label: 'Roblox' };
+  const noon = new Date('2026-10-18T12:00:00Z');
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    prisma.user.findFirst.mockResolvedValue({ name: 'Riley', shareAppUsage: true });
+    prisma.supervision.findMany.mockResolvedValue([]);
+    prisma.notification.findMany.mockResolvedValue([]);
+  });
+
+  it('tells each adult who looks after them, once, and wakes their phones', async () => {
+    // Jordan's link no longer counts: a guest can't supervise.
+    prisma.supervision.findMany.mockResolvedValueOnce([link('alex'), link('sam'), link('jordan', 'guest')]);
+    const out = await reportNewApps('h1', 'riley', { apps: [roblox, { ...yt }, { ...roblox }] }, noon);
+    expect(out).toEqual({ told: 2 });
+    expect(prisma.supervision.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { householdId: 'h1', supervisedId: 'riley' } }),
+    );
+    const rows = prisma.notification.createMany.mock.calls[0][0].data;
+    expect(rows.map((r: { userId: string }) => r.userId)).toEqual(['alex', 'sam']);
+    expect(rows[0]).toMatchObject({
+      householdId: 'h1',
+      type: 'new_app',
+      title: 'Riley installed Roblox and YouTube',
+      subjectType: 'phone',
+      subjectId: 'riley',
+      readAt: null,
+    });
+    expect(rows[0].dedupeKey).toMatch(/^new_app:riley:alex:2026-10-18:[0-9a-f]{16}$/);
+    expect(push.pushSync).toHaveBeenCalledWith('h1', { userIds: ['alex', 'sam'] }, 'reminder');
+  });
+
+  it('doesn’t alert twice for the same report on the same day', async () => {
+    prisma.supervision.findMany.mockResolvedValue([link('alex'), link('sam')]);
+    await reportNewApps('h1', 'riley', { apps: [roblox] }, noon);
+    const firstKeys = prisma.notification.createMany.mock.calls[0][0].data.map((r: { dedupeKey: string }) => r.dedupeKey);
+    prisma.notification.findMany.mockResolvedValueOnce([{ dedupeKey: firstKeys[0] }]);
+    expect(await reportNewApps('h1', 'riley', { apps: [roblox] }, new Date('2026-10-18T13:00:00Z'))).toEqual({ told: 1 });
+    expect(prisma.notification.createMany.mock.calls[1][0].data.map((r: { userId: string }) => r.userId)).toEqual(['sam']);
+    // The next day it's news again (installed again after being removed).
+    prisma.notification.findMany.mockResolvedValueOnce([]);
+    await reportNewApps('h1', 'riley', { apps: [roblox] }, new Date('2026-10-19T12:00:00Z'));
+    expect(prisma.notification.createMany.mock.calls[2][0].data[0].dedupeKey).toContain(':2026-10-19:');
+  });
+
+  it('tells nobody when nobody looks after them', async () => {
+    expect(await reportNewApps('h1', 'riley', { apps: [roblox] }, noon)).toEqual({ told: 0 });
+    expect(prisma.notification.createMany).not.toHaveBeenCalled();
+    expect(push.pushSync).not.toHaveBeenCalled();
+  });
+
+  it('is refused while their app usage isn’t shared', async () => {
+    prisma.user.findFirst.mockResolvedValueOnce({ name: 'Riley', shareAppUsage: null });
+    await expect(reportNewApps('h1', 'riley', { apps: [roblox] }, noon)).rejects.toThrow(/isn’t shared/);
+    expect(prisma.user.findFirst).toHaveBeenCalledWith({
+      where: { id: 'riley', householdId: 'h1' },
+      select: { name: true, shareAppUsage: true },
+    });
+    expect(prisma.notification.createMany).not.toHaveBeenCalled();
   });
 });

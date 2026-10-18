@@ -227,6 +227,9 @@ export const NOTIFICATION_TYPES = [
   // Sent to a child's supervisors when their phone goes quiet, or location or
   // Usage access is turned off while needed (phoneStatusService). Removed once fixed.
   'phone_alert',
+  // Sent to a child's supervisors when their phone has a new app, while their
+  // app usage is shared (appUsageService.reportNewApps).
+  'new_app',
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
@@ -239,6 +242,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   bug_report: 'Bug report',
   task_ready: 'Your turn',
   phone_alert: 'Phone',
+  new_app: 'New app',
 };
 
 // --- Bug reports ----------------------------------------------------------

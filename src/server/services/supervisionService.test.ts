@@ -48,6 +48,7 @@ const usage = {
   forgetUsage: vi.fn(),
   usageNamesApp: vi.fn(async () => false),
   findIcon: vi.fn(async (): Promise<Uint8Array | null> => null),
+  usageHistory: vi.fn(async (): Promise<unknown> => ({ days: [] })),
 };
 vi.mock('@/server/services/appUsageService', () => usage);
 const admin = { isFeatureEnabled: vi.fn(async () => true) };
@@ -62,11 +63,13 @@ const {
   newMemberSupervisors,
   releaseIfUnsupervised,
   refreshUsage,
+  reportRing,
   ringPhone,
   setPhoneRule,
   setRequiredSharing,
   setSupervisors,
   setUsageSharing,
+  supervisedUsageHistory,
   usageIcon,
 } = await import('./supervisionService');
 
@@ -342,6 +345,7 @@ describe('required sharing', () => {
           appUsage: { shared: false, latest: null },
           rules: ALL_RULES,
           setup: waiting('notifications', 'batteryUnrestricted', 'preventUninstall', 'keepRunning'),
+          ring: null,
         },
         {
           id: 'sam',
@@ -351,6 +355,7 @@ describe('required sharing', () => {
           appUsage: { shared: false, latest: null },
           rules: ALL_RULES,
           setup: waiting('notifications', 'location', 'batteryUnrestricted', 'preventUninstall', 'keepRunning'),
+          ring: null,
         },
       ],
     });
@@ -412,6 +417,7 @@ describe('required sharing', () => {
             done: null,
           })),
         },
+        ring: null,
       },
       {
         id: 'sam',
@@ -431,6 +437,7 @@ describe('required sharing', () => {
             { step: 'keepRunning', done: true },
           ],
         },
+        ring: null,
       },
     ]);
   });
@@ -556,9 +563,62 @@ describe('ringing a phone', () => {
 
   it('rings a supervised child with a short-lived push and logs it', async () => {
     findLinks.mockResolvedValueOnce(linksOf(sam));
-    await ringPhone(H, { id: 'alex' }, 'sam', clock);
-    expect(push.pushToMember).toHaveBeenCalledWith(H, 'sam', { type: 'ring', ringerId: 'alex' }, { ttlSec: 60 });
+    const ring = await ringPhone(H, { id: 'alex' }, 'sam', clock);
+    expect(push.pushToMember).toHaveBeenCalledWith(
+      H,
+      'sam',
+      { type: 'ring', ringerId: 'alex', ringId: expect.any(String) },
+      { ttlSec: 60 },
+    );
     expect(logActivity).toHaveBeenCalledWith(expect.objectContaining({ actorId: 'alex', message: 'rang Sam’s phone' }));
+    expect(ring).toEqual({ sentAt: new Date(clock).toISOString(), phase: 'sending', stoppedAfterSec: null });
+  });
+
+  /** The ring id the last push carried. */
+  const lastRingId = () => (push.pushToMember.mock.calls.at(-1) as unknown as [string, string, { ringId: string }])[2].ringId;
+
+  it('shows the adult who rang what the phone said back, and nobody else', async () => {
+    findLinks.mockResolvedValue(linksOf(sam));
+    await ringPhone(H, { id: 'alex' }, 'sam', clock);
+    const ringId = lastRingId();
+    const ringOf = async (viewer: string, at: number) => (await lookAfterOverview(H, viewer, at)).people[0].ring;
+
+    expect(reportRing(H, 'sam', { ringId, state: 'ringing' }, clock + 2_000)).toEqual({ known: true });
+    expect(await ringOf('alex', clock + 3_000)).toEqual(expect.objectContaining({ phase: 'ringing' }));
+    // Another adult who looks after Sam doesn't see Alex's ring.
+    expect(await ringOf('gran', clock + 3_000)).toBeNull();
+
+    expect(reportRing(H, 'sam', { ringId, state: 'stopped' }, clock + 9_000)).toEqual({ known: true });
+    // A second phone of theirs ringing out later doesn't change it.
+    reportRing(H, 'sam', { ringId, state: 'rang_out' }, clock + 32_000);
+    expect(await ringOf('alex', clock + 40_000)).toEqual({
+      sentAt: new Date(clock).toISOString(),
+      phase: 'stopped',
+      stoppedAfterSec: 7,
+    });
+    // Shown for ten minutes.
+    expect(await ringOf('alex', clock + 600_000)).toBeNull();
+    findLinks.mockReset();
+  });
+
+  it('lets them ring again as soon as the phone says it stopped', async () => {
+    findLinks.mockResolvedValue(linksOf(sam));
+    await ringPhone(H, { id: 'alex' }, 'sam', clock);
+    reportRing(H, 'sam', { ringId: lastRingId(), state: 'stopped' }, clock + 5_000);
+    await ringPhone(H, { id: 'alex' }, 'sam', clock + 6_000);
+    expect(push.pushToMember).toHaveBeenCalledTimes(2);
+    findLinks.mockReset();
+  });
+
+  it('ignores word about any ring but the child’s own latest one', async () => {
+    findLinks.mockResolvedValue(linksOf(sam));
+    await ringPhone(H, { id: 'alex' }, 'sam', clock);
+    const ringId = lastRingId();
+    expect(reportRing(H, 'sam', { ringId: 'an-old-ring', state: 'stopped' }, clock + 1_000)).toEqual({ known: false });
+    expect(reportRing(H, 'jo', { ringId, state: 'stopped' }, clock + 1_000)).toEqual({ known: false });
+    expect(reportRing('household2', 'sam', { ringId, state: 'stopped' }, clock + 1_000)).toEqual({ known: false });
+    expect((await lookAfterOverview(H, 'alex', clock + 2_000)).people[0].ring?.phase).toBe('sending');
+    findLinks.mockReset();
   });
 
   it('refuses anyone who does not supervise them', async () => {
@@ -582,6 +642,16 @@ describe('ringing a phone', () => {
     await expect(ringPhone(H, { id: 'alex' }, 'sam', clock)).rejects.toThrow(/Couldn’t reach Sam’s phone/);
     expect(logActivity).not.toHaveBeenCalled();
     await ringPhone(H, { id: 'alex' }, 'sam', clock + 1000);
+    findLinks.mockReset();
+  });
+
+  it('keeps showing the last ring when a new one reached no phone', async () => {
+    findLinks.mockResolvedValue(linksOf(sam));
+    await ringPhone(H, { id: 'alex' }, 'sam', clock);
+    reportRing(H, 'sam', { ringId: lastRingId(), state: 'rang_out' }, clock + 31_000);
+    push.pushToMember.mockResolvedValueOnce(0);
+    await expect(ringPhone(H, { id: 'alex' }, 'sam', clock + 40_000)).rejects.toThrow(/Couldn’t reach/);
+    expect((await lookAfterOverview(H, 'alex', clock + 41_000)).people[0].ring?.phase).toBe('rang_out');
     findLinks.mockReset();
   });
 
@@ -660,8 +730,8 @@ describe('fresh app usage when a supervisor looks', () => {
     usage.usageNamesApp.mockResolvedValueOnce(true);
     usage.findIcon.mockResolvedValueOnce(png);
     expect(await usageIcon(H, 'alex', 'com.roblox.client')).toBe(png);
-    // Jo's usage isn't shared, so only Sam's days are searched.
-    expect(usage.usageNamesApp).toHaveBeenCalledWith(['sam'], 'com.roblox.client');
+    // Jo's usage isn't shared, so only Sam's days are searched (and Alex's own, none unless shared).
+    expect(usage.usageNamesApp).toHaveBeenCalledWith(['sam', 'alex'], 'com.roblox.client');
     expect(usage.findIcon).toHaveBeenCalledWith(H, 'com.roblox.client');
   });
 
@@ -672,5 +742,30 @@ describe('fresh app usage when a supervisor looks', () => {
     await expect(usageIcon(H, 'alex', 'com.example.secret')).rejects.toThrow(/No icon/);
     expect(usage.findIcon).not.toHaveBeenCalled();
     usage.findIcon.mockReset();
+  });
+
+  it('gives a child the icons of apps in their own usage', async () => {
+    const png = new Uint8Array([4]);
+    usage.usageNamesApp.mockResolvedValueOnce(true);
+    usage.findIcon.mockResolvedValueOnce(png);
+    // Sam supervises nobody: only their own days are searched.
+    expect(await usageIcon(H, 'sam', 'com.roblox.client')).toBe(png);
+    expect(usage.usageNamesApp).toHaveBeenCalledWith(['sam'], 'com.roblox.client');
+  });
+
+  it('gives a supervisor a shared child’s whole history, without logging it', async () => {
+    const history = { days: [{ day: '2026-10-12', totalMinutes: 5, apps: [], updatedAt: 'x' }] };
+    findLinks.mockResolvedValueOnce(sharing(sam, true));
+    usage.usageHistory.mockResolvedValueOnce(history);
+    expect(await supervisedUsageHistory(H, { id: 'alex' }, 'sam')).toBe(history);
+    expect(usage.usageHistory).toHaveBeenCalledWith(H, 'sam');
+    expect(logActivity).not.toHaveBeenCalled();
+  });
+
+  it('refuses the history to anyone who does not supervise them, and while it isn’t shared', async () => {
+    await expect(supervisedUsageHistory(H, { id: 'jordan' }, 'sam')).rejects.toThrow(/Only an adult who supervises/);
+    findLinks.mockResolvedValueOnce(sharing(sam, null));
+    await expect(supervisedUsageHistory(H, { id: 'alex' }, 'sam')).rejects.toThrow(/Sam’s app usage isn’t shared/);
+    expect(usage.usageHistory).not.toHaveBeenCalled();
   });
 });

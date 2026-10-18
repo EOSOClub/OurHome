@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  Baby,
   Check,
   Copy,
   Crown,
@@ -22,7 +23,7 @@ import { can, canAssignRole, canBeSupervised, canManageMember } from '@/lib/perm
 import { apiFetch, ApiError, fieldErrors } from '@/lib/api';
 import { fieldProblem } from '@/lib/validation/messages';
 import { emailSchema, passwordSchema, usernameSchema } from '@/lib/validation/user';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import {
   Card,
   CardContent,
@@ -335,7 +336,7 @@ function AddMemberCard({
 
   return (
     <Card>
-      <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
+      <CardHeader className="flex-col items-start gap-3 space-y-0 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
         <div>
           <CardTitle className="flex items-center gap-2">
             <UserPlus className="size-4" /> Add a member
@@ -346,24 +347,29 @@ function AddMemberCard({
           </CardDescription>
           {supervision ? (
             <p className="mt-1 text-sm text-muted-foreground">
-              Adding a child or teen?{' '}
-              <Link href="/members/add-child" className="font-medium text-primary hover:underline">
-                Set up a child
-              </Link>{' '}
-              also walks you through their phone.
+              Adding a child or teen? <span className="font-medium text-foreground">Set up a child</span> also
+              walks you through their phone.
             </p>
           ) : null}
         </div>
-        <Button
-          variant={open ? 'ghost' : 'default'}
-          size="sm"
-          onClick={() => {
-            setOpen((o) => !o);
-            setCreated(null);
-          }}
-        >
-          {open ? 'Close' : 'New member'}
-        </Button>
+        {/* Under the text on a phone, so the text keeps the card's width. */}
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {supervision ? (
+            <Link href="/members/add-child" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+              <Baby /> Set up a child
+            </Link>
+          ) : null}
+          <Button
+            variant={open ? 'ghost' : 'default'}
+            size="sm"
+            onClick={() => {
+              setOpen((o) => !o);
+              setCreated(null);
+            }}
+          >
+            {open ? 'Close' : 'New member'}
+          </Button>
+        </div>
       </CardHeader>
 
       {created ? (

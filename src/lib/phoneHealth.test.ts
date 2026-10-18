@@ -8,6 +8,9 @@ import {
   phoneProblems,
   phoneRules,
   phoneSilence,
+  setupChecks,
+  setupProgress,
+  setupRequired,
 } from '@/lib/phoneHealth';
 
 const now = new Date('2026-10-12T18:00:00Z');
@@ -222,5 +225,64 @@ describe('phone problems', () => {
   it('names the child in the alert', () => {
     expect(phoneAlertText('quiet', 'Mia').title).toBe('Mia’s phone hasn’t checked in');
     expect(phoneAlertText('location_off', 'Mia').body).toMatch(/Mia’s sharing is required/);
+  });
+});
+
+describe('Set up this phone progress', () => {
+  const allRules = phoneRules({});
+
+  it('always needs notifications; location only while required and Location is on; usage only while shared', () => {
+    expect(setupRequired({ sharing: 'on', rules: allRules })).toEqual({
+      notifications: true,
+      location: false,
+      usageAccess: false,
+      ...allRules,
+    });
+    expect(setupRequired({ sharing: 'required', usageShared: true, rules: allRules })).toMatchObject({
+      location: true,
+      usageAccess: true,
+    });
+    expect(setupRequired({ sharing: 'required', locationOn: false })).toMatchObject({ location: false });
+    expect(setupRequired({ sharing: 'off', rules: { ...allRules, keepRunning: false } })).toMatchObject({
+      keepRunning: false,
+    });
+  });
+
+  it('lists the required steps in the app’s order, Keep Our Home running last', () => {
+    const required = setupRequired({ sharing: 'required', usageShared: true, rules: allRules });
+    expect(setupProgress(required, null).map((s) => s.step)).toEqual([
+      'notifications',
+      'location',
+      'batteryUnrestricted',
+      'usageAccess',
+      'preventUninstall',
+      'keepRunning',
+    ]);
+  });
+
+  it('waits on every step before a phone checks in', () => {
+    const required = setupRequired({ sharing: 'off', rules: allRules });
+    expect(setupProgress(required, null).every((s) => s.done === null)).toBe(true);
+  });
+
+  it('takes each step from what the phone last said, null where its app can’t say', () => {
+    const checks = setupChecks({
+      lastSeenAt: now,
+      locationAlways: false,
+      notifications: true,
+      usageAccess: null,
+      batteryUnrestricted: true,
+      closeGuard: false,
+      // An app from before the uninstall guard leaves it out.
+    });
+    const required = setupRequired({ sharing: 'required', usageShared: true, rules: allRules });
+    expect(setupProgress(required, checks)).toEqual([
+      { step: 'notifications', done: true },
+      { step: 'location', done: false },
+      { step: 'batteryUnrestricted', done: true },
+      { step: 'usageAccess', done: null },
+      { step: 'preventUninstall', done: null },
+      { step: 'keepRunning', done: false },
+    ]);
   });
 });

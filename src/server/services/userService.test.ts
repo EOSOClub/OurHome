@@ -98,6 +98,72 @@ describe('createMember with supervisors', () => {
   });
 });
 
+describe('createMember with phone choices (Set up a child)', () => {
+  const kidInput = { name: 'Mia', username: 'mia', role: 'child' as const, password: 'password1' };
+  const allOn = { keepRunning: true, preventUninstall: true, batteryUnrestricted: true };
+  const alex = { id: 'alex', name: 'Alex', role: 'adult' };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    prisma.user.findFirst.mockResolvedValue(null); // assertUnique: no clash
+  });
+
+  it('refuses them unless the adult adding them supervises them, before making anything', async () => {
+    newMemberSupervisors.mockResolvedValueOnce([alex]);
+    await expect(
+      createMember(HOUSEHOLD, head, {
+        ...kidInput,
+        supervisorIds: ['alex'],
+        setup: { locationRequired: true, shareAppUsage: false, rules: allOn },
+      }),
+    ).rejects.toMatchObject({ field: 'setup', message: expect.stringMatching(/Only an adult who supervises them/) });
+    expect(prisma.user.create).not.toHaveBeenCalled();
+  });
+
+  it('stores only what differs from the defaults, and says so in Activity', async () => {
+    newMemberSupervisors.mockResolvedValueOnce([{ id: head.id, name: 'Sam', role: 'head' }]);
+    prisma.user.create.mockResolvedValueOnce(row({ id: 'newkid', name: 'Mia', role: 'child', mustChangePassword: true }));
+    await createMember(HOUSEHOLD, head, {
+      ...kidInput,
+      supervisorIds: [head.id],
+      setup: {
+        locationRequired: true,
+        shareAppUsage: true,
+        rules: { ...allOn, preventUninstall: false },
+      },
+    });
+    const { data } = prisma.user.create.mock.calls[0][0] as { data: Record<string, unknown> };
+    expect(data).toMatchObject({ locationSharing: 'required', shareAppUsage: true, requirePreventUninstall: false });
+    // Left on is the default (null), so it isn't written.
+    expect(data).not.toHaveProperty('requireKeepRunning');
+    expect(data).not.toHaveProperty('requireBatteryUnrestricted');
+    expect(logActivity).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message:
+          'added Child “Mia”, supervised by Sam; location sharing required, app usage shared, Prevent uninstall not required',
+      }),
+      prisma,
+    );
+  });
+
+  it('writes nothing extra when every choice is the default', async () => {
+    newMemberSupervisors.mockResolvedValueOnce([{ id: head.id, name: 'Sam', role: 'head' }]);
+    prisma.user.create.mockResolvedValueOnce(row({ id: 'newkid', name: 'Mia', role: 'child' }));
+    await createMember(HOUSEHOLD, head, {
+      ...kidInput,
+      supervisorIds: [head.id],
+      setup: { locationRequired: false, shareAppUsage: false, rules: allOn },
+    });
+    const { data } = prisma.user.create.mock.calls[0][0] as { data: Record<string, unknown> };
+    expect(data).not.toHaveProperty('locationSharing');
+    expect(data).not.toHaveProperty('shareAppUsage');
+    expect(logActivity).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'added Child “Mia”, supervised by Sam' }),
+      prisma,
+    );
+  });
+});
+
 describe('updateMember', () => {
   beforeEach(() => {
     vi.clearAllMocks();

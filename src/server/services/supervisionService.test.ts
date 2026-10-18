@@ -50,6 +50,8 @@ const usage = {
   findIcon: vi.fn(async (): Promise<Uint8Array | null> => null),
 };
 vi.mock('@/server/services/appUsageService', () => usage);
+const admin = { isFeatureEnabled: vi.fn(async () => true) };
+vi.mock('@/server/services/serverAdminService', () => admin);
 
 const {
   dropBrokenSupervision,
@@ -324,39 +326,111 @@ describe('required sharing', () => {
 
   it('lists the people the viewer looks after with their sharing', async () => {
     findLinks.mockResolvedValueOnce([...linkTo(sam, 'required'), ...linkTo(jo, null), { supervisor: { role: 'adult' }, supervised: { ...alex, locationSharing: 'on' } }]);
+    // No phone yet: every required step waits, in the app's order.
+    const waiting = (...steps: string[]) => ({
+      passwordChosen: true,
+      steps: steps.map((step) => ({ step, done: null })),
+    });
     expect(await lookAfterOverview(H, 'alex')).toEqual({
       canRing: true,
       people: [
-        { id: 'jo', name: 'Jo', sharing: 'off', phone: null, appUsage: { shared: false, latest: null }, rules: ALL_RULES },
-        { id: 'sam', name: 'Sam', sharing: 'required', phone: null, appUsage: { shared: false, latest: null }, rules: ALL_RULES },
+        {
+          id: 'jo',
+          name: 'Jo',
+          sharing: 'off',
+          phone: null,
+          appUsage: { shared: false, latest: null },
+          rules: ALL_RULES,
+          setup: waiting('notifications', 'batteryUnrestricted', 'preventUninstall', 'keepRunning'),
+        },
+        {
+          id: 'sam',
+          name: 'Sam',
+          sharing: 'required',
+          phone: null,
+          appUsage: { shared: false, latest: null },
+          rules: ALL_RULES,
+          setup: waiting('notifications', 'location', 'batteryUnrestricted', 'preventUninstall', 'keepRunning'),
+        },
       ],
     });
+  });
+
+  it('leaves location out of the setup steps while the household has Location off', async () => {
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'required'));
+    admin.isFeatureEnabled.mockResolvedValueOnce(false);
+    const { people } = await lookAfterOverview(H, 'alex');
+    expect(people[0].setup.steps.map((s) => s.step)).toEqual([
+      'notifications',
+      'batteryUnrestricted',
+      'preventUninstall',
+      'keepRunning',
+    ]);
   });
 
   it('shows each one’s phone, their app usage only where it is shared, and their phone rules', async () => {
     findLinks.mockResolvedValueOnce([
       {
         supervisor: { role: 'adult' },
-        supervised: { ...sam, locationSharing: 'on', shareAppUsage: true, requirePreventUninstall: false },
+        supervised: {
+          ...sam,
+          locationSharing: 'on',
+          shareAppUsage: true,
+          requirePreventUninstall: false,
+          mustChangePassword: true,
+        },
       },
       { supervisor: { role: 'adult' }, supervised: { ...jo, locationSharing: 'on', shareAppUsage: null } },
     ]);
     const phone = { lastSeenAt: '2026-10-12T17:00:00.000Z', deviceName: 'Pixel 8', problems: ['quiet'] };
+    const checks = {
+      notifications: true,
+      location: true,
+      batteryUnrestricted: false,
+      usageAccess: true,
+      preventUninstall: null,
+      keepRunning: true,
+    };
     const latest = { day: '2026-10-12', totalMinutes: 30, top: [], updatedAt: '2026-10-12T17:00:00.000Z' };
-    phones.phoneSummaries.mockResolvedValueOnce(new Map([['sam', phone]]));
+    phones.phoneSummaries.mockResolvedValueOnce(new Map([['sam', { ...phone, checks }]]));
     usage.usageSummaries.mockResolvedValueOnce(new Map([['sam', latest]]));
     const { people } = await lookAfterOverview(H, 'alex');
     // Jo's usage isn't shared, so it isn't even looked up.
     expect(usage.usageSummaries).toHaveBeenCalledWith(H, ['sam']);
     expect(people).toEqual([
-      { id: 'jo', name: 'Jo', sharing: 'on', phone: null, appUsage: { shared: false, latest: null }, rules: ALL_RULES },
+      {
+        id: 'jo',
+        name: 'Jo',
+        sharing: 'on',
+        phone: null,
+        appUsage: { shared: false, latest: null },
+        rules: ALL_RULES,
+        setup: {
+          passwordChosen: true,
+          steps: ['notifications', 'batteryUnrestricted', 'preventUninstall', 'keepRunning'].map((step) => ({
+            step,
+            done: null,
+          })),
+        },
+      },
       {
         id: 'sam',
         name: 'Sam',
         sharing: 'on',
+        // The checks only feed setup.
         phone,
         appUsage: { shared: true, latest },
         rules: { ...ALL_RULES, preventUninstall: false },
+        // Location isn't required and Prevent uninstall isn't either, so neither is a step.
+        setup: {
+          passwordChosen: false,
+          steps: [
+            { step: 'notifications', done: true },
+            { step: 'batteryUnrestricted', done: false },
+            { step: 'usageAccess', done: true },
+            { step: 'keepRunning', done: true },
+          ],
+        },
       },
     ]);
   });

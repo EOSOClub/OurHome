@@ -4,7 +4,7 @@
 import type { AccessMatrix, EditableRole } from '@/lib/permissions';
 import type { Feature } from '@/lib/features';
 import type { BatteryReading, LocationSharing } from '@/lib/location';
-import type { PhoneProblem, PhoneRules } from '@/lib/phoneHealth';
+import type { PhoneProblem, PhoneRules, PhoneSetupStep } from '@/lib/phoneHealth';
 
 export interface CategoryDTO {
   id: string;
@@ -644,6 +644,13 @@ export interface LookAfterDTO {
     };
     /** The protections their phone must have on (POST /api/supervision/phone-rules). */
     rules: PhoneRules;
+    /** How far Set up this phone has got. passwordChosen: they replaced their
+     *  temporary password. steps: what their phone must do, in the app's
+     *  order; done is null until a phone of theirs that can say checks in. */
+    setup: {
+      passwordChosen: boolean;
+      steps: { step: PhoneSetupStep; done: boolean | null }[];
+    };
   }[];
 }
 

@@ -11,8 +11,11 @@ import {
   phoneAlertText,
   phoneProblems,
   phoneRules,
+  setupChecks,
+  setupRequired,
   type PhoneProblem,
   type PhoneRuleColumns,
+  type PhoneSetupChecks,
 } from '@/lib/phoneHealth';
 import type { PhoneSetupDTO } from '@/lib/types';
 import type { PhoneCheckInInput, PhoneStatusInput } from '@/lib/validation/phone';
@@ -209,12 +212,12 @@ export async function phoneSetup(householdId: string, userId: string): Promise<P
   }
   return {
     supervised: true,
-    required: {
-      notifications: true,
-      location: locationOn && sharingMode(user.locationSharing) === 'required',
-      usageAccess: user.shareAppUsage === true,
-      ...phoneRules(user),
-    },
+    required: setupRequired({
+      sharing: sharingMode(user.locationSharing),
+      usageShared: user.shareAppUsage === true,
+      locationOn,
+      rules: phoneRules(user),
+    }),
   };
 }
 
@@ -239,6 +242,8 @@ export interface PhoneSummary {
   lastPushAt: string | null;
   stayConnected: boolean;
   connected: boolean;
+  /** What it last said about each step of Set up this phone. */
+  checks: PhoneSetupChecks;
 }
 
 /** Each child's freshest phone and what's wrong with it, for the Map card. */
@@ -289,6 +294,7 @@ export async function phoneSummaries(
       lastPushAt: phone.lastPushAt?.toISOString() ?? null,
       stayConnected: phone.stayConnected === true,
       connected: connected.has(phone.installId),
+      checks: setupChecks(phone),
       problems: phoneProblems(
         { ...phone, connected: connected.has(phone.installId) },
         {

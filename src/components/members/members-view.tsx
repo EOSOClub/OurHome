@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Check,
@@ -343,6 +344,15 @@ function AddMemberCard({
             They sign in with a username and the temporary password you set, then
             choose their own.
           </CardDescription>
+          {supervision ? (
+            <p className="mt-1 text-sm text-muted-foreground">
+              Adding a child or teen?{' '}
+              <Link href="/members/add-child" className="font-medium text-primary hover:underline">
+                Set up a child
+              </Link>{' '}
+              also walks you through their phone.
+            </p>
+          ) : null}
         </div>
         <Button
           variant={open ? 'ghost' : 'default'}

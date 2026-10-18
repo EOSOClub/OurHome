@@ -158,6 +158,77 @@ export function phoneRules(user: Partial<PhoneRuleColumns>): PhoneRules {
   };
 }
 
+/**
+ * The steps of Set up this phone, in the app's order (its PhoneSetupSteps.kt):
+ * Keep Our Home running last, because once it's on, App info, Device admin and
+ * Accessibility can't be opened there.
+ */
+export const PHONE_SETUP_STEPS = [
+  'notifications',
+  'location',
+  'batteryUnrestricted',
+  'usageAccess',
+  'preventUninstall',
+  'keepRunning',
+] as const;
+export type PhoneSetupStep = (typeof PHONE_SETUP_STEPS)[number];
+export type PhoneSetupRequired = Record<PhoneSetupStep, boolean>;
+
+/** Each step as the app names it. */
+export const PHONE_SETUP_STEP_LABELS: Record<PhoneSetupStep, string> = {
+  notifications: 'Allow notifications',
+  location: 'Allow location all the time',
+  batteryUnrestricted: 'Allow unrestricted battery',
+  usageAccess: 'Allow usage access',
+  preventUninstall: 'Prevent uninstall',
+  keepRunning: 'Keep Our Home running',
+};
+
+/**
+ * Which steps a supervised child's phone must do: notifications always (the
+ * household's alerts and the ring's Stop need them), location all the time
+ * while their sharing is required and the household uses Location, Usage
+ * access while their app usage is shared, and the protections their
+ * supervisors require.
+ */
+export function setupRequired(expect: PhoneExpectations): PhoneSetupRequired {
+  return {
+    notifications: true,
+    location: expect.locationOn !== false && expect.sharing === 'required',
+    usageAccess: expect.usageShared === true,
+    ...(expect.rules ?? phoneRules({})),
+  };
+}
+
+/** What a phone last said about each step; null: an app too old to say. */
+export type PhoneSetupChecks = Record<PhoneSetupStep, boolean | null>;
+
+/** The phone's own word on each step, from its last check-in. */
+export function setupChecks(phone: PhoneSnapshot): PhoneSetupChecks {
+  return {
+    notifications: phone.notifications ?? null,
+    location: phone.locationAlways,
+    batteryUnrestricted: phone.batteryUnrestricted ?? null,
+    usageAccess: phone.usageAccess ?? null,
+    preventUninstall: phone.uninstallGuard ?? null,
+    keepRunning: phone.closeGuard ?? null,
+  };
+}
+
+/**
+ * The required steps in order, each done or not as the phone last said;
+ * done is null before any phone checked in, or when its app can't say.
+ */
+export function setupProgress(
+  required: PhoneSetupRequired,
+  checks: PhoneSetupChecks | null,
+): { step: PhoneSetupStep; done: boolean | null }[] {
+  return PHONE_SETUP_STEPS.filter((step) => required[step]).map((step) => ({
+    step,
+    done: checks ? checks[step] : null,
+  }));
+}
+
 export interface PhoneSnapshot {
   lastSeenAt: Date;
   locationAlways: boolean;

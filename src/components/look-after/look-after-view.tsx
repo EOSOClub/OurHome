@@ -18,6 +18,7 @@ import {
   type PhoneRule,
 } from '@/lib/phoneHealth';
 import { formatMinutes, usageDayLabel, usageIconUrl } from '@/lib/appUsage';
+import { SetupProgress } from '@/components/look-after/setup-progress';
 
 // The "People you look after" page: the children and teens the viewer
 // supervises (the Head's supervision list). Ring their phone, make their
@@ -25,7 +26,7 @@ import { formatMinutes, usageDayLabel, usageIconUrl } from '@/lib/appUsage';
 // their phone must have on (PHONE_RULES). Only linked for adults
 // who supervise someone; the server checks it again.
 
-const LOOK_AFTER_KEY = ['look-after'];
+export const LOOK_AFTER_KEY = ['look-after'];
 
 /** How long the phone rings, and so how long the button rests. */
 const RING_MS = 30_000;
@@ -330,6 +331,7 @@ function PersonRow({ person, canRing }: { person: LookAfterDTO['people'][number]
       {PHONE_RULES.map((rule) => (
         <RuleBox key={rule} person={person} rule={rule} />
       ))}
+      <SetupProgress person={person} />
     </li>
   );
 }

@@ -3,13 +3,21 @@ import { prisma } from '@/server/db/prisma';
 import { logActivity } from '@/server/services/activityService';
 import { ConflictError, ForbiddenError, NotFoundError } from '@/server/services/errors';
 import { canPush, pushSync, pushToMember } from '@/server/services/pushService';
-import { SUPERVISED_SELECT, phoneSummaries, refreshPhoneAlerts } from '@/server/services/phoneStatusService';
+import {
+  SUPERVISED_SELECT,
+  phoneSummaries,
+  refreshPhoneAlerts,
+  type PhoneSummary,
+} from '@/server/services/phoneStatusService';
 import {
   PHONE_RULE_COLUMNS,
   PHONE_RULE_LABELS,
   phoneRules,
+  setupProgress,
+  setupRequired,
   type PhoneRuleColumns,
 } from '@/lib/phoneHealth';
+import { isFeatureEnabled } from '@/server/services/serverAdminService';
 import { findIcon, forgetUsage, usageNamesApp, usageSummaries } from '@/server/services/appUsageService';
 import { USAGE_REFRESH_COOLDOWN_MS } from '@/lib/appUsage';
 import { ROLE_RANK, isUserRole } from '@/lib/enums';
@@ -225,12 +233,20 @@ const lastRingAt = new Map<string, number>();
 async function supervisedBy(
   householdId: string,
   actorId: string,
-): Promise<(Person & { locationSharing: string | null; shareAppUsage: boolean | null } & PhoneRuleColumns)[]> {
+): Promise<
+  (Person & {
+    locationSharing: string | null;
+    shareAppUsage: boolean | null;
+    mustChangePassword: boolean;
+  } & PhoneRuleColumns)[]
+> {
   const links = await prisma.supervision.findMany({
     where: { householdId, supervisorId: actorId },
     select: {
       supervisor: { select: { role: true } },
-      supervised: { select: { id: true, name: true, role: true, ...SUPERVISED_SELECT } },
+      supervised: {
+        select: { id: true, name: true, role: true, mustChangePassword: true, ...SUPERVISED_SELECT },
+      },
     },
   });
   return links
@@ -256,20 +272,34 @@ export async function isSupervising(supervisorId: string, supervisedId: string):
 /** The people the viewer looks after, and whether this server can ring phones. */
 export async function lookAfterOverview(householdId: string, actorId: string): Promise<LookAfterDTO> {
   const kids = await supervisedBy(householdId, actorId);
-  const [phones, usage] = await Promise.all([
+  const [phones, usage, locationOn] = await Promise.all([
     phoneSummaries(householdId, kids),
     usageSummaries(householdId, kids.filter((k) => k.shareAppUsage === true).map((k) => k.id)),
+    isFeatureEnabled(householdId, 'location').catch(() => true),
   ]);
   return {
     canRing: canPush(householdId),
-    people: kids.map((k) => ({
-      id: k.id,
-      name: k.name,
-      sharing: sharingMode(k.locationSharing),
-      phone: phones.get(k.id) ?? null,
-      appUsage: { shared: k.shareAppUsage === true, latest: usage.get(k.id) ?? null },
-      rules: phoneRules(k),
-    })),
+    people: kids.map((k) => {
+      const sharing = sharingMode(k.locationSharing);
+      const rules = phoneRules(k);
+      // Its checks only feed setup below.
+      const { checks = null, ...phone } = phones.get(k.id) ?? {};
+      return {
+        id: k.id,
+        name: k.name,
+        sharing,
+        phone: phones.has(k.id) ? (phone as Omit<PhoneSummary, 'checks'>) : null,
+        appUsage: { shared: k.shareAppUsage === true, latest: usage.get(k.id) ?? null },
+        rules,
+        setup: {
+          passwordChosen: !k.mustChangePassword,
+          steps: setupProgress(
+            setupRequired({ sharing, usageShared: k.shareAppUsage === true, locationOn, rules }),
+            checks,
+          ),
+        },
+      };
+    }),
   };
 }
 

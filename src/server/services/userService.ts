@@ -12,6 +12,7 @@ import { ConflictError, ForbiddenError, NotFoundError } from '@/server/services/
 import { ROLE_RANK, USER_ROLE_LABELS, isUserRole, type UserRole } from '@/lib/enums';
 import { can, canAssignRole, canManageMember } from '@/lib/permissions';
 import type { HouseholdMemberDTO } from '@/lib/types';
+import { PHONE_RULES, PHONE_RULE_COLUMNS, PHONE_RULE_LABELS, type PhoneRuleColumns } from '@/lib/phoneHealth';
 import type {
   CreateMemberInput,
   ResetMemberPasswordInput,
@@ -84,6 +85,30 @@ async function assertUnique(
  * row and credential account directly (rather than auth.api.signUpEmail) so the
  * call has no session/cookie side effects on the admin making the request.
  */
+/**
+ * A new child's phone choices as stored, the way People you look after stores
+ * them (supervisionService): only a change from the default is written, so a
+ * protection left on stays null (required). [said]: each change, for Activity.
+ */
+function setupChoices(setup: NonNullable<CreateMemberInput['setup']>) {
+  const data: Partial<Pick<User, 'locationSharing' | 'shareAppUsage'> & PhoneRuleColumns> = {};
+  const said: string[] = [];
+  if (setup.locationRequired) {
+    data.locationSharing = 'required';
+    said.push('location sharing required');
+  }
+  if (setup.shareAppUsage) {
+    data.shareAppUsage = true;
+    said.push('app usage shared');
+  }
+  for (const rule of PHONE_RULES) {
+    if (setup.rules[rule]) continue;
+    data[PHONE_RULE_COLUMNS[rule]] = false;
+    said.push(`${PHONE_RULE_LABELS[rule]} not required`);
+  }
+  return { data, said };
+}
+
 export async function createMember(
   householdId: string,
   actor: Actor,
@@ -105,6 +130,14 @@ export async function createMember(
   await assertUnique(username, email);
   // Checked before anything is made, so a refusal leaves no half-set-up member.
   const supervisors = await newMemberSupervisors(householdId, actor, role, input.supervisorIds);
+  // Their phone choices are a supervisor's to make, as on People you look after.
+  if (input.setup && !supervisors.some((s) => s.id === actor.id)) {
+    throw new ForbiddenError(
+      'Only an adult who supervises them can choose their phone rules. Tick yourself under Who supervises them, or leave these to their supervisors.',
+      'setup',
+    );
+  }
+  const choices = input.setup ? setupChoices(input.setup) : null;
 
   const authCtx = await auth.$context;
   const hashed = await authCtx.password.hash(input.password);
@@ -121,6 +154,7 @@ export async function createMember(
         householdId,
         mustChangePassword: true,
         createdById: actor.id,
+        ...choices?.data,
       },
     });
     await tx.account.create({
@@ -132,9 +166,9 @@ export async function createMember(
       },
     });
     await linkNewSupervisors(tx, householdId, actor.id, created.id, supervisors);
-    const lookedAfter = supervisors.length
-      ? `, supervised by ${supervisors.map((s) => s.name).join(', ')}`
-      : '';
+    const lookedAfter =
+      (supervisors.length ? `, supervised by ${supervisors.map((s) => s.name).join(', ')}` : '') +
+      (choices?.said.length ? `; ${choices.said.join(', ')}` : '');
     await logActivity(
       {
         householdId,

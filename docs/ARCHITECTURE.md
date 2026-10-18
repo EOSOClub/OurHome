@@ -267,7 +267,13 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
     Profile card): serves the APK the deploy builds
     (`docker.example/android/Dockerfile`) from `APP_DOWNLOAD_DIR` (android/out,
     mounted read-only), described by its `ourhome.json`; signed-in members only,
-    nothing shown when no build exists. `GET /api/app/info` gives the app its
+    nothing shown when no build exists. The one exception is a setup link
+    (`setupLinkService`, Set up a child's QR code, `POST /api/members/setup-link`,
+    Head of House): its public page `/get-app/<token>` and
+    `GET /api/app/setup-download?token=` download the same APK without an
+    account. One link per child (`User.setupLinkHash`, SHA-256 only), ending
+    after 24 hours, at the next link, or when they choose their own password
+    (the change-password hook in `auth.ts`). `GET /api/app/info` gives the app its
     "update available" check. `appReleaseService.announceAppRelease` (every
     reminder sweep; the deploy triggers one after a build) posts one
     household-wide `system` notification per version (dedupeKey

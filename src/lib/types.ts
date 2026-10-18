@@ -608,6 +608,17 @@ export interface SupervisionDTO {
   supervised: { id: string; name: string; role: string; supervisorIds: string[] }[];
 }
 
+/**
+ * POST /api/members/setup-link: a link (and its QR code) for putting the app
+ * on a child's phone without signing in first. qr.rows: one string of '1'
+ * (dark) and '0' per row of modules, size x size, quiet zone not included.
+ */
+export interface SetupLinkDTO {
+  url: string;
+  expiresAt: string;
+  qr: { size: number; rows: string[] };
+}
+
 /** GET /api/supervision/mine: the children and teens the viewer supervises. */
 export interface LookAfterDTO {
   /** false when the server can't push (no Firebase): nobody can be rung. */

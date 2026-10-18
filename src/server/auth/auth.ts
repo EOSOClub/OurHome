@@ -117,13 +117,17 @@ If you didn't request this, you can safely ignore this email.`,
   // A temporary password is gone only once the user really changed it: the
   // forced-change flag is lifted here, after Better Auth's change-password
   // succeeded - never on the client's word (that route could be called
-  // without changing anything).
+  // without changing anything). Their setup link ends with it: the phone it
+  // was for is signed in.
   hooks: {
     after: createAuthMiddleware(async (ctx) => {
       if (ctx.path !== '/change-password' || isAPIError(ctx.context.returned)) return;
       const userId = ctx.context.session?.user.id;
       if (userId) {
-        await prisma.user.update({ where: { id: userId }, data: { mustChangePassword: false } });
+        await prisma.user.update({
+          where: { id: userId },
+          data: { mustChangePassword: false, setupLinkHash: null, setupLinkExpiresAt: null },
+        });
       }
     }),
   },

@@ -135,6 +135,12 @@ model User {
   requireKeepRunning         Boolean?
   requirePreventUninstall    Boolean?
   requireBatteryUnrestricted Boolean?
+  // Guided child setup: the link (QR code) the Head of House made for putting
+  // the app on this child's phone without signing in first. Only its SHA-256
+  // is kept. It ends at setupLinkExpiresAt, when a new one is made, or when
+  // they choose their own password. See setupLinkService.
+  setupLinkHash      String?
+  setupLinkExpiresAt DateTime?
   // Audit: which user provisioned this member (plain id, no relation).
   createdById   String?
   householdId   String?

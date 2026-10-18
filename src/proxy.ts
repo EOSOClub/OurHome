@@ -27,6 +27,8 @@ const PUBLIC_PATHS = [
   '/forgot-password',
   '/reset-password',
   '/no-household',
+  // A setup link's page (Set up a child): the token is the key, checked by the page.
+  '/get-app',
 ];
 
 // Cloudflare Turnstile (the contact-form CAPTCHA) is loaded from this origin.

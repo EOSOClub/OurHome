@@ -1,5 +1,6 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 
 // The Android app the deploy builds (docker.example/android) lands in
 // APP_DOWNLOAD_DIR (android/out, mounted read-only): ourhome.apk plus
@@ -64,4 +65,21 @@ export function getAppRelease(): AppRelease | null {
 export function appApkPath(): string | null {
   const dir = appDownloadDir();
   return dir && getAppRelease() ? path.join(dir, APK_FILE) : null;
+}
+
+/** The APK as a file download, or null when none is on offer. */
+export function apkDownloadResponse(): Response | null {
+  const release = getAppRelease();
+  const apk = appApkPath();
+  if (!release || !apk) return null;
+  const body = Readable.toWeb(createReadStream(apk)) as ReadableStream<Uint8Array>;
+  return new Response(body, {
+    headers: {
+      'Content-Type': 'application/vnd.android.package-archive',
+      'Content-Length': String(release.sizeBytes),
+      'Content-Disposition': `attachment; filename="our-home-${release.versionName}.apk"`,
+      'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff',
+    },
+  });
 }

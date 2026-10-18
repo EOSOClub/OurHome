@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 // deliberately public or token-authenticated endpoints below. A new route that
 // forgets withAuth fails here instead of quietly serving every household.
 const PUBLIC_ROUTES = new Set([
+  'app/setup-download/route.ts', // a setup link's token → the app download only
   'auth/[...all]/route.ts', // Better Auth itself (sign-in, sign-out, password)
   'cron/reminders/route.ts', // CRON_SECRET bearer token
   'integrations/inventory/route.ts', // Home Assistant integration token → its household

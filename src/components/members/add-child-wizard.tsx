@@ -4,7 +4,7 @@ import { useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, Baby, Check, Copy, Loader2, PartyPopper, RefreshCw } from 'lucide-react';
-import type { HouseholdMemberDTO, LookAfterDTO, SupervisionDTO } from '@/lib/types';
+import type { HouseholdMemberDTO, LookAfterDTO, SetupLinkDTO, SupervisionDTO } from '@/lib/types';
 import { USER_ROLE_LABELS } from '@/lib/enums';
 import { PHONE_RULES, PHONE_RULE_LABELS, type PhoneRules } from '@/lib/phoneHealth';
 import { apiFetch, fieldErrors } from '@/lib/api';
@@ -20,11 +20,13 @@ import { toast } from '@/components/ui/toast';
 import { SUPERVISION_HINT, SupervisorChecks, toggled } from '@/components/members/supervisors';
 import { LOOK_AFTER_KEY } from '@/components/look-after/look-after-view';
 import { SetupSteps, setupComplete } from '@/components/look-after/setup-progress';
+import { QrCode } from '@/components/members/qr-code';
 
 // Set up a child (guided child setup, phase 2): the Head of House adds a child
 // or teen, chooses who supervises them and, when the Head is one of them, what
 // their phone must do; then gets the steps for installing the app on the
-// child's phone, and watches that phone tick off Set up this phone. Nothing is
+// child's phone (with a setup link, shown as a QR code, when the server has
+// built the app), and watches that phone tick off Set up this phone. Nothing is
 // made until the third step's button. The choices are a supervisor's (the
 // server refuses them otherwise), so a Head who doesn't supervise them skips
 // that step and leaves the defaults to the supervisors.
@@ -521,55 +523,86 @@ function InstallStep({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <ol className="list-decimal space-y-3 pl-5 text-sm">
-          <li>
-            Open <code className="rounded bg-muted px-1">{address || 'this site'}</code> in the browser and sign in:
-            <div className="mt-2 grid items-baseline gap-2 sm:grid-cols-[auto_1fr]">
-              <span className="text-muted-foreground">Username</span>
-              <span className="flex flex-wrap items-center gap-2">
-                <code className="rounded bg-muted px-1">{made.username}</code>
-                <CopyButton text={made.username} label="Copy username" />
-              </span>
-              <span className="text-muted-foreground">Password</span>
-              {made.password ? (
-                <span className="flex flex-wrap items-center gap-2">
-                  <code className="rounded bg-muted px-1">{made.password}</code>
-                  <CopyButton text={made.password} label="Copy temporary password" />
-                </span>
-              ) : (
-                <span className="text-muted-foreground">
-                  The temporary password you set. Forgotten it? Set a new one on their row on Members.
-                </span>
-              )}
-            </div>
-            <p className="mt-1 text-muted-foreground">They choose their own password straight away.</p>
-          </li>
-          {app ? (
+        {app ? (
+          <ol className="list-decimal space-y-3 pl-5 text-sm">
             <li>
-              Open the account menu, tap their name (<strong>Profile</strong>), and tap{' '}
-              <strong>Download for Android</strong> in the <strong>Android app</strong> card.
+              On their phone, scan this code with the camera, or open the link.
+              <SetupLinkBox memberId={made.id} name={made.name} />
             </li>
-          ) : (
+            <li>
+              Tap <strong>Download for Android</strong> on the page that opens, then open the downloaded file to install
+              it. Android asks once to allow installs from the browser.
+            </li>
+            <li>
+              Back on that page, tap <strong>Open Our Home</strong>: their username,{' '}
+              <code className="rounded bg-muted px-1">{made.username}</code>, is filled in. They sign in with the
+              temporary password and choose their own straight away.
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                {made.password ? (
+                  <>
+                    <code className="rounded bg-muted px-1">{made.password}</code>
+                    <CopyButton text={made.password} label="Copy temporary password" />
+                  </>
+                ) : (
+                  <span className="text-muted-foreground">
+                    The temporary password is the one you set. Forgotten it? Set a new one on their row on Members.
+                  </span>
+                )}
+              </div>
+            </li>
+            <li>
+              <strong>Set up this phone</strong> opens by itself. Do each step on their phone. For{' '}
+              <strong>Prevent uninstall</strong> you choose the parent PIN, so keep it to yourself.
+            </li>
+          </ol>
+        ) : null}
+        {app ? (
+          <p className="text-xs text-muted-foreground">
+            No camera? Open <code className="rounded bg-muted px-1">{address || 'this site'}</code> in the browser on
+            their phone, sign in as <code className="rounded bg-muted px-1">{made.username}</code>, and tap{' '}
+            <strong>Download for Android</strong> on their Profile.
+          </p>
+        ) : null}
+        {app ? null : (
+          // No app built on this server: no setup link either (nothing to download).
+          <ol className="list-decimal space-y-3 pl-5 text-sm">
+            <li>
+              Open <code className="rounded bg-muted px-1">{address || 'this site'}</code> in the browser and sign in:
+              <div className="mt-2 grid items-baseline gap-2 sm:grid-cols-[auto_1fr]">
+                <span className="text-muted-foreground">Username</span>
+                <span className="flex flex-wrap items-center gap-2">
+                  <code className="rounded bg-muted px-1">{made.username}</code>
+                  <CopyButton text={made.username} label="Copy username" />
+                </span>
+                <span className="text-muted-foreground">Password</span>
+                {made.password ? (
+                  <span className="flex flex-wrap items-center gap-2">
+                    <code className="rounded bg-muted px-1">{made.password}</code>
+                    <CopyButton text={made.password} label="Copy temporary password" />
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">
+                    The temporary password you set. Forgotten it? Set a new one on their row on Members.
+                  </span>
+                )}
+              </div>
+              <p className="mt-1 text-muted-foreground">They choose their own password straight away.</p>
+            </li>
             <li>
               Get the OurHome app: this server hasn’t built it yet, so there’s no download on the Profile page. Ask
               whoever runs your server.
             </li>
-          )}
-          <li>Open the downloaded file to install it. Android asks once to allow installs from the browser.</li>
-          <li>
-            Open <strong>Our Home</strong> and sign in with their new password.
-            {app && app.server ? null : (
-              <>
-                {' '}
-                If it asks for the server, type <code className="rounded bg-muted px-1">{address || 'this site'}</code>.
-              </>
-            )}
-          </li>
-          <li>
-            <strong>Set up this phone</strong> opens by itself. Do each step on their phone. For{' '}
-            <strong>Prevent uninstall</strong> you choose the parent PIN, so keep it to yourself.
-          </li>
-        </ol>
+            <li>Open the downloaded file to install it. Android asks once to allow installs from the browser.</li>
+            <li>
+              Open <strong>Our Home</strong> and sign in with their new password. If it asks for the server, type{' '}
+              <code className="rounded bg-muted px-1">{address || 'this site'}</code>.
+            </li>
+            <li>
+              <strong>Set up this phone</strong> opens by itself. Do each step on their phone. For{' '}
+              <strong>Prevent uninstall</strong> you choose the parent PIN, so keep it to yourself.
+            </li>
+          </ol>
+        )}
         {watching ? null : (
           <p className="rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
             You don’t supervise {made.name}, so you won’t see their phone here.{' '}
@@ -593,6 +626,50 @@ function InstallStep({
         </div>
       </CardContent>
     </>
+  );
+}
+
+/**
+ * The setup link for their phone, as a QR code and a link to copy. Made once
+ * when Install opens; each new one (the button) replaces the last on the
+ * server, so it's never remade by itself (no refetch on focus or remount).
+ */
+function SetupLinkBox({ memberId, name }: { memberId: string; name: string }) {
+  const { data, error, isFetching, refetch } = useQuery({
+    queryKey: ['setup-link', memberId],
+    queryFn: () =>
+      apiFetch<SetupLinkDTO>('/api/members/setup-link', { method: 'POST', body: JSON.stringify({ memberId }) }),
+    staleTime: Infinity,
+    gcTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: false,
+  });
+  return (
+    <div className="mt-2 space-y-2">
+      {data ? (
+        <>
+          <QrCode qr={data.qr} label={`QR code for setting up ${name}’s phone`} className="size-44 rounded-md" />
+          <div className="flex flex-wrap items-center gap-2">
+            <code className="rounded bg-muted px-1 text-xs break-all">{data.url}</code>
+            <CopyButton text={data.url} label="Copy the setup link" />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            It works for 24 hours, until you make a new one, or until they choose their own password. It only
+            downloads the app: their account still needs the password.
+          </p>
+        </>
+      ) : error ? (
+        <p className="text-sm text-destructive">{error instanceof Error ? error.message : 'Couldn’t make a setup link.'}</p>
+      ) : (
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" /> Making a setup link…
+        </div>
+      )}
+      <Button variant="ghost" size="sm" disabled={isFetching} onClick={() => refetch()}>
+        <RefreshCw className="size-4" /> {data ? 'Make a new link' : 'Try again'}
+      </Button>
+    </div>
   );
 }
 

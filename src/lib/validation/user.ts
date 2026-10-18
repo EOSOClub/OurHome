@@ -26,6 +26,10 @@ export const nameSchema = z.string().trim().min(1, 'Enter a name.').max(80, 'At 
 
 export const emailSchema = z.string().trim().email('Enter a valid email address, like name@example.com.').max(160);
 
+// A setup link for one child's or teen's phone (Set up a child, Install step).
+export const setupLinkSchema = z.object({ memberId: z.string().min(1).max(64) });
+export type SetupLinkInput = z.infer<typeof setupLinkSchema>;
+
 // Members may be created with a username only; email is optional and used for
 // password recovery. When omitted the service synthesizes a local placeholder.
 export const createMemberSchema = z.object({

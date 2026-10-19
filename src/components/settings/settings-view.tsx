@@ -29,13 +29,7 @@ import { ExportCard } from '@/components/settings/export-card';
 import { PointsCard } from '@/components/settings/points-card';
 import { TimeZoneCard } from '@/components/settings/time-zone-card';
 import { Button, type ButtonProps } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
@@ -206,122 +200,122 @@ function HomeAssistantCard({
   });
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <KeyRound className="size-4" /> Home Assistant connection
-        </CardTitle>
-        <CardDescription>
-          Create a token, then have Home Assistant POST scans to{' '}
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">{webhookUrl}</code>{' '}
-          <CopyButton
-            text={webhookUrl}
-            label="Copy webhook URL"
-            variant="ghost"
-            className="h-6 gap-1 px-1.5 align-middle text-xs text-muted-foreground"
-          />{' '}
-          with an <code className="rounded bg-muted px-1 py-0.5 text-xs">Authorization: Bearer</code> header.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {newToken ? (
-          <div className="space-y-2 rounded-md border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 p-3">
-            <p className="text-xs font-medium text-foreground">
-              Copy this token now - it won’t be shown again:
-            </p>
-            <code className="block break-all rounded bg-background px-2 py-1.5 text-xs">
-              {newToken}
-            </code>
-            <div className="flex flex-wrap gap-2">
-              <CopyButton text={newToken} label="Copy token" />
-              <Button variant="ghost" size="sm" onClick={() => setNewToken(null)}>
-                Done
-              </Button>
-            </div>
-          </div>
-        ) : null}
-
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (name.trim()) create.mutate({ name: name.trim() });
+    <CollapsibleCard
+      icon={<KeyRound className="size-4" />}
+      title="Home Assistant connection"
+      description="Lets Home Assistant send NFC tag scans here, with a token you create."
+      contentClassName="space-y-4"
+      dialogs={
+        <ConfirmDialog
+          open={pendingRevoke !== null}
+          onClose={() => setPendingRevoke(null)}
+          onConfirm={() => {
+            if (pendingRevoke) remove.mutate(pendingRevoke.id);
+            setPendingRevoke(null);
           }}
-          className="space-y-1.5"
-          {...fe.formProps}
-        >
-          <div className="flex gap-2" data-field="name">
-            <Input
-              aria-label="Connection name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Home Assistant (LAN)"
-              {...fe.invalid('name')}
-            />
-            <Button type="submit" disabled={create.isPending || !name.trim()}>
-              {create.isPending ? <Loader2 className="animate-spin" /> : <Plus />}
-              Create token
+          title="Revoke token"
+          description={
+            pendingRevoke
+              ? `Revoke “${pendingRevoke.name}”? This breaks every automation using it.`
+              : undefined
+          }
+          confirmLabel="Revoke"
+          destructive
+        />
+      }
+    >
+      {/* In the body, not the description: the closed card's title row is a button, and this holds one. */}
+      <p className="text-sm text-muted-foreground">
+        Create a token, then have Home Assistant POST scans to{' '}
+        <code className="rounded bg-muted px-1 py-0.5 text-xs">{webhookUrl}</code>{' '}
+        <CopyButton
+          text={webhookUrl}
+          label="Copy webhook URL"
+          variant="ghost"
+          className="h-6 gap-1 px-1.5 align-middle text-xs text-muted-foreground"
+        />{' '}
+        with an <code className="rounded bg-muted px-1 py-0.5 text-xs">Authorization: Bearer</code> header.
+      </p>
+      {newToken ? (
+        <div className="space-y-2 rounded-md border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 p-3">
+          <p className="text-xs font-medium text-foreground">
+            Copy this token now - it won’t be shown again:
+          </p>
+          <code className="block break-all rounded bg-background px-2 py-1.5 text-xs">
+            {newToken}
+          </code>
+          <div className="flex flex-wrap gap-2">
+            <CopyButton text={newToken} label="Copy token" />
+            <Button variant="ghost" size="sm" onClick={() => setNewToken(null)}>
+              Done
             </Button>
           </div>
-          <FieldNote id={fe.noteId('name')} error={fe.get('name')} />
-        </form>
+        </div>
+      ) : null}
 
-        {integrations.length === 0 ? (
-          <EmptyState
-            icon={KeyRound}
-            title="No connections yet"
-            description="Create a token to let Home Assistant post scans here."
-          />
-        ) : (
-          <ul className="divide-y divide-border rounded-lg border border-border">
-            {integrations.map((i) => (
-              <li
-                key={i.id}
-                className="flex items-center justify-between gap-3 px-3 py-2.5"
-              >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{i.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {i.active ? 'Active' : 'Inactive'} · created{' '}
-                    {new Date(i.createdAt).toLocaleDateString(undefined, { timeZone })}
-                  </p>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-9 text-muted-foreground hover:text-destructive"
-                  onClick={() => setPendingRevoke(i)}
-                  disabled={remove.isPending && remove.variables === i.id}
-                  aria-label={`Revoke ${i.name}`}
-                >
-                  {remove.isPending && remove.variables === i.id ? (
-                    <Loader2 className="animate-spin" />
-                  ) : (
-                    <Trash2 />
-                  )}
-                </Button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </CardContent>
-
-      <ConfirmDialog
-        open={pendingRevoke !== null}
-        onClose={() => setPendingRevoke(null)}
-        onConfirm={() => {
-          if (pendingRevoke) remove.mutate(pendingRevoke.id);
-          setPendingRevoke(null);
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (name.trim()) create.mutate({ name: name.trim() });
         }}
-        title="Revoke token"
-        description={
-          pendingRevoke
-            ? `Revoke “${pendingRevoke.name}”? This breaks every automation using it.`
-            : undefined
-        }
-        confirmLabel="Revoke"
-        destructive
-      />
-    </Card>
+        className="space-y-1.5"
+        {...fe.formProps}
+      >
+        <div className="flex gap-2" data-field="name">
+          <Input
+            aria-label="Connection name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Home Assistant (LAN)"
+            {...fe.invalid('name')}
+          />
+          <Button type="submit" disabled={create.isPending || !name.trim()}>
+            {create.isPending ? <Loader2 className="animate-spin" /> : <Plus />}
+            Create token
+          </Button>
+        </div>
+        <FieldNote id={fe.noteId('name')} error={fe.get('name')} />
+      </form>
+
+      {integrations.length === 0 ? (
+        <EmptyState
+          icon={KeyRound}
+          title="No connections yet"
+          description="Create a token to let Home Assistant post scans here."
+        />
+      ) : (
+        <ul className="divide-y divide-border rounded-lg border border-border">
+          {integrations.map((i) => (
+            <li
+              key={i.id}
+              className="flex items-center justify-between gap-3 px-3 py-2.5"
+            >
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium">{i.name}</p>
+                <p className="text-xs text-muted-foreground">
+                  {i.active ? 'Active' : 'Inactive'} · created{' '}
+                  {new Date(i.createdAt).toLocaleDateString(undefined, { timeZone })}
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-9 text-muted-foreground hover:text-destructive"
+                onClick={() => setPendingRevoke(i)}
+                disabled={remove.isPending && remove.variables === i.id}
+                aria-label={`Revoke ${i.name}`}
+              >
+                {remove.isPending && remove.variables === i.id ? (
+                  <Loader2 className="animate-spin" />
+                ) : (
+                  <Trash2 />
+                )}
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </CollapsibleCard>
   );
 }
 
@@ -397,198 +391,192 @@ function NfcTagsCard({
   const hasRooms = places.rooms.length > 0;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Tag className="size-4" /> NFC tags
-        </CardTitle>
-        <CardDescription>
-          Bind each scanned tag id to an inventory item (the scan amount comes
-          from Home Assistant each time), or make it a location tag: scanning
-          it with the Android app opens that room&apos;s tasks.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {items.length === 0 && !hasRooms ? (
-          <p className="text-sm text-muted-foreground">
-            Add inventory items (or rooms, in Rooms &amp; floors) first, then
-            map tags to them here.
-          </p>
-        ) : (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (canSubmit)
-                register.mutate({
-                  tagId: tagId.trim(),
-                  label: label.trim(),
-                  ...(isLocation ? { roomId } : { itemId }),
-                  represents,
-                });
-            }}
-            className="grid gap-3 sm:grid-cols-2"
-            {...tagForm.formProps}
-          >
-            <div className="space-y-1.5" data-field="tagId">
-              <Label htmlFor="tag-id">Tag id</Label>
-              <Input
-                id="tag-id"
-                value={tagId}
-                onChange={(e) => setTagId(e.target.value)}
-                placeholder="e.g. pantry_coffee"
-                {...tagForm.invalid('tagId')}
-              />
-              <FieldNote id={tagForm.noteId('tagId')} error={tagForm.get('tagId')} />
+    <CollapsibleCard
+      icon={<Tag className="size-4" />}
+      title="NFC tags"
+      description="Bind each scanned tag id to an inventory item (the scan amount comes from Home Assistant each time), or make it a location tag: scanning it with the Android app opens that room's tasks."
+      contentClassName="space-y-4"
+      dialogs={
+        <ConfirmDialog
+          open={pendingDelete !== null}
+          onClose={() => setPendingDelete(null)}
+          onConfirm={() => {
+            if (pendingDelete) remove.mutate(pendingDelete.id);
+            setPendingDelete(null);
+          }}
+          title="Remove tag"
+          description={
+            pendingDelete
+              ? `Remove tag “${pendingDelete.label}”? Scans for it will be ignored.`
+              : undefined
+          }
+          confirmLabel="Remove"
+          destructive
+        />
+      }
+    >
+      {items.length === 0 && !hasRooms ? (
+        <p className="text-sm text-muted-foreground">
+          Add inventory items (or rooms, in Rooms &amp; floors) first, then
+          map tags to them here.
+        </p>
+      ) : (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (canSubmit)
+              register.mutate({
+                tagId: tagId.trim(),
+                label: label.trim(),
+                ...(isLocation ? { roomId } : { itemId }),
+                represents,
+              });
+          }}
+          className="grid gap-3 sm:grid-cols-2"
+          {...tagForm.formProps}
+        >
+          <div className="space-y-1.5" data-field="tagId">
+            <Label htmlFor="tag-id">Tag id</Label>
+            <Input
+              id="tag-id"
+              value={tagId}
+              onChange={(e) => setTagId(e.target.value)}
+              placeholder="e.g. pantry_coffee"
+              {...tagForm.invalid('tagId')}
+            />
+            <FieldNote id={tagForm.noteId('tagId')} error={tagForm.get('tagId')} />
+          </div>
+          <div className="space-y-1.5" data-field="label">
+            <Label htmlFor="tag-label">Label</Label>
+            <Input
+              id="tag-label"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="e.g. Coffee shelf"
+              {...tagForm.invalid('label')}
+            />
+            <FieldNote id={tagForm.noteId('label')} error={tagForm.get('label')} />
+          </div>
+          {isLocation ? (
+            <div className="space-y-1.5" data-field="roomId">
+              <Label htmlFor="tag-room">Opens room</Label>
+              {hasRooms ? (
+                <LocationSelect
+                  id="tag-room"
+                  places={places}
+                  value={room}
+                  onChange={setRoom}
+                  emptyLabel="Choose a room…"
+                  roomsOnly
+                  {...tagForm.invalid('roomId')}
+                />
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Add a room in Rooms &amp; floors first.
+                </p>
+              )}
+              <FieldNote id={tagForm.noteId('roomId')} error={tagForm.get('roomId')} />
             </div>
-            <div className="space-y-1.5" data-field="label">
-              <Label htmlFor="tag-label">Label</Label>
-              <Input
-                id="tag-label"
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-                placeholder="e.g. Coffee shelf"
-                {...tagForm.invalid('label')}
-              />
-              <FieldNote id={tagForm.noteId('label')} error={tagForm.get('label')} />
+          ) : (
+            <div className="space-y-1.5" data-field="itemId">
+              <Label htmlFor="tag-item">Inventory item</Label>
+              {items.length ? (
+                <Select
+                  id="tag-item"
+                  value={itemId}
+                  onChange={(e) => setItemId(e.target.value)}
+                  {...tagForm.invalid('itemId')}
+                >
+                  {items.map((i) => (
+                    <option key={i.id} value={i.id}>
+                      {i.name}
+                    </option>
+                  ))}
+                </Select>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Add an inventory item first.
+                </p>
+              )}
+              <FieldNote id={tagForm.noteId('itemId')} error={tagForm.get('itemId')} />
             </div>
-            {isLocation ? (
-              <div className="space-y-1.5" data-field="roomId">
-                <Label htmlFor="tag-room">Opens room</Label>
-                {hasRooms ? (
-                  <LocationSelect
-                    id="tag-room"
-                    places={places}
-                    value={room}
-                    onChange={setRoom}
-                    emptyLabel="Choose a room…"
-                    roomsOnly
-                    {...tagForm.invalid('roomId')}
-                  />
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    Add a room in Rooms &amp; floors first.
-                  </p>
-                )}
-                <FieldNote id={tagForm.noteId('roomId')} error={tagForm.get('roomId')} />
+          )}
+          <div className="space-y-1.5" data-field="represents">
+            <Label htmlFor="tag-represents">Represents</Label>
+            <Select
+              id="tag-represents"
+              value={represents}
+              onChange={(e) =>
+                setRepresents(e.target.value as NfcRepresents)
+              }
+              {...tagForm.invalid('represents')}
+            >
+              {NFC_REPRESENTS.map((r) => (
+                <option key={r} value={r}>
+                  {NFC_REPRESENTS_LABELS[r]}
+                </option>
+              ))}
+            </Select>
+            <FieldNote id={tagForm.noteId('represents')} error={tagForm.get('represents')} />
+          </div>
+          <div className="flex items-end">
+            <Button type="submit" disabled={register.isPending || !canSubmit}>
+              {register.isPending ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                <Plus />
+              )}
+              Map tag
+            </Button>
+          </div>
+        </form>
+      )}
+
+      {tags.length === 0 ? (
+        <EmptyState icon={Tag} title="No tags mapped yet" />
+      ) : (
+        <ul className="divide-y divide-border rounded-lg border border-border">
+          {tags.map((tag) => (
+            <li
+              key={tag.id}
+              className="flex items-center justify-between gap-3 px-3 py-2.5"
+            >
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium">{tag.label}</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  <code className="rounded bg-muted px-1">{tag.tagId}</code>
+                  {' → '}
+                  {tag.represents === 'location'
+                    ? tag.room
+                      ? `opens ${tag.room.name}`
+                      : 'no room'
+                    : tag.item
+                      ? tag.item.name
+                      : 'unbound'}
+                  {' · '}
+                  {NFC_REPRESENTS_LABELS[
+                    tag.represents as (typeof NFC_REPRESENTS)[number]
+                  ] ?? tag.represents}
+                </p>
               </div>
-            ) : (
-              <div className="space-y-1.5" data-field="itemId">
-                <Label htmlFor="tag-item">Inventory item</Label>
-                {items.length ? (
-                  <Select
-                    id="tag-item"
-                    value={itemId}
-                    onChange={(e) => setItemId(e.target.value)}
-                    {...tagForm.invalid('itemId')}
-                  >
-                    {items.map((i) => (
-                      <option key={i.id} value={i.id}>
-                        {i.name}
-                      </option>
-                    ))}
-                  </Select>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    Add an inventory item first.
-                  </p>
-                )}
-                <FieldNote id={tagForm.noteId('itemId')} error={tagForm.get('itemId')} />
-              </div>
-            )}
-            <div className="space-y-1.5" data-field="represents">
-              <Label htmlFor="tag-represents">Represents</Label>
-              <Select
-                id="tag-represents"
-                value={represents}
-                onChange={(e) =>
-                  setRepresents(e.target.value as NfcRepresents)
-                }
-                {...tagForm.invalid('represents')}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-9 text-muted-foreground hover:text-destructive"
+                onClick={() => setPendingDelete(tag)}
+                disabled={remove.isPending && remove.variables === tag.id}
+                aria-label={`Remove ${tag.label}`}
               >
-                {NFC_REPRESENTS.map((r) => (
-                  <option key={r} value={r}>
-                    {NFC_REPRESENTS_LABELS[r]}
-                  </option>
-                ))}
-              </Select>
-              <FieldNote id={tagForm.noteId('represents')} error={tagForm.get('represents')} />
-            </div>
-            <div className="flex items-end">
-              <Button type="submit" disabled={register.isPending || !canSubmit}>
-                {register.isPending ? (
+                {remove.isPending && remove.variables === tag.id ? (
                   <Loader2 className="animate-spin" />
                 ) : (
-                  <Plus />
+                  <Trash2 />
                 )}
-                Map tag
               </Button>
-            </div>
-          </form>
-        )}
-
-        {tags.length === 0 ? (
-          <EmptyState icon={Tag} title="No tags mapped yet" />
-        ) : (
-          <ul className="divide-y divide-border rounded-lg border border-border">
-            {tags.map((tag) => (
-              <li
-                key={tag.id}
-                className="flex items-center justify-between gap-3 px-3 py-2.5"
-              >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{tag.label}</p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    <code className="rounded bg-muted px-1">{tag.tagId}</code>
-                    {' → '}
-                    {tag.represents === 'location'
-                      ? tag.room
-                        ? `opens ${tag.room.name}`
-                        : 'no room'
-                      : tag.item
-                        ? tag.item.name
-                        : 'unbound'}
-                    {' · '}
-                    {NFC_REPRESENTS_LABELS[
-                      tag.represents as (typeof NFC_REPRESENTS)[number]
-                    ] ?? tag.represents}
-                  </p>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-9 text-muted-foreground hover:text-destructive"
-                  onClick={() => setPendingDelete(tag)}
-                  disabled={remove.isPending && remove.variables === tag.id}
-                  aria-label={`Remove ${tag.label}`}
-                >
-                  {remove.isPending && remove.variables === tag.id ? (
-                    <Loader2 className="animate-spin" />
-                  ) : (
-                    <Trash2 />
-                  )}
-                </Button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </CardContent>
-
-      <ConfirmDialog
-        open={pendingDelete !== null}
-        onClose={() => setPendingDelete(null)}
-        onConfirm={() => {
-          if (pendingDelete) remove.mutate(pendingDelete.id);
-          setPendingDelete(null);
-        }}
-        title="Remove tag"
-        description={
-          pendingDelete
-            ? `Remove tag “${pendingDelete.label}”? Scans for it will be ignored.`
-            : undefined
-        }
-        confirmLabel="Remove"
-        destructive
-      />
-    </Card>
+            </li>
+          ))}
+        </ul>
+      )}
+    </CollapsibleCard>
   );
 }

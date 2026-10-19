@@ -16,13 +16,7 @@ import { apiFetch } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { ProfileAvatar } from '@/components/profile/profile-avatar';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
@@ -78,153 +72,147 @@ export function AboutMeCard({ overview }: { overview: ProfileOverview }) {
   });
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Smile className="size-4" /> About me
-        </CardTitle>
-        <CardDescription>
-          Make your profile yours. Everyone in the household can see this.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (dirty && !birthdayInvalid && !save.isPending) save.mutate();
-          }}
-          className="space-y-4"
-          {...fe.formProps}
-        >
-          <div className="flex items-center gap-3">
-            <ProfileAvatar name={overview.name} emoji={emoji.trim() || null} color={color} size="lg" />
-            <div className="min-w-0">
-              <p className="truncate font-medium">{overview.name}</p>
-            </div>
+    <CollapsibleCard
+      icon={<Smile className="size-4" />}
+      title="About me"
+      description="Make your profile yours. Everyone in the household can see this."
+    >
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (dirty && !birthdayInvalid && !save.isPending) save.mutate();
+        }}
+        className="space-y-4"
+        {...fe.formProps}
+      >
+        <div className="flex items-center gap-3">
+          <ProfileAvatar name={overview.name} emoji={emoji.trim() || null} color={color} size="lg" />
+          <div className="min-w-0">
+            <p className="truncate font-medium">{overview.name}</p>
           </div>
+        </div>
 
-          <div className="space-y-1.5" data-field="avatarEmoji">
-            <Label htmlFor="about-emoji">Avatar emoji</Label>
-            <div className="flex flex-wrap items-center gap-1.5">
-              {EMOJI_PICKS.map((e) => (
-                <button
-                  key={e}
-                  type="button"
-                  onClick={() => setEmoji(e)}
-                  aria-pressed={emoji === e}
-                  className={cn(
-                    'size-9 rounded-md border text-lg transition-colors',
-                    emoji === e ? 'border-primary bg-primary/10' : 'border-input hover:bg-accent',
-                  )}
-                >
-                  {e}
-                </button>
-              ))}
-              <Input
-                id="about-emoji"
-                value={emoji}
-                onChange={(e) => setEmoji(e.target.value)}
-                placeholder="or type one"
-                className="h-9 w-28"
-                maxLength={16}
-                {...fe.invalid('avatarEmoji')}
-              />
-              {emoji ? (
-                <Button type="button" variant="ghost" size="sm" onClick={() => setEmoji('')}>
-                  Use initials
-                </Button>
-              ) : null}
-            </div>
-            <FieldNote id={fe.noteId('avatarEmoji')} error={fe.get('avatarEmoji')} />
-          </div>
-
-          <div className="space-y-1.5" data-field="profileColor">
-            <Label>Colour</Label>
-            <FieldNote id={fe.noteId('profileColor')} error={fe.get('profileColor')} />
-            <div className="flex flex-wrap gap-2">
-              {PROFILE_COLOR_KEYS.map((key) => (
-                <button
-                  key={key}
-                  type="button"
-                  title={key}
-                  aria-label={key}
-                  aria-pressed={color === key}
-                  onClick={() => setColor(color === key ? null : key)}
-                  className={cn(
-                    'size-8 rounded-full border-2 transition-transform',
-                    color === key ? 'scale-110 border-foreground' : 'border-transparent',
-                  )}
-                  style={{ backgroundColor: PROFILE_COLORS[key] }}
-                />
-              ))}
-            </div>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5" data-field="birthday">
-              <Label htmlFor="about-month">Birthday</Label>
-              <div className="flex gap-2">
-                <Select
-                  id="about-month"
-                  value={month}
-                  onChange={(e) => setMonth(e.target.value)}
-                  aria-label="Birthday month"
-                  aria-invalid={birthdayInvalid || fe.has('birthday') || undefined}
-                  aria-describedby={fe.noteId('birthday')}
-                >
-                  <option value="">Month</option>
-                  {MONTHS.map((m, i) => (
-                    <option key={m} value={String(i + 1).padStart(2, '0')}>
-                      {m}
-                    </option>
-                  ))}
-                </Select>
-                <Input
-                  type="number"
-                  min={1}
-                  max={31}
-                  value={day}
-                  onChange={(e) => setDay(e.target.value)}
-                  placeholder="Day"
-                  aria-label="Birthday day"
-                  className="w-20"
-                  aria-invalid={birthdayInvalid || fe.has('birthday') || undefined}
-                  aria-describedby={fe.noteId('birthday')}
-                />
-              </div>
-              <FieldNote
-                id={fe.noteId('birthday')}
-                error={fe.get('birthday') ?? (birthdayInvalid ? 'Pick a month and a real day (or neither).' : null)}
-                hint="Month and day only, no year."
-              />
-            </div>
-          </div>
-
-          <div className="space-y-1.5" data-field="bio">
-            <Label htmlFor="about-bio">About me</Label>
-            <Textarea
-              id="about-bio"
-              value={bio}
-              maxLength={BIO_MAX}
-              onChange={(e) => setBio(e.target.value)}
-              placeholder="Favourite foods, hobbies, what you're up to…"
-              {...fe.invalid('bio')}
+        <div className="space-y-1.5" data-field="avatarEmoji">
+          <Label htmlFor="about-emoji">Avatar emoji</Label>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {EMOJI_PICKS.map((e) => (
+              <button
+                key={e}
+                type="button"
+                onClick={() => setEmoji(e)}
+                aria-pressed={emoji === e}
+                className={cn(
+                  'size-9 rounded-md border text-lg transition-colors',
+                  emoji === e ? 'border-primary bg-primary/10' : 'border-input hover:bg-accent',
+                )}
+              >
+                {e}
+              </button>
+            ))}
+            <Input
+              id="about-emoji"
+              value={emoji}
+              onChange={(e) => setEmoji(e.target.value)}
+              placeholder="or type one"
+              className="h-9 w-28"
+              maxLength={16}
+              {...fe.invalid('avatarEmoji')}
             />
-            {fe.get('bio') ? (
-              <FieldNote id={fe.noteId('bio')} error={fe.get('bio')} />
-            ) : (
-              <p className="text-right text-xs text-muted-foreground">
-                {bio.length}/{BIO_MAX}
-              </p>
-            )}
+            {emoji ? (
+              <Button type="button" variant="ghost" size="sm" onClick={() => setEmoji('')}>
+                Use initials
+              </Button>
+            ) : null}
           </div>
+          <FieldNote id={fe.noteId('avatarEmoji')} error={fe.get('avatarEmoji')} />
+        </div>
 
-          <Button type="submit" disabled={!dirty || birthdayInvalid || save.isPending}>
-            {save.isPending ? <Loader2 className="animate-spin" /> : null}
-            Save
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
+        <div className="space-y-1.5" data-field="profileColor">
+          <Label>Colour</Label>
+          <FieldNote id={fe.noteId('profileColor')} error={fe.get('profileColor')} />
+          <div className="flex flex-wrap gap-2">
+            {PROFILE_COLOR_KEYS.map((key) => (
+              <button
+                key={key}
+                type="button"
+                title={key}
+                aria-label={key}
+                aria-pressed={color === key}
+                onClick={() => setColor(color === key ? null : key)}
+                className={cn(
+                  'size-8 rounded-full border-2 transition-transform',
+                  color === key ? 'scale-110 border-foreground' : 'border-transparent',
+                )}
+                style={{ backgroundColor: PROFILE_COLORS[key] }}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5" data-field="birthday">
+            <Label htmlFor="about-month">Birthday</Label>
+            <div className="flex gap-2">
+              <Select
+                id="about-month"
+                value={month}
+                onChange={(e) => setMonth(e.target.value)}
+                aria-label="Birthday month"
+                aria-invalid={birthdayInvalid || fe.has('birthday') || undefined}
+                aria-describedby={fe.noteId('birthday')}
+              >
+                <option value="">Month</option>
+                {MONTHS.map((m, i) => (
+                  <option key={m} value={String(i + 1).padStart(2, '0')}>
+                    {m}
+                  </option>
+                ))}
+              </Select>
+              <Input
+                type="number"
+                min={1}
+                max={31}
+                value={day}
+                onChange={(e) => setDay(e.target.value)}
+                placeholder="Day"
+                aria-label="Birthday day"
+                className="w-20"
+                aria-invalid={birthdayInvalid || fe.has('birthday') || undefined}
+                aria-describedby={fe.noteId('birthday')}
+              />
+            </div>
+            <FieldNote
+              id={fe.noteId('birthday')}
+              error={fe.get('birthday') ?? (birthdayInvalid ? 'Pick a month and a real day (or neither).' : null)}
+              hint="Month and day only, no year."
+            />
+          </div>
+        </div>
+
+        <div className="space-y-1.5" data-field="bio">
+          <Label htmlFor="about-bio">About me</Label>
+          <Textarea
+            id="about-bio"
+            value={bio}
+            maxLength={BIO_MAX}
+            onChange={(e) => setBio(e.target.value)}
+            placeholder="Favourite foods, hobbies, what you're up to…"
+            {...fe.invalid('bio')}
+          />
+          {fe.get('bio') ? (
+            <FieldNote id={fe.noteId('bio')} error={fe.get('bio')} />
+          ) : (
+            <p className="text-right text-xs text-muted-foreground">
+              {bio.length}/{BIO_MAX}
+            </p>
+          )}
+        </div>
+
+        <Button type="submit" disabled={!dirty || birthdayInvalid || save.isPending}>
+          {save.isPending ? <Loader2 className="animate-spin" /> : null}
+          Save
+        </Button>
+      </form>
+    </CollapsibleCard>
   );
 }

@@ -7,7 +7,7 @@ import type { FloorDTO, PlacesDTO, RoomDTO } from '@/lib/types';
 import { moveId } from '@/lib/places';
 import { apiFetch } from '@/lib/api';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -131,112 +131,109 @@ export function PlacesCard({ initial }: { initial: PlacesDTO }) {
     ) : null;
 
   return (
-    <Card>
-      <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
-        <div>
-          <CardTitle className="flex items-center gap-2">
-            <Building className="size-4" /> Rooms &amp; floors
-          </CardTitle>
-          <CardDescription>
-            Where tasks are done and stock is kept. Tasks and inventory items can belong to a room or a whole
-            floor; the Tasks and Inventory pages group them in this order.
-          </CardDescription>
-        </div>
-        <div className="flex shrink-0 gap-2">
+    <CollapsibleCard
+      icon={<Building className="size-4" />}
+      title="Rooms & floors"
+      description="Where tasks are done and stock is kept. Tasks and inventory items can belong to a room or a whole floor; the Tasks and Inventory pages group them in this order."
+      contentClassName="space-y-3"
+      actions={
+        <>
           <Button size="sm" variant="outline" onClick={() => setEditing({ kind: 'floor' })}>
             <Layers /> Floor
           </Button>
           <Button size="sm" onClick={() => setEditing({ kind: 'room', floorId: places.floors[0]?.id ?? null })}>
             <Plus /> Room
           </Button>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {empty ? (
-          <p className="text-sm text-muted-foreground">
-            No rooms yet. Add rooms (Kitchen, Garage…), and floors if your home has more than one.
-          </p>
-        ) : null}
-        {places.floors.map((f) => (
-          <div key={f.id} className="rounded-lg border border-border">
-            <div className="flex items-center gap-2 px-3 py-2">
-              <Layers className="size-4 shrink-0 text-muted-foreground" />
-              <span className="flex-1 truncate text-sm font-medium">{f.name}</span>
-              {moveButtons('floor', places.floors.map((x) => x.id), f.id, f.name)}
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-8 text-muted-foreground"
-                aria-label={`Add a room to ${f.name}`}
-                onClick={() => setEditing({ kind: 'room', floorId: f.id })}
-              >
-                <Plus />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-8 text-muted-foreground"
-                aria-label={`Rename ${f.name}`}
-                onClick={() => setEditing({ kind: 'floor', floor: f })}
-              >
-                <Pencil />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-8 text-muted-foreground hover:text-destructive"
-                aria-label={`Remove ${f.name}`}
-                onClick={() => setDeleting({ kind: 'floor', floor: f })}
-              >
-                <Trash2 />
-              </Button>
-            </div>
-            {roomList(roomsOn(f.id))}
-          </div>
-        ))}
-        {looseRooms.length ? (
-          <div className="rounded-lg border border-border">
-            {places.floors.length ? (
-              <p className="px-3 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Not on a floor
-              </p>
-            ) : null}
-            {roomList(looseRooms)}
-          </div>
-        ) : null}
-      </CardContent>
-
-      {editing ? (
-        <PlaceDialog
-          editing={editing}
-          floors={places.floors}
-          onClose={() => setEditing(null)}
-          onSaved={(next) => {
-            setEditing(null);
-            apply(next);
-          }}
-        />
+        </>
+      }
+      dialogs={
+        <>
+          {editing ? (
+            <PlaceDialog
+              editing={editing}
+              floors={places.floors}
+              onClose={() => setEditing(null)}
+              onSaved={(next) => {
+                setEditing(null);
+                apply(next);
+              }}
+            />
+          ) : null}
+          <ConfirmDialog
+            open={!!deleting}
+            title={deleting?.kind === 'floor' ? `Remove “${deleting.floor.name}”?` : `Remove “${deleting?.room.name ?? ''}”?`}
+            description={
+              deleting?.kind === 'floor'
+                ? 'Its rooms are kept (on no floor), and its whole-floor tasks and items move to the whole house.'
+                : 'Its tasks and items move to its floor (or the whole house), and NFC tags that open it point nowhere. Nothing is deleted.'
+            }
+            confirmLabel="Remove"
+            destructive
+            pending={remove.isPending}
+            onConfirm={() =>
+              deleting &&
+              remove.mutate(
+                deleting.kind === 'floor' ? { kind: 'floor', id: deleting.floor.id } : { kind: 'room', id: deleting.room.id },
+              )
+            }
+            onClose={() => setDeleting(null)}
+          />
+        </>
+      }
+    >
+      {empty ? (
+        <p className="text-sm text-muted-foreground">
+          No rooms yet. Add rooms (Kitchen, Garage…), and floors if your home has more than one.
+        </p>
       ) : null}
-      <ConfirmDialog
-        open={!!deleting}
-        title={deleting?.kind === 'floor' ? `Remove “${deleting.floor.name}”?` : `Remove “${deleting?.room.name ?? ''}”?`}
-        description={
-          deleting?.kind === 'floor'
-            ? 'Its rooms are kept (on no floor), and its whole-floor tasks and items move to the whole house.'
-            : 'Its tasks and items move to its floor (or the whole house), and NFC tags that open it point nowhere. Nothing is deleted.'
-        }
-        confirmLabel="Remove"
-        destructive
-        pending={remove.isPending}
-        onConfirm={() =>
-          deleting &&
-          remove.mutate(
-            deleting.kind === 'floor' ? { kind: 'floor', id: deleting.floor.id } : { kind: 'room', id: deleting.room.id },
-          )
-        }
-        onClose={() => setDeleting(null)}
-      />
-    </Card>
+      {places.floors.map((f) => (
+        <div key={f.id} className="rounded-lg border border-border">
+          <div className="flex items-center gap-2 px-3 py-2">
+            <Layers className="size-4 shrink-0 text-muted-foreground" />
+            <span className="flex-1 truncate text-sm font-medium">{f.name}</span>
+            {moveButtons('floor', places.floors.map((x) => x.id), f.id, f.name)}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 text-muted-foreground"
+              aria-label={`Add a room to ${f.name}`}
+              onClick={() => setEditing({ kind: 'room', floorId: f.id })}
+            >
+              <Plus />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 text-muted-foreground"
+              aria-label={`Rename ${f.name}`}
+              onClick={() => setEditing({ kind: 'floor', floor: f })}
+            >
+              <Pencil />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 text-muted-foreground hover:text-destructive"
+              aria-label={`Remove ${f.name}`}
+              onClick={() => setDeleting({ kind: 'floor', floor: f })}
+            >
+              <Trash2 />
+            </Button>
+          </div>
+          {roomList(roomsOn(f.id))}
+        </div>
+      ))}
+      {looseRooms.length ? (
+        <div className="rounded-lg border border-border">
+          {places.floors.length ? (
+            <p className="px-3 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Not on a floor
+            </p>
+          ) : null}
+          {roomList(looseRooms)}
+        </div>
+      ) : null}
+    </CollapsibleCard>
   );
 }
 

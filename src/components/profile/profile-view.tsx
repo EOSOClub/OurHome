@@ -3,13 +3,14 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   CheckCircle2,
   ClipboardList,
   KeyRound,
   Loader2,
   ShoppingBag,
+  Smartphone,
   UserRound,
 } from 'lucide-react';
 import type { HouseholdProfile, ProfileOverview } from '@/server/services/profileService';
@@ -18,7 +19,8 @@ import { HouseholdCard } from '@/components/profile/household-card';
 import { ProfileAvatar } from '@/components/profile/profile-avatar';
 import type { AppRelease } from '@/server/services/appDownloadService';
 import { AndroidAppCard } from '@/components/profile/android-app-card';
-import { LocationCard } from '@/components/profile/location-card';
+import { LIVE_CHECKS_KEY, LocationCard } from '@/components/profile/location-card';
+import type { LiveChecksOverviewDTO } from '@/lib/types';
 import { AppUsageNotice } from '@/components/profile/app-usage-notice';
 import { useHouseholdFeatures } from '@/components/household-features';
 import type { LocationConsent } from '@/lib/location';
@@ -39,6 +41,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from '@/components/ui/toast';
@@ -108,12 +111,45 @@ export function ProfileView({
       <AboutMeCard overview={overview} />
       {household.length > 1 ? <HouseholdCard members={household} userId={overview.id} /> : null}
       <OverviewCard overview={overview} />
-      {features.includes('location') ? <LocationCard initial={location} /> : null}
-      <AppUsageNotice />
+      <PhoneAndSharing location={features.includes('location') ? location : null} />
       {appRelease && <AndroidAppCard release={appRelease} />}
       <EditProfileCard overview={overview} />
       <ChangePasswordCard />
     </div>
+  );
+}
+
+/**
+ * Location and shared app usage in one closed block (the app's Phone and
+ * sharing, which also holds its alert settings). The title says what's inside,
+ * app usage included when an adult shares it; nothing shows when neither applies.
+ */
+function PhoneAndSharing({ location }: { location: LocationConsent | null }) {
+  const { data } = useQuery({
+    queryKey: ['my-usage-sharing'],
+    queryFn: () => apiFetch<{ shared: boolean }>('/api/phone/usage'),
+  });
+  const usageShared = data?.shared === true;
+  // The same query as the Location section's, so it opens while a check runs on them.
+  const { data: checks } = useQuery({
+    queryKey: LIVE_CHECKS_KEY,
+    queryFn: () => apiFetch<LiveChecksOverviewDTO>('/api/location/checks'),
+    refetchInterval: 30_000,
+    enabled: !!location,
+  });
+  if (!location && !usageShared) return null;
+  const parts = [location ? 'location' : null, usageShared ? 'app usage' : null].filter(Boolean).join(' and ');
+  return (
+    <CollapsibleCard
+      icon={<Smartphone className="size-4" />}
+      title="Phone and sharing"
+      description={`${parts.charAt(0).toUpperCase()}${parts.slice(1)} you share with the household.`}
+      openWhen={!!location && !!checks?.onMe}
+      group
+    >
+      {location ? <LocationCard initial={location} /> : null}
+      <AppUsageNotice />
+    </CollapsibleCard>
   );
 }
 
@@ -227,90 +263,84 @@ function EditProfileCard({ overview }: { overview: ProfileOverview }) {
     !save.isPending;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <UserRound className="size-4" /> Edit profile
-        </CardTitle>
-        <CardDescription>
-          Update your display name, username, and recovery email.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (canSubmit) save.mutate();
-          }}
-          className="space-y-4"
-          {...fe.formProps}
-        >
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5" data-field="name">
-              <Label htmlFor="profile-name">Display name</Label>
-              <Input
-                id="profile-name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                autoComplete="name"
-                aria-invalid={nameError ? true : undefined}
-                aria-describedby={fe.noteId('name')}
-              />
-              <FieldNote id={fe.noteId('name')} error={nameError} />
-            </div>
-            <div className="space-y-1.5" data-field="username">
-              <Label htmlFor="profile-username">Username</Label>
-              <Input
-                id="profile-username"
-                value={username}
-                autoCapitalize="none"
-                spellCheck={false}
-                onChange={(e) => setUsername(e.target.value)}
-                autoComplete="username"
-                aria-invalid={usernameError ? true : undefined}
-                aria-describedby={fe.noteId('username')}
-              />
-              <FieldNote id={fe.noteId('username')} error={usernameError} />
-            </div>
-            <div className="space-y-1.5 sm:col-span-2" data-field="email">
-              <Label htmlFor="profile-email">Email</Label>
-              <Input
-                id="profile-email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                autoComplete="email"
-                aria-invalid={emailError ? true : undefined}
-                aria-describedby={fe.noteId('email')}
-              />
-              <FieldNote id={fe.noteId('email')} error={emailError} />
-            </div>
-            {dirtyEmail ? (
-              <div className="space-y-1.5 sm:col-span-2" data-field="currentPassword">
-                <Label htmlFor="profile-email-password">Current password</Label>
-                <Input
-                  id="profile-email-password"
-                  type="password"
-                  value={emailPassword}
-                  onChange={(e) => setEmailPassword(e.target.value)}
-                  autoComplete="current-password"
-                  {...fe.invalid('currentPassword')}
-                />
-                <FieldNote
-                  id={fe.noteId('currentPassword')}
-                  error={fe.get('currentPassword')}
-                  hint="Needed to change your email, since password resets go there."
-                />
-              </div>
-            ) : null}
+    <CollapsibleCard
+      icon={<UserRound className="size-4" />}
+      title="Edit profile"
+      description="Update your display name, username, and recovery email."
+    >
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (canSubmit) save.mutate();
+        }}
+        className="space-y-4"
+        {...fe.formProps}
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5" data-field="name">
+            <Label htmlFor="profile-name">Display name</Label>
+            <Input
+              id="profile-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoComplete="name"
+              aria-invalid={nameError ? true : undefined}
+              aria-describedby={fe.noteId('name')}
+            />
+            <FieldNote id={fe.noteId('name')} error={nameError} />
           </div>
-          <Button type="submit" disabled={!canSubmit}>
-            {save.isPending ? <Loader2 className="animate-spin" /> : null}
-            Save changes
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
+          <div className="space-y-1.5" data-field="username">
+            <Label htmlFor="profile-username">Username</Label>
+            <Input
+              id="profile-username"
+              value={username}
+              autoCapitalize="none"
+              spellCheck={false}
+              onChange={(e) => setUsername(e.target.value)}
+              autoComplete="username"
+              aria-invalid={usernameError ? true : undefined}
+              aria-describedby={fe.noteId('username')}
+            />
+            <FieldNote id={fe.noteId('username')} error={usernameError} />
+          </div>
+          <div className="space-y-1.5 sm:col-span-2" data-field="email">
+            <Label htmlFor="profile-email">Email</Label>
+            <Input
+              id="profile-email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+              aria-invalid={emailError ? true : undefined}
+              aria-describedby={fe.noteId('email')}
+            />
+            <FieldNote id={fe.noteId('email')} error={emailError} />
+          </div>
+          {dirtyEmail ? (
+            <div className="space-y-1.5 sm:col-span-2" data-field="currentPassword">
+              <Label htmlFor="profile-email-password">Current password</Label>
+              <Input
+                id="profile-email-password"
+                type="password"
+                value={emailPassword}
+                onChange={(e) => setEmailPassword(e.target.value)}
+                autoComplete="current-password"
+                {...fe.invalid('currentPassword')}
+              />
+              <FieldNote
+                id={fe.noteId('currentPassword')}
+                error={fe.get('currentPassword')}
+                hint="Needed to change your email, since password resets go there."
+              />
+            </div>
+          ) : null}
+        </div>
+        <Button type="submit" disabled={!canSubmit}>
+          {save.isPending ? <Loader2 className="animate-spin" /> : null}
+          Save changes
+        </Button>
+      </form>
+    </CollapsibleCard>
   );
 }
 
@@ -355,84 +385,78 @@ function ChangePasswordCard() {
     !change.isPending;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <KeyRound className="size-4" /> Change password
-        </CardTitle>
-        <CardDescription>
-          Enter your current password, then choose a new one.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (canSubmit) change.mutate();
-          }}
-          className="space-y-4"
-          {...fe.formProps}
-        >
-          <div className="space-y-1.5" data-field="currentPassword">
-            <Label htmlFor="current-password">Current password</Label>
-            <Input
-              id="current-password"
-              type="password"
-              autoComplete="current-password"
-              value={current}
-              onChange={(e) => setCurrent(e.target.value)}
-              {...fe.invalid('currentPassword')}
-            />
-            <FieldNote id={fe.noteId('currentPassword')} error={fe.get('currentPassword')} />
-          </div>
-          <div className="space-y-1.5" data-field="newPassword">
-            <Label htmlFor="new-password">New password</Label>
-            <Input
-              id="new-password"
-              type="password"
-              autoComplete="new-password"
-              value={next}
-              aria-invalid={nextTooShort || fe.has('newPassword') || undefined}
-              aria-describedby="new-password-hint"
-              onChange={(e) => setNext(e.target.value)}
-            />
-            <FieldNote
-              id="new-password-hint"
-              error={fe.get('newPassword') ?? (nextTooShort ? 'At least 8 characters.' : null)}
-              hint="At least 8 characters."
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="confirm-password">Confirm new password</Label>
-            <Input
-              id="confirm-password"
-              type="password"
-              autoComplete="new-password"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              aria-invalid={mismatch || undefined}
-            />
-            {mismatch ? (
-              <p className="text-xs text-destructive" role="alert">
-                Passwords do not match.
-              </p>
-            ) : null}
-          </div>
-          <label className="flex items-center gap-2 text-sm text-muted-foreground">
-            <input
-              type="checkbox"
-              className="size-4 rounded border-input"
-              checked={revokeOthers}
-              onChange={(e) => setRevokeOthers(e.target.checked)}
-            />
-            Sign out of other devices
-          </label>
-          <Button type="submit" disabled={!canSubmit}>
-            {change.isPending ? <Loader2 className="animate-spin" /> : null}
-            Update password
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
+    <CollapsibleCard
+      icon={<KeyRound className="size-4" />}
+      title="Change password"
+      description="Enter your current password, then choose a new one."
+    >
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (canSubmit) change.mutate();
+        }}
+        className="space-y-4"
+        {...fe.formProps}
+      >
+        <div className="space-y-1.5" data-field="currentPassword">
+          <Label htmlFor="current-password">Current password</Label>
+          <Input
+            id="current-password"
+            type="password"
+            autoComplete="current-password"
+            value={current}
+            onChange={(e) => setCurrent(e.target.value)}
+            {...fe.invalid('currentPassword')}
+          />
+          <FieldNote id={fe.noteId('currentPassword')} error={fe.get('currentPassword')} />
+        </div>
+        <div className="space-y-1.5" data-field="newPassword">
+          <Label htmlFor="new-password">New password</Label>
+          <Input
+            id="new-password"
+            type="password"
+            autoComplete="new-password"
+            value={next}
+            aria-invalid={nextTooShort || fe.has('newPassword') || undefined}
+            aria-describedby="new-password-hint"
+            onChange={(e) => setNext(e.target.value)}
+          />
+          <FieldNote
+            id="new-password-hint"
+            error={fe.get('newPassword') ?? (nextTooShort ? 'At least 8 characters.' : null)}
+            hint="At least 8 characters."
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="confirm-password">Confirm new password</Label>
+          <Input
+            id="confirm-password"
+            type="password"
+            autoComplete="new-password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            aria-invalid={mismatch || undefined}
+          />
+          {mismatch ? (
+            <p className="text-xs text-destructive" role="alert">
+              Passwords do not match.
+            </p>
+          ) : null}
+        </div>
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">
+          <input
+            type="checkbox"
+            className="size-4 rounded border-input"
+            checked={revokeOthers}
+            onChange={(e) => setRevokeOthers(e.target.checked)}
+          />
+          Sign out of other devices
+        </label>
+        <Button type="submit" disabled={!canSubmit}>
+          {change.isPending ? <Loader2 className="animate-spin" /> : null}
+          Update password
+        </Button>
+      </form>
+    </CollapsibleCard>
   );
 }

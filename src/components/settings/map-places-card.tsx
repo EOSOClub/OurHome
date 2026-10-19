@@ -14,7 +14,7 @@ import { apiFetch } from '@/lib/api';
 import { PinPicker, type LatLng } from '@/components/map/pin-picker';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -75,93 +75,91 @@ export function MapPlacesCard({
   const hasHome = places.some((p) => p.kind === 'home');
 
   return (
-    // The Map page's "Edit" links here.
-    <Card id="map-places" className="scroll-mt-20">
-      <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
-        <div>
-          <CardTitle className="flex items-center gap-2">
-            <MapPin className="size-4" /> Map places
-          </CardTitle>
-          <CardDescription>
-            Your home, stores and other spots. The Android app uses them to show who is home and to remind people
-            about a store&apos;s shopping lists when they get there. Each member decides on their Profile whether to
-            share their location.
-          </CardDescription>
-        </div>
-        <Button size="sm" className="shrink-0" onClick={() => setEditing({})}>
+    // The Map page's "Edit" links here (/settings#map-places), which opens it.
+    <CollapsibleCard
+      id="map-places"
+      className="scroll-mt-20"
+      icon={<MapPin className="size-4" />}
+      title="Map places"
+      description="Your home, stores and other spots. The Android app uses them to show who is home and to remind people about a store's shopping lists when they get there. Each member decides on their Profile whether to share their location."
+      contentClassName="space-y-3"
+      actions={
+        <Button size="sm" onClick={() => setEditing({})}>
           <Plus /> Place
         </Button>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {places.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No map places yet. Start with your home.</p>
-        ) : (
-          <ul className="divide-y divide-border rounded-lg border border-border">
-            {places.map((p) => {
-              const Icon = KIND_ICONS[p.kind as MapPlaceKind] ?? MapPin;
-              const linked = p.shoppingListIds.map((id) => listName.get(id)).filter(Boolean);
-              return (
-                <li key={p.id} className="flex items-center gap-3 px-3 py-2.5">
-                  <Icon className="size-4 shrink-0 text-muted-foreground" />
-                  <div className="min-w-0 flex-1">
-                    <p className="flex items-center gap-2 truncate text-sm font-medium">
-                      {p.name}
-                      <Badge variant="outline">{MAP_PLACE_KIND_LABELS[p.kind as MapPlaceKind] ?? p.kind}</Badge>
-                    </p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      Within {radiusLabel(p.radiusM)}
-                      {linked.length ? ` · reminds about ${linked.join(', ')}` : ''}
-                    </p>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-8 text-muted-foreground"
-                    aria-label={`Edit ${p.name}`}
-                    onClick={() => setEditing({ place: p })}
-                  >
-                    <Pencil />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-8 text-muted-foreground hover:text-destructive"
-                    aria-label={`Remove ${p.name}`}
-                    onClick={() => setDeleting(p)}
-                  >
-                    <Trash2 />
-                  </Button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </CardContent>
-
-      {editing ? (
-        <MapPlaceDialog
-          place={editing.place}
-          // A household has one home: offer it only when there's none (or it's this one).
-          homeTaken={hasHome && editing.place?.kind !== 'home'}
-          lists={lists}
-          onClose={() => setEditing(null)}
-          onSaved={(next) => {
-            setEditing(null);
-            queryClient.setQueryData(MAP_PLACES_KEY, next);
-          }}
-        />
-      ) : null}
-      <ConfirmDialog
-        open={!!deleting}
-        title={`Remove “${deleting?.name ?? ''}”?`}
-        description="Phones stop watching for arrivals there. Nothing else changes."
-        confirmLabel="Remove"
-        destructive
-        pending={remove.isPending}
-        onConfirm={() => deleting && remove.mutate(deleting.id)}
-        onClose={() => setDeleting(null)}
-      />
-    </Card>
+      }
+      dialogs={
+        <>
+          {editing ? (
+            <MapPlaceDialog
+              place={editing.place}
+              // A household has one home: offer it only when there's none (or it's this one).
+              homeTaken={hasHome && editing.place?.kind !== 'home'}
+              lists={lists}
+              onClose={() => setEditing(null)}
+              onSaved={(next) => {
+                setEditing(null);
+                queryClient.setQueryData(MAP_PLACES_KEY, next);
+              }}
+            />
+          ) : null}
+          <ConfirmDialog
+            open={!!deleting}
+            title={`Remove “${deleting?.name ?? ''}”?`}
+            description="Phones stop watching for arrivals there. Nothing else changes."
+            confirmLabel="Remove"
+            destructive
+            pending={remove.isPending}
+            onConfirm={() => deleting && remove.mutate(deleting.id)}
+            onClose={() => setDeleting(null)}
+          />
+        </>
+      }
+    >
+      {places.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No map places yet. Start with your home.</p>
+      ) : (
+        <ul className="divide-y divide-border rounded-lg border border-border">
+          {places.map((p) => {
+            const Icon = KIND_ICONS[p.kind as MapPlaceKind] ?? MapPin;
+            const linked = p.shoppingListIds.map((id) => listName.get(id)).filter(Boolean);
+            return (
+              <li key={p.id} className="flex items-center gap-3 px-3 py-2.5">
+                <Icon className="size-4 shrink-0 text-muted-foreground" />
+                <div className="min-w-0 flex-1">
+                  <p className="flex items-center gap-2 truncate text-sm font-medium">
+                    {p.name}
+                    <Badge variant="outline">{MAP_PLACE_KIND_LABELS[p.kind as MapPlaceKind] ?? p.kind}</Badge>
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    Within {radiusLabel(p.radiusM)}
+                    {linked.length ? ` · reminds about ${linked.join(', ')}` : ''}
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 text-muted-foreground"
+                  aria-label={`Edit ${p.name}`}
+                  onClick={() => setEditing({ place: p })}
+                >
+                  <Pencil />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 text-muted-foreground hover:text-destructive"
+                  aria-label={`Remove ${p.name}`}
+                  onClick={() => setDeleting(p)}
+                >
+                  <Trash2 />
+                </Button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </CollapsibleCard>
   );
 }
 

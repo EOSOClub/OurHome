@@ -11,13 +11,7 @@ import {
 } from '@/lib/enums';
 import { apiFetch, ApiError } from '@/lib/api';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
@@ -71,103 +65,101 @@ export function CategoriesCard({
   })).filter((g) => g.items.length > 0);
 
   return (
-    <Card>
-      <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
-        <div>
-          <CardTitle className="flex items-center gap-2">
-            <FolderTree className="size-4" /> Categories
-          </CardTitle>
-          <CardDescription>
-            Labels with a color for tasks, shopping, and inventory.
-          </CardDescription>
-        </div>
+    <CollapsibleCard
+      icon={<FolderTree className="size-4" />}
+      title="Categories"
+      description="Labels with a color for tasks, shopping, and inventory."
+      contentClassName="space-y-4"
+      actions={
         <Button size="sm" onClick={() => setEditing('new')}>
           <Plus /> New
         </Button>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {error ? (
-          <p className="text-sm text-destructive" role="alert">
-            {error}
-          </p>
-        ) : null}
+      }
+      dialogs={
+        <>
+          {editing !== null ? (
+            <CategoryDialog
+              key={editing === 'new' ? 'new' : editing.id}
+              category={editing === 'new' ? null : editing}
+              onClose={() => setEditing(null)}
+              onSaved={() => {
+                invalidate();
+                setEditing(null);
+              }}
+            />
+          ) : null}
 
-        {categories.length === 0 ? (
-          <EmptyState icon={FolderTree} title="No categories yet" />
-        ) : (
-          groups.map((group) => (
-            <div key={group.kind} className="space-y-1.5">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {CATEGORY_KIND_LABELS[group.kind]}
-              </p>
-              <ul className="divide-y divide-border rounded-lg border border-border">
-                {group.items.map((c) => (
-                  <li
-                    key={c.id}
-                    className="flex items-center gap-3 px-3 py-2.5"
-                  >
-                    <span
-                      className="size-4 shrink-0 rounded-full border border-border"
-                      style={{ background: c.color ?? 'transparent' }}
-                    />
-                    <span className="flex-1 truncate text-sm font-medium">
-                      {c.icon ? `${c.icon} ` : ''}
-                      {c.name}
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 text-muted-foreground"
-                      aria-label={`Edit ${c.name}`}
-                      onClick={() => setEditing(c)}
-                    >
-                      <Pencil className="size-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 text-muted-foreground hover:text-destructive"
-                      aria-label={`Delete ${c.name}`}
-                      disabled={remove.isPending}
-                      onClick={() => setPendingDelete(c)}
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))
-        )}
-      </CardContent>
-
-      {editing !== null ? (
-        <CategoryDialog
-          key={editing === 'new' ? 'new' : editing.id}
-          category={editing === 'new' ? null : editing}
-          onClose={() => setEditing(null)}
-          onSaved={() => {
-            invalidate();
-            setEditing(null);
-          }}
-        />
+          <ConfirmDialog
+            open={pendingDelete !== null}
+            onClose={() => setPendingDelete(null)}
+            onConfirm={() => {
+              if (pendingDelete) remove.mutate(pendingDelete.id);
+              setPendingDelete(null);
+            }}
+            title="Delete category"
+            description={
+              pendingDelete ? `Delete category "${pendingDelete.name}"?` : undefined
+            }
+            confirmLabel="Delete"
+            destructive
+          />
+        </>
+      }
+    >
+      {error ? (
+        <p className="text-sm text-destructive" role="alert">
+          {error}
+        </p>
       ) : null}
 
-      <ConfirmDialog
-        open={pendingDelete !== null}
-        onClose={() => setPendingDelete(null)}
-        onConfirm={() => {
-          if (pendingDelete) remove.mutate(pendingDelete.id);
-          setPendingDelete(null);
-        }}
-        title="Delete category"
-        description={
-          pendingDelete ? `Delete category "${pendingDelete.name}"?` : undefined
-        }
-        confirmLabel="Delete"
-        destructive
-      />
-    </Card>
+      {categories.length === 0 ? (
+        <EmptyState icon={FolderTree} title="No categories yet" />
+      ) : (
+        groups.map((group) => (
+          <div key={group.kind} className="space-y-1.5">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              {CATEGORY_KIND_LABELS[group.kind]}
+            </p>
+            <ul className="divide-y divide-border rounded-lg border border-border">
+              {group.items.map((c) => (
+                <li
+                  key={c.id}
+                  className="flex items-center gap-3 px-3 py-2.5"
+                >
+                  <span
+                    className="size-4 shrink-0 rounded-full border border-border"
+                    style={{ background: c.color ?? 'transparent' }}
+                  />
+                  <span className="flex-1 truncate text-sm font-medium">
+                    {c.icon ? `${c.icon} ` : ''}
+                    {c.name}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 text-muted-foreground"
+                    aria-label={`Edit ${c.name}`}
+                    onClick={() => setEditing(c)}
+                  >
+                    <Pencil className="size-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 text-muted-foreground hover:text-destructive"
+                    aria-label={`Delete ${c.name}`}
+                    disabled={remove.isPending}
+                    onClick={() => setPendingDelete(c)}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))
+      )}
+    </CollapsibleCard>
   );
 }
 

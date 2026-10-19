@@ -8,13 +8,7 @@ import { apiFetch } from '@/lib/api';
 import { safeHref } from '@/lib/format';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { FieldNote } from '@/components/ui/field-note';
@@ -66,107 +60,108 @@ export function PaperlessCard() {
     : [];
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <FileText className="size-4" /> Paperless bill import
-        </CardTitle>
-        <CardDescription>
+    <CollapsibleCard
+      icon={<FileText className="size-4" />}
+      title="Paperless bill import"
+      description={
+        <>
           Documents tagged <code>bill</code> or <code>bill-payment</code> in Paperless-ngx
           become bills and payments here, checked every 15 minutes. Payments are matched to an
           unpaid bill; one with no bill to pay is listed below instead.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {status ? <ConnectionSection status={status} /> : null}
-        {!status ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
-        ) : !status.configured ? null : (
-          <>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="space-y-1 text-sm">
-                <p>
-                  {status.lastError ? (
-                    <Badge variant="warning">Last check failed</Badge>
-                  ) : (
-                    <Badge variant="success">Connected</Badge>
-                  )}{' '}
-                  <span className="text-muted-foreground">
-                    {status.lastRunAt
-                      ? `Last checked ${new Date(status.lastRunAt).toLocaleString(undefined, { timeZone })}`
-                      : 'Not checked yet'}
-                  </span>
-                </p>
-                {status.since ? (
-                  <p className="text-xs text-muted-foreground">
-                    Importing documents changed since {new Date(status.since).toLocaleDateString(undefined, { timeZone })}.
-                  </p>
-                ) : null}
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => sync.mutate()}
-                disabled={sync.isPending}
-              >
-                {sync.isPending ? (
-                  <Loader2 className="size-4 animate-spin" />
+        </>
+      }
+      contentClassName="space-y-4"
+      // A failed check opens it, so the error isn't missed.
+      openWhen={!!status?.lastError}
+    >
+      {status ? <ConnectionSection status={status} /> : null}
+      {!status ? (
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : !status.configured ? null : (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="space-y-1 text-sm">
+              <p>
+                {status.lastError ? (
+                  <Badge variant="warning">Last check failed</Badge>
                 ) : (
-                  <RefreshCw className="size-4" />
-                )}
-                Check now
-              </Button>
-            </div>
-
-            {status.lastError ? (
-              <p className="rounded-md border border-[var(--color-warning)] px-3 py-2 text-sm">
-                {status.lastError}
+                  <Badge variant="success">Connected</Badge>
+                )}{' '}
+                <span className="text-muted-foreground">
+                  {status.lastRunAt
+                    ? `Last checked ${new Date(status.lastRunAt).toLocaleString(undefined, { timeZone })}`
+                    : 'Not checked yet'}
+                </span>
               </p>
-            ) : null}
-
-            {result ? (
-              <p className="text-sm text-muted-foreground">
-                Last check: {result.checked} document(s) changed
-                {counts.length ? ` · ${counts.join(' · ')}` : ''}.
-              </p>
-            ) : null}
-
-            {result?.skipped.length ? (
-              <div className="space-y-2">
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Skipped recently
-                </p>
-                <ul className="divide-y divide-border rounded-lg border border-border">
-                  {result.skipped.map((s) => (
-                    <li key={s.id} className="flex items-center justify-between gap-3 px-3 py-2">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium">{s.title}</p>
-                        <p className="text-xs text-muted-foreground">{s.reason}</p>
-                      </div>
-                      {safeHref(s.url) ? (
-                        <a
-                          href={safeHref(s.url)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="shrink-0 text-muted-foreground hover:text-foreground"
-                          title="Open in Paperless"
-                        >
-                          <ExternalLink className="size-4" />
-                        </a>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
+              {status.since ? (
                 <p className="text-xs text-muted-foreground">
-                  Fix the document in Paperless (add the Amount, finish the review, or add the
-                  bill first) and it is picked up on the next check.
+                  Importing documents changed since {new Date(status.since).toLocaleDateString(undefined, { timeZone })}.
                 </p>
-              </div>
-            ) : null}
-          </>
-        )}
-      </CardContent>
-    </Card>
+              ) : null}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => sync.mutate()}
+              disabled={sync.isPending}
+            >
+              {sync.isPending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <RefreshCw className="size-4" />
+              )}
+              Check now
+            </Button>
+          </div>
+
+          {status.lastError ? (
+            <p className="rounded-md border border-[var(--color-warning)] px-3 py-2 text-sm">
+              {status.lastError}
+            </p>
+          ) : null}
+
+          {result ? (
+            <p className="text-sm text-muted-foreground">
+              Last check: {result.checked} document(s) changed
+              {counts.length ? ` · ${counts.join(' · ')}` : ''}.
+            </p>
+          ) : null}
+
+          {result?.skipped.length ? (
+            <div className="space-y-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Skipped recently
+              </p>
+              <ul className="divide-y divide-border rounded-lg border border-border">
+                {result.skipped.map((s) => (
+                  <li key={s.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{s.title}</p>
+                      <p className="text-xs text-muted-foreground">{s.reason}</p>
+                    </div>
+                    {safeHref(s.url) ? (
+                      <a
+                        href={safeHref(s.url)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="shrink-0 text-muted-foreground hover:text-foreground"
+                        title="Open in Paperless"
+                      >
+                        <ExternalLink className="size-4" />
+                      </a>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs text-muted-foreground">
+                Fix the document in Paperless (add the Amount, finish the review, or add the
+                bill first) and it is picked up on the next check.
+              </p>
+            </div>
+          ) : null}
+        </>
+      )}
+    </CollapsibleCard>
   );
 }
 

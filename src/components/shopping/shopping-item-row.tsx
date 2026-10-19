@@ -92,6 +92,8 @@ export function ShoppingItemRow({
   busy: boolean;
 }) {
   const [editing, setEditing] = useState(false);
+  // Long notes are cut to one line until clicked.
+  const [notesOpen, setNotesOpen] = useState(false);
   const { purchased } = item;
   // Ticking off isn't an edit: any Shopping access will do (matches the API).
   const canToggle = hasAnyAccess(access);
@@ -161,15 +163,45 @@ export function ShoppingItemRow({
             </span>
           ) : null}
         </div>
-        {item.notes ? (
-          <p className="truncate text-xs text-muted-foreground">{item.notes}</p>
+        {/* Under the name: on a phone the price (so the name keeps the row's width), then
+            the notes, cut to one line; clicking them shows the rest. */}
+        {item.notes || item.estimatedPrice != null ? (
+          <div
+            className={cn(
+              'flex min-w-0 gap-1.5 text-xs text-muted-foreground',
+              !item.notes && 'sm:hidden',
+            )}
+          >
+            {item.estimatedPrice != null ? (
+              <span className="shrink-0 tabular-nums sm:hidden">
+                ${item.estimatedPrice.toFixed(2)}
+              </span>
+            ) : null}
+            {item.estimatedPrice != null && item.notes ? (
+              <span aria-hidden className="sm:hidden">·</span>
+            ) : null}
+            {item.notes ? (
+              <button
+                type="button"
+                onClick={() => setNotesOpen((open) => !open)}
+                aria-expanded={notesOpen}
+                title={notesOpen ? undefined : item.notes}
+                className={cn(
+                  'min-w-0 text-left',
+                  notesOpen ? 'whitespace-pre-wrap break-words' : 'truncate',
+                )}
+              >
+                {item.notes}
+              </button>
+            ) : null}
+          </div>
         ) : null}
         {item.url ? <ItemLink url={item.url} /> : null}
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
         {item.estimatedPrice != null ? (
-          <span className="text-xs tabular-nums text-muted-foreground">
+          <span className="hidden text-xs tabular-nums text-muted-foreground sm:inline">
             ${item.estimatedPrice.toFixed(2)}
           </span>
         ) : null}

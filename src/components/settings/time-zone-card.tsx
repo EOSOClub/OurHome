@@ -44,8 +44,9 @@ export function TimeZoneCard({ initial }: { initial: PointsSettingsDTO }) {
   });
 
   return (
-    <Card>
-      <CardContent className="space-y-4 p-5" {...fe.formProps}>
+    // Beside Task points on wide screens: same height, same layout, Saves in line.
+    <Card className="flex h-full flex-col">
+      <CardContent className="flex flex-1 flex-col gap-4 p-5" {...fe.formProps}>
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <CalendarClock className="size-4" />
@@ -88,7 +89,7 @@ export function TimeZoneCard({ initial }: { initial: PointsSettingsDTO }) {
             <FieldNote id={fe.noteId('weekStartsOn')} error={fe.get('weekStartsOn')} />
           </div>
         </div>
-        <div className="flex justify-end">
+        <div className="mt-auto flex justify-end">
           <Button onClick={() => save.mutate()} disabled={save.isPending || !timezone.trim()}>
             {save.isPending ? <Loader2 className="animate-spin" /> : null}
             Save

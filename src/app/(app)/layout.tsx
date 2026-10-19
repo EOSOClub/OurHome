@@ -79,7 +79,7 @@ export default async function AppLayout({
         Skip to content
       </a>
       <header className="sticky top-0 z-20 border-b border-border bg-card/90 backdrop-blur">
-        <div className="mx-auto flex h-14 w-full max-w-5xl items-center gap-3 px-4">
+        <div className="mx-auto flex h-14 w-full max-w-7xl items-center gap-3 px-4">
           <Link href="/dashboard" className="flex items-center gap-2 font-semibold">
             <span className="flex size-8 items-center justify-center rounded-lg bg-primary/15 text-primary">
               <Home className="size-4.5" />
@@ -108,7 +108,7 @@ export default async function AppLayout({
 
       <main
         id="main-content"
-        className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 pb-[calc(6rem+env(safe-area-inset-bottom))] lg:pb-6"
+        className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 pb-[calc(6rem+env(safe-area-inset-bottom))] lg:pb-6"
       >
         {children}
       </main>

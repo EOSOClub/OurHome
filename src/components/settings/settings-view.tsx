@@ -119,9 +119,14 @@ export function SettingsView({
           Manage categories, connect Home Assistant, and map NFC tags.
         </p>
       </div>
-      {/* One household row holds both; the time zone isn't a points setting. */}
-      {initialPoints ? <TimeZoneCard initial={initialPoints} /> : null}
-      {initialPoints ? <PointsCard initial={initialPoints} /> : null}
+      {/* One household row holds both; the time zone isn't a points setting.
+          Two short cards: side by side on wide screens, stacked below that. */}
+      {initialPoints ? (
+        <div className="grid gap-6 lg:grid-cols-2">
+          <TimeZoneCard initial={initialPoints} />
+          <PointsCard initial={initialPoints} />
+        </div>
+      ) : null}
       {/* Rooms are where tasks are done and stock is kept: shown while either is on. */}
       {placesEnabled(features) ? <PlacesCard initial={initialPlaces} /> : null}
       {features.includes('location') ? (

@@ -1,8 +1,10 @@
-// Best-effort Open Graph preview fetcher. Given a pasted product URL it pulls
-// the title / image / price out of the page's <head> meta tags so the shopping
-// form can pre-fill itself. Everything here degrades to nulls on failure - many
-// sites (Amazon in particular) serve a bot wall instead of the real page, and
-// that's expected: the UI just falls back to manual entry.
+// Best-effort product preview fetcher. Given a pasted product URL it pulls the
+// title / image / price out of the page so the shopping form can pre-fill
+// itself: Open Graph meta tags first, then schema.org Product data (JSON-LD or
+// microdata, which grocery sites use for the price), then Amazon's own markup
+// (Amazon has no meta tags for the image or price). Everything here degrades to
+// nulls on failure - a site may serve a bot wall instead of the real page, and
+// the UI just falls back to manual entry.
 
 import { lookup } from 'node:dns/promises';
 import type { LinkPreviewDTO } from '@/lib/types';
@@ -12,11 +14,16 @@ const EMPTY: LinkPreviewDTO = { title: null, imageUrl: null, price: null };
 const FETCH_TIMEOUT_MS = 6_000;
 // Redirects are followed manually so each hop can be re-validated; cap the count.
 const MAX_REDIRECTS = 5;
-// We only need the <head>, so cap the download instead of slurping whole pages.
-const MAX_BYTES = 512 * 1024;
+// Reading stops once title, image and price are found. Most pages have them in
+// the <head>; Amazon's image and price sit about 250-500 KB into the body.
+const MAX_BYTES = 1536 * 1024;
+// While something is missing, look again every this many bytes past the <head>.
+const CHECK_EVERY_BYTES = 128 * 1024;
+// Amazon serves its bot wall to an out-of-date Chrome (124 was walled by
+// October 2026, 141 got the real page), so keep this near a current release.
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
-  '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+  '(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36';
 
 export async function fetchLinkPreview(rawUrl: string): Promise<LinkPreviewDTO> {
   let url: URL;
@@ -34,8 +41,9 @@ export async function fetchLinkPreview(rawUrl: string): Promise<LinkPreviewDTO> 
       await res.body?.cancel().catch(() => {});
       return EMPTY;
     }
-    const html = await readCapped(res.body, MAX_BYTES);
-    return parsePreview(html, res.url || url.href);
+    const pageUrl = res.url || url.href;
+    const html = await readCapped(res.body, MAX_BYTES, (sofar) => hasEverything(sofar, pageUrl));
+    return parsePreview(html, pageUrl);
   } catch {
     // Timeouts, connection resets, bot walls, DNS errors - all best-effort.
     return EMPTY;
@@ -144,14 +152,29 @@ function isPrivateIp(ip: string): boolean {
   return false;
 }
 
-/** Read a response body up to `maxBytes`, stopping early once `</head>` lands. */
+/** True when reading further down the page can't add anything. */
+function hasEverything(html: string, pageUrl: string): boolean {
+  const p = parsePreview(html, pageUrl);
+  if (p.title === null || p.imageUrl === null || p.price === null) return false;
+  // Amazon's own title comes after its picture and a first price; <title> alone
+  // would stop the read short of it.
+  return !isAmazon(pageUrl) || amazonTitle(html) !== null;
+}
+
+/**
+ * Read a response body up to `maxBytes`. Once `</head>` lands, and every
+ * CHECK_EVERY_BYTES after it, `enough` is asked whether the page so far has
+ * everything; reading stops when it does.
+ */
 async function readCapped(
   body: ReadableStream<Uint8Array>,
   maxBytes: number,
+  enough: (html: string) => boolean,
 ): Promise<string> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let received = 0;
+  let nextCheck = Infinity;
   let html = '';
   try {
     while (received < maxBytes) {
@@ -159,7 +182,11 @@ async function readCapped(
       if (done) break;
       received += value.byteLength;
       html += decoder.decode(value, { stream: true });
-      if (html.includes('</head>')) break;
+      if (nextCheck === Infinity && html.includes('</head>')) nextCheck = received;
+      if (received >= nextCheck) {
+        if (enough(html)) break;
+        nextCheck = received + CHECK_EVERY_BYTES;
+      }
     }
   } finally {
     await reader.cancel().catch(() => {});
@@ -167,8 +194,15 @@ async function readCapped(
   return html;
 }
 
-function parsePreview(html: string, baseUrl: string): LinkPreviewDTO {
+/** Exported for tests. */
+export function parsePreview(html: string, baseUrl: string): LinkPreviewDTO {
+  const product = ldProduct(html);
+  const amazon = isAmazon(baseUrl);
+  // A Product's name (Amazon's shown title) is the product alone; og:title and
+  // <title> often add the shop's name ("2022 Echo Dot ... | Amazon").
   const title =
+    (amazon ? amazonTitle(html) : null) ??
+    ldString(product?.name) ??
     metaContent(html, 'og:title') ??
     metaContent(html, 'twitter:title') ??
     titleTag(html);
@@ -176,16 +210,129 @@ function parsePreview(html: string, baseUrl: string): LinkPreviewDTO {
     metaContent(html, 'og:image:secure_url') ??
     metaContent(html, 'og:image') ??
     metaContent(html, 'twitter:image') ??
-    metaContent(html, 'twitter:image:src');
+    metaContent(html, 'twitter:image:src') ??
+    (product ? ldImage(product) : null) ??
+    (amazon ? amazonImage(html) : null);
   const price =
     metaContent(html, 'product:price:amount') ??
-    metaContent(html, 'og:price:amount');
+    metaContent(html, 'og:price:amount') ??
+    (product ? ldPrice(product) : null) ??
+    itempropPrice(html) ??
+    (amazon ? amazonPrice(html) : null);
 
   return {
     title: cleanText(title),
     imageUrl: resolveImage(image, baseUrl),
     price: parsePrice(price),
   };
+}
+
+type Json = Record<string, unknown>;
+
+/** The first schema.org Product in the page's JSON-LD blocks, if any. */
+function ldProduct(html: string): Json | null {
+  const blocks = html.matchAll(
+    /<script\b[^>]*\btype\s*=\s*["']?application\/ld\+json["']?[^>]*>([\s\S]*?)<\/script>/gi,
+  );
+  for (const [, text] of blocks) {
+    try {
+      const found = findProduct(JSON.parse(text.trim()), 0);
+      if (found) return found;
+    } catch {
+      // A broken block on someone else's page: try the next one.
+    }
+  }
+  return null;
+}
+
+/** Looks through arrays, `@graph` and a page's `mainEntity` for a Product. */
+function findProduct(node: unknown, depth: number): Json | null {
+  if (depth > 5 || !node || typeof node !== 'object') return null;
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      const found = findProduct(item, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+  const obj = node as Json;
+  const type = obj['@type'];
+  if (type === 'Product' || (Array.isArray(type) && type.includes('Product'))) return obj;
+  return findProduct(obj['@graph'], depth + 1) ?? findProduct(obj.mainEntity, depth + 1);
+}
+
+function ldString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null;
+}
+
+/** `image` may be a URL, a list of them, or ImageObjects with a `url`. */
+function ldImage(product: Json): string | null {
+  const first: unknown = [product.image].flat()[0];
+  if (typeof first === 'string') return ldString(first);
+  if (first && typeof first === 'object') {
+    const img = first as Json;
+    return ldString(img.url) ?? ldString(img.contentUrl);
+  }
+  return null;
+}
+
+/** The first offer's price: an Offer's `price`, an AggregateOffer's `lowPrice`, or its price specification's. */
+function ldPrice(product: Json): string | null {
+  for (const offer of [product.offers].flat()) {
+    if (!offer || typeof offer !== 'object') continue;
+    const o = offer as Json;
+    const spec: unknown = [o.priceSpecification].flat()[0];
+    const specPrice = spec && typeof spec === 'object' ? (spec as Json).price : undefined;
+    for (const p of [o.price, o.lowPrice, specPrice]) {
+      if (typeof p === 'number') return String(p);
+      if (typeof p === 'string' && /\d/.test(p)) return p;
+    }
+  }
+  return null;
+}
+
+/** Microdata: `<meta itemprop="price" content="3.49">` or the same on another tag. */
+function itempropPrice(html: string): string | null {
+  const tags = html.match(/<[a-z][^>]*\bitemprop\s*=\s*["']?price["'\s>][^>]*>/gi);
+  for (const tag of tags ?? []) {
+    const content = attr(tag, 'content');
+    if (content && /\d/.test(content)) return content;
+  }
+  return null;
+}
+
+function isAmazon(pageUrl: string): boolean {
+  try {
+    return /(^|\.)amazon\.[a-z.]+$/i.test(new URL(pageUrl).hostname);
+  } catch {
+    return false;
+  }
+}
+
+/** The product's name on its own, without the "Amazon.com: " that <title> adds. */
+function amazonTitle(html: string): string | null {
+  const m = html.match(/<span\b[^>]*\bid\s*=\s*["']productTitle["'][^>]*>([^<]*)</i);
+  return m ? ldString(m[1]) : null;
+}
+
+/** The main product picture: its large version, else what the page shows. */
+function amazonImage(html: string): string | null {
+  const tag = html.match(/<img\b[^>]*\bid\s*=\s*["']landingImage["'][^>]*>/i)?.[0];
+  return tag ? attr(tag, 'data-old-hires') || attr(tag, 'src') || null : null;
+}
+
+/** The price to pay, as the screen reader label says it, else the shown digits. */
+function amazonPrice(html: string): string | null {
+  const label = html.match(/\bid\s*=\s*["']apex-pricetopay-accessibility-label["'][^>]*>\s*([^<]*\d[^<]*)</i);
+  if (label) return label[1];
+  const at = html.search(/\bapex-pricetopay-value\b/);
+  if (at >= 0) {
+    const shown = html
+      .slice(at, at + 1000)
+      .match(/a-price-whole">([\d,]+)(?:<[^>]*>[^<]*<\/span>)?<\/span>\s*<span class="a-price-fraction">(\d+)/);
+    if (shown) return `${shown[1]}.${shown[2]}`;
+  }
+  return null;
 }
 
 /** Find the `content` of a <meta> tag whose property|name equals `key`. */
@@ -203,10 +350,13 @@ function metaContent(html: string, key: string): string | null {
   return null;
 }
 
-/** Read an attribute value (single, double, or unquoted) from a single tag. */
+/**
+ * Read an attribute value (single, double, or unquoted) from a single tag.
+ * Not preceded by a word character or hyphen, so `src` doesn't match `data-src`.
+ */
 function attr(tag: string, name: string): string | null {
   const re = new RegExp(
-    `\\b${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s"'>]+))`,
+    `(?<![\\w-])${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s"'>]+))`,
     'i',
   );
   const m = tag.match(re);

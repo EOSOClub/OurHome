@@ -127,22 +127,30 @@ export function SettingsView({
           <PointsCard initial={initialPoints} />
         </div>
       ) : null}
-      {/* Rooms are where tasks are done and stock is kept: shown while either is on. */}
-      {placesEnabled(features) ? <PlacesCard initial={initialPlaces} /> : null}
-      {features.includes('location') ? (
-        <MapPlacesCard
-          initial={initialMapPlaces}
-          lists={features.includes('shopping') ? shoppingLists : []}
-        />
-      ) : null}
-      {features.includes('location') && initialLiveChecks ? <LiveCheckCard initial={initialLiveChecks} /> : null}
-      <CategoriesCard initialCategories={initialCategories} />
-      {features.includes('bills') ? <PaperlessCard /> : null}
-      <HomeAssistantCard initialIntegrations={initialIntegrations} />
-      {features.includes('inventory') ? (
-        <NfcTagsCard initialTags={initialTags} items={items} initialPlaces={initialPlaces} />
-      ) : null}
-      {canExport ? <ExportCard /> : null}
+      {/* Two stacks side by side on wide screens, so short cards don't each take a full row.
+          A phone shows the first stack above the second: the same order as one list. */}
+      <div className="grid items-start gap-6 lg:grid-cols-2">
+        <div className="space-y-6">
+          {/* Rooms are where tasks are done and stock is kept: shown while either is on. */}
+          {placesEnabled(features) ? <PlacesCard initial={initialPlaces} /> : null}
+          {features.includes('location') ? (
+            <MapPlacesCard
+              initial={initialMapPlaces}
+              lists={features.includes('shopping') ? shoppingLists : []}
+            />
+          ) : null}
+          {features.includes('location') && initialLiveChecks ? <LiveCheckCard initial={initialLiveChecks} /> : null}
+          <CategoriesCard initialCategories={initialCategories} />
+        </div>
+        <div className="space-y-6">
+          {features.includes('bills') ? <PaperlessCard /> : null}
+          <HomeAssistantCard initialIntegrations={initialIntegrations} />
+          {features.includes('inventory') ? (
+            <NfcTagsCard initialTags={initialTags} items={items} initialPlaces={initialPlaces} />
+          ) : null}
+          {canExport ? <ExportCard /> : null}
+        </div>
+      </div>
     </div>
   );
 }

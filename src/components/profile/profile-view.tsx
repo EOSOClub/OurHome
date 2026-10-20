@@ -108,13 +108,21 @@ export function ProfileView({
         </Link>
       </div>
 
-      <AboutMeCard overview={overview} />
-      {household.length > 1 ? <HouseholdCard members={household} userId={overview.id} /> : null}
-      <OverviewCard overview={overview} />
-      <PhoneAndSharing location={features.includes('location') ? location : null} />
-      {appRelease && <AndroidAppCard release={appRelease} />}
-      <EditProfileCard overview={overview} />
-      <ChangePasswordCard />
+      {/* Two stacks side by side on wide screens, so short cards don't each take a full row.
+          A phone shows the first stack above the second: the same order as one list. */}
+      <div className="grid items-start gap-6 lg:grid-cols-2">
+        <div className="space-y-6">
+          <AboutMeCard overview={overview} />
+          {household.length > 1 ? <HouseholdCard members={household} userId={overview.id} /> : null}
+          <OverviewCard overview={overview} />
+        </div>
+        <div className="space-y-6">
+          <PhoneAndSharing location={features.includes('location') ? location : null} />
+          {appRelease && <AndroidAppCard release={appRelease} />}
+          <EditProfileCard overview={overview} />
+          <ChangePasswordCard />
+        </div>
+      </div>
     </div>
   );
 }

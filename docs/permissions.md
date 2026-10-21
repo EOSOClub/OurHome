@@ -42,7 +42,7 @@ five switches; Requests has Add and Approve (`PAGE_ACTIONS`):
 | Add | create records on the page |
 | Edit own / Delete own | change / remove records **you created** |
 | Edit others' / Delete others' | change / remove records **someone else created**, or that have no creator (imported bills, email calendar events, inventory categories) |
-| Approve | Requests only: mark media (movie/TV) requests **added**; approvers get the app's media reminders |
+| Approve | Requests only: mark media (movie/TV) requests **added** (or decline them, where allowed); approvers get the app's media reminders. The head can hand media to chosen people instead in Settings → Request types |
 
 **Resolution** (`resolveAccess` in `src/lib/permissions.ts`):
 
@@ -78,6 +78,9 @@ not who paid).
   requests added, one step: waiting → added). Editing or deleting stays
   requester-only and accepting maintenance stays assignee-only, so someone
   with submitting switched off can still manage what they already asked for.
+  Settings → Request types narrows both per kind of request: which roles may
+  ask for it (Add is still needed), and for media, chosen people who handle
+  it instead of everyone with Approve (`lib/requestModules.ts`).
 - **Shopping lists** guards creating, renaming and deleting lists;
   **Shopping items** guards the items on them.
 
@@ -187,6 +190,9 @@ Nothing is deleted; turning it back on restores everything as it was.
 
 - **2026-10-08** - New roles **teen** and **child** (between member and
   guest) with tiered defaults (table above).
+- **2026-10-21** - Request types (Settings → Request types, head): per kind
+  of request, which roles may ask and, for media, who handles it (chosen
+  people or the Approve switch) and whether they may decline.
 - **2026-10-08** - Replaced `requests:manage_media` with the Requests
   **Approve** switch (head + managers by default). Media is now one step:
   "Mark as added" completes it (old "accepted" rows still count as waiting;

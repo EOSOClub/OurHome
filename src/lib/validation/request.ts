@@ -57,9 +57,10 @@ export type UpdateRequestInput = z.infer<typeof updateRequestSchema>;
 export const requestIdSchema = z.object({ id });
 export type RequestIdInput = z.infer<typeof requestIdSchema>;
 
-// Accepting: a maintenance request's assignee must give a done-by date (the
-// deadline; the service enforces it's present); the head accepting a media
-// request sends none. A day of slack lets "today" through from any timezone.
+// Accepting: a maintenance request's assignee gives a done-by date (the
+// deadline; the service requires it unless the head made it optional); older
+// app builds accepting a media request send none. A day of slack lets "today"
+// through from any timezone.
 export const acceptRequestSchema = z.object({
   id,
   dueAt: z.coerce
@@ -69,3 +70,17 @@ export const acceptRequestSchema = z.object({
 });
 
 export type AcceptRequestInput = z.infer<typeof acceptRequestSchema>;
+
+// Declining (approve-workflow modules that allow it): an optional reason for
+// the requester. Blank is the same as none.
+export const declineRequestSchema = z.object({
+  id,
+  reply: z
+    .string()
+    .trim()
+    .max(500)
+    .nullish()
+    .transform((s) => (s ? s : null)),
+});
+
+export type DeclineRequestInput = z.infer<typeof declineRequestSchema>;

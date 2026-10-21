@@ -1,0 +1,342 @@
+'use client';
+
+import { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Inbox, Loader2 } from 'lucide-react';
+import {
+  MEDIA_TYPES,
+  MEDIA_TYPE_SECTION_LABELS,
+  REQUEST_CATEGORY_LABELS,
+  USER_ROLES,
+  USER_ROLE_LABELS,
+  type MediaType,
+  type UserRole,
+} from '@/lib/enums';
+import {
+  REQUEST_MODULE_DESCRIPTIONS,
+  REQUEST_MODULE_LIMITS,
+  type CommonModuleSettings,
+  type RequestModuleSettings,
+} from '@/lib/requestModules';
+import { apiFetch } from '@/lib/api';
+import { toast } from '@/components/ui/toast';
+import { Button } from '@/components/ui/button';
+import { CollapsibleCard, SectionCard } from '@/components/ui/collapsible-card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select } from '@/components/ui/select';
+import { FieldNote } from '@/components/ui/field-note';
+import { useFieldErrors } from '@/lib/use-field-errors';
+
+type Member = { id: string; name: string };
+
+/** Adds or removes `value` from a list. */
+function toggle<T>(list: T[], value: T, on: boolean): T[] {
+  return on ? (list.includes(value) ? list : [...list, value]) : list.filter((v) => v !== value);
+}
+
+function Check({
+  label,
+  checked,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex items-center gap-2 text-sm">
+      <input
+        type="checkbox"
+        className="size-4 rounded border-input"
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      {label}
+    </label>
+  );
+}
+
+/** A list of people to tick, for "chosen people" settings. */
+function PeoplePicker({
+  members,
+  selected,
+  onChange,
+}: {
+  members: Member[];
+  selected: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-x-4 gap-y-2 pl-1">
+      {members.map((m) => (
+        <Check
+          key={m.id}
+          label={m.name}
+          checked={selected.includes(m.id)}
+          onChange={(on) => onChange(toggle(selected, m.id, on))}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** Name, note and who may ask: what every request type has. */
+function CommonFields<T extends CommonModuleSettings>({
+  id,
+  defaultLabel,
+  value,
+  onChange,
+}: {
+  id: string;
+  defaultLabel: string;
+  value: T;
+  onChange: (next: T) => void;
+}) {
+  return (
+    <>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label htmlFor={`${id}-label`}>Name</Label>
+          <Input
+            id={`${id}-label`}
+            value={value.label ?? ''}
+            placeholder={defaultLabel}
+            maxLength={REQUEST_MODULE_LIMITS.label}
+            aria-describedby={`${id}-label-note`}
+            onChange={(e) => onChange({ ...value, label: e.target.value })}
+          />
+          <FieldNote id={`${id}-label-note`} hint="Shown on the Requests page. Leave empty for the usual name." />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor={`${id}-note`}>Note on the form (optional)</Label>
+          <Input
+            id={`${id}-note`}
+            value={value.note ?? ''}
+            maxLength={REQUEST_MODULE_LIMITS.note}
+            aria-describedby={`${id}-note-note`}
+            onChange={(e) => onChange({ ...value, note: e.target.value })}
+          />
+          <FieldNote id={`${id}-note-note`} hint="Shown when someone picks this type." />
+        </div>
+      </div>
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-medium">Who can ask</legend>
+        <div className="flex flex-wrap gap-x-4 gap-y-2 pl-1">
+          {USER_ROLES.map((role: UserRole) => (
+            <Check
+              key={role}
+              label={USER_ROLE_LABELS[role]}
+              checked={value.askRoles.includes(role)}
+              onChange={(on) => onChange({ ...value, askRoles: toggle(value.askRoles, role, on) })}
+            />
+          ))}
+        </div>
+        <FieldNote id={`${id}-roles-note`} hint="They also need Requests “Add” in Members → Permissions." />
+      </fieldset>
+    </>
+  );
+}
+
+/**
+ * Head only: which kinds of request the household can make (Media,
+ * Maintenance) and how each one works. Saved as a whole.
+ */
+export function RequestTypesCard({
+  initial,
+  members,
+}: {
+  initial: RequestModuleSettings;
+  members: Member[];
+}) {
+  const queryClient = useQueryClient();
+  const [media, setMedia] = useState(initial.media);
+  const [maintenance, setMaintenance] = useState(initial.maintenance);
+  // "Chosen people" is on while the list has anyone in it; an empty list means everyone.
+  const [mediaChosen, setMediaChosen] = useState(initial.media.handlerIds.length > 0);
+  const [maintenanceChosen, setMaintenanceChosen] = useState(initial.maintenance.assigneeIds.length > 0);
+  const fe = useFieldErrors('rt-card');
+
+  const handlerIds = mediaChosen ? media.handlerIds : [];
+  const assigneeIds = maintenanceChosen ? maintenance.assigneeIds : [];
+  const askable = maintenanceChosen ? members.filter((m) => maintenance.assigneeIds.includes(m.id)) : members;
+  // The default person has to be someone who can be asked.
+  const defaultAssigneeId =
+    maintenance.defaultAssigneeId && askable.some((m) => m.id === maintenance.defaultAssigneeId)
+      ? maintenance.defaultAssigneeId
+      : null;
+  const missingHandlers = media.enabled && mediaChosen && handlerIds.length === 0;
+  const missingAssignees = maintenance.enabled && maintenanceChosen && assigneeIds.length === 0;
+
+  const save = useMutation({
+    mutationFn: () =>
+      apiFetch<RequestModuleSettings>('/api/requests/modules/settings', {
+        method: 'POST',
+        body: JSON.stringify({
+          // Unticking both kinds is only allowed with Media off: keep what it had then.
+          media: { ...media, handlerIds, mediaTypes: media.mediaTypes.length ? media.mediaTypes : initial.media.mediaTypes },
+          maintenance: { ...maintenance, assigneeIds, defaultAssigneeId },
+        }),
+      }),
+    onSuccess: (s) => {
+      setMedia(s.media);
+      setMaintenance(s.maintenance);
+      setMediaChosen(s.media.handlerIds.length > 0);
+      setMaintenanceChosen(s.maintenance.assigneeIds.length > 0);
+      queryClient.invalidateQueries({ queryKey: ['request-modules'] });
+      toast.success('Request types saved');
+    },
+    onError: fe.fail,
+  });
+
+  return (
+    <CollapsibleCard
+      id="request-types"
+      icon={<Inbox className="size-4" />}
+      title="Request types"
+      description="Which kinds of request the household can make, and how each one works."
+      group
+    >
+      <div className="space-y-5" {...fe.formProps}>
+        <div data-field="media">
+          <SectionCard title={REQUEST_CATEGORY_LABELS.media} description={REQUEST_MODULE_DESCRIPTIONS.media}>
+            <div className="space-y-4">
+              <Check label="On" checked={media.enabled} onChange={(on) => setMedia({ ...media, enabled: on })} />
+              {media.enabled ? (
+                <>
+                  <CommonFields id="rt-media" defaultLabel={REQUEST_CATEGORY_LABELS.media} value={media} onChange={setMedia} />
+                  <fieldset className="space-y-2">
+                    <legend className="text-sm font-medium">What can be asked for</legend>
+                    <div className="flex flex-wrap gap-x-4 gap-y-2 pl-1">
+                      {MEDIA_TYPES.map((t: MediaType) => (
+                        <Check
+                          key={t}
+                          label={MEDIA_TYPE_SECTION_LABELS[t]}
+                          checked={media.mediaTypes.includes(t)}
+                          onChange={(on) => setMedia({ ...media, mediaTypes: toggle(media.mediaTypes, t, on) })}
+                        />
+                      ))}
+                    </div>
+                    <FieldNote
+                      id="rt-media-types-note"
+                      error={media.mediaTypes.length === 0 ? 'Pick at least one, or turn Media off.' : null}
+                    />
+                  </fieldset>
+                  <div className="space-y-2">
+                    <Label htmlFor="rt-media-handlers">Who marks them added</Label>
+                    <Select
+                      id="rt-media-handlers"
+                      value={mediaChosen ? 'chosen' : 'switch'}
+                      onChange={(e) => setMediaChosen(e.target.value === 'chosen')}
+                    >
+                      <option value="switch">Everyone with Requests “Approve”</option>
+                      <option value="chosen">Only the people I pick</option>
+                    </Select>
+                    {mediaChosen ? (
+                      <PeoplePicker
+                        members={members}
+                        selected={media.handlerIds}
+                        onChange={(ids) => setMedia({ ...media, handlerIds: ids })}
+                      />
+                    ) : null}
+                    <FieldNote
+                      id="rt-media-handlers-note"
+                      error={missingHandlers ? 'Pick at least one person.' : null}
+                      hint={mediaChosen ? undefined : 'Set in Members → Permissions. Out of the box: you and Managers.'}
+                    />
+                  </div>
+                  <Check
+                    label="They can decline a request, with a reason"
+                    checked={media.allowDecline}
+                    onChange={(on) => setMedia({ ...media, allowDecline: on })}
+                  />
+                </>
+              ) : null}
+            </div>
+          </SectionCard>
+        </div>
+
+        <div data-field="maintenance">
+          <SectionCard title={REQUEST_CATEGORY_LABELS.maintenance} description={REQUEST_MODULE_DESCRIPTIONS.maintenance}>
+            <div className="space-y-4">
+              <Check
+                label="On"
+                checked={maintenance.enabled}
+                onChange={(on) => setMaintenance({ ...maintenance, enabled: on })}
+              />
+              {maintenance.enabled ? (
+                <>
+                  <CommonFields
+                    id="rt-maintenance"
+                    defaultLabel={REQUEST_CATEGORY_LABELS.maintenance}
+                    value={maintenance}
+                    onChange={setMaintenance}
+                  />
+                  <div className="space-y-2">
+                    <Label htmlFor="rt-maintenance-assignees">Who can be asked</Label>
+                    <Select
+                      id="rt-maintenance-assignees"
+                      value={maintenanceChosen ? 'chosen' : 'anyone'}
+                      onChange={(e) => setMaintenanceChosen(e.target.value === 'chosen')}
+                    >
+                      <option value="anyone">Anyone in the household</option>
+                      <option value="chosen">Only the people I pick</option>
+                    </Select>
+                    {maintenanceChosen ? (
+                      <PeoplePicker
+                        members={members}
+                        selected={maintenance.assigneeIds}
+                        onChange={(ids) => setMaintenance({ ...maintenance, assigneeIds: ids })}
+                      />
+                    ) : null}
+                    <FieldNote
+                      id="rt-maintenance-assignees-note"
+                      error={missingAssignees ? 'Pick at least one person.' : null}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="rt-maintenance-default">Picked to start with</Label>
+                    <Select
+                      id="rt-maintenance-default"
+                      value={defaultAssigneeId ?? ''}
+                      onChange={(e) => setMaintenance({ ...maintenance, defaultAssigneeId: e.target.value || null })}
+                    >
+                      <option value="">Nobody, they choose</option>
+                      {askable.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name}
+                        </option>
+                      ))}
+                    </Select>
+                    <FieldNote
+                      id="rt-maintenance-default-note"
+                      hint="They can still pick someone else. Never filled in for that person's own requests."
+                    />
+                  </div>
+                  <Check
+                    label="Accepting needs a done-by date"
+                    checked={maintenance.requireDueDate}
+                    onChange={(on) => setMaintenance({ ...maintenance, requireDueDate: on })}
+                  />
+                </>
+              ) : null}
+            </div>
+          </SectionCard>
+        </div>
+
+        <div className="flex justify-end">
+          <Button
+            onClick={() => save.mutate()}
+            disabled={save.isPending || missingHandlers || missingAssignees || (media.enabled && media.mediaTypes.length === 0)}
+          >
+            {save.isPending ? <Loader2 className="animate-spin" /> : null}
+            Save
+          </Button>
+        </div>
+      </div>
+    </CollapsibleCard>
+  );
+}

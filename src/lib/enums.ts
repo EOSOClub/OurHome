@@ -165,7 +165,8 @@ export type ActivityVerb = (typeof ACTIVITY_VERBS)[number];
 
 // --- Requests -------------------------------------------------------------
 
-// What a household request is for.
+// What a household request is for: each is a request module the head turns on
+// and configures in Settings → Request types (src/lib/requestModules.ts).
 export const REQUEST_CATEGORIES = ['media', 'maintenance'] as const;
 export type RequestCategory = (typeof REQUEST_CATEGORIES)[number];
 
@@ -185,15 +186,22 @@ export const MAINTENANCE_STATUS_LABELS: Record<MaintenanceStatus, string> = {
   completed: 'Done',
 };
 
-// Media requests are one step: whoever may approve them (the Requests "Approve"
-// switch in the page-access grid) marks them added, which completes them.
+// Every status a request can have. "declined" only happens to requests whose
+// module lets its approvers decline (media, when the head allows it).
+export const REQUEST_STATUSES = [...MAINTENANCE_STATUSES, 'declined'] as const;
+export type RequestStatus = (typeof REQUEST_STATUSES)[number];
+
+// Media requests are one step: whoever approves them (Settings → Request
+// types; by default the Requests "Approve" switch in the page-access grid)
+// marks them added, which completes them, or declines them where allowed.
 // "accepted" only exists on rows from the older accept → available flow and
 // still counts as waiting. Requests made before statuses existed have none -
 // treat a missing status as pending.
-export const MEDIA_STATUS_LABELS: Record<MaintenanceStatus, string> = {
+export const MEDIA_STATUS_LABELS: Record<RequestStatus, string> = {
   pending: 'Waiting',
   accepted: 'Waiting',
   completed: 'Added',
+  declined: 'Declined',
 };
 
 export const MEDIA_TYPES = ['movie', 'tv'] as const;

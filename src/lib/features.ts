@@ -40,7 +40,7 @@ export const FEATURE_DESCRIPTIONS: Record<Feature, string> = {
   shopping: 'Shopping lists.',
   inventory: 'Stock levels, low-stock alerts and NFC tags.',
   bills: 'Bills, payments and the Paperless import.',
-  requests: 'Media and maintenance requests.',
+  requests: 'Requests to the household. The Head of House picks the types (media, maintenance) in Settings.',
   location: 'Map places, who is home and store reminders. Each member chooses whether to share.',
 };
 

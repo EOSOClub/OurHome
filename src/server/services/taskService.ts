@@ -30,8 +30,8 @@ import {
   NotFoundError,
 } from '@/server/services/errors';
 import {
+  completeOccurrence,
   computeNextRunAt,
-  nextAfterOccurrence,
   formatIntList,
   parseIntList,
   type NormalizedRule,
@@ -173,6 +173,7 @@ export function taskToDTO(task: TaskWithRelations, ctx: TaskContext): TaskDTO {
     minutesPerPoint: ctx.settings.minutesPerPoint,
     cycleStartedAt: task.cycleStartedAt?.toISOString() ?? null,
     cycleEndsAt: task.cycleEndsAt?.toISOString() ?? null,
+    opensAt: task.opensAt?.toISOString() ?? null,
     category: task.category
       ? { id: task.category.id, name: task.category.name, color: task.category.color }
       : null,
@@ -769,15 +770,25 @@ export async function updateTask(
 
     // A task done for this cycle whose cycles were switched off would never
     // reopen (only a cycle start reopens it): move it on to its next
-    // occurrence now, like completing a task without cycles does.
-    let reopen: { status: string; completedAt: null; dueDate: Date | null } | undefined;
+    // occurrence now, like completing a task without cycles does (opening
+    // tomorrow at the earliest). A rule that has ended leaves it done.
+    let reopen: { status: string; completedAt: null; dueDate: Date; opensAt: Date } | undefined;
     if (cycle && cycle.cycleEndsAt === null && !archiving && wasDone && existing.cycleEndsAt && rule) {
-      reopen = {
-        status: 'pending',
-        completedAt: null,
-        dueDate: nextAfterOccurrence(normalizeRule(rule, settings.timezone), existing.dueDate, now) ?? existing.dueDate,
-      };
-      await tx.subtask.updateMany({ where: { taskId }, data: UNCHECKED });
+      const moved = completeOccurrence(normalizeRule(rule, settings.timezone), existing.dueDate, now, settings.timezone);
+      if (moved.next) {
+        reopen = { status: 'pending', completedAt: null, dueDate: moved.next, opensAt: moved.opensAt };
+        await tx.subtask.updateMany({ where: { taskId }, data: UNCHECKED });
+      }
+    }
+
+    // Restoring a task archived after it was done brings it back done: its
+    // points were paid, and reopening it is Undo's job. A cycle task whose
+    // fresh window starts after it was done is open again, as at a roll-over.
+    let restore: { status: string; completedAt?: null } | undefined;
+    if (unarchiving && existing.completedAt) {
+      const newCycle = !!cycle?.cycleStartedAt && existing.completedAt < cycle.cycleStartedAt;
+      restore = newCycle ? { status: 'pending', completedAt: null } : { status: 'completed' };
+      if (newCycle) await tx.subtask.updateMany({ where: { taskId }, data: UNCHECKED });
     }
 
     // Points. A full checklist from the editor carries its own values;
@@ -844,8 +855,11 @@ export async function updateTask(
         ...(placeChanged ? { position: null } : {}),
         ...assignment,
         recurrenceId,
+        // A one-time task has no next occurrence to wait for.
+        ...(recurrence === null ? { opensAt: null } : {}),
         ...(cycle ?? {}),
         ...(reopen ?? {}),
+        ...(restore ?? {}),
       },
       include: taskInclude,
     });
@@ -973,6 +987,11 @@ export async function completeTask(
     }
 
     const now = new Date();
+    // A recurring task done for its occurrence waits for the next one to
+    // open; completing it again would skip ahead and pay twice.
+    if (existing.opensAt && existing.opensAt > now) {
+      throw new ConflictError(`This task is already done. The next one opens ${opensLabel(existing.opensAt, settings.timezone)}.`);
+    }
     const pending = await tx.pendingCredit.findMany({ where: { taskId: existing.id } });
     const pendingBy = new Map(pending.map((p) => [p.subtaskId, p]));
     const state = effectivePoints(existing, settings.minutesPerPoint);
@@ -983,6 +1002,7 @@ export async function completeTask(
       nextRunAt: existing.recurrence?.nextRunAt?.toISOString() ?? null,
       cycleStartedAt: existing.cycleStartedAt?.toISOString() ?? null,
       cycleEndsAt: existing.cycleEndsAt?.toISOString() ?? null,
+      opensAt: existing.opensAt?.toISOString() ?? null,
       assigneeId: existing.assigneeId,
       steps: existing.subtasks.map((s) => ({
         id: s.id,
@@ -1031,13 +1051,13 @@ export async function completeTask(
     // matches what the task shows from here on.
     await writePoints(tx, existing.id, existing.subtasks.map((s) => s.id), state);
 
-    // The next occurrence after the one being completed: counted from its due
-    // date when that's still ahead (picked dates sit at 12:00, so a daily task
-    // done in the morning would otherwise "advance" to the same noon and could
-    // be completed - and paid - again).
-    const next = existing.recurrence && !existing.cycleEndsAt
-      ? nextAfterOccurrence(normalizeRule(existing.recurrence, settings.timezone), existing.dueDate, now)
+    // The next occurrence after the one being completed, and when it opens
+    // (completeOccurrence): never the same day, so it can't be completed -
+    // and paid - again straight away.
+    const moveOn = existing.recurrence && !existing.cycleEndsAt
+      ? completeOccurrence(normalizeRule(existing.recurrence, settings.timezone), existing.dueDate, now, settings.timezone)
       : null;
+    const next = moveOn?.next ?? null;
     // A supported recurring rule that yields no next occurrence has reached its
     // `until` end date and should finalize. (cron yields null but isn't ended.)
     const recurrenceEnded =
@@ -1071,6 +1091,7 @@ export async function completeTask(
           status: 'pending',
           completedAt: null,
           dueDate: next ?? existing.dueDate,
+          opensAt: moveOn!.opensAt,
           assigneeId: await rotatedAssignee(tx, householdId, existing, 1),
         },
         include: taskInclude,
@@ -1211,6 +1232,8 @@ export async function undoCompletion(
         status: snapshot.status,
         completedAt: date(snapshot.completedAt),
         dueDate: date(snapshot.dueDate),
+        // Open again, as it was (absent in older snapshots, from before the lock).
+        opensAt: date(snapshot.opensAt ?? null),
         // A rotation that moved on completing moves back (absent in older snapshots).
         ...(snapshot.assigneeId !== undefined ? { assigneeId: snapshot.assigneeId } : {}),
       },
@@ -1242,6 +1265,11 @@ export async function undoCompletion(
 
 /** How long after a completion the task row may still be written by it. */
 const EDIT_MARGIN_MS = 10_000;
+
+/** When a done task opens again, e.g. "Thu, Oct 22", in the household's zone. */
+function opensLabel(opensAt: Date, timeZone: string): string {
+  return opensAt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone });
+}
 
 /** Completion history for a task, newest first, as the caller sees it. */
 export async function listTaskCompletions(

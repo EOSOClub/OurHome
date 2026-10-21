@@ -327,19 +327,38 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
 - **Requests.** `requestService` owns household requests. Everyone sees all
   requests on `/requests`, grouped by category; only the requester can edit or
   delete their own.
-  - *Media* - movies and TV shows (`mediaType`, name, year, optional TV season).
-    One step: `pending` ("waiting") → `completed` ("added"), by anyone with the
-    Requests **Approve** switch (head + managers by default). Rows created
-    before media had a status have none - treat a missing status as `pending`;
-    `accepted` rows from the older accept → available flow also still wait.
-  - *Maintenance* - the requester asks another member (`assigneeId`, never
-    themself). Lifecycle `pending` → `accepted` → `completed`: the assignee
-    accepts with a done-by date stored as `dueAt` (the deadline), may move it,
-    and marks it done; reassigning resets to `pending`.
+  - *Request modules* (`lib/requestModules.ts`). Each category is a module
+    built into the code: its form plus one of two workflows, **approve**
+    (handlers mark it done in one step, or decline it) and **assign** (one
+    person accepts, then marks it done). The head turns each on or off and
+    configures it in Settings → Request types (`requestModuleService`, stored as
+    JSON text in `Household.requestModules`; null or a missing field means the
+    default, which is how requests always worked). Per module: a display name,
+    a note on the form, which roles may ask (on top of the Requests **Add**
+    switch); approve modules: who handles them (chosen people, or by default
+    the Requests **Approve** switch) and whether they may decline; media: which
+    kinds are offered; maintenance: who may be asked, a default person, and
+    whether accepting needs a date. A module that is off keeps its rows, but
+    `/api/requests` leaves them out and every change to them is refused.
+    `GET /api/requests/modules` gives each member the modules that are on as
+    they see them (`RequestModuleView`: may they ask, do they handle it); the
+    page and the Android app draw the form and buttons from it.
+  - *Media* (approve) - movies and TV shows (`mediaType`, name, year, optional
+    TV season). One step: `pending` ("waiting") → `completed` ("added"), or
+    `declined` with an optional `reply` where the head allows declining; who
+    did it is `decidedById`. Rows created before media had a status have none -
+    treat a missing status as `pending`; `accepted` rows from the older accept
+    → available flow also still wait. A declined request can be removed, not
+    edited.
+  - *Maintenance* (assign) - the requester asks another member (`assigneeId`,
+    never themself). Lifecycle `pending` → `accepted` → `completed`: the
+    assignee accepts with a done-by date stored as `dueAt` (the deadline;
+    optional when the head says so), may move it, and marks it done;
+    reassigning resets to `pending`.
   - **Phone reminders (Android app):** a WorkManager job polls `/api/requests`
     hourly and notifies the signed-in user while anything awaits *their*
-    acceptance (open media for media approvers; pending maintenance assigned to
-    them). The same poll sends maintenance deadline reminders from `dueAt`:
+    acceptance (open media for those who handle media; pending maintenance
+    assigned to them). The same poll sends maintenance deadline reminders from `dueAt`:
     the assignee is told the day before, on the day, and daily while overdue;
     the requester once when it goes overdue. Every request change also sends
     an instant push (see *Instant push* below), so the hourly poll is now the

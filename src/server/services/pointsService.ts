@@ -204,6 +204,8 @@ export interface CompletionSnapshot {
   nextRunAt: string | null;
   cycleStartedAt: string | null;
   cycleEndsAt: string | null;
+  /** When it could next be completed; absent in older rows. */
+  opensAt?: string | null;
   /** Assignee before completing (rotations move it); absent in older rows. */
   assigneeId?: string | null;
   steps: {

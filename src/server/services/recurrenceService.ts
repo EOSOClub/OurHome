@@ -1,4 +1,5 @@
 import type { RecurrenceKind } from '@/lib/enums';
+import { addDays, localDateOf, startOfLocalDate } from '@/lib/taskCycles';
 
 // Pure recurrence math. Kept free of Prisma/IO so it can be unit-tested directly.
 // The arithmetic runs on "wall clock" dates - fake-UTC dates whose UTC fields
@@ -115,6 +116,27 @@ function addMonthsUTC(date: Date, months: number): Date {
  */
 export function nextAfterOccurrence(rule: NormalizedRule, current: Date | null, now = new Date()): Date | null {
   return computeNextRunAt(rule, current && current > now ? current : now);
+}
+
+/**
+ * Completing a recurring task that has no cycles: one completion covers one
+ * occurrence, and at most one a day. The task can be completed again from
+ * local midnight after the later of its due date and now (`opensAt`), and
+ * its next due date is the first occurrence from then on. Done ahead of time,
+ * that is the occurrence after the due date, as nextAfterOccurrence counts
+ * it. Done late, it is the first one after today: done at 9:00 for
+ * yesterday's noon, today's noon is covered too rather than due 3 hours on.
+ * `next` is null when the rule has ended.
+ */
+export function completeOccurrence(
+  rule: NormalizedRule,
+  current: Date | null,
+  now: Date,
+  timeZone: string,
+): { next: Date | null; opensAt: Date } {
+  const done = current && current > now ? current : now;
+  const opensAt = startOfLocalDate(addDays(localDateOf(done, timeZone), 1), timeZone);
+  return { next: computeNextRunAt(rule, new Date(opensAt.getTime() - 1)), opensAt };
 }
 
 /**

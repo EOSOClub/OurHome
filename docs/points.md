@@ -82,9 +82,17 @@ last day (30 and 31 both land on Feb 28/29, once).
   with outcome `missed`), its queued points are dropped, and the task moves to
   the next window. Rolling over runs in the 15-minute sweep and before any task
   read or change.
-- Tasks without cycles behave as before: completing moves them to the next
-  occurrence (counted from the current due date if that's still ahead), and a
-  late one simply stays overdue.
+- Tasks without cycles: completing moves them to the next occurrence and
+  locks them until it opens (`Task.opensAt`, recurrenceService
+  `completeOccurrence`): local midnight after the later of the due date and
+  now. The next due date is the first occurrence from then, so done early it's
+  the one after the due date, and done late it skips the rest of today. One
+  completion pays once; before this lock it could be completed again at once,
+  skipping ahead and paying each time. A late one simply stays overdue. Undo
+  restores the lock as it was; removing the repeat clears it.
+- Restoring an archived task that was done brings it back done (a cycle task
+  whose fresh window starts after it was done reopens), so archive + restore
+  can't reopen a paid task.
 - Archiving stops the cycle clock (no "missed" rows while archived);
   un-archiving starts a fresh window.
 

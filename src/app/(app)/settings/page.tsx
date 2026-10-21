@@ -12,6 +12,8 @@ import { listPlaces } from '@/server/services/placeService';
 import { listMapPlaces } from '@/server/services/mapPlaceService';
 import { getLiveCheckSettings } from '@/server/services/liveCheckService';
 import { listShoppingLists } from '@/server/services/shoppingService';
+import { getRequestModules } from '@/server/services/requestModuleService';
+import { prisma } from '@/server/db/prisma';
 import { SettingsView } from '@/components/settings/settings-view';
 
 export default async function SettingsPage() {
@@ -33,8 +35,19 @@ export default async function SettingsPage() {
   const isHead = can(user.role, 'household:manage');
   // "HTTPS only" and contact-form messages are server-wide: they're on the
   // server admin's Server page now.
-  const [integrations, tags, items, categories, points, liveChecks, places, mapPlaces, shoppingLists] =
-    await Promise.all([
+  const [
+    integrations,
+    tags,
+    items,
+    categories,
+    points,
+    liveChecks,
+    places,
+    mapPlaces,
+    shoppingLists,
+    requestModules,
+    members,
+  ] = await Promise.all([
       listIntegrations(householdId),
       listNfcTags(householdId),
       listInventoryItems(householdId),
@@ -47,6 +60,11 @@ export default async function SettingsPage() {
       listMapPlaces(householdId),
       // Stores on the map remind about these.
       listShoppingLists(householdId),
+      // Request types and the people they name: the head's.
+      isHead ? getRequestModules(householdId) : null,
+      isHead
+        ? prisma.user.findMany({ where: { householdId }, select: { id: true, name: true }, orderBy: { name: 'asc' } })
+        : [],
     ]);
 
   return (
@@ -56,6 +74,8 @@ export default async function SettingsPage() {
       initialCategories={categories}
       initialPoints={points}
       initialLiveChecks={liveChecks}
+      initialRequestModules={requestModules}
+      members={members}
       initialPlaces={places}
       initialMapPlaces={mapPlaces}
       shoppingLists={shoppingLists.map((l) => ({ id: l.id, name: l.name }))}

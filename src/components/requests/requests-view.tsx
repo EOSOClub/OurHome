@@ -12,6 +12,7 @@ import {
   Trash2,
   Tv,
   Wrench,
+  X,
 } from 'lucide-react';
 import type { MemberDTO, RequestDTO } from '@/lib/types';
 import {
@@ -21,12 +22,12 @@ import {
   MEDIA_TYPE_LABELS,
   MEDIA_STATUS_LABELS,
   MEDIA_TYPE_SECTION_LABELS,
-  REQUEST_CATEGORIES,
   REQUEST_CATEGORY_LABELS,
-  type MaintenanceStatus,
   type MediaType,
   type RequestCategory,
+  type RequestStatus,
 } from '@/lib/enums';
+import type { RequestModuleView } from '@/lib/requestModules';
 import { apiFetch } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { toast } from '@/components/ui/toast';
@@ -83,23 +84,25 @@ const todayInput = () => {
 
 export function RequestsView({
   initialRequests,
+  initialModules,
   currentUserId,
   members,
-  canSubmit,
-  canManageMedia,
 }: {
   initialRequests: RequestDTO[];
+  /**
+   * The kinds of request that are on (Settings → Request types), as this
+   * member sees them: which they may ask for (with the Requests "Add" switch)
+   * and which they handle.
+   */
+  initialModules: RequestModuleView[];
   currentUserId: string;
   members: MemberDTO[];
-  /** May submit new requests (Requests "Add" in Members → Permissions). */
-  canSubmit: boolean;
-  /** The Requests "Approve" switch: marks media requests added. */
-  canManageMedia: boolean;
 }) {
   const timeZone = useHouseholdZone();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<RequestDTO | null>(null);
   const [accepting, setAccepting] = useState<RequestDTO | null>(null);
+  const [declining, setDeclining] = useState<RequestDTO | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<RequestDTO | null>(null);
   // Bumped after a successful create so the form remounts empty.
   const [formKey, setFormKey] = useState(0);
@@ -110,14 +113,24 @@ export function RequestsView({
     initialData: initialRequests,
   });
 
+  const { data: modules = [] } = useQuery({
+    queryKey: ['request-modules'],
+    queryFn: () => apiFetch<RequestModuleView[]>('/api/requests/modules'),
+    initialData: initialModules,
+  });
+  const mediaModule = modules.find((m) => m.id === 'media');
+  const maintenanceModule = modules.find((m) => m.id === 'maintenance');
+  const canSubmit = modules.some((m) => m.canAsk);
+
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['requests'] });
   const post = <T,>(path: string, body: unknown) =>
     apiFetch<T>(path, { method: 'POST', body: JSON.stringify(body) });
 
-  // Each form's field errors: the new-request card, the edit dialog, the accept date.
+  // Each form's field errors: the new-request card, the edit dialog, the accept date, the decline reason.
   const createForm = useFieldErrors('request-new');
   const editForm = useFieldErrors('request-edit');
   const acceptForm = useFieldErrors('request-accept');
+  const declineForm = useFieldErrors('request-decline');
 
   const createMutation = useMutation({
     mutationFn: (payload: RequestPayload) => post<RequestDTO>('/api/requests', payload),
@@ -152,10 +165,10 @@ export function RequestsView({
     onError: (e: Error) => toast.error(e.message),
   });
 
-  // Maintenance only: the assignee picks a done-by date. Media is marked added
-  // in one step (completeMutation).
+  // Maintenance only: the assignee picks a done-by date (or none, where the
+  // head made it optional). Media is marked added in one step (completeMutation).
   const acceptMutation = useMutation({
-    mutationFn: (input: { id: string; dueAt: string }) => post<RequestDTO>('/api/requests/accept', input),
+    mutationFn: (input: { id: string; dueAt?: string }) => post<RequestDTO>('/api/requests/accept', input),
     onSuccess: (r) => {
       toast.success(r.dueAt ? `Done by ${shortDate(r.dueAt, timeZone)} - got it` : `Accepted “${r.title}”`);
       setAccepting(null);
@@ -173,15 +186,26 @@ export function RequestsView({
     onError: (e: Error) => toast.error(e.message),
   });
 
+  // Where the head allows it, whoever handles media can say no, with a reason.
+  const declineMutation = useMutation({
+    mutationFn: (input: { id: string; reply: string | null }) => post<RequestDTO>('/api/requests/decline', input),
+    onSuccess: (r) => {
+      toast.success(`Declined “${r.title}”`);
+      setDeclining(null);
+      invalidate();
+    },
+    onError: declineForm.fail,
+  });
+
   const busyId = acceptMutation.isPending
     ? acceptMutation.variables?.id
     : completeMutation.isPending
       ? completeMutation.variables
       : undefined;
 
-  const media = requests.filter((r) => r.category === 'media');
-  const maintenance = requests.filter((r) => r.category === 'maintenance');
-  const others = members.filter((m) => m.id !== currentUserId);
+  // The server only sends requests of kinds that are on.
+  const media = mediaModule ? requests.filter((r) => r.category === 'media') : [];
+  const maintenance = maintenanceModule ? requests.filter((r) => r.category === 'maintenance') : [];
 
   return (
     <div className="space-y-6">
@@ -201,7 +225,8 @@ export function RequestsView({
           <CardContent>
             <RequestForm
               key={formKey}
-              assignees={others}
+              modules={modules}
+              members={members}
               submitLabel="Request"
               pending={createMutation.isPending}
               errors={createForm}
@@ -211,13 +236,19 @@ export function RequestsView({
         </Card>
       ) : null}
 
-      {requests.length === 0 ? (
+      {modules.length === 0 ? (
+        <EmptyState
+          icon={Inbox}
+          title="No request types are on"
+          description="The Head of House chooses them in Settings → Request types."
+        />
+      ) : requests.length === 0 ? (
         <EmptyState icon={Inbox} title="No requests yet" description="Requests you and your household make show up here." />
       ) : null}
 
-      {maintenance.length > 0 ? (
+      {maintenanceModule && maintenance.length > 0 ? (
         <section className="space-y-4">
-          <CategoryHeader category="maintenance" />
+          <CategoryHeader category="maintenance" label={maintenanceModule.label} />
           {MAINTENANCE_STATUSES.map((status) => {
             const items = maintenance
               .filter((r) => r.status === status)
@@ -232,6 +263,7 @@ export function RequestsView({
                       key={r.id}
                       request={r}
                       currentUserId={currentUserId}
+                      requireDueDate={maintenanceModule.requireDueDate}
                       busy={busyId === r.id}
                       onAccept={() => {
                         acceptForm.clear();
@@ -252,11 +284,13 @@ export function RequestsView({
         </section>
       ) : null}
 
-      {media.length > 0 ? (
+      {mediaModule && media.length > 0 ? (
         <section className="space-y-4">
-          <CategoryHeader category="media" />
+          <CategoryHeader category="media" label={mediaModule.label} />
           {MEDIA_TYPES.map((type) => {
             const items = media.filter((r) => r.mediaType === type);
+            // A kind the head stopped offering still shows while it has requests.
+            if (items.length === 0 && !mediaModule.mediaTypes.includes(type)) return null;
             const Icon = MEDIA_ICONS[type];
             return (
               <div key={type} className="space-y-2">
@@ -272,13 +306,19 @@ export function RequestsView({
                         key={r.id}
                         request={r}
                         isOwn={r.requester.id === currentUserId}
-                        canManage={canManageMedia}
+                        canManage={mediaModule.handles}
+                        canDecline={mediaModule.handles && mediaModule.allowDecline}
+                        currentUserId={currentUserId}
                         busy={busyId === r.id}
                         onComplete={() => completeMutation.mutate(r.id)}
+                        onDecline={() => {
+                          declineForm.clear();
+                          setDeclining(r);
+                        }}
                         onEdit={() => {
-                        editForm.clear();
-                        setEditing(r);
-                      }}
+                          editForm.clear();
+                          setEditing(r);
+                        }}
                         onDelete={() => setConfirmDelete(r)}
                       />
                     ))}
@@ -295,7 +335,8 @@ export function RequestsView({
           <RequestForm
             key={editing.id}
             initial={editing}
-            assignees={others}
+            modules={modules}
+            members={members}
             submitLabel="Save changes"
             pending={updateMutation.isPending}
             errors={editForm}
@@ -309,10 +350,22 @@ export function RequestsView({
         // A fresh date box for each request (it isn't cleared on Accept, so a refused date stays to fix).
         key={accepting?.id ?? 'none'}
         request={accepting}
+        requireDueDate={maintenanceModule?.requireDueDate ?? true}
         pending={acceptMutation.isPending}
         errors={acceptForm}
         onClose={() => setAccepting(null)}
-        onAccept={(dueAt) => accepting && acceptMutation.mutate({ id: accepting.id, dueAt })}
+        onAccept={(dueAt) =>
+          accepting && acceptMutation.mutate(dueAt ? { id: accepting.id, dueAt } : { id: accepting.id })
+        }
+      />
+
+      <DeclineDialog
+        key={declining?.id ?? 'none-decline'}
+        request={declining}
+        pending={declineMutation.isPending}
+        errors={declineForm}
+        onClose={() => setDeclining(null)}
+        onDecline={(reply) => declining && declineMutation.mutate({ id: declining.id, reply })}
       />
 
       <ConfirmDialog
@@ -333,11 +386,12 @@ function byDueDate(a: RequestDTO, b: RequestDTO) {
   return (a.dueAt ?? '').localeCompare(b.dueAt ?? '');
 }
 
-function CategoryHeader({ category }: { category: RequestCategory }) {
+/** `label`: the head's name for it (Settings → Request types). */
+function CategoryHeader({ category, label }: { category: RequestCategory; label: string }) {
   const Icon = category === 'maintenance' ? Wrench : Film;
   return (
     <h2 className="flex items-center gap-2 border-b border-border pb-1 text-lg font-semibold">
-      <Icon className="size-5" /> {REQUEST_CATEGORY_LABELS[category]}
+      <Icon className="size-5" /> {label}
     </h2>
   );
 }
@@ -365,54 +419,82 @@ function OwnerActions({ title, onEdit, onDelete }: { title: string; onEdit: () =
 }
 
 // `accepted` is never shown for media (folded into pending) but keeps the Record total.
-const MEDIA_STATUS_BADGE: Record<MaintenanceStatus, 'secondary' | 'default' | 'success'> = {
+const MEDIA_STATUS_BADGE: Record<RequestStatus, 'secondary' | 'default' | 'success' | 'destructive'> = {
   pending: 'secondary',
   accepted: 'default',
   completed: 'success',
+  declined: 'destructive',
 };
 
 function MediaRow({
   request: r,
   isOwn,
   canManage,
+  canDecline,
+  currentUserId,
   busy,
   onComplete,
+  onDecline,
   onEdit,
   onDelete,
 }: {
   request: RequestDTO;
   isOwn: boolean;
+  /** Handles media: marks it added. */
   canManage: boolean;
+  /** Handles media and the head allows declining. */
+  canDecline: boolean;
+  currentUserId: string;
   busy: boolean;
   onComplete: () => void;
+  onDecline: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
   const timeZone = useHouseholdZone();
   // Requests from before statuses existed have none, and "accepted" is left
   // over from the older accept → available flow: both are still waiting.
-  const status: MaintenanceStatus = r.status === 'completed' ? 'completed' : 'pending';
+  const status: RequestStatus = r.status === 'completed' || r.status === 'declined' ? r.status : 'pending';
+  const decider = r.decidedBy ? (r.decidedBy.id === currentUserId ? 'you' : r.decidedBy.name) : null;
   return (
     <li className={cn('flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center', canManage && status === 'pending' && 'bg-primary/5')}>
       <div className="min-w-0 flex-1">
         <p className="flex flex-wrap items-center gap-2 font-medium">
-          <span className="truncate">
+          <span className={cn('truncate', status === 'declined' && 'text-muted-foreground')}>
             {r.title} <span className="font-normal text-muted-foreground">({r.year})</span>
           </span>
           {r.season ? <Badge variant="outline">Season {r.season}</Badge> : null}
           <Badge variant={MEDIA_STATUS_BADGE[status]}>{MEDIA_STATUS_LABELS[status]}</Badge>
         </p>
+        {status === 'declined' ? (
+          <p className="text-sm text-muted-foreground">
+            {decider ? `Declined by ${decider}` : 'Declined'}
+            {r.reply ? `: ${r.reply}` : null}
+          </p>
+        ) : null}
         <p className="text-xs text-muted-foreground">
           Requested by {isOwn ? 'you' : r.requester.name} · {shortDate(r.createdAt, timeZone)}
         </p>
       </div>
       <div className="flex shrink-0 flex-wrap items-center gap-1">
+        {canDecline && status === 'pending' ? (
+          <Button size="sm" variant="ghost" onClick={onDecline} disabled={busy}>
+            <X /> Decline
+          </Button>
+        ) : null}
         {canManage && status === 'pending' ? (
           <Button size="sm" onClick={onComplete} disabled={busy}>
             {busy ? <Loader2 className="animate-spin" /> : <Check />} Mark as added
           </Button>
         ) : null}
-        {isOwn ? <OwnerActions title={r.title} onEdit={onEdit} onDelete={onDelete} /> : null}
+        {/* A declined request can't be edited, only removed. */}
+        {isOwn && status === 'declined' ? (
+          <Button variant="ghost" size="icon" onClick={onDelete} aria-label={`Remove ${r.title}`}>
+            <Trash2 className="size-4" />
+          </Button>
+        ) : isOwn ? (
+          <OwnerActions title={r.title} onEdit={onEdit} onDelete={onDelete} />
+        ) : null}
       </div>
     </li>
   );
@@ -421,6 +503,7 @@ function MediaRow({
 function MaintenanceRow({
   request: r,
   currentUserId,
+  requireDueDate,
   busy,
   onAccept,
   onComplete,
@@ -429,6 +512,8 @@ function MaintenanceRow({
 }: {
   request: RequestDTO;
   currentUserId: string;
+  /** Accepting needs a done-by date (Settings → Request types). */
+  requireDueDate: boolean;
   busy: boolean;
   onAccept: () => void;
   onComplete: () => void;
@@ -472,8 +557,9 @@ function MaintenanceRow({
         ) : null}
         {isAssignee && r.status === 'accepted' ? (
           <>
+            {/* Accepted without a date (the head made it optional): one can still be set. */}
             <Button size="sm" variant="ghost" onClick={onAccept}>
-              Change date
+              {r.dueAt || requireDueDate ? 'Change date' : 'Set a date'}
             </Button>
             <Button size="sm" variant="outline" onClick={onComplete} disabled={busy}>
               {busy ? <Loader2 className="animate-spin" /> : <Check />} Mark done
@@ -486,24 +572,30 @@ function MaintenanceRow({
   );
 }
 
-/** Assignee picks the date they'll have it done by - the request's deadline. */
+/**
+ * Assignee picks the date they'll have it done by - the request's deadline.
+ * Without `requireDueDate` (the head's choice) the date may be left empty.
+ */
 function AcceptDialog({
   request,
+  requireDueDate,
   pending,
   errors,
   onClose,
   onAccept,
 }: {
   request: RequestDTO | null;
+  requireDueDate: boolean;
   pending: boolean;
   /** The last try's field errors: a refused date is marked with why. */
   errors: FieldErrorsState;
   onClose: () => void;
-  onAccept: (dueAt: string) => void;
+  /** null: accepted (or saved) without a date. */
+  onAccept: (dueAt: string | null) => void;
 }) {
   const [date, setDate] = useState('');
   const min = todayInput();
-  const valid = date !== '' && date >= min;
+  const valid = date === '' ? !requireDueDate : date >= min;
   const rescheduling = request?.status === 'accepted';
   const close = () => {
     setDate('');
@@ -521,7 +613,7 @@ function AcceptDialog({
           <Button variant="ghost" onClick={close} disabled={pending}>
             Cancel
           </Button>
-          <Button disabled={!valid || pending} onClick={() => onAccept(noonIso(date))}>
+          <Button disabled={!valid || pending} onClick={() => onAccept(date ? noonIso(date) : null)}>
             {pending ? <Loader2 className="animate-spin" /> : null}
             {rescheduling ? 'Save date' : 'Accept'}
           </Button>
@@ -529,7 +621,9 @@ function AcceptDialog({
       }
     >
       <div className="space-y-1.5" data-field="dueAt" {...errors.formProps}>
-        <Label htmlFor="request-due">When will you have it done?</Label>
+        <Label htmlFor="request-due">
+          When will you have it done?{requireDueDate ? null : ' (optional)'}
+        </Label>
         <Input
           id="request-due"
           type="date"
@@ -541,8 +635,62 @@ function AcceptDialog({
         <FieldNote
           id={errors.noteId('dueAt')}
           error={errors.get('dueAt') ?? (date !== '' && date < min ? 'Pick today or a later day.' : null)}
-          hint="This becomes the deadline for the request."
+          hint={
+            requireDueDate
+              ? 'This becomes the deadline for the request.'
+              : 'A date becomes the deadline for the request. Leave it empty for no deadline.'
+          }
         />
+      </div>
+    </Dialog>
+  );
+}
+
+/** Whoever handles the request says no, with an optional reason the requester sees. */
+function DeclineDialog({
+  request,
+  pending,
+  errors,
+  onClose,
+  onDecline,
+}: {
+  request: RequestDTO | null;
+  pending: boolean;
+  /** The last try's field errors: a refused reason is marked with why. */
+  errors: FieldErrorsState;
+  onClose: () => void;
+  onDecline: (reply: string | null) => void;
+}) {
+  const [reply, setReply] = useState('');
+  return (
+    <Dialog
+      open={request !== null}
+      onClose={onClose}
+      title="Decline request"
+      description={request ? `“${request.title}” from ${request.requester.name}` : undefined}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={pending}>
+            Cancel
+          </Button>
+          <Button variant="destructive" disabled={pending} onClick={() => onDecline(reply.trim() || null)}>
+            {pending ? <Loader2 className="animate-spin" /> : null}
+            Decline
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-1.5" data-field="reply" {...errors.formProps}>
+        <Label htmlFor="request-reply">Reason (optional)</Label>
+        <Textarea
+          id="request-reply"
+          value={reply}
+          onChange={(e) => setReply(e.target.value)}
+          placeholder="e.g. We already have it on another service"
+          maxLength={500}
+          {...errors.invalid('reply')}
+        />
+        <FieldNote id={errors.noteId('reply')} error={errors.get('reply')} hint="Everyone in the household sees it." />
       </div>
     </Dialog>
   );
@@ -552,10 +700,15 @@ function AcceptDialog({
  * Step-by-step request form: request type → (media: type of media → name and
  * year) or (maintenance: what needs doing → who should do it). Each later step
  * appears once the one before it is chosen. The category is fixed when editing.
+ * What it offers comes from the head's Settings → Request types: the kinds this
+ * member may ask for, the kinds of media, who may be asked and who is picked to
+ * start with. A request being edited keeps its own kind and person even if the
+ * head has since stopped offering them.
  */
 export function RequestForm({
   initial,
-  assignees,
+  modules,
+  members,
   submitLabel,
   pending,
   errors,
@@ -563,7 +716,9 @@ export function RequestForm({
   onCancel,
 }: {
   initial?: RequestDTO;
-  assignees: MemberDTO[];
+  /** The kinds of request that are on, as this member sees them. */
+  modules: RequestModuleView[];
+  members: MemberDTO[];
   submitLabel: string;
   pending: boolean;
   /** The last save's field errors: those fields are marked with why. */
@@ -571,15 +726,40 @@ export function RequestForm({
   onSubmit: (payload: RequestPayload) => void;
   onCancel?: () => void;
 }) {
-  const [category, setCategory] = useState<RequestCategory | ''>(
-    (initial?.category as RequestCategory) ?? '',
+  const askable = modules.filter((m) => m.canAsk);
+  const mediaModule = modules.find((m) => m.id === 'media');
+  const maintenanceModule = modules.find((m) => m.id === 'maintenance');
+  const offeredMediaTypes = MEDIA_TYPES.filter(
+    (t) => mediaModule?.mediaTypes.includes(t) || t === initial?.mediaType,
   );
-  const [mediaType, setMediaType] = useState<MediaType | ''>((initial?.mediaType as MediaType) ?? '');
+  const assignees = members.filter(
+    (m) => maintenanceModule?.assigneeIds.includes(m.id) || m.id === initial?.assignee?.id,
+  );
+
+  /** What picking a kind fills in to start with: the only media type, the default person. */
+  const startingValues = (c: RequestCategory | '') => ({
+    mediaType: c === 'media' && mediaModule?.mediaTypes.length === 1 ? mediaModule.mediaTypes[0] : ('' as const),
+    assigneeId: c === 'maintenance' ? (maintenanceModule?.defaultAssigneeId ?? '') : '',
+  });
+  // Creating with only one kind to ask for: it's already picked.
+  const firstCategory: RequestCategory | '' =
+    (initial?.category as RequestCategory) ?? (askable.length === 1 ? askable[0].id : '');
+  const firstValues = startingValues(firstCategory);
+
+  const [category, setCategory] = useState<RequestCategory | ''>(firstCategory);
+  const [mediaType, setMediaType] = useState<MediaType | ''>(
+    (initial?.mediaType as MediaType) ?? firstValues.mediaType,
+  );
   const [title, setTitle] = useState(initial?.title ?? '');
   const [year, setYear] = useState(initial?.year ? String(initial.year) : '');
   const [season, setSeason] = useState(initial?.season ? String(initial.season) : '');
   const [details, setDetails] = useState(initial?.details ?? '');
-  const [assigneeId, setAssigneeId] = useState(initial?.assignee?.id ?? '');
+  const [assigneeId, setAssigneeId] = useState(initial?.assignee?.id ?? firstValues.assigneeId);
+  const categoryModule = modules.find((m) => m.id === category);
+  // Editing: the request's own kind, whether or not this member could ask for it now.
+  const categoryOptions = initial
+    ? [{ id: initial.category as RequestCategory, label: categoryModule?.label ?? REQUEST_CATEGORY_LABELS[initial.category as RequestCategory] ?? initial.category }]
+    : askable;
 
   const yearNum = Number(year);
   const seasonNum = season.trim() === '' ? null : Number(season);
@@ -630,19 +810,26 @@ export function RequestForm({
           id="request-category"
           value={category}
           disabled={initial !== undefined}
-          onChange={(e) => setCategory(e.target.value as RequestCategory | '')}
+          onChange={(e) => {
+            const next = e.target.value as RequestCategory | '';
+            setCategory(next);
+            const start = startingValues(next);
+            if (start.mediaType && !mediaType) setMediaType(start.mediaType);
+            if (start.assigneeId && !assigneeId) setAssigneeId(start.assigneeId);
+          }}
           {...errors.invalid('category')}
         >
           <option value="" disabled>
             Choose…
           </option>
-          {REQUEST_CATEGORIES.map((c) => (
-            <option key={c} value={c}>
-              {REQUEST_CATEGORY_LABELS[c]}
+          {categoryOptions.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.label}
             </option>
           ))}
         </Select>
-        <FieldNote id={errors.noteId('category')} error={errors.get('category')} />
+        {/* The head's note for this kind (Settings → Request types). */}
+        <FieldNote id={errors.noteId('category')} error={errors.get('category')} hint={categoryModule?.note ?? undefined} />
       </div>
 
       {category === 'media' ? (
@@ -657,7 +844,7 @@ export function RequestForm({
             <option value="" disabled>
               Choose…
             </option>
-            {MEDIA_TYPES.map((t) => (
+            {offeredMediaTypes.map((t) => (
               <option key={t} value={t}>
                 {MEDIA_TYPE_LABELS[t]}
               </option>
@@ -764,7 +951,11 @@ export function RequestForm({
                 </option>
               ))}
             </Select>
-            <FieldNote id={errors.noteId('assigneeId')} error={errors.get('assigneeId')} />
+            <FieldNote
+              id={errors.noteId('assigneeId')}
+              error={errors.get('assigneeId')}
+              hint={assignees.length === 0 ? "There's no one you can ask yet." : undefined}
+            />
             {initial?.status === 'accepted' && assigneeId !== initial.assignee?.id ? (
               <p className="text-xs text-muted-foreground">
                 Changing who does it sends the request back for them to accept.

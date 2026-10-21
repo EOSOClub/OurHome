@@ -25,6 +25,8 @@ import type { MapPlaceDTO, PlacesDTO } from '@/lib/types';
 import { MapPlacesCard } from '@/components/settings/map-places-card';
 import { LiveCheckCard } from '@/components/settings/live-check-card';
 import type { LiveCheckSettings } from '@/lib/location';
+import { RequestTypesCard } from '@/components/settings/request-types-card';
+import type { RequestModuleSettings } from '@/lib/requestModules';
 import { ExportCard } from '@/components/settings/export-card';
 import { PointsCard } from '@/components/settings/points-card';
 import { TimeZoneCard } from '@/components/settings/time-zone-card';
@@ -88,6 +90,8 @@ export function SettingsView({
   initialCategories,
   initialPoints,
   initialLiveChecks,
+  initialRequestModules,
+  members,
   initialPlaces,
   initialMapPlaces,
   shoppingLists,
@@ -95,13 +99,16 @@ export function SettingsView({
 }: {
   /** null unless the viewer is the Head of House. */
   initialLiveChecks: LiveCheckSettings | null;
+  /** null unless the viewer is the Head of House. */
+  initialRequestModules: RequestModuleSettings | null;
+  /** For the request types' people lists (head only; empty otherwise). */
+  members: ItemRef[];
   initialPlaces: PlacesDTO;
   initialMapPlaces: MapPlaceDTO[];
   /** For linking stores on the map to lists. */
   shoppingLists: ItemRef[];
   /** Head of House: may download the household export. */
   canExport: boolean;
-  /** null unless the viewer is the Head of House. */
   /** null unless the viewer is the Head of House. */
   initialPoints: PointsSettingsDTO | null;
   initialIntegrations: IntegrationDTO[];
@@ -141,6 +148,9 @@ export function SettingsView({
           ) : null}
           {features.includes('location') && initialLiveChecks ? <LiveCheckCard initial={initialLiveChecks} /> : null}
           <CategoriesCard initialCategories={initialCategories} />
+          {features.includes('requests') && initialRequestModules ? (
+            <RequestTypesCard initial={initialRequestModules} members={members} />
+          ) : null}
         </div>
         <div className="space-y-6">
           {features.includes('bills') ? <PaperlessCard /> : null}

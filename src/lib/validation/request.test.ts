@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { acceptRequestSchema, createRequestSchema } from '@/lib/validation/request';
+import { acceptRequestSchema, createRequestSchema, declineRequestSchema } from '@/lib/validation/request';
 
 const movie = { category: 'media', mediaType: 'movie', title: 'Dune', year: 2021 };
 
@@ -61,5 +61,19 @@ describe('acceptRequestSchema', () => {
   it('rejects a done-by date in the past', () => {
     const lastWeek = new Date(Date.now() - 7 * 86_400_000).toISOString();
     expect(acceptRequestSchema.safeParse({ id, dueAt: lastWeek }).success).toBe(false);
+  });
+});
+
+describe('declineRequestSchema', () => {
+  const id = 'cmabcdefghijklmnopqrstuvw';
+
+  it('takes an optional reason; blank is none', () => {
+    expect(declineRequestSchema.parse({ id }).reply).toBeNull();
+    expect(declineRequestSchema.parse({ id, reply: '   ' }).reply).toBeNull();
+    expect(declineRequestSchema.parse({ id, reply: ' Already on Plex ' }).reply).toBe('Already on Plex');
+  });
+
+  it('rejects a reason over 500 characters', () => {
+    expect(declineRequestSchema.safeParse({ id, reply: 'x'.repeat(501) }).success).toBe(false);
   });
 });

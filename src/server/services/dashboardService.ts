@@ -10,6 +10,8 @@ import type { Feature } from '@/lib/features';
 import { placesLabel } from '@/lib/places';
 import { loadPlaceIndex, resolveTaskPlaces, type PlaceIndex } from '@/server/services/taskPlaces';
 import { getHouseholdFeatures } from '@/server/services/serverAdminService';
+import { getRequestHandling, type RequestHandling } from '@/server/services/requestModuleService';
+import { REQUEST_MODULE_WORKFLOWS } from '@/lib/requestModules';
 
 const ACTIVE_STATUSES = ['pending', 'in_progress'];
 
@@ -46,16 +48,20 @@ function withPlace<T extends SelectedTask>(tasks: T[], places: PlaceIndex) {
 
 /**
  * Requests that may wait on `userId` (attentionReason makes the final call):
- * open media for those who mark media added, plus maintenance assigned to them.
+ * open requests of the approve-workflow kinds they handle (media), plus
+ * assign-workflow ones (maintenance) assigned to them - kinds that are on only.
  */
-function waitingRequestsWhere(householdId: string, userId: string, approvesMedia: boolean) {
+function waitingRequestsWhere(householdId: string, userId: string, handling: RequestHandling) {
   return {
     householdId,
     OR: [
-      ...(approvesMedia
-        ? [{ category: 'media', OR: [{ status: null }, { status: { isSet: false } }, { status: { in: ['pending', 'accepted'] } }] }]
-        : []),
-      { category: 'maintenance', assigneeId: userId, status: { in: ['pending', 'accepted'] } },
+      ...[...handling.handles].map((category) => ({
+        category,
+        OR: [{ status: null }, { status: { isSet: false } }, { status: { in: ['pending', 'accepted'] } }],
+      })),
+      ...handling.on
+        .filter((category) => REQUEST_MODULE_WORKFLOWS[category] === 'assign')
+        .map((category) => ({ category, assigneeId: userId, status: { in: ['pending', 'accepted'] } })),
     ],
   };
 }
@@ -63,19 +69,22 @@ function waitingRequestsWhere(householdId: string, userId: string, approvesMedia
 /**
  * How many requests wait on the user right now: the dashboard's "Needs you"
  * rule, shown as the badge on the phone nav's "More" button (Requests lives
- * there).
+ * there). `approveSwitch`: their Requests "Approve" switch.
  */
 export async function countRequestsWaitingOn(
   user: { id: string; householdId: string },
-  approvesMedia: boolean,
+  approveSwitch: boolean,
   timezone: string,
 ) {
   const endOfToday = startOfLocalDate(addDays(localDateOf(new Date(), timezone), 1), timezone);
+  const handling = await getRequestHandling(user.householdId, user.id, approveSwitch);
+  // Nothing on: an empty OR would match nothing anyway, but skip the query.
+  if (handling.on.length === 0) return 0;
   const rows = await prisma.request.findMany({
-    where: waitingRequestsWhere(user.householdId, user.id, approvesMedia),
+    where: waitingRequestsWhere(user.householdId, user.id, handling),
     select: { category: true, status: true, assigneeId: true, dueAt: true },
   });
-  return rows.filter((r) => attentionReason(r, user.id, approvesMedia, endOfToday)).length;
+  return rows.filter((r) => attentionReason(r, user.id, handling.handles, endOfToday)).length;
 }
 
 /**
@@ -116,9 +125,10 @@ export async function getDashboard(
   const now = new Date();
   const inSevenDays = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
   // "Today" is the household's day (Points settings), not the server's.
-  const [{ timezone }, features] = await Promise.all([
+  const [{ timezone }, features, requestHandling] = await Promise.all([
     getPointsSettings(householdId),
     getHouseholdFeatures(householdId),
+    getRequestHandling(householdId, user.id, access.requests.approve),
   ]);
   const today = localDateOf(now, timezone);
   const startOfToday = startOfLocalDate(today, timezone);
@@ -204,7 +214,7 @@ export async function getDashboard(
       take: 10,
     }),
     prisma.request.findMany({
-      where: waitingRequestsWhere(householdId, user.id, access.requests.approve),
+      where: waitingRequestsWhere(householdId, user.id, requestHandling),
       select: {
         id: true,
         category: true,
@@ -264,7 +274,7 @@ export async function getDashboard(
       openToAnyone: tasksOn ? withPlace(openTasks, places) : [],
       requests: on('requests')
         ? requests.flatMap((r) => {
-            const reason = attentionReason(r, user.id, access.requests.approve, endOfToday);
+            const reason = attentionReason(r, user.id, requestHandling.handles, endOfToday);
             return reason ? [{ ...r, reason: reason satisfies RequestAttentionReason }] : [];
           })
         : [],

@@ -115,6 +115,18 @@ export function TaskCard({
   const archived = task.status === 'archived';
   // A cycle task completed inside its window waits for the next cycle.
   const doneThisCycle = done && !!task.cycleEndsAt;
+  // A repeating task without cycles, done for this occurrence: the next one
+  // can't be completed before it opens. The clock moves on when it does, so
+  // the button comes back at midnight without a refresh.
+  const [now, setNow] = useState(() => Date.now());
+  const opensAt = task.opensAt ? Date.parse(task.opensAt) : 0;
+  const waiting = !done && !archived && opensAt > now;
+  useEffect(() => {
+    if (!waiting) return;
+    // setTimeout holds at most ~24 days; a longer wait just checks again then.
+    const t = setTimeout(() => setNow(Date.now()), Math.min(Math.max(0, opensAt - Date.now()), 2 ** 31 - 1));
+    return () => clearTimeout(t);
+  }, [waiting, opensAt, now]);
   const canEdit = canModify(access, 'edit', task.createdById, userId);
   const canDelete = canModify(access, 'delete', task.createdById, userId);
   const [expanded, setExpanded] = useState(focused);
@@ -148,18 +160,18 @@ export function TaskCard({
     >
       <div className="flex items-start gap-3">
         <Button
-          variant={done ? 'secondary' : 'outline'}
+          variant={done || waiting ? 'secondary' : 'outline'}
           size="icon"
           className="size-9 shrink-0 rounded-full"
           onClick={() => onComplete(task.id)}
           // The server refuses to complete an archived task; restore it first.
-          disabled={completing || done || archived}
-          aria-label={done ? 'Completed' : archived ? 'Archived' : 'Mark complete'}
+          disabled={completing || done || archived || waiting}
+          aria-label={done ? 'Completed' : archived ? 'Archived' : waiting ? 'Done for now' : 'Mark complete'}
         >
           {completing ? (
             <Loader2 className="animate-spin" />
           ) : (
-            <Check className={done ? 'opacity-100' : 'opacity-40'} />
+            <Check className={done || waiting ? 'opacity-100' : 'opacity-40'} />
           )}
         </Button>
 
@@ -255,15 +267,22 @@ export function TaskCard({
                 Done this cycle · reopens {formatUntil(task.cycleEndsAt!, timeZone)}
               </span>
             ) : (
-              <span
-                className={
-                  isOverdue(task.dueDate, timeZone) && !done
-                    ? 'text-destructive'
-                    : 'text-muted-foreground'
-                }
-              >
-                {formatDueDate(task.dueDate, timeZone)}
-              </span>
+              <>
+                {waiting ? (
+                  <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                    Done · next opens {formatUntil(task.opensAt!, timeZone)}
+                  </span>
+                ) : null}
+                <span
+                  className={
+                    isOverdue(task.dueDate, timeZone) && !done
+                      ? 'text-destructive'
+                      : 'text-muted-foreground'
+                  }
+                >
+                  {formatDueDate(task.dueDate, timeZone)}
+                </span>
+              </>
             )}
             {/* Grouped by room the heading already says where. */}
             {!hidePlace && placesLabel(task) ? (

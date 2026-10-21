@@ -4,6 +4,7 @@ import {
   formatIntList,
   fromWall,
   nextAfterOccurrence,
+  completeOccurrence,
   toWall,
   parseIntList,
   type NormalizedRule,
@@ -183,6 +184,53 @@ describe('nextAfterOccurrence (paying/completing the current one)', () => {
     expect(
       nextAfterOccurrence(daily, iso('2026-03-01T12:00:00.000Z'), iso('2026-03-10T15:00:00.000Z')),
     ).toEqual(iso('2026-03-11T12:00:00.000Z'));
+  });
+});
+
+describe('completeOccurrence (completing a task without cycles)', () => {
+  const daily = rule({ kind: 'daily', anchorDate: iso('2026-01-01T12:00:00.000Z') });
+  const monthly = rule({ kind: 'monthly', anchorDate: iso('2026-01-15T12:00:00.000Z') });
+
+  it('done the morning it is due: next is tomorrow, open from midnight', () => {
+    expect(completeOccurrence(daily, iso('2026-03-10T12:00:00.000Z'), iso('2026-03-10T09:00:00.000Z'), 'UTC')).toEqual({
+      next: iso('2026-03-11T12:00:00.000Z'),
+      opensAt: iso('2026-03-11T00:00:00.000Z'),
+    });
+  });
+
+  it('done days early: waits until the day after the due date', () => {
+    expect(completeOccurrence(monthly, iso('2026-03-15T12:00:00.000Z'), iso('2026-03-09T18:00:00.000Z'), 'UTC')).toEqual({
+      next: iso('2026-04-15T12:00:00.000Z'),
+      opensAt: iso('2026-03-16T00:00:00.000Z'),
+    });
+  });
+
+  it('done late: today is covered too, nothing comes due later the same day', () => {
+    expect(completeOccurrence(daily, iso('2026-03-01T12:00:00.000Z'), iso('2026-03-10T09:00:00.000Z'), 'UTC')).toEqual({
+      next: iso('2026-03-11T12:00:00.000Z'),
+      opensAt: iso('2026-03-11T00:00:00.000Z'),
+    });
+  });
+
+  it('completing again once open moves on by one occurrence, never further', () => {
+    const first = completeOccurrence(daily, iso('2026-03-10T12:00:00.000Z'), iso('2026-03-10T09:00:00.000Z'), 'UTC');
+    const second = completeOccurrence(daily, first.next, first.opensAt, 'UTC');
+    expect(second.next).toEqual(iso('2026-03-12T12:00:00.000Z'));
+  });
+
+  it('uses the household day, not the UTC day', () => {
+    const tz = 'America/Chicago';
+    const local = rule({ kind: 'daily', anchorDate: iso('2026-10-01T17:00:00.000Z'), timeZone: tz }); // noon CDT
+    // Done at 23:00 Oct 20 Chicago (04:00 Oct 21 UTC) for Oct 20's noon.
+    expect(completeOccurrence(local, iso('2026-10-20T17:00:00.000Z'), iso('2026-10-21T04:00:00.000Z'), tz)).toEqual({
+      next: iso('2026-10-21T17:00:00.000Z'),
+      opensAt: iso('2026-10-21T05:00:00.000Z'),
+    });
+  });
+
+  it('has no next occurrence once the rule has ended', () => {
+    const ending = rule({ ...daily, until: iso('2026-03-10T18:00:00.000Z') });
+    expect(completeOccurrence(ending, iso('2026-03-10T12:00:00.000Z'), iso('2026-03-10T09:00:00.000Z'), 'UTC').next).toBeNull();
   });
 });
 

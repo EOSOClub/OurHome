@@ -12,9 +12,10 @@ export const GET = withAuth(async ({ user }) => {
 });
 
 export const POST = withAuth(async (ctx) => {
-  // Submitting is the Requests "Add" switch (Members → Permissions).
+  // Submitting is the Requests "Add" switch (Members → Permissions); the kind
+  // must be on and allow the caller's role (checked in the service).
   await requireCreate(ctx, 'requests');
   const input = await parseBody(ctx.req, createRequestSchema);
-  const request = await createRequest(ctx.user.householdId!, ctx.user.id, input);
+  const request = await createRequest(ctx.user.householdId!, ctx.user, input);
   return ok(requestToDTO(request), { status: 201 });
 });

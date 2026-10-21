@@ -299,6 +299,9 @@ export interface TaskDTO {
   /** Current cycle window (rollover tasks). Completed inside it = done this cycle. */
   cycleStartedAt: string | null;
   cycleEndsAt: string | null;
+  /** Recurring tasks without cycles: done for this occurrence, it can't be
+   *  completed again before this time. Null or past = open. */
+  opensAt: string | null;
   category: CategoryDTO | null;
   /** Its first place (src/lib/places.ts). Both null = the whole house. */
   room: PlaceRefDTO | null;
@@ -557,6 +560,11 @@ export interface RequestDTO {
   dueAt: string | null;
   acceptedAt: string | null;
   completedAt: string | null;
+  declinedAt: string | null;
+  /** Approve workflow: who marked it done or declined it. */
+  decidedBy: MemberDTO | null;
+  /** Approve workflow: what they said (a decline's reason). */
+  reply: string | null;
   requester: MemberDTO;
   createdAt: string;
   updatedAt: string;

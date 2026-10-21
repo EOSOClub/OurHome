@@ -2,7 +2,8 @@ import { ok, parseBody, requirePermission, withAuth } from '@/server/api/http';
 import { completeRequest, requestToDTO } from '@/server/services/requestService';
 import { requestIdSchema } from '@/lib/validation/request';
 
-// Mark a request done: maintenance (assignee) or media added (Requests "Approve").
+// Mark a request done: maintenance (assignee) or media added (whoever handles
+// media: Settings → Request types, by default the Requests "Approve" switch).
 // Who may handle it is enforced in the service.
 export const POST = withAuth(async (ctx) => {
   requirePermission(ctx, 'requests:write');

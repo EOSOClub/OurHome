@@ -55,6 +55,10 @@ model Household {
   // LIVE_CHECK_LIMITS): 30 minutes at most, a fix every 15 seconds at most.
   liveCheckMaxMinutes     Int?
   liveCheckMinIntervalSec Int?
+  // Request types the head turned on and how each works (Settings → Request
+  // types), as JSON text (RequestModuleSettings in src/lib/requestModules.ts).
+  // null = defaults: media and maintenance on, working as they always have.
+  requestModules   String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -162,6 +166,7 @@ model User {
   billPayments    BillPayment[]
   requests        Request[]        @relation("RequestRequester")
   assignedRequests Request[]       @relation("RequestAssignee")
+  decidedRequests Request[]        @relation("RequestDecider")
   bugReports      BugReport[]
   pushDevices     PushDevice[]
   location        MemberLocation?
@@ -450,6 +455,10 @@ model Task {
   // over (recorded as missed if it wasn't done).
   cycleStartedAt   DateTime?
   cycleEndsAt      DateTime?
+  // Recurring tasks without a cycle: completed for its occurrence, it can't
+  // be completed again before this instant (recurrenceService
+  // completeOccurrence). null = open.
+  opensAt          DateTime?
   categoryId  String?
   // Where it's done. The first place: one room, or a whole floor (never
   // both; neither = the whole house).
@@ -845,11 +854,14 @@ model ShoppingItem {
 }
 
 // A household request. Visible to everyone in the household; only the
-// requester may edit or delete it (requestService).
-//   media:       "please get this movie / show"
+// requester may edit or delete it (requestService). Each category is a request
+// module the head turns on and configures (src/lib/requestModules.ts).
+//   media:       "please get this movie / show" - whoever approves media marks
+//                it added, or declines it where the head allows that.
 //   maintenance: "please fix this" - assigned to another member, who accepts it
-//                with a done-by date (`dueAt`, the deadline) and later marks it
-//                done. dueAt is the hook for deadline notifications.
+//                with a done-by date (`dueAt`, the deadline; optional when the
+//                head says so) and later marks it done. dueAt is the hook for
+//                deadline notifications.
 model Request {
   id          String    @id @default(cuid()) @map("_id")
   householdId String
@@ -868,19 +880,26 @@ model Request {
   details     String?
   // Who is asked to do it (never the requester).
   assigneeId  String?
-  // status: "pending" (awaiting acceptance) | "accepted" | "completed"
-  // (MAINTENANCE_STATUSES). Null for media requests.
+  // status: "pending" (awaiting acceptance) | "accepted" | "completed" |
+  // "declined" (REQUEST_STATUSES). Null on media requests from before statuses.
   status      String?
   // Done-by date the assignee committed to when accepting - the deadline.
   dueAt       DateTime?
   acceptedAt  DateTime?
   completedAt DateTime?
+  declinedAt  DateTime?
+  // --- approve workflow (media) ---
+  // Who marked it done or declined it, and what they said to the requester
+  // (a decline's optional reason).
+  decidedById String?
+  reply       String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
   household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
   requester User      @relation("RequestRequester", fields: [requesterId], references: [id], onDelete: Cascade)
   assignee  User?     @relation("RequestAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  decidedBy User?     @relation("RequestDecider", fields: [decidedById], references: [id], onDelete: SetNull)
 
   @@index([householdId])
   @@index([assigneeId])

@@ -176,7 +176,8 @@ export const REQUEST_CATEGORY_LABELS: Record<RequestCategory, string> = {
 };
 
 // Maintenance lifecycle: asked → assignee accepts with a done-by date → done.
-export const MAINTENANCE_STATUSES = ['pending', 'accepted', 'completed'] as const;
+// "declined" only where the head lets the person asked decline.
+export const MAINTENANCE_STATUSES = ['pending', 'accepted', 'completed', 'declined'] as const;
 export type MaintenanceStatus = (typeof MAINTENANCE_STATUSES)[number];
 
 /** Section headers on the requests page. */
@@ -184,11 +185,12 @@ export const MAINTENANCE_STATUS_LABELS: Record<MaintenanceStatus, string> = {
   pending: 'Waiting for acceptance',
   accepted: 'In progress',
   completed: 'Done',
+  declined: 'Declined',
 };
 
 // Every status a request can have. "declined" only happens to requests whose
-// module lets its approvers decline (media, when the head allows it).
-export const REQUEST_STATUSES = [...MAINTENANCE_STATUSES, 'declined'] as const;
+// module allows declining (Settings → Request types).
+export const REQUEST_STATUSES = MAINTENANCE_STATUSES;
 export type RequestStatus = (typeof REQUEST_STATUSES)[number];
 
 // Media requests are one step: whoever approves them (Settings → Request

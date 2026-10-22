@@ -41,8 +41,9 @@ import type {
 //   maintenance: the requester asks another member (the assignee), one of the
 //                people the head lets be asked. The assignee accepts with a
 //                done-by date (`dueAt`, the deadline; optional when the head
-//                says so), may move that date, and marks it done. The requester
-//                may edit or delete it; reassigning sends it back to "pending".
+//                says so), may move that date, and marks it done, or declines
+//                it when the head allows that. The requester may edit or delete
+//                it; reassigning sends it back to "pending".
 
 const requestInclude = {
   requester: { select: { id: true, name: true } },
@@ -442,9 +443,10 @@ export async function completeRequest(
 }
 
 /**
- * Approve-workflow requests whose module allows it (Settings → Request types):
- * a handler says no, with an optional reason for the requester. Final: the
- * requester may remove it, not edit it.
+ * Requests whose module allows it (Settings → Request types): a handler (media)
+ * or the person asked (maintenance, before or after accepting) says no, with an
+ * optional reason for the requester. Final: the requester may remove it, not
+ * edit it.
  */
 export async function declineRequest(
   householdId: string,
@@ -453,7 +455,7 @@ export async function declineRequest(
 ): Promise<RequestWithPeople> {
   const modules = await getRequestModules(householdId);
   const existing = await getHandledRequest(householdId, modules, input.id, actor);
-  if (!isRequestCategory(existing.category) || !approveSettings(modules, existing.category)?.allowDecline) {
+  if (!isRequestCategory(existing.category) || !modules[existing.category].allowDecline) {
     throw new ConflictError('Requests like this can’t be declined here.');
   }
   assertStillOpen(existing);

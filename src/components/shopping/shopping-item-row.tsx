@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { Check, ExternalLink, Loader2, Pencil, Repeat, Trash2 } from 'lucide-react';
 import type { CategoryDTO, ShoppingItemDTO } from '@/lib/types';
 import { canModify, hasAnyAccess, type PageAccess } from '@/lib/permissions';
@@ -99,6 +99,7 @@ export function ShoppingItemRow({
   const canToggle = hasAnyAccess(access);
   const canEdit = canModify(access, 'edit', item.createdById, userId);
   const canDelete = canModify(access, 'delete', item.createdById, userId);
+  const cells = rowCells(item);
 
   if (editing) {
     return (
@@ -141,8 +142,8 @@ export function ShoppingItemRow({
         />
       ) : null}
 
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
+      <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3">
+        <div className={cn(CELL, 'flex min-w-0 items-center gap-2')} style={cells.title}>
           {item.category?.color ? (
             <span
               className="inline-block size-2.5 shrink-0 rounded-full"
@@ -168,9 +169,11 @@ export function ShoppingItemRow({
         {item.notes || item.estimatedPrice != null ? (
           <div
             className={cn(
+              CELL,
               'flex min-w-0 gap-1.5 text-xs text-muted-foreground',
               !item.notes && 'sm:hidden',
             )}
+            style={cells.details}
           >
             {item.estimatedPrice != null ? (
               <span className="shrink-0 tabular-nums sm:hidden">
@@ -196,48 +199,79 @@ export function ShoppingItemRow({
             ) : null}
           </div>
         ) : null}
-        {item.url ? <ItemLink url={item.url} /> : null}
-      </div>
+        {item.url ? (
+          <div className={cn(CELL, 'min-w-0')} style={cells.link}>
+            <ItemLink url={item.url} />
+          </div>
+        ) : null}
 
-      <div className="flex shrink-0 items-center gap-2">
-        {item.estimatedPrice != null ? (
-          <span className="hidden text-xs tabular-nums text-muted-foreground sm:inline">
-            ${item.estimatedPrice.toFixed(2)}
-          </span>
-        ) : null}
-        {item.recurring ? (
-          <Repeat className="size-3.5 text-muted-foreground" aria-label="Recurring" />
-        ) : null}
-        {!purchased ? (
-          <Badge variant={priorityVariant(item.priority)}>{item.priority}</Badge>
-        ) : null}
-        {canEdit ? (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-9 text-muted-foreground hover:text-foreground"
-            onClick={() => setEditing(true)}
-            disabled={busy}
-            aria-label="Edit item"
-          >
-            <Pencil />
-          </Button>
-        ) : null}
-        {canDelete ? (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-9 text-muted-foreground hover:text-destructive"
-            onClick={() => onDelete(item)}
-            disabled={busy}
-            aria-label="Remove item"
-          >
-            <Trash2 />
-          </Button>
-        ) : null}
+        <div className={cn(CELL, 'flex items-center justify-end gap-2')} style={cells.actions}>
+          {item.estimatedPrice != null ? (
+            <span className="hidden text-xs tabular-nums text-muted-foreground sm:inline">
+              ${item.estimatedPrice.toFixed(2)}
+            </span>
+          ) : null}
+          {item.recurring ? (
+            <Repeat className="size-3.5 text-muted-foreground" aria-label="Recurring" />
+          ) : null}
+          {!purchased ? (
+            <Badge variant={priorityVariant(item.priority)}>{item.priority}</Badge>
+          ) : null}
+          {canEdit ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-9 text-muted-foreground hover:text-foreground"
+              onClick={() => setEditing(true)}
+              disabled={busy}
+              aria-label="Edit item"
+            >
+              <Pencil />
+            </Button>
+          ) : null}
+          {canDelete ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-9 text-muted-foreground hover:text-destructive"
+              onClick={() => onDelete(item)}
+              disabled={busy}
+              aria-label="Remove item"
+            >
+              <Trash2 />
+            </Button>
+          ) : null}
+        </div>
       </div>
     </div>
   );
+}
+
+/** Puts a cell of the row's grid in one place on a phone and another from `sm` up,
+ * through `--cell` / `--cell-sm` (each a `grid-area` value). */
+const CELL = '[grid-area:var(--cell)] sm:[grid-area:var(--cell-sm)]';
+
+function cell(phone: string, wide: string): CSSProperties {
+  return { '--cell': phone, '--cell-sm': wide } as CSSProperties;
+}
+
+/** Where the row's text and buttons go. On a phone the buttons would leave the name
+ * and the link a sliver, so the name gets the whole width and the buttons share the
+ * bottom line with the price and notes (the link above them, also full width). From
+ * `sm` up the text stacks on the left and the buttons stand beside all of it. */
+function rowCells(item: ShoppingItemDTO) {
+  const link = item.url ? 1 : 0;
+  // A phone shows the price under the name; wider screens show it with the buttons.
+  const phoneDetails = item.notes || item.estimatedPrice != null ? 1 : 0;
+  const wideNotes = item.notes ? 1 : 0;
+  const phoneLast = 1 + link + phoneDetails;
+  const wideLast = 1 + wideNotes + link;
+  return {
+    title: cell(phoneLast > 1 ? '1 / 1 / 2 / 3' : '1 / 1', '1 / 1'),
+    link: cell(phoneDetails ? '2 / 1 / 3 / 3' : '2 / 1', `${2 + wideNotes} / 1`),
+    details: cell(`${phoneLast} / 1`, '2 / 1'),
+    actions: cell(`${phoneLast} / 2`, `1 / 2 / ${wideLast + 1} / 3`),
+  };
 }
 
 function EditItemForm({

@@ -9,7 +9,8 @@
 //            with the Requests "Approve" switch) marks it done in one step, or
 //            declines it where the module allows that.
 //   assign:  the requester asks one person, who accepts it (with a done-by
-//            date unless the head made that optional) and later marks it done.
+//            date unless the head made that optional) and later marks it done,
+//            or declines it where the module allows that.
 //
 // Stored as JSON text in Household.requestModules. null, a missing module or a
 // missing field means its default, so a household that never opened the card
@@ -74,6 +75,8 @@ export interface MaintenanceModuleSettings extends CommonModuleSettings {
   defaultAssigneeId: string | null;
   /** Accepting needs a done-by date (the deadline). Off: the date is optional. */
   requireDueDate: boolean;
+  /** Whether the person asked may decline (before or after accepting), with an optional reason. */
+  allowDecline: boolean;
 }
 
 export interface RequestModuleSettings {
@@ -95,6 +98,7 @@ export const DEFAULT_REQUEST_MODULES: RequestModuleSettings = {
     assigneeIds: [],
     defaultAssigneeId: null,
     requireDueDate: true,
+    allowDecline: false,
   },
 };
 
@@ -137,6 +141,7 @@ export const maintenanceModuleSchema = commonSchema
     assigneeIds: ids,
     defaultAssigneeId: z.string().cuid().nullable(),
     requireDueDate: z.boolean(),
+    allowDecline: z.boolean(),
   })
   .superRefine((m, ctx) => {
     if (m.defaultAssigneeId && m.assigneeIds.length > 0 && !m.assigneeIds.includes(m.defaultAssigneeId)) {
@@ -257,6 +262,7 @@ export interface RequestModuleView {
   canAsk: boolean;
   /** Approve workflow: marks these done (and declines, where allowed). */
   handles: boolean;
+  /** Whoever handles one may decline it: approve workflow, the handlers; assign workflow, the person asked. */
   allowDecline: boolean;
   /** Media: the kinds offered. Empty for other modules. */
   mediaTypes: MediaType[];
@@ -300,7 +306,7 @@ export function moduleViews(
     return {
       ...common,
       handles: false,
-      allowDecline: false,
+      allowDecline: m.allowDecline,
       mediaTypes: [],
       assigneeIds: choices,
       defaultAssigneeId: m.defaultAssigneeId && choices.includes(m.defaultAssigneeId) ? m.defaultAssigneeId : null,

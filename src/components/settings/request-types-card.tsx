@@ -321,6 +321,11 @@ export function RequestTypesCard({
                     checked={maintenance.requireDueDate}
                     onChange={(on) => setMaintenance({ ...maintenance, requireDueDate: on })}
                   />
+                  <Check
+                    label="The person asked can decline, with a reason"
+                    checked={maintenance.allowDecline}
+                    onChange={(on) => setMaintenance({ ...maintenance, allowDecline: on })}
+                  />
                 </>
               ) : null}
             </div>

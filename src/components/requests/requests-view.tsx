@@ -186,7 +186,8 @@ export function RequestsView({
     onError: (e: Error) => toast.error(e.message),
   });
 
-  // Where the head allows it, whoever handles media can say no, with a reason.
+  // Where the head allows it, whoever handles media, or the person a maintenance
+  // request went to, can say no, with a reason.
   const declineMutation = useMutation({
     mutationFn: (input: { id: string; reply: string | null }) => post<RequestDTO>('/api/requests/decline', input),
     onSuccess: (r) => {
@@ -264,12 +265,17 @@ export function RequestsView({
                       request={r}
                       currentUserId={currentUserId}
                       requireDueDate={maintenanceModule.requireDueDate}
+                      canDecline={maintenanceModule.allowDecline}
                       busy={busyId === r.id}
                       onAccept={() => {
                         acceptForm.clear();
                         setAccepting(r);
                       }}
                       onComplete={() => completeMutation.mutate(r.id)}
+                      onDecline={() => {
+                        declineForm.clear();
+                        setDeclining(r);
+                      }}
                       onEdit={() => {
                         editForm.clear();
                         setEditing(r);
@@ -504,9 +510,11 @@ function MaintenanceRow({
   request: r,
   currentUserId,
   requireDueDate,
+  canDecline,
   busy,
   onAccept,
   onComplete,
+  onDecline,
   onEdit,
   onDelete,
 }: {
@@ -514,15 +522,19 @@ function MaintenanceRow({
   currentUserId: string;
   /** Accepting needs a done-by date (Settings → Request types). */
   requireDueDate: boolean;
+  /** The head lets the person asked decline (Settings → Request types). */
+  canDecline: boolean;
   busy: boolean;
   onAccept: () => void;
   onComplete: () => void;
+  onDecline: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
   const timeZone = useHouseholdZone();
   const isRequester = r.requester.id === currentUserId;
   const isAssignee = r.assignee?.id === currentUserId;
+  const open = r.status === 'pending' || r.status === 'accepted';
   const overdue = r.status === 'accepted' && isOverdue(r.dueAt, timeZone);
   const who = (m: { id: string; name: string } | null) =>
     !m ? 'someone' : m.id === currentUserId ? 'you' : m.name;
@@ -531,7 +543,13 @@ function MaintenanceRow({
     <li className={cn('flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center', isAssignee && r.status === 'pending' && 'bg-primary/5')}>
       <div className="min-w-0 flex-1">
         <p className="flex flex-wrap items-center gap-2 font-medium">
-          <span className={cn('truncate', r.status === 'completed' && 'text-muted-foreground line-through')}>
+          <span
+            className={cn(
+              'truncate',
+              r.status === 'completed' && 'text-muted-foreground line-through',
+              r.status === 'declined' && 'text-muted-foreground',
+            )}
+          >
             {r.title}
           </span>
           {r.status === 'accepted' && r.dueAt ? (
@@ -545,11 +563,22 @@ function MaintenanceRow({
           ) : null}
         </p>
         {r.details ? <p className="text-sm text-muted-foreground">{r.details}</p> : null}
+        {r.status === 'declined' ? (
+          <p className="text-sm text-muted-foreground">
+            {r.decidedBy ? `Declined by ${who(r.decidedBy)}` : 'Declined'}
+            {r.reply ? `: ${r.reply}` : null}
+          </p>
+        ) : null}
         <p className="text-xs text-muted-foreground">
           {isRequester ? 'You' : who(r.requester)} asked {who(r.assignee)} · {shortDate(r.createdAt, timeZone)}
         </p>
       </div>
       <div className="flex shrink-0 flex-wrap items-center gap-1">
+        {isAssignee && canDecline && open ? (
+          <Button size="sm" variant="ghost" onClick={onDecline} disabled={busy}>
+            <X /> Decline
+          </Button>
+        ) : null}
         {isAssignee && r.status === 'pending' ? (
           <Button size="sm" onClick={onAccept}>
             Accept
@@ -566,7 +595,14 @@ function MaintenanceRow({
             </Button>
           </>
         ) : null}
-        {isRequester ? <OwnerActions title={r.title} onEdit={onEdit} onDelete={onDelete} /> : null}
+        {/* A declined request can't be edited, only removed. */}
+        {isRequester && r.status === 'declined' ? (
+          <Button variant="ghost" size="icon" onClick={onDelete} aria-label={`Remove ${r.title}`}>
+            <Trash2 className="size-4" />
+          </Button>
+        ) : isRequester ? (
+          <OwnerActions title={r.title} onEdit={onEdit} onDelete={onDelete} />
+        ) : null}
       </div>
     </li>
   );
@@ -686,7 +722,11 @@ function DeclineDialog({
           id="request-reply"
           value={reply}
           onChange={(e) => setReply(e.target.value)}
-          placeholder="e.g. We already have it on another service"
+          placeholder={
+            request?.category === 'maintenance'
+              ? "e.g. I'm away this week, ask someone else"
+              : 'e.g. We already have it on another service'
+          }
           maxLength={500}
           {...errors.invalid('reply')}
         />

@@ -127,16 +127,17 @@ export function SettingsView({
         </p>
       </div>
       {/* One household row holds both; the time zone isn't a points setting.
-          Two short cards: side by side on wide screens, stacked below that. */}
+          Two short cards: side by side on wide screens and sideways phones, stacked below that. */}
       {initialPoints ? (
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="grid gap-6 sm:landscape:grid-cols-2 lg:grid-cols-2">
           <TimeZoneCard initial={initialPoints} />
           <PointsCard initial={initialPoints} />
         </div>
       ) : null}
-      {/* Two stacks side by side on wide screens, so short cards don't each take a full row.
-          A phone shows the first stack above the second: the same order as one list. */}
-      <div className="grid items-start gap-6 lg:grid-cols-2">
+      {/* Two stacks side by side on wide screens and on a phone or tablet turned sideways,
+          so short cards don't each take a full row. Upright, a phone shows the first stack
+          above the second: the same order as one list. */}
+      <div className="grid items-start gap-6 sm:landscape:grid-cols-2 lg:grid-cols-2">
         <div className="space-y-6">
           {/* Rooms are where tasks are done and stock is kept: shown while either is on. */}
           {placesEnabled(features) ? <PlacesCard initial={initialPlaces} /> : null}

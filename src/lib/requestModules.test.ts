@@ -38,13 +38,14 @@ describe('parseRequestModules', () => {
     expect(s.media.handlerIds).toEqual([]);
     expect(s.media.allowDecline).toBe(false);
     expect(s.maintenance.requireDueDate).toBe(true);
+    expect(s.maintenance.allowDecline).toBe(false);
     expect(s.maintenance.askRoles).toEqual(['head', 'manager', 'adult', 'teen', 'child', 'guest']);
   });
 
   it('reads what the card saved', () => {
     const saved = withChanges({
       media: { label: 'Movies & TV', mediaTypes: ['tv'], allowDecline: true, handlerIds: [MOM] },
-      maintenance: { enabled: false, requireDueDate: false, assigneeIds: [DAD], defaultAssigneeId: DAD },
+      maintenance: { enabled: false, requireDueDate: false, allowDecline: true, assigneeIds: [DAD], defaultAssigneeId: DAD },
     });
     expect(parseRequestModules(JSON.stringify(saved))).toEqual(saved);
   });
@@ -176,5 +177,12 @@ describe('moduleViews', () => {
     const head = moduleViews(s, { id: DAD, role: 'head' }, { create: true, approve: true }, members)[0];
     expect([mom.handles, mom.allowDecline]).toEqual([true, true]);
     expect(head.handles).toBe(false);
+  });
+
+  it('maintenance declining follows its own switch, not media’s', () => {
+    const off = withChanges({ media: { allowDecline: true } });
+    expect(moduleViews(off, { id: KID, role: 'child' }, { create: true, approve: false }, members)[1].allowDecline).toBe(false);
+    const on = withChanges({ maintenance: { allowDecline: true } });
+    expect(moduleViews(on, { id: KID, role: 'child' }, { create: true, approve: false }, members)[1].allowDecline).toBe(true);
   });
 });

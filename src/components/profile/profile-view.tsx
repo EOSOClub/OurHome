@@ -108,9 +108,10 @@ export function ProfileView({
         </Link>
       </div>
 
-      {/* Two stacks side by side on wide screens, so short cards don't each take a full row.
-          A phone shows the first stack above the second: the same order as one list. */}
-      <div className="grid items-start gap-6 lg:grid-cols-2">
+      {/* Two stacks side by side on wide screens and on a phone or tablet turned sideways,
+          so short cards don't each take a full row. Upright, a phone shows the first stack
+          above the second: the same order as one list. */}
+      <div className="grid items-start gap-6 sm:landscape:grid-cols-2 lg:grid-cols-2">
         <div className="space-y-6">
           <AboutMeCard overview={overview} />
           {household.length > 1 ? <HouseholdCard members={household} userId={overview.id} /> : null}

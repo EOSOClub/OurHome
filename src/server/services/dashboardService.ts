@@ -222,6 +222,8 @@ export async function getDashboard(
         mediaType: true,
         year: true,
         season: true,
+        issue: true,
+        episode: true,
         status: true,
         assigneeId: true,
         dueAt: true,

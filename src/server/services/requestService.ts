@@ -37,7 +37,9 @@ import type {
 //                which completes it, or declines it when the head allows that.
 //                Rows from before statuses existed have no status; treat that
 //                as pending. "accepted" rows from the older accept → available
-//                flow still count as waiting.
+//                flow still count as waiting. A media request with `issue`
+//                reports a problem with something the household already has;
+//                it works the same way, and marking it done means fixed.
 //   maintenance: the requester asks another member (the assignee), one of the
 //                people the head lets be asked. The assignee accepts with a
 //                done-by date (`dueAt`, the deadline; optional when the head
@@ -63,6 +65,8 @@ export function requestToDTO(r: RequestWithPeople): RequestDTO {
     mediaType: r.mediaType,
     year: r.year,
     season: r.season,
+    issue: r.issue === true,
+    episode: r.episode,
     details: r.details,
     assignee: r.assignee ? { id: r.assignee.id, name: r.assignee.name } : null,
     status: r.status,
@@ -78,18 +82,26 @@ export function requestToDTO(r: RequestWithPeople): RequestDTO {
   };
 }
 
-/** For activity messages, e.g. "the movie “Dune (2021)”" or "“Fix the faucet”". */
+/**
+ * For activity messages, e.g. "the movie “Dune (2021)”", "a problem with
+ * season 2, episode 3 of the TV show “Severance (2022)”" or "“Fix the faucet”".
+ */
 function describe(r: {
   category: string;
   mediaType: string | null;
   title: string;
   year: number | null;
   season?: number | null;
+  issue?: boolean | null;
+  episode?: number | null;
 }): string {
   if (r.category !== 'media') return `“${r.title}”`;
-  const kind = MEDIA_TYPE_LABELS[r.mediaType as MediaType]?.toLowerCase() ?? 'item';
+  // Mid-sentence: "Movie" becomes "movie", but "TV show" keeps its capitals.
+  const kind = MEDIA_TYPE_LABELS[r.mediaType as MediaType]?.replace(/^[A-Z][a-z]/, (s) => s.toLowerCase()) ?? 'item';
   const name = r.year ? `“${r.title} (${r.year})”` : `“${r.title}”`;
-  return r.season ? `season ${r.season} of the ${kind} ${name}` : `the ${kind} ${name}`;
+  const part = r.season ? `season ${r.season}${r.episode ? `, episode ${r.episode}` : ''} of ` : '';
+  const what = `${part}the ${kind} ${name}`;
+  return r.issue ? `a problem with ${what}` : what;
 }
 
 /**
@@ -159,6 +171,21 @@ async function assertAssignable(
   return member;
 }
 
+/**
+ * Media: the season (TV only) and the episode (TV problem reports with a
+ * season only). `episode` undefined keeps `keepEpisode`, for app builds that
+ * don't know about episodes editing a report.
+ */
+function mediaPlace(
+  input: { mediaType: MediaType; season?: number | null; episode?: number | null },
+  issue: boolean,
+  keepEpisode: number | null = null,
+) {
+  const season = input.mediaType === 'tv' ? (input.season ?? null) : null;
+  const episode = issue && season !== null ? (input.episode === undefined ? keepEpisode : input.episode) : null;
+  return { season, episode };
+}
+
 /** Media: the kind must be one the head offers, unless it's the request's own kind already. */
 function assertMediaTypeOffered(modules: RequestModuleSettings, mediaType: MediaType, current: string | null = null) {
   if (mediaType !== current && !modules.media.mediaTypes.includes(mediaType)) {
@@ -202,6 +229,7 @@ export async function createRequest(
 
   if (input.category === 'media') {
     assertMediaTypeOffered(modules, input.mediaType);
+    const issue = input.issue === true;
     request = await prisma.request.create({
       data: {
         householdId,
@@ -210,12 +238,14 @@ export async function createRequest(
         mediaType: input.mediaType,
         title: input.title,
         year: input.year,
-        season: input.mediaType === 'tv' ? (input.season ?? null) : null,
+        ...mediaPlace(input, issue),
+        issue,
+        details: issue ? (input.details ?? null) : null,
         status: 'pending',
       },
       include: requestInclude,
     });
-    message = `requested ${describe(request)}`;
+    message = issue ? `reported ${describe(request)}` : `requested ${describe(request)}`;
   } else {
     const assignee = await assertAssignable(householdId, modules, input.assigneeId, actor.id);
     request = await prisma.request.create({
@@ -315,11 +345,15 @@ export async function updateRequest(
   let data: Prisma.RequestUpdateInput;
   if (input.category === 'media') {
     assertMediaTypeOffered(modules, input.mediaType, existing.mediaType);
+    // A problem report stays one (and a request to add stays that); app
+    // builds that don't know about reports send no description, so keep it.
+    const issue = existing.issue === true;
     data = {
       mediaType: input.mediaType,
       title: input.title,
       year: input.year,
-      season: input.mediaType === 'tv' ? (input.season ?? null) : null,
+      ...mediaPlace(input, issue, existing.episode),
+      details: issue ? (input.details || existing.details) : null,
     };
   } else {
     await assertAssignable(householdId, modules, input.assigneeId, userId, existing.assigneeId);
@@ -347,7 +381,7 @@ export async function updateRequest(
     verb: 'updated',
     subjectType: 'request',
     subjectId: request.id,
-    message: `updated their request ${describe(request)}`,
+    message: `updated their ${request.issue ? 'report of' : 'request'} ${describe(request)}`,
   });
   // `existing.assigneeId`: a reassigned request leaves the old assignee's list.
   pushRequestChange(householdId, modules, request, [existing.assigneeId]);
@@ -435,7 +469,11 @@ export async function completeRequest(
     verb: 'completed',
     subjectType: 'request',
     subjectId: request.id,
-    message: approve ? `added ${describe(request)}` : `finished ${describe(request)}`,
+    message: request.issue
+      ? `fixed ${describe(request)}`
+      : approve
+        ? `added ${describe(request)}`
+        : `finished ${describe(request)}`,
   });
   pushRequestChange(householdId, modules, request);
 
@@ -477,7 +515,7 @@ export async function declineRequest(
     verb: 'updated',
     subjectType: 'request',
     subjectId: request.id,
-    message: `declined ${describe(request)}`,
+    message: request.issue ? `declined the report of ${describe(request)}` : `declined ${describe(request)}`,
   });
   pushRequestChange(householdId, modules, request);
 
@@ -498,7 +536,7 @@ export async function deleteRequest(
     verb: 'deleted',
     subjectType: 'request',
     subjectId: id,
-    message: `withdrew their request ${describe(existing)}`,
+    message: `withdrew their ${existing.issue ? 'report of' : 'request'} ${describe(existing)}`,
   });
   pushRequestChange(householdId, await getRequestModules(householdId), existing);
 }

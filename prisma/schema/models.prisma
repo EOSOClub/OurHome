@@ -857,7 +857,9 @@ model ShoppingItem {
 // requester may edit or delete it (requestService). Each category is a request
 // module the head turns on and configures (src/lib/requestModules.ts).
 //   media:       "please get this movie / show" - whoever approves media marks
-//                it added, or declines it where the head allows that.
+//                it added, or declines it where the head allows that. With
+//                `issue` it reports a problem with one the household already
+//                has instead, and marking it done means fixed.
 //   maintenance: "please fix this" - assigned to another member, who accepts it
 //                with a done-by date (`dueAt`, the deadline; optional when the
 //                head says so) and later marks it done. dueAt is the hook for
@@ -876,7 +878,14 @@ model Request {
   year        Int?
   // tv only: a specific season being requested; null means the whole show.
   season      Int?
+  // true: a problem with something the household already has, not a request
+  // for something new. Null (older rows) or false means a request to add it.
+  issue       Boolean?
+  // tv issues only: the episode within `season` that has the problem; null
+  // means the whole season.
+  episode     Int?
   // --- maintenance ---
+  // Also a media issue's description of what's wrong.
   details     String?
   // Who is asked to do it (never the requester).
   assigneeId  String?

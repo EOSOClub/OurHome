@@ -10,6 +10,7 @@ import {
   Loader2,
   Pencil,
   Trash2,
+  TriangleAlert,
   Tv,
   Wrench,
   X,
@@ -59,6 +60,11 @@ export type RequestPayload =
       title: string;
       year: number;
       season: number | null;
+      /** A problem with something the household already has. */
+      issue: boolean;
+      episode: number | null;
+      /** A problem report's "what's wrong". */
+      details: string | null;
     }
   | {
       category: 'maintenance';
@@ -136,7 +142,11 @@ export function RequestsView({
     mutationFn: (payload: RequestPayload) => post<RequestDTO>('/api/requests', payload),
     onSuccess: (r) => {
       toast.success(
-        r.category === 'maintenance' ? `Sent to ${r.assignee?.name ?? 'them'}` : `Requested “${r.title}”`,
+        r.category === 'maintenance'
+          ? `Sent to ${r.assignee?.name ?? 'them'}`
+          : r.issue
+            ? `Reported a problem with “${r.title}”`
+            : `Requested “${r.title}”`,
       );
       setFormKey((k) => k + 1);
       invalidate();
@@ -180,7 +190,9 @@ export function RequestsView({
   const completeMutation = useMutation({
     mutationFn: (id: string) => post<RequestDTO>('/api/requests/complete', { id }),
     onSuccess: (r) => {
-      toast.success(r.category === 'media' ? `Added “${r.title}”` : `Marked “${r.title}” done`);
+      toast.success(
+        r.issue ? `Marked “${r.title}” fixed` : r.category === 'media' ? `Added “${r.title}”` : `Marked “${r.title}” done`,
+      );
       invalidate();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -207,6 +219,30 @@ export function RequestsView({
   // The server only sends requests of kinds that are on.
   const media = mediaModule ? requests.filter((r) => r.category === 'media') : [];
   const maintenance = maintenanceModule ? requests.filter((r) => r.category === 'maintenance') : [];
+  // Problems with what the household already has get their own list, above the requests to add.
+  const mediaIssues = media.filter((r) => r.issue);
+
+  const mediaRow = (r: RequestDTO, mod: RequestModuleView) => (
+    <MediaRow
+      key={r.id}
+      request={r}
+      isOwn={r.requester.id === currentUserId}
+      canManage={mod.handles}
+      canDecline={mod.handles && mod.allowDecline}
+      currentUserId={currentUserId}
+      busy={busyId === r.id}
+      onComplete={() => completeMutation.mutate(r.id)}
+      onDecline={() => {
+        declineForm.clear();
+        setDeclining(r);
+      }}
+      onEdit={() => {
+        editForm.clear();
+        setEditing(r);
+      }}
+      onDelete={() => setConfirmDelete(r)}
+    />
+  );
 
   return (
     <div className="space-y-6">
@@ -293,8 +329,16 @@ export function RequestsView({
       {mediaModule && media.length > 0 ? (
         <section className="space-y-4">
           <CategoryHeader category="media" label={mediaModule.label} />
+          {mediaIssues.length > 0 ? (
+            <div className="space-y-2">
+              <SectionHeader label="Problems" count={mediaIssues.length} icon={TriangleAlert} />
+              <ul className="divide-y divide-border rounded-lg border border-border">
+                {mediaIssues.map((r) => mediaRow(r, mediaModule))}
+              </ul>
+            </div>
+          ) : null}
           {MEDIA_TYPES.map((type) => {
-            const items = media.filter((r) => r.mediaType === type);
+            const items = media.filter((r) => r.mediaType === type && !r.issue);
             // A kind the head stopped offering still shows while it has requests.
             if (items.length === 0 && !mediaModule.mediaTypes.includes(type)) return null;
             const Icon = MEDIA_ICONS[type];
@@ -307,27 +351,7 @@ export function RequestsView({
                   </p>
                 ) : (
                   <ul className="divide-y divide-border rounded-lg border border-border">
-                    {items.map((r) => (
-                      <MediaRow
-                        key={r.id}
-                        request={r}
-                        isOwn={r.requester.id === currentUserId}
-                        canManage={mediaModule.handles}
-                        canDecline={mediaModule.handles && mediaModule.allowDecline}
-                        currentUserId={currentUserId}
-                        busy={busyId === r.id}
-                        onComplete={() => completeMutation.mutate(r.id)}
-                        onDecline={() => {
-                          declineForm.clear();
-                          setDeclining(r);
-                        }}
-                        onEdit={() => {
-                          editForm.clear();
-                          setEditing(r);
-                        }}
-                        onDelete={() => setConfirmDelete(r)}
-                      />
-                    ))}
+                    {items.map((r) => mediaRow(r, mediaModule))}
                   </ul>
                 )}
               </div>
@@ -462,16 +486,29 @@ function MediaRow({
   // over from the older accept → available flow: both are still waiting.
   const status: RequestStatus = r.status === 'completed' || r.status === 'declined' ? r.status : 'pending';
   const decider = r.decidedBy ? (r.decidedBy.id === currentUserId ? 'you' : r.decidedBy.name) : null;
+  // Problems are listed together, so each says what kind of media it is.
+  const Icon = r.issue ? (MEDIA_ICONS[r.mediaType as MediaType] ?? null) : null;
   return (
     <li className={cn('flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center', canManage && status === 'pending' && 'bg-primary/5')}>
       <div className="min-w-0 flex-1">
         <p className="flex flex-wrap items-center gap-2 font-medium">
+          {Icon ? <Icon className="size-4 shrink-0 text-muted-foreground" aria-label={MEDIA_TYPE_LABELS[r.mediaType as MediaType]} /> : null}
           <span className={cn('truncate', status === 'declined' && 'text-muted-foreground')}>
             {r.title} <span className="font-normal text-muted-foreground">({r.year})</span>
           </span>
-          {r.season ? <Badge variant="outline">Season {r.season}</Badge> : null}
-          <Badge variant={MEDIA_STATUS_BADGE[status]}>{MEDIA_STATUS_LABELS[status]}</Badge>
+          {r.season ? (
+            <Badge variant="outline">
+              Season {r.season}
+              {r.episode ? ` · Episode ${r.episode}` : null}
+            </Badge>
+          ) : r.issue && r.mediaType === 'tv' ? (
+            <Badge variant="outline">Whole show</Badge>
+          ) : null}
+          <Badge variant={MEDIA_STATUS_BADGE[status]}>
+            {r.issue && status === 'completed' ? 'Fixed' : MEDIA_STATUS_LABELS[status]}
+          </Badge>
         </p>
+        {r.issue && r.details ? <p className="text-sm text-muted-foreground">{r.details}</p> : null}
         {status === 'declined' ? (
           <p className="text-sm text-muted-foreground">
             {decider ? `Declined by ${decider}` : 'Declined'}
@@ -479,7 +516,7 @@ function MediaRow({
           </p>
         ) : null}
         <p className="text-xs text-muted-foreground">
-          Requested by {isOwn ? 'you' : r.requester.name} · {shortDate(r.createdAt, timeZone)}
+          {r.issue ? 'Reported' : 'Requested'} by {isOwn ? 'you' : r.requester.name} · {shortDate(r.createdAt, timeZone)}
         </p>
       </div>
       <div className="flex shrink-0 flex-wrap items-center gap-1">
@@ -490,7 +527,7 @@ function MediaRow({
         ) : null}
         {canManage && status === 'pending' ? (
           <Button size="sm" onClick={onComplete} disabled={busy}>
-            {busy ? <Loader2 className="animate-spin" /> : <Check />} Mark as added
+            {busy ? <Loader2 className="animate-spin" /> : <Check />} {r.issue ? 'Mark fixed' : 'Mark as added'}
           </Button>
         ) : null}
         {/* A declined request can't be edited, only removed. */}
@@ -725,7 +762,9 @@ function DeclineDialog({
           placeholder={
             request?.category === 'maintenance'
               ? "e.g. I'm away this week, ask someone else"
-              : 'e.g. We already have it on another service'
+              : request?.issue
+                ? "e.g. That's the only copy there is"
+                : 'e.g. We already have it on another service'
           }
           maxLength={500}
           {...errors.invalid('reply')}
@@ -737,9 +776,11 @@ function DeclineDialog({
 }
 
 /**
- * Step-by-step request form: request type → (media: type of media → name and
- * year) or (maintenance: what needs doing → who should do it). Each later step
- * appears once the one before it is chosen. The category is fixed when editing.
+ * Step-by-step request form: request type → (media: something new or a
+ * problem → type of media → name and year, and for a problem where and what's
+ * wrong) or (maintenance: what needs doing → who should do it). Each later step
+ * appears once the one before it is chosen. The category, and whether media is
+ * new or a problem, are fixed when editing.
  * What it offers comes from the head's Settings → Request types: the kinds this
  * member may ask for, the kinds of media, who may be asked and who is picked to
  * start with. A request being edited keeps its own kind and person even if the
@@ -793,6 +834,11 @@ export function RequestForm({
   const [title, setTitle] = useState(initial?.title ?? '');
   const [year, setYear] = useState(initial?.year ? String(initial.year) : '');
   const [season, setSeason] = useState(initial?.season ? String(initial.season) : '');
+  // Media problems: where (TV: the whole show, or a season and maybe an episode) and what's wrong.
+  const [issue, setIssue] = useState(initial?.issue ?? false);
+  const [wholeShow, setWholeShow] = useState(initial?.issue === true && initial.mediaType === 'tv' && !initial.season);
+  const [episode, setEpisode] = useState(initial?.episode ? String(initial.episode) : '');
+  const [problem, setProblem] = useState(initial?.issue ? (initial.details ?? '') : '');
   const [details, setDetails] = useState(initial?.details ?? '');
   const [assigneeId, setAssigneeId] = useState(initial?.assignee?.id ?? firstValues.assigneeId);
   const categoryModule = modules.find((m) => m.id === category);
@@ -802,10 +848,23 @@ export function RequestForm({
     : askable;
 
   const yearNum = Number(year);
-  const seasonNum = season.trim() === '' ? null : Number(season);
+  // A TV problem names a season unless it's with the whole show; the episode stays optional.
+  const tvProblem = issue && mediaType === 'tv';
+  const needsSeason = tvProblem && !wholeShow;
+  const seasonNum = season.trim() === '' || (tvProblem && wholeShow) ? null : Number(season);
+  const episodeNum = !needsSeason || episode.trim() === '' ? null : Number(episode);
   const yearValid = /^\d{4}$/.test(year) && yearNum >= 1870 && yearNum <= 2100;
-  const seasonValid = seasonNum === null || (Number.isInteger(seasonNum) && seasonNum >= 1 && seasonNum <= 100);
-  const mediaReady = category === 'media' && mediaType !== '' && title.trim() !== '' && yearValid && seasonValid;
+  const seasonValid =
+    seasonNum === null ? !needsSeason : Number.isInteger(seasonNum) && seasonNum >= 1 && seasonNum <= 100;
+  const episodeValid = episodeNum === null || (Number.isInteger(episodeNum) && episodeNum >= 1 && episodeNum <= 1000);
+  const mediaReady =
+    category === 'media' &&
+    mediaType !== '' &&
+    title.trim() !== '' &&
+    yearValid &&
+    seasonValid &&
+    episodeValid &&
+    (!issue || problem.trim() !== '');
   const maintenanceReady = category === 'maintenance' && title.trim() !== '' && assigneeId !== '';
 
   const yearLabel =
@@ -824,6 +883,9 @@ export function RequestForm({
         title: title.trim(),
         year: yearNum,
         season: mediaType === 'tv' ? seasonNum : null,
+        issue,
+        episode: episodeNum,
+        details: issue ? problem.trim() : null,
       });
     } else if (category === 'maintenance' && maintenanceReady) {
       onSubmit({ category, title: title.trim(), details: details.trim() || null, assigneeId });
@@ -831,7 +893,14 @@ export function RequestForm({
   }
 
   // Why each is red: the server's word first, then what's checked here.
-  const seasonError = errors.get('season') ?? (seasonValid ? null : 'Enter a season from 1 to 100, or leave it blank.');
+  const seasonError =
+    errors.get('season') ??
+    (seasonValid || (needsSeason && season === '')
+      ? null
+      : needsSeason
+        ? 'Enter a season from 1 to 100.'
+        : 'Enter a season from 1 to 100, or leave it blank.');
+  const episodeError = errors.get('episode') ?? (episodeValid ? null : 'Enter an episode from 1 to 1000, or leave it blank.');
   const yearError =
     errors.get('year') ?? (year !== '' && !yearValid ? 'Enter a 4-digit year from 1870 to 2100.' : null);
 
@@ -873,6 +942,21 @@ export function RequestForm({
       </div>
 
       {category === 'media' ? (
+        <div className="space-y-1.5" data-field="issue">
+          <Label htmlFor="request-media-purpose">What do you need?</Label>
+          <Select
+            id="request-media-purpose"
+            value={issue ? 'issue' : 'add'}
+            disabled={initial !== undefined}
+            onChange={(e) => setIssue(e.target.value === 'issue')}
+          >
+            <option value="add">Something new added</option>
+            <option value="issue">A problem fixed with something we have</option>
+          </Select>
+        </div>
+      ) : null}
+
+      {category === 'media' ? (
         <div className="space-y-1.5" data-field="mediaType">
           <Label htmlFor="request-media-type">Type of media</Label>
           <Select
@@ -909,8 +993,53 @@ export function RequestForm({
             />
             <FieldNote id={errors.noteId('title')} error={errors.get('title')} />
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            {mediaType === 'tv' ? (
+          {tvProblem ? (
+            <label className="flex items-center gap-2 text-sm" data-field="wholeShow">
+              <input
+                type="checkbox"
+                className="size-4 accent-[var(--color-primary)]"
+                checked={wholeShow}
+                onChange={(e) => setWholeShow(e.target.checked)}
+              />
+              It&apos;s the whole show, not one season
+            </label>
+          ) : null}
+          <div className={cn('grid gap-4', needsSeason ? 'sm:grid-cols-3' : 'sm:grid-cols-2')}>
+            {needsSeason ? (
+              <>
+                <div className="space-y-1.5" data-field="season">
+                  <Label htmlFor="request-season">Season</Label>
+                  <Input
+                    id="request-season"
+                    inputMode="numeric"
+                    value={season}
+                    onChange={(e) => setSeason(e.target.value.replace(/\D/g, '').slice(0, 3))}
+                    placeholder="e.g. 2"
+                    aria-invalid={seasonError ? true : undefined}
+                    aria-describedby={errors.noteId('season')}
+                    required
+                  />
+                  <FieldNote id={errors.noteId('season')} error={seasonError} />
+                </div>
+                <div className="space-y-1.5" data-field="episode">
+                  <Label htmlFor="request-episode">Episode (optional)</Label>
+                  <Input
+                    id="request-episode"
+                    inputMode="numeric"
+                    value={episode}
+                    onChange={(e) => setEpisode(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    placeholder="Whole season"
+                    aria-invalid={episodeError ? true : undefined}
+                    aria-describedby={errors.noteId('episode')}
+                  />
+                  <FieldNote
+                    id={errors.noteId('episode')}
+                    error={episodeError}
+                    hint="Leave blank if it's the whole season."
+                  />
+                </div>
+              </>
+            ) : mediaType === 'tv' && !tvProblem ? (
               <div className="space-y-1.5" data-field="season">
                 <Label htmlFor="request-season">Season (optional)</Label>
                 <Input
@@ -944,6 +1073,21 @@ export function RequestForm({
               <FieldNote id={errors.noteId('year')} error={yearError} />
             </div>
           </div>
+          {issue ? (
+            <div className="space-y-1.5" data-field="details">
+              <Label htmlFor="request-problem">What&apos;s wrong?</Label>
+              <Textarea
+                id="request-problem"
+                value={problem}
+                onChange={(e) => setProblem(e.target.value)}
+                placeholder="e.g. No sound after 20 minutes, or the subtitles are out of sync"
+                maxLength={2000}
+                required
+                {...errors.invalid('details')}
+              />
+              <FieldNote id={errors.noteId('details')} error={errors.get('details')} />
+            </div>
+          ) : null}
         </>
       ) : null}
 

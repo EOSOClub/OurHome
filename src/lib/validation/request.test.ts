@@ -29,6 +29,39 @@ describe('createRequestSchema', () => {
     expect(createRequestSchema.safeParse({ ...movie, mediaType: 'book' }).success).toBe(false);
   });
 
+  const tvProblem = {
+    category: 'media',
+    mediaType: 'tv',
+    title: 'Severance',
+    year: 2022,
+    issue: true,
+    details: 'No sound after 20 minutes',
+  };
+
+  it('accepts a problem with a whole show, a season, or one episode', () => {
+    expect(createRequestSchema.safeParse(tvProblem).success).toBe(true);
+    expect(createRequestSchema.safeParse({ ...tvProblem, season: 2 }).success).toBe(true);
+    expect(createRequestSchema.safeParse({ ...tvProblem, season: 2, episode: 3 }).success).toBe(true);
+    const movieProblem = { ...movie, issue: true, details: 'Subtitles out of sync' };
+    expect(createRequestSchema.safeParse(movieProblem).success).toBe(true);
+  });
+
+  it('requires a problem to say what is wrong', () => {
+    expect(createRequestSchema.safeParse({ ...tvProblem, details: undefined }).success).toBe(false);
+    expect(createRequestSchema.safeParse({ ...tvProblem, details: '   ' }).success).toBe(false);
+  });
+
+  it('only takes an episode with a season, on a TV problem', () => {
+    expect(createRequestSchema.safeParse({ ...tvProblem, episode: 3 }).success).toBe(false);
+    const tv = { category: 'media', mediaType: 'tv', title: 'Severance', year: 2025, season: 2 };
+    expect(createRequestSchema.safeParse({ ...tv, episode: 3 }).success).toBe(false);
+  });
+
+  it('treats a request without the problem flag as a request to add it', () => {
+    const parsed = createRequestSchema.parse(movie);
+    expect(parsed.category === 'media' && parsed.issue).toBeFalsy();
+  });
+
   const maintenance = {
     category: 'maintenance',
     title: 'Fix the leaky faucet',

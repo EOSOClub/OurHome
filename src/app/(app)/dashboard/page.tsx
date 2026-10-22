@@ -149,7 +149,7 @@ function NeedsYouCard({ me, timeZone }: { me: Me; timeZone: string }) {
                       <p className="truncate text-sm font-medium group-hover:underline">{requestTitle(r)}</p>
                       <p className="text-xs text-muted-foreground">from {r.requester.name}</p>
                     </div>
-                    <RequestBadge reason={r.reason} dueAt={r.dueAt} timeZone={timeZone} />
+                    <RequestBadge reason={r.reason} issue={r.issue === true} dueAt={r.dueAt} timeZone={timeZone} />
                   </Link>
                 </li>
               ))}
@@ -211,22 +211,26 @@ function TaskList({ tasks, timeZone, muted = false }: { tasks: DashTask[]; timeZ
 
 function requestTitle(r: Me['requests'][number]): string {
   if (r.category !== 'media') return r.title;
-  const kind = r.mediaType === 'tv' ? 'TV' : 'Movie';
-  return `${kind}: ${r.title}${r.year ? ` (${r.year})` : ''}${r.season ? ` · S${r.season}` : ''}`;
+  const kind = `${r.mediaType === 'tv' ? 'TV' : 'Movie'}${r.issue ? ' problem' : ''}`;
+  const place = r.season ? ` · S${r.season}${r.episode ? ` E${r.episode}` : ''}` : '';
+  return `${kind}: ${r.title}${r.year ? ` (${r.year})` : ''}${place}`;
 }
 
 function RequestBadge({
   reason,
+  issue,
   dueAt,
   timeZone,
 }: {
   reason: Me['requests'][number]['reason'];
+  /** A media problem report: handling it means fixing it. */
+  issue: boolean;
   dueAt: Date | null;
   timeZone: string;
 }) {
   switch (reason) {
     case 'approve':
-      return <Badge>Mark added</Badge>;
+      return <Badge>{issue ? 'Fix it' : 'Mark added'}</Badge>;
     case 'accept':
       return <Badge>Accept</Badge>;
     case 'due':

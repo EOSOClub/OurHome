@@ -552,7 +552,11 @@ export interface RequestDTO {
   mediaType: string | null;
   year: number | null;
   season: number | null;
-  // maintenance
+  /** A problem with something the household already has, not a request to add it. */
+  issue: boolean;
+  /** TV problem reports: the episode within `season`; null is the whole season. */
+  episode: number | null;
+  // maintenance; also a media problem report's "what's wrong"
   details: string | null;
   assignee: MemberDTO | null;
   status: string | null;

@@ -4,9 +4,13 @@ import { MEDIA_TYPES } from '@/lib/enums';
 // A request is either media (name + year, optional TV season) or maintenance
 // (what needs doing + who should do it). For media the year is the release
 // year for a movie, and for TV the year of the first season (or of the
-// requested season when `season` is given).
+// requested season when `season` is given). A media request with `issue`
+// reports a problem with something the household already has: `details` says
+// what's wrong, and on TV `season` (none = the whole show) and `episode`
+// (none = the whole season) say where.
 
 const title = z.string().trim().min(1, 'Name is required.').max(200);
+const details = z.string().trim().max(2000).optional().nullable();
 
 const mediaFields = {
   category: z.literal('media'),
@@ -14,43 +18,67 @@ const mediaFields = {
   title,
   year: z.number().int().min(1870).max(2100),
   season: z.number().int().min(1).max(100).optional().nullable(),
+  // Older app builds don't send these: a request to add it.
+  issue: z.boolean().optional(),
+  episode: z.number().int().min(1).max(1000).optional().nullable(),
+  details,
 };
 
 const maintenanceFields = {
   category: z.literal('maintenance'),
   title,
-  details: z.string().trim().max(2000).optional().nullable(),
+  details,
   // The member asked to do it; the service rejects the requester themself.
   assigneeId: z.string().cuid(),
 };
 
-function seasonOnlyForTv(
-  r: { category: string; mediaType?: string; season?: number | null },
+function checkMedia(
+  r: {
+    category: string;
+    mediaType?: string;
+    season?: number | null;
+    issue?: boolean;
+    episode?: number | null;
+    details?: string | null;
+  },
   ctx: z.RefinementCtx,
 ) {
-  if (r.category === 'media' && r.mediaType !== 'tv' && r.season != null) {
+  if (r.category !== 'media') return;
+  if (r.mediaType !== 'tv' && r.season != null) {
     ctx.addIssue({
       code: 'custom',
       message: 'Only TV show requests can name a season.',
       path: ['season'],
     });
   }
+  if (r.episode != null && !(r.issue && r.mediaType === 'tv' && r.season != null)) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'An episode goes with a season, on a problem with a TV show.',
+      path: ['episode'],
+    });
+  }
+  if (r.issue && !r.details) {
+    ctx.addIssue({ code: 'custom', message: 'Say what’s wrong.', path: ['details'] });
+  }
 }
 
 export const createRequestSchema = z
   .discriminatedUnion('category', [z.object(mediaFields), z.object(maintenanceFields)])
-  .superRefine(seasonOnlyForTv);
+  .superRefine(checkMedia);
 
 export type CreateRequestInput = z.infer<typeof createRequestSchema>;
 
 // Updates replace every field (the edit form always sends the full request).
+// Whether a media request is a problem report is fixed when it's made; the
+// service keeps the stored one.
 const id = z.string().cuid();
 export const updateRequestSchema = z
   .discriminatedUnion('category', [
     z.object({ id, ...mediaFields }),
     z.object({ id, ...maintenanceFields }),
   ])
-  .superRefine(seasonOnlyForTv);
+  .superRefine(checkMedia);
 
 export type UpdateRequestInput = z.infer<typeof updateRequestSchema>;
 

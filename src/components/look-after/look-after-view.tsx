@@ -1,8 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { BellRing, HeartHandshake, Loader2 } from 'lucide-react';
+import { BellRing, ChevronLeft, ChevronRight, HeartHandshake, Loader2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import type { LookAfterDTO, RingDTO, UsageHistoryDTO } from '@/lib/types';
 import { apiFetch, ApiError } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -19,11 +22,13 @@ import {
 } from '@/lib/phoneHealth';
 import { formatMinutes, usageDayLabel } from '@/lib/appUsage';
 import { RING_MS, ringActive, ringOutcome } from '@/lib/ring';
-import { SetupProgress } from '@/components/look-after/setup-progress';
+import { SetupProgress, setupSummary } from '@/components/look-after/setup-progress';
 import { AppList, UsageHistory } from '@/components/look-after/usage-history';
 
 // The "People you look after" page: the children and teens the viewer
-// supervises (the Head's supervision list). Ring their phone, make their
+// supervises (the Head's supervision list). First a summary card for each
+// (with Ring); a card opens that person's page (?person=<id>), where the
+// viewer can ring their phone, make their
 // location sharing required, share their app usage, choose which protections
 // their phone must have on (PHONE_RULES). Only linked for adults
 // who supervise someone; the server checks it again.
@@ -83,31 +88,36 @@ export function LookAfterView({ initial }: { initial: LookAfterDTO }) {
     });
   }, [initial, queryClient]);
 
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="flex items-center gap-2 text-2xl font-semibold">
-          <HeartHandshake className="size-6" /> People you look after
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          The children and teens the Head of House asked you to supervise. Everything you do here is logged in
-          Activity.
-        </p>
-      </div>
+  // Ring buttons rest while a ring of the viewer's goes (see RingButton), kept
+  // here so moving between the cards and a person's page doesn't free them.
+  const [ringingUntil, setRingingUntil] = useState<Record<string, number>>({});
+  const ringProps = (person: Person) => ({
+    person,
+    until: ringingUntil[person.id] ?? 0,
+    onRang: (until: number) => setRingingUntil((r) => ({ ...r, [person.id]: until })),
+  });
 
-      {data.people.length === 0 ? (
-        <p className="rounded-lg border border-border bg-muted/50 px-4 py-3 text-sm text-muted-foreground">
-          You don&apos;t look after anyone right now. The Head of House chooses who supervises whom on the Members
-          page.
-        </p>
-      ) : (
+  // One person's page is the same page with ?person=<id>, so Back returns to the cards.
+  const selectedId = useSearchParams().get('person');
+  const selected = data.people.find((p) => p.id === selectedId);
+
+  if (selected) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <Link
+            href="/look-after"
+            className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+          >
+            <ChevronLeft className="size-4" /> People you look after
+          </Link>
+          <h1 className="flex items-center gap-2 text-2xl font-semibold">
+            <HeartHandshake className="size-6" /> {selected.name}
+          </h1>
+        </div>
         <Card className="max-w-2xl">
           <CardContent className="space-y-3 pt-5">
-            <ul className="divide-y divide-border">
-              {data.people.map((person) => (
-                <PersonRow key={person.id} person={person} canRing={data.canRing} />
-              ))}
-            </ul>
+            <PersonDetail {...ringProps(selected)} canRing={data.canRing} />
             <p className="text-xs text-muted-foreground">
               <strong>Ring</strong> rings their phone loudly for up to 30 seconds, even on silent. You see when it
               starts ringing, and whether someone tapped Stop.{' '}
@@ -128,8 +138,97 @@ export function LookAfterView({ initial }: { initial: LookAfterDTO }) {
             </p>
           </CardContent>
         </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="flex items-center gap-2 text-2xl font-semibold">
+          <HeartHandshake className="size-6" /> People you look after
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          The children and teens the Head of House asked you to supervise. Tap someone to see and change
+          everything for them. Everything you do here is logged in Activity.
+        </p>
+      </div>
+
+      {data.people.length === 0 ? (
+        <p className="rounded-lg border border-border bg-muted/50 px-4 py-3 text-sm text-muted-foreground">
+          You don&apos;t look after anyone right now. The Head of House chooses who supervises whom on the Members
+          page.
+        </p>
+      ) : (
+        <>
+          <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {data.people.map((person) => (
+              <PersonCard key={person.id} {...ringProps(person)} canRing={data.canRing} />
+            ))}
+          </ul>
+          {data.canRing ? null : (
+            <p className="text-xs text-muted-foreground">
+              Ringing needs instant phone alerts: Firebase on this server, or Stay connected turned on in the app on
+              their phone.
+            </p>
+          )}
+        </>
       )}
     </div>
+  );
+}
+
+type Person = LookAfterDTO['people'][number];
+
+/** Their location sharing, in a line. */
+const SHARING_SUMMARY: Record<Person['sharing'], string> = {
+  required: 'Location required',
+  on: 'Shares their location',
+  off: 'Not sharing their location',
+};
+
+/**
+ * One person on the first page: what needs seeing at a glance (their phone,
+ * location, today's app time, setup, the last ring), and Ring. The card opens
+ * their page, where everything can be changed.
+ */
+function PersonCard({ person, canRing, until, onRang }: RingButtonProps & { canRing: boolean }) {
+  const latest = person.appUsage.latest;
+  return (
+    <li>
+      <Card
+        className={cn(
+          'flex h-full flex-col overflow-hidden',
+          person.phone?.problems.length ? 'border-destructive/60' : undefined,
+        )}
+      >
+        <Link
+          href={`/look-after?person=${encodeURIComponent(person.id)}`}
+          className="block flex-1 space-y-1 p-4 transition-colors hover:bg-muted/40"
+        >
+          <span className="flex items-center justify-between gap-2">
+            <span className="truncate font-medium">{person.name}</span>
+            <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+          </span>
+          <PhoneStatus phone={person.phone} />
+          <span className="block text-xs text-muted-foreground">{SHARING_SUMMARY[person.sharing]}</span>
+          <span className="block text-xs text-muted-foreground">
+            {!person.appUsage.shared
+              ? 'App usage not shared'
+              : latest
+                ? `${usageDayLabel(latest.day, new Date().toLocaleDateString('en-CA'))}: ${formatMinutes(latest.totalMinutes)} in apps`
+                : 'No app usage from their phone yet'}
+          </span>
+          <span className="block text-xs text-muted-foreground">{setupSummary(person)}</span>
+          {person.ring ? <RingLine ring={person.ring} /> : null}
+        </Link>
+        {canRing ? (
+          <div className="flex justify-end border-t border-border px-4 py-2">
+            <RingButton person={person} until={until} onRang={onRang} />
+          </div>
+        ) : null}
+      </Card>
+    </li>
   );
 }
 
@@ -138,6 +237,16 @@ export function LookAfterView({ initial }: { initial: LookAfterDTO }) {
  * how instant alerts reach it (Stay connected, or when the last one arrived).
  */
 function PhoneLine({ phone }: { phone: LookAfterDTO['people'][number]['phone'] }) {
+  return (
+    <>
+      <PhoneStatus phone={phone} />
+      {phone ? <AlertsLine phone={phone} /> : null}
+    </>
+  );
+}
+
+/** What's wrong with their phone (red), or when it last checked in. */
+function PhoneStatus({ phone }: { phone: LookAfterDTO['people'][number]['phone'] }) {
   if (!phone) {
     return <span className="block text-xs text-muted-foreground">Their phone hasn&apos;t checked in yet</span>;
   }
@@ -158,7 +267,6 @@ function PhoneLine({ phone }: { phone: LookAfterDTO['people'][number]['phone'] }
           Phone checked in <RelativeTime date={phone.lastSeenAt} />
         </span>
       )}
-      <AlertsLine phone={phone} />
     </>
   );
 }
@@ -252,19 +360,26 @@ function UsageHistoryPanel({ personId }: { personId: string }) {
   return <UsageHistory history={data} />;
 }
 
-function PersonRow({ person, canRing }: { person: LookAfterDTO['people'][number]; canRing: boolean }) {
+interface RingButtonProps {
+  person: Person;
+  /** When the viewer's last ring from this page stops resting the button (0: none). */
+  until: number;
+  onRang: (until: number) => void;
+}
+
+/** Rings their phone. On their card and on their page. */
+function RingButton({ person, until, onRang }: RingButtonProps) {
   const queryClient = useQueryClient();
   // Rests while the phone rings, so a second tap can't be refused by the
   // server; until their phone says the ring ended, when the server allows another.
-  const [ringingUntil, setRingingUntil] = useState(0);
   const [now, setNow] = useState(() => Date.now());
   const ringEnded = person.ring?.phase === 'stopped' || person.ring?.phase === 'rang_out';
-  const ringing = now < ringingUntil && !ringEnded;
+  const ringing = now < until && !ringEnded;
   useEffect(() => {
     if (!ringing) return;
-    const t = setTimeout(() => setNow(Date.now()), ringingUntil - now);
+    const t = setTimeout(() => setNow(Date.now()), until - now);
     return () => clearTimeout(t);
-  }, [ringing, ringingUntil, now]);
+  }, [ringing, until, now]);
 
   const ring = useMutation({
     // A refetch already on its way mustn't put the last ring back.
@@ -282,11 +397,27 @@ function PersonRow({ person, canRing }: { person: LookAfterDTO['people'][number]
         d ? { ...d, people: d.people.map((p) => (p.id === person.id ? { ...p, ring } : p)) } : d,
       );
       setNow(at);
-      setRingingUntil(at + RING_MS);
+      onRang(at + RING_MS);
       toast.success(`Ringing ${person.name}’s phone`);
     },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not ring their phone.'),
   });
+
+  return (
+    <Button size="sm" variant="outline" disabled={ring.isPending || ringing} onClick={() => ring.mutate()}>
+      {ring.isPending ? <Loader2 className="animate-spin" /> : <BellRing />}
+      {ringing ? 'Ringing' : 'Ring'}
+    </Button>
+  );
+}
+
+/**
+ * Everything about one person: their phone, Ring, the Location required and
+ * Share app usage boxes, their app usage, a box per protection their phone
+ * must have on, and how far Set up this phone has got.
+ */
+function PersonDetail({ person, canRing, until, onRang }: RingButtonProps & { canRing: boolean }) {
+  const queryClient = useQueryClient();
 
   // A refetch already on its way (window focus) mustn't put the old value back.
   const cancelRefetch = () => queryClient.cancelQueries({ queryKey: LOOK_AFTER_KEY });
@@ -330,20 +461,14 @@ function PersonRow({ person, canRing }: { person: LookAfterDTO['people'][number]
     person.sharing === 'required' ? null : person.sharing === 'on' ? 'Shares their location' : 'Not sharing their location';
 
   return (
-    <li className="space-y-2 py-3 first:pt-0 last:pb-0">
+    <div className="space-y-2">
       <div className="flex items-center justify-between gap-2">
         <span className="min-w-0">
-          <span className="block truncate text-sm font-medium">{person.name}</span>
           {sharingNote ? <span className="block text-xs text-muted-foreground">{sharingNote}</span> : null}
           <PhoneLine phone={person.phone} />
           {person.ring ? <RingLine ring={person.ring} /> : null}
         </span>
-        {canRing ? (
-          <Button size="sm" variant="outline" disabled={ring.isPending || ringing} onClick={() => ring.mutate()}>
-            {ring.isPending ? <Loader2 className="animate-spin" /> : <BellRing />}
-            {ringing ? 'Ringing' : 'Ring'}
-          </Button>
-        ) : null}
+        {canRing ? <RingButton person={person} until={until} onRang={onRang} /> : null}
       </div>
       <label className="flex items-center gap-2 text-sm">
         <input
@@ -372,7 +497,7 @@ function PersonRow({ person, canRing }: { person: LookAfterDTO['people'][number]
         <RuleBox key={rule} person={person} rule={rule} />
       ))}
       <SetupProgress person={person} />
-    </li>
+    </div>
   );
 }
 

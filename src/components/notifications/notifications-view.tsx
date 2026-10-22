@@ -98,8 +98,8 @@ function subjectHref(n: NotificationDTO): string | null {
     case 'app_release':
       return '/profile';
     case 'phone':
-      // A supervised child's phone: their status is on "People you look after".
-      return '/look-after';
+      // A supervised child's phone (subjectId: the child): their page on "People you look after".
+      return n.subjectId ? `/look-after?person=${encodeURIComponent(n.subjectId)}` : '/look-after';
     default:
       return null;
   }

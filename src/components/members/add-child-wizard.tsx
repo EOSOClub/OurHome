@@ -724,7 +724,10 @@ function ProgressStep({
             <ArrowLeft /> Install steps
           </Button>
           {locationOn ? (
-            <Link href="/look-after" className={buttonVariants({ variant: complete ? 'default' : 'outline' })}>
+            <Link
+              href={`/look-after?person=${encodeURIComponent(made.id)}`}
+              className={buttonVariants({ variant: complete ? 'default' : 'outline' })}
+            >
               People you look after
             </Link>
           ) : null}

@@ -391,7 +391,11 @@ function resolveImage(raw: string | null, baseUrl: string): string | null {
 
 function parsePrice(raw: string | null): number | null {
   if (!raw) return null;
-  const n = Number.parseFloat(raw.replace(/[^0-9.]/g, ''));
+  // The first number only: Amazon's label goes on ("$39.98 with 20 percent
+  // savings"), and stripping every non-digit read that as 39.982.
+  const first = raw.match(/\d[\d,]*(?:\.\d+)?|\.\d+/);
+  if (!first) return null;
+  const n = Number.parseFloat(first[0].replace(/,/g, ''));
   return Number.isFinite(n) && n >= 0 && n <= 1_000_000 ? n : null;
 }
 

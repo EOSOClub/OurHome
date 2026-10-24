@@ -8,13 +8,20 @@ import {
   NotFoundError,
 } from '@/server/services/errors';
 import { getUserAccess } from '@/server/services/permissionService';
-import { getRequestModules, householdMemberIds } from '@/server/services/requestModuleService';
+import {
+  getRequestModules,
+  householdMemberIds,
+  supervisorsByMember,
+} from '@/server/services/requestModuleService';
+import { addShoppingItem } from '@/server/services/shoppingService';
+import { isFeatureEnabled } from '@/server/services/serverAdminService';
 import { MEDIA_TYPE_LABELS, type MediaType, type RequestCategory } from '@/lib/enums';
 import {
+  DECISION_MODULES,
   approveSettings,
   assigneeChoices,
+  decidesRequest,
   enabledModules,
-  handlesApproval,
   isRequestCategory,
   moduleLabel,
   roleMayAsk,
@@ -23,6 +30,7 @@ import {
 import type { RequestDTO } from '@/lib/types';
 import type {
   AcceptRequestInput,
+  CompleteRequestInput,
   CreateRequestInput,
   DeclineRequestInput,
   UpdateRequestInput,
@@ -46,6 +54,12 @@ import type {
 //                says so), may move that date, and marks it done, or declines
 //                it when the head allows that. The requester may edit or delete
 //                it; reassigning sends it back to "pending".
+//   purchase,    yes or no. Whoever decides (the requester's supervisors where
+//   permission:  the head chose that and they have any, otherwise the people
+//                the head chose or the Approve switch) approves it, which
+//                completes it, or declines it. Approving a purchase may put it
+//                on a shopping list. The requester may edit it until it's
+//                decided, and delete it any time.
 
 const requestInclude = {
   requester: { select: { id: true, name: true } },
@@ -68,6 +82,13 @@ export function requestToDTO(r: RequestWithPeople): RequestDTO {
     issue: r.issue === true,
     episode: r.episode,
     details: r.details,
+    url: r.url,
+    imageUrl: r.imageUrl,
+    price: r.price,
+    quantity: r.quantity,
+    addedToList: r.addedToList,
+    startsAt: r.startsAt?.toISOString() ?? null,
+    endsAt: r.endsAt?.toISOString() ?? null,
     assignee: r.assignee ? { id: r.assignee.id, name: r.assignee.name } : null,
     status: r.status,
     dueAt: r.dueAt?.toISOString() ?? null,
@@ -106,27 +127,44 @@ function describe(r: {
 
 /**
  * Wakes the phones of everyone a request change can matter to: the requester,
- * the handler (assignee, or the media handlers: the chosen people and the
- * Approve switch holders), and anyone in `also` (e.g. an assignee it was just
- * taken from). Each phone works out for itself whether to alert, so waking an
- * extra one costs nothing but a quiet re-check, and it clears notifications
- * that went stale on other devices.
+ * the handler (assignee, or the approve-workflow handlers: the chosen people,
+ * the Approve switch holders and, where they decide, the requester's
+ * supervisors), and anyone in `also` (e.g. an assignee it was just taken
+ * from). Each phone works out for itself whether to alert, so waking an extra
+ * one costs nothing but a quiet re-check, and it clears notifications that
+ * went stale on other devices.
  */
-function pushRequestChange(
+async function pushRequestChange(
   householdId: string,
   modules: RequestModuleSettings,
   r: { category: string; requesterId: string; assigneeId: string | null },
   also: (string | null)[] = [],
 ) {
   const approve = isRequestCategory(r.category) ? approveSettings(modules, r.category) : null;
+  const supervisors = approve?.bySupervisors ? await requesterSupervisors(householdId, r.requesterId) : [];
   pushSync(
     householdId,
     {
-      userIds: [r.requesterId, r.assigneeId, ...also, ...(approve?.handlerIds ?? [])],
+      userIds: [r.requesterId, r.assigneeId, ...also, ...(approve?.handlerIds ?? []), ...supervisors],
       access: approve ? { page: 'requests', action: 'approve' } : undefined,
     },
     'request',
   );
+}
+
+/** A failed lookup only means fewer phones woken; the change itself is saved. */
+async function requesterSupervisors(householdId: string, requesterId: string): Promise<string[]> {
+  try {
+    return (await supervisorsByMember(householdId)).get(requesterId) ?? [];
+  } catch (err) {
+    console.error('[requests] supervisor lookup for push failed', err);
+    return [];
+  }
+}
+
+/** For activity messages: "“LEGO set”", "2 × “AA batteries”". */
+function describePurchase(r: { title: string; quantity?: number | null }): string {
+  return r.quantity && r.quantity > 1 ? `${r.quantity} × “${r.title}”` : `“${r.title}”`;
 }
 
 /** Refuses a kind of request the head turned off (or one this server doesn't know). */
@@ -246,6 +284,38 @@ export async function createRequest(
       include: requestInclude,
     });
     message = issue ? `reported ${describe(request)}` : `requested ${describe(request)}`;
+  } else if (input.category === 'purchase') {
+    request = await prisma.request.create({
+      data: {
+        householdId,
+        requesterId: actor.id,
+        category: 'purchase',
+        title: input.title,
+        details: input.details ?? null,
+        url: input.url ?? null,
+        imageUrl: input.imageUrl ?? null,
+        price: input.price ?? null,
+        quantity: input.quantity ?? null,
+        status: 'pending',
+      },
+      include: requestInclude,
+    });
+    message = `asked to buy ${describePurchase(request)}`;
+  } else if (input.category === 'permission') {
+    request = await prisma.request.create({
+      data: {
+        householdId,
+        requesterId: actor.id,
+        category: 'permission',
+        title: input.title,
+        details: input.details ?? null,
+        startsAt: input.startsAt ?? null,
+        endsAt: input.startsAt ? (input.endsAt ?? null) : null,
+        status: 'pending',
+      },
+      include: requestInclude,
+    });
+    message = `asked permission for ${describe(request)}`;
   } else {
     const assignee = await assertAssignable(householdId, modules, input.assigneeId, actor.id);
     request = await prisma.request.create({
@@ -271,7 +341,7 @@ export async function createRequest(
     subjectId: request.id,
     message,
   });
-  pushRequestChange(householdId, modules, request);
+  await pushRequestChange(householdId, modules, request);
 
   return request;
 }
@@ -291,9 +361,11 @@ async function getOwnRequest(householdId: string, id: string, userId: string) {
 }
 
 /**
- * Loads a request the actor is the handler for: media → one of the people who
- * handle media (Settings → Request types, by default the Requests "Approve"
- * switch); maintenance → the assignee. The kind must be on.
+ * Loads a request the actor is the handler for: approve workflow (media,
+ * purchase, permission) → one of the people who decide it (Settings → Request
+ * types: the requester's supervisors where the head chose that, else the
+ * chosen people or by default the Requests "Approve" switch); maintenance →
+ * the assignee. The kind must be on.
  */
 async function getHandledRequest(
   householdId: string,
@@ -305,12 +377,20 @@ async function getHandledRequest(
   const category = assertModuleOn(modules, existing.category);
   const approve = approveSettings(modules, category);
   if (approve) {
-    const [access, memberIds] = await Promise.all([
+    const [access, memberIds, supervisors] = await Promise.all([
       getUserAccess({ id: actor.id, householdId }),
       householdMemberIds(householdId),
+      approve.bySupervisors ? supervisorsByMember(householdId) : new Map<string, string[]>(),
     ]);
-    if (!handlesApproval(approve, actor.id, access.requests.approve, new Set(memberIds))) {
-      throw new ForbiddenError("You can't mark media requests added.");
+    const members = new Set(memberIds);
+    const requesterSupervisorIds = supervisors.get(existing.requesterId) ?? [];
+    if (!decidesRequest(approve, actor.id, access.requests.approve, members, requesterSupervisorIds)) {
+      if (category === 'media') throw new ForbiddenError("You can't mark media requests added.");
+      throw new ForbiddenError(
+        approve.bySupervisors && requesterSupervisorIds.some((s) => members.has(s))
+          ? 'Only their supervisors can decide this.'
+          : 'You can’t decide this request.',
+      );
     }
   } else if (existing.assigneeId !== actor.id) {
     throw new ForbiddenError('Only the person this was assigned to can do that.');
@@ -341,9 +421,29 @@ export async function updateRequest(
   if (existing.status === 'declined') {
     throw new ConflictError('This request was declined. Remove it, and ask again if something changed.');
   }
+  // A yes covers what was asked; a changed request needs a new one.
+  if (existing.status === 'completed' && (DECISION_MODULES as readonly string[]).includes(existing.category)) {
+    throw new ConflictError('This request was already approved. Ask again if something changed.');
+  }
 
   let data: Prisma.RequestUpdateInput;
-  if (input.category === 'media') {
+  if (input.category === 'purchase') {
+    data = {
+      title: input.title,
+      details: input.details ?? null,
+      url: input.url ?? null,
+      imageUrl: input.imageUrl ?? null,
+      price: input.price ?? null,
+      quantity: input.quantity ?? null,
+    };
+  } else if (input.category === 'permission') {
+    data = {
+      title: input.title,
+      details: input.details ?? null,
+      startsAt: input.startsAt ?? null,
+      endsAt: input.startsAt ? (input.endsAt ?? null) : null,
+    };
+  } else if (input.category === 'media') {
     assertMediaTypeOffered(modules, input.mediaType, existing.mediaType);
     // A problem report stays one (and a request to add stays that); app
     // builds that don't know about reports send no description, so keep it.
@@ -381,10 +481,12 @@ export async function updateRequest(
     verb: 'updated',
     subjectType: 'request',
     subjectId: request.id,
-    message: `updated their ${request.issue ? 'report of' : 'request'} ${describe(request)}`,
+    message: `updated their ${request.issue ? 'report of' : 'request'} ${
+      request.category === 'purchase' ? `to buy ${describePurchase(request)}` : describe(request)
+    }`,
   });
   // `existing.assigneeId`: a reassigned request leaves the old assignee's list.
-  pushRequestChange(householdId, modules, request, [existing.assigneeId]);
+  await pushRequestChange(householdId, modules, request, [existing.assigneeId]);
 
   return request;
 }
@@ -392,9 +494,9 @@ export async function updateRequest(
 /**
  * Maintenance: the assignee accepts, committing to (or moving) a done-by date
  * - the deadline. When the head made the date optional, accepting without one
- * is fine too (and saving no date clears it). Media has no accept step any
- * more; app builds from before the one-step flow still call this, so it marks
- * the request added instead.
+ * is fine too (and saving no date clears it). The approve workflow has no
+ * accept step; app builds from before the one-step media flow still call this,
+ * so it marks the request done instead.
  */
 export async function acceptRequest(
   householdId: string,
@@ -404,7 +506,9 @@ export async function acceptRequest(
   const modules = await getRequestModules(householdId);
   const existing = await getHandledRequest(householdId, modules, input.id, actor);
   assertStillOpen(existing);
-  if (existing.category === 'media') return completeRequest(householdId, actor, input.id);
+  if (isRequestCategory(existing.category) && approveSettings(modules, existing.category)) {
+    return completeRequest(householdId, actor, { id: input.id });
+  }
   if (!input.dueAt && modules.maintenance.requireDueDate) {
     throw new ConflictError("Pick the date you'll have it done by.", 'dueAt');
   }
@@ -437,21 +541,67 @@ export async function acceptRequest(
     subjectId: request.id,
     message,
   });
-  pushRequestChange(householdId, modules, request);
+  await pushRequestChange(householdId, modules, request);
 
   return request;
 }
 
-/** Maintenance: the assignee marks it done. Media: a handler marks it added. */
+/**
+ * Purchase approved with a list: puts it on that shopping list as the
+ * approver, who needs Shopping "Add" (and the Shopping feature on). Returns
+ * the list's name.
+ */
+async function addPurchaseToList(
+  householdId: string,
+  actor: RequestActor,
+  r: { title: string; quantity: number | null; url: string | null; imageUrl: string | null; price: number | null; requesterId: string },
+  listId: string,
+): Promise<string> {
+  const [access, shoppingOn, requester] = await Promise.all([
+    getUserAccess({ id: actor.id, householdId }),
+    isFeatureEnabled(householdId, 'shopping'),
+    prisma.user.findUnique({ where: { id: r.requesterId }, select: { name: true } }),
+  ]);
+  if (!shoppingOn || !access.shopping.create) {
+    throw new ForbiddenError('You can’t add to shopping lists, so approve it without a list.', 'listId');
+  }
+  const list = await prisma.shoppingList.findFirst({ where: { id: listId, householdId }, select: { name: true } });
+  if (!list) throw new NotFoundError('That shopping list is gone. Pick another one.');
+  await addShoppingItem(householdId, actor.id, {
+    listId,
+    name: r.title,
+    quantity: r.quantity ?? 1,
+    priority: 'medium',
+    notes: requester ? `Requested by ${requester.name}` : null,
+    url: r.url,
+    imageUrl: r.imageUrl,
+    estimatedPrice: r.price,
+    recurring: false,
+    categoryId: null,
+  });
+  return list.name;
+}
+
+/**
+ * Maintenance: the assignee marks it done. Media: a handler marks it added.
+ * Purchase and permission: whoever decides approves it; a purchase with
+ * `listId` also goes on that shopping list.
+ */
 export async function completeRequest(
   householdId: string,
   actor: RequestActor,
-  id: string,
+  input: CompleteRequestInput,
 ): Promise<RequestWithPeople> {
+  const { id } = input;
   const modules = await getRequestModules(householdId);
   const existing = await getHandledRequest(householdId, modules, id, actor);
   assertStillOpen(existing);
   const approve = isRequestCategory(existing.category) && approveSettings(modules, existing.category) !== null;
+  // On the list first: if that's refused, nothing is approved yet.
+  const addedToList =
+    existing.category === 'purchase' && input.listId
+      ? await addPurchaseToList(householdId, actor, existing, input.listId)
+      : null;
 
   const request = await prisma.request.update({
     where: { id },
@@ -459,30 +609,38 @@ export async function completeRequest(
       status: 'completed',
       completedAt: new Date(),
       ...(approve ? { decidedBy: { connect: { id: actor.id } } } : {}),
+      ...(addedToList ? { addedToList } : {}),
     },
     include: requestInclude,
   });
 
+  let message: string;
+  if (request.category === 'purchase') {
+    message = `approved buying ${describePurchase(request)}${addedToList ? ` and added it to ${addedToList}` : ''}`;
+  } else if (request.category === 'permission') {
+    message = `approved ${describe(request)}`;
+  } else if (request.issue) {
+    message = `fixed ${describe(request)}`;
+  } else {
+    message = approve ? `added ${describe(request)}` : `finished ${describe(request)}`;
+  }
   await logActivity({
     householdId,
     actorId: actor.id,
     verb: 'completed',
     subjectType: 'request',
     subjectId: request.id,
-    message: request.issue
-      ? `fixed ${describe(request)}`
-      : approve
-        ? `added ${describe(request)}`
-        : `finished ${describe(request)}`,
+    message,
   });
-  pushRequestChange(householdId, modules, request);
+  await pushRequestChange(householdId, modules, request);
 
   return request;
 }
 
 /**
- * Requests whose module allows it (Settings → Request types): a handler (media)
- * or the person asked (maintenance, before or after accepting) says no, with an
+ * Requests whose module allows it (Settings → Request types; always for
+ * purchase and permission): whoever decides (approve workflow) or the person
+ * asked (maintenance, before or after accepting) says no, with an
  * optional reason for the requester. Final: the requester may remove it, not
  * edit it.
  */
@@ -515,9 +673,13 @@ export async function declineRequest(
     verb: 'updated',
     subjectType: 'request',
     subjectId: request.id,
-    message: request.issue ? `declined the report of ${describe(request)}` : `declined ${describe(request)}`,
+    message: request.issue
+      ? `declined the report of ${describe(request)}`
+      : request.category === 'purchase'
+        ? `declined buying ${describePurchase(request)}`
+        : `declined ${describe(request)}`,
   });
-  pushRequestChange(householdId, modules, request);
+  await pushRequestChange(householdId, modules, request);
 
   return request;
 }
@@ -536,7 +698,9 @@ export async function deleteRequest(
     verb: 'deleted',
     subjectType: 'request',
     subjectId: id,
-    message: `withdrew their ${existing.issue ? 'report of' : 'request'} ${describe(existing)}`,
+    message: `withdrew their ${existing.issue ? 'report of' : 'request'} ${
+      existing.category === 'purchase' ? `to buy ${describePurchase(existing)}` : describe(existing)
+    }`,
   });
-  pushRequestChange(householdId, await getRequestModules(householdId), existing);
+  await pushRequestChange(householdId, await getRequestModules(householdId), existing);
 }

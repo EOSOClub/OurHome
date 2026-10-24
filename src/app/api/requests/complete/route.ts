@@ -1,13 +1,14 @@
 import { ok, parseBody, requirePermission, withAuth } from '@/server/api/http';
 import { completeRequest, requestToDTO } from '@/server/services/requestService';
-import { requestIdSchema } from '@/lib/validation/request';
+import { completeRequestSchema } from '@/lib/validation/request';
 
-// Mark a request done: maintenance (assignee) or media added (whoever handles
-// media: Settings → Request types, by default the Requests "Approve" switch).
-// Who may handle it is enforced in the service.
+// Mark a request done: maintenance (assignee), media added, or a purchase or
+// permission approved (whoever decides: Settings → Request types). A purchase
+// may name a shopping list to put it on. Who may handle it is enforced in the
+// service.
 export const POST = withAuth(async (ctx) => {
   requirePermission(ctx, 'requests:write');
-  const { id } = await parseBody(ctx.req, requestIdSchema);
-  const request = await completeRequest(ctx.user.householdId!, ctx.user, id);
+  const input = await parseBody(ctx.req, completeRequestSchema);
+  const request = await completeRequest(ctx.user.householdId!, ctx.user, input);
   return ok(requestToDTO(request));
 });

@@ -29,6 +29,14 @@ describe('parsePreview', () => {
     });
   });
 
+  it('reads only the price from a label that goes on (a sale)', () => {
+    // Seen 2026-10-23 on a LEGO set: "$39.98 with 20 percent savings" read as 39.982.
+    const sale = AMAZON.replace(' $71.89 </span>', '$39.98 with 20 percent savings </span>');
+    expect(parsePreview(sale, 'https://www.amazon.com/dp/B00FLYWNYQ').price).toBe(39.98);
+    const big = AMAZON.replace(' $71.89 </span>', '$1,299.00 with 5 percent savings </span>');
+    expect(parsePreview(big, 'https://www.amazon.com/dp/B00FLYWNYQ').price).toBe(1299);
+  });
+
   it('reads the shown Amazon digits when the price label is missing', () => {
     const html = AMAZON.replace(/<span id="apex-pricetopay-accessibility-label"[^\n]*\n/, '');
     expect(parsePreview(html, 'https://www.amazon.com/dp/B00FLYWNYQ').price).toBe(71.89);

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_REQUEST_MODULES,
   assigneeChoices,
+  decidesRequest,
   enabledModules,
   handlesApproval,
   moduleLabel,
@@ -9,6 +10,7 @@ import {
   parseRequestModules,
   requestModulesSchema,
   roleMayAsk,
+  viewDecides,
   type RequestModuleSettings,
 } from '@/lib/requestModules';
 
@@ -21,13 +23,19 @@ const GONE = 'cmgabc0000000000000000009';
 const withChanges = (changes: {
   media?: Partial<RequestModuleSettings['media']>;
   maintenance?: Partial<RequestModuleSettings['maintenance']>;
+  purchase?: Partial<RequestModuleSettings['purchase']>;
+  permission?: Partial<RequestModuleSettings['permission']>;
 }): RequestModuleSettings => ({
   media: { ...DEFAULT_REQUEST_MODULES.media, ...changes.media },
   maintenance: { ...DEFAULT_REQUEST_MODULES.maintenance, ...changes.maintenance },
+  purchase: { ...DEFAULT_REQUEST_MODULES.purchase, ...changes.purchase },
+  permission: { ...DEFAULT_REQUEST_MODULES.permission, ...changes.permission },
 });
 
+const approve = (handlerIds: string[], bySupervisors = false) => ({ handlerIds, allowDecline: false, bySupervisors });
+
 describe('parseRequestModules', () => {
-  it('nothing stored: both kinds on, working as before', () => {
+  it('nothing stored: media and maintenance on, working as before', () => {
     for (const raw of [null, undefined, '', 'not json', '[]']) {
       const s = parseRequestModules(raw);
       expect(s).toEqual(DEFAULT_REQUEST_MODULES);
@@ -37,9 +45,38 @@ describe('parseRequestModules', () => {
     expect(s.media.mediaTypes).toEqual(['movie', 'tv']);
     expect(s.media.handlerIds).toEqual([]);
     expect(s.media.allowDecline).toBe(false);
+    expect(s.media.bySupervisors).toBe(false);
     expect(s.maintenance.requireDueDate).toBe(true);
     expect(s.maintenance.allowDecline).toBe(false);
     expect(s.maintenance.askRoles).toEqual(['head', 'manager', 'adult', 'teen', 'child', 'guest']);
+  });
+
+  it('purchase and permission start off, decided by supervisors first, always declinable', () => {
+    const s = parseRequestModules(null);
+    for (const m of [s.purchase, s.permission]) {
+      expect(m.enabled).toBe(false);
+      expect(m.bySupervisors).toBe(true);
+      expect(m.allowDecline).toBe(true);
+      expect(m.handlerIds).toEqual([]);
+    }
+    expect(s.purchase.askRoles).toEqual(['head', 'manager', 'adult', 'teen', 'child', 'guest']);
+    expect(s.permission.askRoles).toEqual(['teen', 'child']);
+  });
+
+  it('a household saved before purchase and permission keeps its settings and gets their defaults', () => {
+    const oldMedia: Partial<RequestModuleSettings['media']> = { ...DEFAULT_REQUEST_MODULES.media, label: 'Shows' };
+    delete oldMedia.bySupervisors;
+    const s = parseRequestModules(JSON.stringify({ media: oldMedia, maintenance: DEFAULT_REQUEST_MODULES.maintenance }));
+    expect(s.media.label).toBe('Shows');
+    expect(s.media.bySupervisors).toBe(false);
+    expect(s.purchase).toEqual(DEFAULT_REQUEST_MODULES.purchase);
+    expect(s.permission).toEqual(DEFAULT_REQUEST_MODULES.permission);
+  });
+
+  it('declining can’t be switched off for purchase or permission', () => {
+    const s = parseRequestModules(JSON.stringify({ purchase: { enabled: true, allowDecline: false } }));
+    expect(s.purchase.enabled).toBe(true);
+    expect(s.purchase.allowDecline).toBe(true);
   });
 
   it('reads what the card saved', () => {
@@ -107,6 +144,24 @@ describe('requestModulesSchema', () => {
     expect(out.media.mediaTypes).toEqual(['movie', 'tv']);
     expect(out.media.handlerIds).toEqual([MOM]);
   });
+
+  it('an older app sends only media and maintenance, without bySupervisors', () => {
+    const media: Partial<RequestModuleSettings['media']> = { ...DEFAULT_REQUEST_MODULES.media };
+    delete media.bySupervisors;
+    const out = requestModulesSchema.parse({ media, maintenance: DEFAULT_REQUEST_MODULES.maintenance });
+    expect(out.media.bySupervisors).toBe(false);
+    expect(out.purchase).toBeUndefined();
+    expect(out.permission).toBeUndefined();
+  });
+
+  it('media can’t be decided by supervisors; purchase and permission can’t turn declining off', () => {
+    const media = valid();
+    media.media.bySupervisors = true;
+    expect(requestModulesSchema.safeParse(media).success).toBe(false);
+    const purchase = valid();
+    purchase.purchase.allowDecline = false;
+    expect(requestModulesSchema.safeParse(purchase).success).toBe(false);
+  });
 });
 
 describe('rules', () => {
@@ -123,12 +178,26 @@ describe('rules', () => {
 
   it('handlesApproval: the Approve switch, unless people are chosen', () => {
     const members = new Set([MOM, DAD, KID]);
-    expect(handlesApproval({ handlerIds: [], allowDecline: false }, DAD, true, members)).toBe(true);
-    expect(handlesApproval({ handlerIds: [], allowDecline: false }, DAD, false, members)).toBe(false);
-    expect(handlesApproval({ handlerIds: [MOM], allowDecline: false }, DAD, true, members)).toBe(false);
-    expect(handlesApproval({ handlerIds: [MOM], allowDecline: false }, MOM, false, members)).toBe(true);
+    expect(handlesApproval(approve([]), DAD, true, members)).toBe(true);
+    expect(handlesApproval(approve([]), DAD, false, members)).toBe(false);
+    expect(handlesApproval(approve([MOM]), DAD, true, members)).toBe(false);
+    expect(handlesApproval(approve([MOM]), MOM, false, members)).toBe(true);
     // Everyone chosen has left: back to the switch, so requests never go unhandled.
-    expect(handlesApproval({ handlerIds: [GONE], allowDecline: false }, DAD, true, members)).toBe(true);
+    expect(handlesApproval(approve([GONE]), DAD, true, members)).toBe(true);
+  });
+
+  it('decidesRequest: the requester’s supervisors when that’s on and they have any', () => {
+    const members = new Set([MOM, DAD, KID]);
+    // KID is supervised by MOM; DAD has the Approve switch.
+    expect(decidesRequest(approve([], true), MOM, false, members, [MOM])).toBe(true);
+    expect(decidesRequest(approve([], true), DAD, true, members, [MOM])).toBe(false);
+    // No supervisors (an adult asking), or only ones who have left: the usual people.
+    expect(decidesRequest(approve([], true), DAD, true, members, [])).toBe(true);
+    expect(decidesRequest(approve([], true), DAD, true, members, [GONE])).toBe(true);
+    expect(decidesRequest(approve([], true), MOM, false, members, [])).toBe(false);
+    // Off: supervisors don't matter.
+    expect(decidesRequest(approve([], false), MOM, false, members, [MOM])).toBe(false);
+    expect(decidesRequest(approve([], false), DAD, true, members, [MOM])).toBe(true);
   });
 
   it('assigneeChoices: chosen people still here, else everyone, never the requester', () => {
@@ -184,5 +253,41 @@ describe('moduleViews', () => {
     expect(moduleViews(off, { id: KID, role: 'child' }, { create: true, approve: false }, members)[1].allowDecline).toBe(false);
     const on = withChanges({ maintenance: { allowDecline: true } });
     expect(moduleViews(on, { id: KID, role: 'child' }, { create: true, approve: false }, members)[1].allowDecline).toBe(true);
+  });
+
+  describe('purchase and permission', () => {
+    const s = withChanges({ purchase: { enabled: true }, permission: { enabled: true } });
+    const supervisors = new Map([[KID, [MOM, GONE]]]);
+    const lists = [{ id: 'list1', name: 'Groceries' }];
+
+    it('who decides what, from each side', () => {
+      const mom = moduleViews(s, { id: MOM, role: 'adult' }, { create: true, approve: false }, members, { supervisors });
+      const head = moduleViews(s, { id: DAD, role: 'head' }, { create: true, approve: true }, members, { supervisors });
+      const permission = (views: typeof mom) => views.find((v) => v.id === 'permission')!;
+      expect(permission(mom)).toMatchObject({ workflow: 'approve', bySupervisors: true, supervisedIds: [KID], supervisingIds: [KID], allowDecline: true });
+      expect(permission(head).supervisingIds).toEqual([]);
+      // MOM supervises KID; the head decides anyone without supervisors.
+      expect([viewDecides(permission(mom), KID), viewDecides(permission(mom), DAD)]).toEqual([true, false]);
+      expect([viewDecides(permission(head), KID), viewDecides(permission(head), MOM)]).toEqual([false, true]);
+    });
+
+    it('permission is for teens and children unless the head says otherwise', () => {
+      const asks = (role: string) =>
+        moduleViews(s, { id: KID, role }, { create: true, approve: false }, members).find((v) => v.id === 'permission')!.canAsk;
+      expect([asks('child'), asks('teen'), asks('adult')]).toEqual([true, true, false]);
+    });
+
+    it('with the rule off, supervisors aren’t sent', () => {
+      const off = withChanges({ purchase: { enabled: true, bySupervisors: false } });
+      const view = moduleViews(off, { id: MOM, role: 'adult' }, { create: true, approve: false }, members, { supervisors })[2];
+      expect(view.id).toBe('purchase');
+      expect([view.bySupervisors, view.supervisedIds, view.supervisingIds]).toEqual([false, [], []]);
+    });
+
+    it('shopping lists go with purchase only', () => {
+      const views = moduleViews(s, { id: DAD, role: 'head' }, { create: true, approve: true }, members, { shoppingLists: lists });
+      expect(views.find((v) => v.id === 'purchase')!.shoppingLists).toEqual(lists);
+      expect(views.filter((v) => v.id !== 'purchase').every((v) => v.shoppingLists.length === 0)).toBe(true);
+    });
   });
 });

@@ -336,7 +336,11 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
     default, which is how requests always worked). Per module: a display name,
     a note on the form, which roles may ask (on top of the Requests **Add**
     switch); approve modules: who handles them (chosen people, or by default
-    the Requests **Approve** switch) and whether they may decline; media: which
+    the Requests **Approve** switch), whether they may decline, and
+    `bySupervisors` (purchase and permission only: a requester who has
+    supervisors is decided by those supervisors alone; `decidesRequest` on the
+    server, `viewDecides` on the page, `RequestModule.decides` in the app);
+    media: which
     kinds are offered; maintenance: who may be asked, a default person, and
     whether accepting needs a date. A module that is off keeps its rows, but
     `/api/requests` leaves them out and every change to them is refused.
@@ -355,9 +359,17 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
     assignee accepts with a done-by date stored as `dueAt` (the deadline;
     optional when the head says so), may move it, and marks it done;
     reassigning resets to `pending`.
+  - *Purchase* and *Permission* (approve, added 2026-10-23, off until the
+    head turns them on) - a yes or no; declining is always allowed. Purchase
+    keeps `url`, `imageUrl` (Fetch details through `/api/requests/preview`, so
+    it works with Shopping off), `price` (of one) and `quantity`; approving
+    with a `listId` adds a shopping item as the approver (needs Shopping
+    "Add") and stores the list's name in `addedToList`. Permission keeps
+    `startsAt` and an optional `endsAt`. Both use `details` for the why, and
+    can't be edited once approved.
   - **Phone reminders (Android app):** a WorkManager job polls `/api/requests`
     hourly and notifies the signed-in user while anything awaits *their*
-    acceptance (open media for those who handle media; pending maintenance
+    acceptance (open approve-workflow requests they decide; pending maintenance
     assigned to them). The same poll sends maintenance deadline reminders from `dueAt`:
     the assignee is told the day before, on the day, and daily while overdue;
     the requester once when it goes overdue. Every request change also sends

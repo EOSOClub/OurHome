@@ -6,5 +6,5 @@ import { getUserAccess } from '@/server/services/permissionService';
 // offers them and which kinds they handle (the Requests page and the app).
 export const GET = withAuth(async ({ user }) => {
   const access = await getUserAccess(user);
-  return ok(await getModuleViews(user.householdId!, user, access.requests));
+  return ok(await getModuleViews(user.householdId!, user, access.requests, access.shopping.create));
 });

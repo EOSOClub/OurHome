@@ -864,11 +864,15 @@ model ShoppingItem {
 //                with a done-by date (`dueAt`, the deadline; optional when the
 //                head says so) and later marks it done. dueAt is the hook for
 //                deadline notifications.
+//   purchase:    "can we buy this" - whoever decides approves it (optionally
+//                adding it to a shopping list) or declines it.
+//   permission:  "can I do this" (a sleepover, a new app) - usually a child
+//                asking their supervisors, who approve or decline it.
 model Request {
   id          String    @id @default(cuid()) @map("_id")
   householdId String
   requesterId String
-  // category: "media" | "maintenance" (REQUEST_CATEGORIES).
+  // category: "media" | "maintenance" | "purchase" | "permission" (REQUEST_CATEGORIES).
   category    String    @default("media")
   title       String
   // --- media ---
@@ -884,8 +888,24 @@ model Request {
   // tv issues only: the episode within `season` that has the problem; null
   // means the whole season.
   episode     Int?
+  // --- purchase ---
+  // A product link (Fetch details fills the picture and price), its picture,
+  // the estimated price of one and how many. `details` says why.
+  url         String?
+  imageUrl    String?
+  price       Float?
+  quantity    Int?
+  // The shopping list an approved purchase was put on, by its name then (the
+  // list may be renamed or deleted later). Null: not put on a list.
+  addedToList String?
+  // --- permission ---
+  // When it's for: from, and optionally until. Both null for something with
+  // no time (a new app).
+  startsAt    DateTime?
+  endsAt      DateTime?
   // --- maintenance ---
-  // Also a media issue's description of what's wrong.
+  // Also a media issue's description of what's wrong, a purchase's why and a
+  // permission's details.
   details     String?
   // Who is asked to do it (never the requester).
   assigneeId  String?
@@ -897,7 +917,7 @@ model Request {
   acceptedAt  DateTime?
   completedAt DateTime?
   declinedAt  DateTime?
-  // --- approve workflow (media) ---
+  // --- approve workflow (media, purchase, permission) ---
   // Who marked it done or declined it, and what they said to the requester
   // (a decline's optional reason).
   decidedById String?

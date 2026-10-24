@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { acceptRequestSchema, createRequestSchema, declineRequestSchema } from '@/lib/validation/request';
+import {
+  acceptRequestSchema,
+  completeRequestSchema,
+  createRequestSchema,
+  declineRequestSchema,
+} from '@/lib/validation/request';
 
 const movie = { category: 'media', mediaType: 'movie', title: 'Dune', year: 2021 };
 
@@ -79,6 +84,59 @@ describe('createRequestSchema', () => {
     const noAssignee = { category: 'maintenance', title: 'Fix the leaky faucet' };
     expect(createRequestSchema.safeParse(noAssignee).success).toBe(false);
     expect(createRequestSchema.safeParse({ ...maintenance, title: '' }).success).toBe(false);
+  });
+
+  it('accepts a purchase with just a name, or with a link, price, quantity and why', () => {
+    expect(createRequestSchema.safeParse({ category: 'purchase', title: 'LEGO Space set' }).success).toBe(true);
+    const full = {
+      category: 'purchase',
+      title: 'LEGO Space set',
+      url: 'https://example.com/lego',
+      imageUrl: 'https://example.com/lego.jpg',
+      price: 49.99,
+      quantity: 2,
+      details: 'For the science fair',
+    };
+    expect(createRequestSchema.safeParse(full).success).toBe(true);
+    expect(createRequestSchema.safeParse({ ...full, url: 'not a link' }).success).toBe(false);
+    // Web links only: these would be stored and opened from the page or the app.
+    expect(createRequestSchema.safeParse({ ...full, url: 'javascript:alert(1)' }).success).toBe(false);
+    expect(createRequestSchema.safeParse({ ...full, imageUrl: 'data:text/html,hi' }).success).toBe(false);
+    expect(createRequestSchema.safeParse({ ...full, price: -1 }).success).toBe(false);
+    expect(createRequestSchema.safeParse({ ...full, quantity: 0 }).success).toBe(false);
+  });
+
+  describe('permission', () => {
+    const inHours = (h: number) => new Date(Date.now() + h * 3_600_000).toISOString();
+    const sleepover = { category: 'permission', title: 'Sleepover at Sam’s' };
+
+    it('needs only what it’s for; from and until are optional', () => {
+      expect(createRequestSchema.safeParse(sleepover).success).toBe(true);
+      expect(createRequestSchema.safeParse({ ...sleepover, startsAt: inHours(5) }).success).toBe(true);
+      expect(createRequestSchema.safeParse({ ...sleepover, startsAt: inHours(5), endsAt: inHours(20) }).success).toBe(true);
+      expect(createRequestSchema.safeParse({ ...sleepover, title: ' ' }).success).toBe(false);
+    });
+
+    it('until needs a from before it', () => {
+      expect(createRequestSchema.safeParse({ ...sleepover, endsAt: inHours(20) }).success).toBe(false);
+      expect(createRequestSchema.safeParse({ ...sleepover, startsAt: inHours(20), endsAt: inHours(5) }).success).toBe(false);
+      expect(createRequestSchema.safeParse({ ...sleepover, startsAt: inHours(5), endsAt: inHours(5) }).success).toBe(false);
+    });
+
+    it('can’t start in the past', () => {
+      expect(createRequestSchema.safeParse({ ...sleepover, startsAt: inHours(-48) }).success).toBe(false);
+    });
+  });
+});
+
+describe('completeRequestSchema', () => {
+  const id = 'cmabcdefghijklmnopqrstuvw';
+
+  it('takes an optional shopping list', () => {
+    expect(completeRequestSchema.parse({ id }).listId).toBeUndefined();
+    expect(completeRequestSchema.parse({ id, listId: null }).listId).toBeNull();
+    expect(completeRequestSchema.safeParse({ id, listId: 'cmabcdefghijklmnopqrstuvx' }).success).toBe(true);
+    expect(completeRequestSchema.safeParse({ id, listId: 'groceries' }).success).toBe(false);
   });
 });
 

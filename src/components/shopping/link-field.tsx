@@ -20,6 +20,8 @@ export function LinkField({
   url,
   imageUrl,
   error,
+  label = 'Link',
+  previewPath = '/api/shopping/items/preview',
   onUrlChange,
   onPreview,
 }: {
@@ -28,6 +30,9 @@ export function LinkField({
   imageUrl: string | null;
   /** What the server said is wrong with the link when saving the item (marks it red). */
   error?: string | null;
+  label?: string;
+  /** Where Fetch details asks: Shopping's by default, Requests' for a purchase request. */
+  previewPath?: string;
   onUrlChange: (value: string) => void;
   onPreview: (preview: LinkPreviewDTO) => void;
 }) {
@@ -45,7 +50,7 @@ export function LinkField({
     setFetchError(null);
     try {
       const preview = await apiFetch<LinkPreviewDTO>(
-        '/api/shopping/items/preview',
+        previewPath,
         { method: 'POST', body: JSON.stringify({ url: trimmed }) },
       );
       onPreview(preview);
@@ -64,7 +69,7 @@ export function LinkField({
 
   return (
     <div className="space-y-1.5">
-      <Label htmlFor={id}>Link</Label>
+      <Label htmlFor={id}>{label}</Label>
       <div className="flex gap-2">
         <Input
           id={id}

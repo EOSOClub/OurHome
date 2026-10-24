@@ -167,12 +167,14 @@ export type ActivityVerb = (typeof ACTIVITY_VERBS)[number];
 
 // What a household request is for: each is a request module the head turns on
 // and configures in Settings → Request types (src/lib/requestModules.ts).
-export const REQUEST_CATEGORIES = ['media', 'maintenance'] as const;
+export const REQUEST_CATEGORIES = ['media', 'maintenance', 'purchase', 'permission'] as const;
 export type RequestCategory = (typeof REQUEST_CATEGORIES)[number];
 
 export const REQUEST_CATEGORY_LABELS: Record<RequestCategory, string> = {
   media: 'Media',
   maintenance: 'Maintenance',
+  purchase: 'Purchase',
+  permission: 'Permission',
 };
 
 // Maintenance lifecycle: asked → assignee accepts with a done-by date → done.
@@ -203,6 +205,15 @@ export const MEDIA_STATUS_LABELS: Record<RequestStatus, string> = {
   pending: 'Waiting',
   accepted: 'Waiting',
   completed: 'Added',
+  declined: 'Declined',
+};
+
+// Purchase and Permission are yes-or-no: whoever decides approves them, which
+// completes them, or declines them.
+export const DECISION_STATUS_LABELS: Record<RequestStatus, string> = {
+  pending: 'Waiting',
+  accepted: 'Waiting',
+  completed: 'Approved',
   declined: 'Declined',
 };
 

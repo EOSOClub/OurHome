@@ -6,9 +6,11 @@ import {
   CalendarClock,
   Check,
   Film,
+  Hand,
   Inbox,
   Loader2,
   Pencil,
+  ShoppingCart,
   Trash2,
   TriangleAlert,
   Tv,
@@ -17,6 +19,7 @@ import {
 } from 'lucide-react';
 import type { MemberDTO, RequestDTO } from '@/lib/types';
 import {
+  DECISION_STATUS_LABELS,
   MAINTENANCE_STATUSES,
   MAINTENANCE_STATUS_LABELS,
   MEDIA_TYPES,
@@ -28,7 +31,9 @@ import {
   type RequestCategory,
   type RequestStatus,
 } from '@/lib/enums';
-import type { RequestModuleView } from '@/lib/requestModules';
+import { viewDecides, type RequestModuleView } from '@/lib/requestModules';
+import { ItemLink } from '@/components/shopping/shopping-item-row';
+import { LinkField } from '@/components/shopping/link-field';
 import { apiFetch } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { toast } from '@/components/ui/toast';
@@ -71,13 +76,72 @@ export type RequestPayload =
       title: string;
       details: string | null;
       assigneeId: string;
+    }
+  | {
+      category: 'purchase';
+      title: string;
+      /** Why. */
+      details: string | null;
+      url: string | null;
+      imageUrl: string | null;
+      /** Estimated price of one. */
+      price: number | null;
+      quantity: number | null;
+    }
+  | {
+      category: 'permission';
+      title: string;
+      details: string | null;
+      startsAt: string | null;
+      endsAt: string | null;
     };
 
 const MEDIA_ICONS: Record<MediaType, typeof Film> = { movie: Film, tv: Tv };
 
+/** Yes-or-no kinds, shown in this order above Maintenance and Media. */
+const DECISION_KINDS = ['permission', 'purchase'] as const;
+const CATEGORY_ICONS: Record<RequestCategory, typeof Film> = {
+  media: Film,
+  maintenance: Wrench,
+  purchase: ShoppingCart,
+  permission: Hand,
+};
+const DECISION_SECTIONS = [
+  ['pending', 'Waiting for a decision'],
+  ['completed', 'Approved'],
+  ['declined', 'Declined'],
+] as const;
+
 // In the household's zone, so the server render and the browser agree.
 const shortDate = (iso: string, timeZone?: string) =>
   new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric', timeZone });
+
+/** "Fri, Oct 24, 6:00 PM" in the household's zone. */
+const shortDateTime = (iso: string, timeZone?: string) =>
+  new Date(iso).toLocaleString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone,
+  });
+
+/** A permission's from and until: "Fri, Oct 24, 6:00 PM until Sat, Oct 25, 11:00 AM". */
+const whenLabel = (r: { startsAt: string | null; endsAt: string | null }, timeZone?: string) =>
+  r.startsAt
+    ? `${shortDateTime(r.startsAt, timeZone)}${r.endsAt ? ` until ${shortDateTime(r.endsAt, timeZone)}` : ''}`
+    : null;
+
+/** An ISO time → a datetime-local value ("YYYY-MM-DDTHH:mm") in this browser's time. */
+const localInput = (iso: string | null) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+const money = (n: number) => `$${n.toFixed(2)}`;
 
 /** A date-input value ("YYYY-MM-DD") → noon local, matching the other forms. */
 const noonIso = (date: string) => new Date(`${date}T12:00`).toISOString();
@@ -108,6 +172,8 @@ export function RequestsView({
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<RequestDTO | null>(null);
   const [accepting, setAccepting] = useState<RequestDTO | null>(null);
+  // A purchase being approved, where the approver may put it on a shopping list.
+  const [approving, setApproving] = useState<RequestDTO | null>(null);
   const [declining, setDeclining] = useState<RequestDTO | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<RequestDTO | null>(null);
   // Bumped after a successful create so the form remounts empty.
@@ -126,6 +192,7 @@ export function RequestsView({
   });
   const mediaModule = modules.find((m) => m.id === 'media');
   const maintenanceModule = modules.find((m) => m.id === 'maintenance');
+  const purchaseModule = modules.find((m) => m.id === 'purchase');
   const canSubmit = modules.some((m) => m.canAsk);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['requests'] });
@@ -146,7 +213,9 @@ export function RequestsView({
           ? `Sent to ${r.assignee?.name ?? 'them'}`
           : r.issue
             ? `Reported a problem with “${r.title}”`
-            : `Requested “${r.title}”`,
+            : r.category === 'permission'
+              ? `Asked permission for “${r.title}”`
+              : `Requested “${r.title}”`,
       );
       setFormKey((k) => k + 1);
       invalidate();
@@ -187,13 +256,23 @@ export function RequestsView({
     onError: acceptForm.fail,
   });
 
+  // A purchase may go on a shopping list as it's approved (`listId`).
   const completeMutation = useMutation({
-    mutationFn: (id: string) => post<RequestDTO>('/api/requests/complete', { id }),
+    mutationFn: (input: { id: string; listId?: string | null }) => post<RequestDTO>('/api/requests/complete', input),
     onSuccess: (r) => {
       toast.success(
-        r.issue ? `Marked “${r.title}” fixed` : r.category === 'media' ? `Added “${r.title}”` : `Marked “${r.title}” done`,
+        r.issue
+          ? `Marked “${r.title}” fixed`
+          : r.category === 'media'
+            ? `Added “${r.title}”`
+            : r.category === 'purchase' || r.category === 'permission'
+              ? `Approved “${r.title}”${r.addedToList ? ` and added it to ${r.addedToList}` : ''}`
+              : `Marked “${r.title}” done`,
       );
+      setApproving(null);
       invalidate();
+      // It may be on a shopping list now.
+      if (r.addedToList) queryClient.invalidateQueries({ queryKey: ['shopping-lists'] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -213,7 +292,7 @@ export function RequestsView({
   const busyId = acceptMutation.isPending
     ? acceptMutation.variables?.id
     : completeMutation.isPending
-      ? completeMutation.variables
+      ? completeMutation.variables?.id
       : undefined;
 
   // The server only sends requests of kinds that are on.
@@ -231,7 +310,32 @@ export function RequestsView({
       canDecline={mod.handles && mod.allowDecline}
       currentUserId={currentUserId}
       busy={busyId === r.id}
-      onComplete={() => completeMutation.mutate(r.id)}
+      onComplete={() => completeMutation.mutate({ id: r.id })}
+      onDecline={() => {
+        declineForm.clear();
+        setDeclining(r);
+      }}
+      onEdit={() => {
+        editForm.clear();
+        setEditing(r);
+      }}
+      onDelete={() => setConfirmDelete(r)}
+    />
+  );
+
+  const decisionRow = (r: RequestDTO, mod: RequestModuleView) => (
+    <DecisionRow
+      key={r.id}
+      request={r}
+      currentUserId={currentUserId}
+      decides={viewDecides(mod, r.requester.id)}
+      busy={busyId === r.id}
+      onApprove={() =>
+        // A purchase can go on a shopping list: ask which. Otherwise approve at once.
+        r.category === 'purchase' && mod.shoppingLists.length > 0
+          ? setApproving(r)
+          : completeMutation.mutate({ id: r.id })
+      }
       onDecline={() => {
         declineForm.clear();
         setDeclining(r);
@@ -283,6 +387,32 @@ export function RequestsView({
         <EmptyState icon={Inbox} title="No requests yet" description="Requests you and your household make show up here." />
       ) : null}
 
+      {DECISION_KINDS.map((kind) => {
+        const mod = modules.find((m) => m.id === kind);
+        const items = mod ? requests.filter((r) => r.category === kind) : [];
+        if (!mod || items.length === 0) return null;
+        return (
+          <section key={kind} className="space-y-4">
+            <CategoryHeader category={kind} label={mod.label} />
+            {DECISION_SECTIONS.map(([status, label]) => {
+              // Anything still open (no status, or "accepted" from an older app) waits for a decision.
+              const group = items.filter((r) =>
+                status === 'pending' ? r.status !== 'completed' && r.status !== 'declined' : r.status === status,
+              );
+              if (group.length === 0) return null;
+              return (
+                <div key={status} className="space-y-2">
+                  <SectionHeader label={label} count={group.length} />
+                  <ul className="divide-y divide-border rounded-lg border border-border">
+                    {group.map((r) => decisionRow(r, mod))}
+                  </ul>
+                </div>
+              );
+            })}
+          </section>
+        );
+      })}
+
       {maintenanceModule && maintenance.length > 0 ? (
         <section className="space-y-4">
           <CategoryHeader category="maintenance" label={maintenanceModule.label} />
@@ -307,7 +437,7 @@ export function RequestsView({
                         acceptForm.clear();
                         setAccepting(r);
                       }}
-                      onComplete={() => completeMutation.mutate(r.id)}
+                      onComplete={() => completeMutation.mutate({ id: r.id })}
                       onDecline={() => {
                         declineForm.clear();
                         setDeclining(r);
@@ -389,6 +519,15 @@ export function RequestsView({
         }
       />
 
+      <ApproveDialog
+        key={approving?.id ?? 'none-approve'}
+        request={approving}
+        lists={purchaseModule?.shoppingLists ?? []}
+        pending={completeMutation.isPending}
+        onClose={() => setApproving(null)}
+        onApprove={(listId) => approving && completeMutation.mutate({ id: approving.id, listId })}
+      />
+
       <DeclineDialog
         key={declining?.id ?? 'none-decline'}
         request={declining}
@@ -418,7 +557,7 @@ function byDueDate(a: RequestDTO, b: RequestDTO) {
 
 /** `label`: the head's name for it (Settings → Request types). */
 function CategoryHeader({ category, label }: { category: RequestCategory; label: string }) {
-  const Icon = category === 'maintenance' ? Wrench : Film;
+  const Icon = CATEGORY_ICONS[category];
   return (
     <h2 className="flex items-center gap-2 border-b border-border pb-1 text-lg font-semibold">
       <Icon className="size-5" /> {label}
@@ -645,6 +784,166 @@ function MaintenanceRow({
   );
 }
 
+const DECISION_BADGE: Record<RequestStatus, 'secondary' | 'default' | 'success' | 'destructive'> = {
+  pending: 'secondary',
+  accepted: 'secondary',
+  completed: 'success',
+  declined: 'destructive',
+};
+
+/**
+ * A purchase or permission request: what's asked, the decision once made, and
+ * Approve / Decline for whoever decides it (`decides`: viewDecides).
+ */
+function DecisionRow({
+  request: r,
+  currentUserId,
+  decides,
+  busy,
+  onApprove,
+  onDecline,
+  onEdit,
+  onDelete,
+}: {
+  request: RequestDTO;
+  currentUserId: string;
+  decides: boolean;
+  busy: boolean;
+  onApprove: () => void;
+  onDecline: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const timeZone = useHouseholdZone();
+  const status: RequestStatus = r.status === 'completed' || r.status === 'declined' ? r.status : 'pending';
+  const open = status === 'pending';
+  const isOwn = r.requester.id === currentUserId;
+  const who = (m: { id: string; name: string } | null) => (!m ? 'someone' : m.id === currentUserId ? 'you' : m.name);
+  const when = r.category === 'permission' ? whenLabel(r, timeZone) : null;
+  return (
+    <li className={cn('flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center', decides && open && 'bg-primary/5')}>
+      {r.imageUrl ? (
+        // Remote product picture from any shop: a plain <img>, as on Shopping.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={r.imageUrl}
+          alt=""
+          className="size-12 shrink-0 rounded border border-border bg-white object-contain"
+        />
+      ) : null}
+      <div className="min-w-0 flex-1">
+        <p className="flex flex-wrap items-center gap-2 font-medium">
+          <span className={cn('min-w-0 break-words', status === 'declined' && 'text-muted-foreground')}>
+            {r.quantity && r.quantity > 1 ? `${r.quantity} × ` : null}
+            {r.title}
+          </span>
+          {r.price != null ? (
+            <span className="text-sm font-normal tabular-nums text-muted-foreground">
+              {money(r.price)}
+              {r.quantity && r.quantity > 1 ? ' each' : null}
+            </span>
+          ) : null}
+          <Badge variant={DECISION_BADGE[status]}>{DECISION_STATUS_LABELS[status]}</Badge>
+        </p>
+        {when ? (
+          <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            <CalendarClock className="size-3.5 shrink-0" /> {when}
+          </p>
+        ) : null}
+        {r.url ? <ItemLink url={r.url} /> : null}
+        {r.details ? <p className="text-sm text-muted-foreground">{r.details}</p> : null}
+        {status === 'completed' ? (
+          <p className="text-sm text-muted-foreground">
+            Approved by {who(r.decidedBy)}
+            {r.addedToList ? ` · added to ${r.addedToList}` : null}
+          </p>
+        ) : status === 'declined' ? (
+          <p className="text-sm text-muted-foreground">
+            {r.decidedBy ? `Declined by ${who(r.decidedBy)}` : 'Declined'}
+            {r.reply ? `: ${r.reply}` : null}
+          </p>
+        ) : null}
+        <p className="text-xs text-muted-foreground">
+          Asked by {isOwn ? 'you' : r.requester.name} · {shortDate(r.createdAt, timeZone)}
+        </p>
+      </div>
+      <div className="flex shrink-0 flex-wrap items-center gap-1">
+        {decides && open ? (
+          <>
+            <Button size="sm" variant="ghost" onClick={onDecline} disabled={busy}>
+              <X /> Decline
+            </Button>
+            <Button size="sm" onClick={onApprove} disabled={busy}>
+              {busy ? <Loader2 className="animate-spin" /> : <Check />} Approve
+            </Button>
+          </>
+        ) : null}
+        {/* Once decided it can't be edited, only removed. */}
+        {isOwn && open ? (
+          <OwnerActions title={r.title} onEdit={onEdit} onDelete={onDelete} />
+        ) : isOwn ? (
+          <Button variant="ghost" size="icon" onClick={onDelete} aria-label={`Remove ${r.title}`}>
+            <Trash2 className="size-4" />
+          </Button>
+        ) : null}
+      </div>
+    </li>
+  );
+}
+
+/** Approving a purchase: put it on one of the shopping lists, or not. */
+function ApproveDialog({
+  request,
+  lists,
+  pending,
+  onClose,
+  onApprove,
+}: {
+  request: RequestDTO | null;
+  lists: { id: string; name: string }[];
+  pending: boolean;
+  onClose: () => void;
+  /** null: approved without putting it on a list. */
+  onApprove: (listId: string | null) => void;
+}) {
+  const [listId, setListId] = useState(lists[0]?.id ?? '');
+  return (
+    <Dialog
+      open={request !== null}
+      onClose={onClose}
+      title="Approve purchase"
+      description={request ? `“${request.title}” from ${request.requester.name}` : undefined}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={pending}>
+            Cancel
+          </Button>
+          <Button disabled={pending} onClick={() => onApprove(listId || null)}>
+            {pending ? <Loader2 className="animate-spin" /> : <Check />}
+            Approve
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-1.5">
+        <Label htmlFor="request-approve-list">Add it to a shopping list</Label>
+        <Select id="request-approve-list" value={listId} onChange={(e) => setListId(e.target.value)}>
+          {lists.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.name}
+            </option>
+          ))}
+          <option value="">Don&apos;t add it to a list</option>
+        </Select>
+        <FieldNote
+          id="request-approve-list-note"
+          hint="Its link, picture, price and how many go with it, so whoever shops has it."
+        />
+      </div>
+    </Dialog>
+  );
+}
+
 /**
  * Assignee picks the date they'll have it done by - the request's deadline.
  * Without `requireDueDate` (the head's choice) the date may be left empty.
@@ -762,9 +1061,13 @@ function DeclineDialog({
           placeholder={
             request?.category === 'maintenance'
               ? "e.g. I'm away this week, ask someone else"
-              : request?.issue
-                ? "e.g. That's the only copy there is"
-                : 'e.g. We already have it on another service'
+              : request?.category === 'purchase'
+                ? "e.g. Let's wait for your birthday"
+                : request?.category === 'permission'
+                  ? "e.g. Not on a school night"
+                  : request?.issue
+                    ? "e.g. That's the only copy there is"
+                    : 'e.g. We already have it on another service'
           }
           maxLength={500}
           {...errors.invalid('reply')}
@@ -778,7 +1081,9 @@ function DeclineDialog({
 /**
  * Step-by-step request form: request type → (media: something new or a
  * problem → type of media → name and year, and for a problem where and what's
- * wrong) or (maintenance: what needs doing → who should do it). Each later step
+ * wrong) or (maintenance: what needs doing → who should do it) or (purchase:
+ * what, link, price, how many, why) or (permission: what, from, until,
+ * details). Each later step
  * appears once the one before it is chosen. The category, and whether media is
  * new or a problem, are fixed when editing.
  * What it offers comes from the head's Settings → Request types: the kinds this
@@ -841,6 +1146,14 @@ export function RequestForm({
   const [problem, setProblem] = useState(initial?.issue ? (initial.details ?? '') : '');
   const [details, setDetails] = useState(initial?.details ?? '');
   const [assigneeId, setAssigneeId] = useState(initial?.assignee?.id ?? firstValues.assigneeId);
+  // Purchase: link (Fetch details fills the picture and price), price of one, how many.
+  const [url, setUrl] = useState(initial?.url ?? '');
+  const [imageUrl, setImageUrl] = useState<string | null>(initial?.imageUrl ?? null);
+  const [price, setPrice] = useState(initial?.price != null ? String(initial.price) : '');
+  const [quantity, setQuantity] = useState(initial?.quantity ? String(initial.quantity) : '1');
+  // Permission: from and until, as datetime-local values.
+  const [startsAt, setStartsAt] = useState(localInput(initial?.startsAt ?? null));
+  const [endsAt, setEndsAt] = useState(localInput(initial?.endsAt ?? null));
   const categoryModule = modules.find((m) => m.id === category);
   // Editing: the request's own kind, whether or not this member could ask for it now.
   const categoryOptions = initial
@@ -866,6 +1179,20 @@ export function RequestForm({
     episodeValid &&
     (!issue || problem.trim() !== '');
   const maintenanceReady = category === 'maintenance' && title.trim() !== '' && assigneeId !== '';
+  const priceNum = price.trim() === '' ? null : Number(price);
+  const priceValid = priceNum === null || (Number.isFinite(priceNum) && priceNum >= 0 && priceNum <= 1_000_000);
+  const quantityNum = Number(quantity);
+  const quantityValid = Number.isInteger(quantityNum) && quantityNum >= 1 && quantityNum <= 999;
+  const purchaseReady = category === 'purchase' && title.trim() !== '' && priceValid && quantityValid;
+  // datetime-local values compare correctly as text.
+  const untilError =
+    errors.get('endsAt') ??
+    (endsAt !== '' && startsAt === ''
+      ? 'Say when it starts too.'
+      : endsAt !== '' && endsAt <= startsAt
+        ? 'Until has to be after from.'
+        : null);
+  const permissionReady = category === 'permission' && title.trim() !== '' && !untilError;
 
   const yearLabel =
     mediaType === 'tv'
@@ -889,6 +1216,26 @@ export function RequestForm({
       });
     } else if (category === 'maintenance' && maintenanceReady) {
       onSubmit({ category, title: title.trim(), details: details.trim() || null, assigneeId });
+    } else if (category === 'purchase' && purchaseReady) {
+      const link = url.trim();
+      onSubmit({
+        category,
+        title: title.trim(),
+        details: details.trim() || null,
+        url: link || null,
+        // A picture goes with its link.
+        imageUrl: link ? imageUrl : null,
+        price: priceNum,
+        quantity: quantityNum,
+      });
+    } else if (category === 'permission' && permissionReady) {
+      onSubmit({
+        category,
+        title: title.trim(),
+        details: details.trim() || null,
+        startsAt: startsAt ? new Date(startsAt).toISOString() : null,
+        endsAt: startsAt && endsAt ? new Date(endsAt).toISOString() : null,
+      });
     }
   }
 
@@ -1149,13 +1496,160 @@ export function RequestForm({
         </>
       ) : null}
 
+      {category === 'purchase' ? (
+        <>
+          <div className="space-y-1.5" data-field="title">
+            <Label htmlFor="request-title">What would you like?</Label>
+            <Input
+              id="request-title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. LEGO Space set"
+              maxLength={200}
+              required
+              {...errors.invalid('title')}
+            />
+            <FieldNote id={errors.noteId('title')} error={errors.get('title')} />
+          </div>
+          <div data-field="url imageUrl">
+            <LinkField
+              id="request-url"
+              label="Link (optional)"
+              previewPath="/api/requests/preview"
+              url={url}
+              imageUrl={imageUrl}
+              error={errors.first('url', 'imageUrl')}
+              onUrlChange={(value) => {
+                setUrl(value);
+                setImageUrl(null);
+              }}
+              onPreview={(preview) => {
+                if (preview.imageUrl) setImageUrl(preview.imageUrl);
+                if (preview.title && !title.trim()) setTitle(preview.title);
+                if (preview.price != null && !price) setPrice(String(preview.price));
+              }}
+            />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5" data-field="price">
+              <Label htmlFor="request-price">Est. price (optional)</Label>
+              <Input
+                id="request-price"
+                type="number"
+                min={0}
+                step="0.01"
+                value={price}
+                onChange={(e) => setPrice(e.target.value)}
+                placeholder="0.00"
+                aria-invalid={errors.get('price') || !priceValid ? true : undefined}
+                aria-describedby={errors.noteId('price')}
+              />
+              <FieldNote
+                id={errors.noteId('price')}
+                error={errors.get('price') ?? (priceValid ? null : 'Enter a price of 0 or more.')}
+                hint="For one."
+              />
+            </div>
+            <div className="space-y-1.5" data-field="quantity">
+              <Label htmlFor="request-quantity">How many</Label>
+              <Input
+                id="request-quantity"
+                type="number"
+                min={1}
+                max={999}
+                value={quantity}
+                onChange={(e) => setQuantity(e.target.value)}
+                aria-invalid={errors.get('quantity') || !quantityValid ? true : undefined}
+                aria-describedby={errors.noteId('quantity')}
+              />
+              <FieldNote
+                id={errors.noteId('quantity')}
+                error={errors.get('quantity') ?? (quantityValid ? null : 'Enter a number from 1 to 999.')}
+              />
+            </div>
+          </div>
+          <div className="space-y-1.5" data-field="details">
+            <Label htmlFor="request-details">Why (optional)</Label>
+            <Textarea
+              id="request-details"
+              value={details}
+              onChange={(e) => setDetails(e.target.value)}
+              placeholder="What it's for, anything that helps decide"
+              maxLength={2000}
+              {...errors.invalid('details')}
+            />
+            <FieldNote id={errors.noteId('details')} error={errors.get('details')} />
+          </div>
+        </>
+      ) : null}
+
+      {category === 'permission' ? (
+        <>
+          <div className="space-y-1.5" data-field="title">
+            <Label htmlFor="request-title">What would you like to do?</Label>
+            <Input
+              id="request-title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. Sleepover at Sam's"
+              maxLength={200}
+              required
+              {...errors.invalid('title')}
+            />
+            <FieldNote id={errors.noteId('title')} error={errors.get('title')} />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5" data-field="startsAt">
+              <Label htmlFor="request-starts">From (optional)</Label>
+              <Input
+                id="request-starts"
+                type="datetime-local"
+                value={startsAt}
+                onChange={(e) => setStartsAt(e.target.value)}
+                {...errors.invalid('startsAt')}
+              />
+              <FieldNote
+                id={errors.noteId('startsAt')}
+                error={errors.get('startsAt')}
+                hint="Leave empty if there's no time, like a new app."
+              />
+            </div>
+            <div className="space-y-1.5" data-field="endsAt">
+              <Label htmlFor="request-ends">Until (optional)</Label>
+              <Input
+                id="request-ends"
+                type="datetime-local"
+                value={endsAt}
+                min={startsAt || undefined}
+                onChange={(e) => setEndsAt(e.target.value)}
+                aria-invalid={untilError ? true : undefined}
+                aria-describedby={errors.noteId('endsAt')}
+              />
+              <FieldNote id={errors.noteId('endsAt')} error={untilError} />
+            </div>
+          </div>
+          <div className="space-y-1.5" data-field="details">
+            <Label htmlFor="request-details">Details (optional)</Label>
+            <Textarea
+              id="request-details"
+              value={details}
+              onChange={(e) => setDetails(e.target.value)}
+              placeholder="Where, who with, how you'll get there"
+              maxLength={2000}
+              {...errors.invalid('details')}
+            />
+            <FieldNote id={errors.noteId('details')} error={errors.get('details')} />
+          </div>
+        </>
+      ) : null}
+
       <div className="flex justify-end gap-2">
         {onCancel ? (
           <Button type="button" variant="ghost" onClick={onCancel} disabled={pending}>
             Cancel
           </Button>
         ) : null}
-        <Button type="submit" disabled={!(mediaReady || maintenanceReady) || pending}>
+        <Button type="submit" disabled={!(mediaReady || maintenanceReady || purchaseReady || permissionReady) || pending}>
           {pending ? <Loader2 className="animate-spin" /> : null}
           {submitLabel}
         </Button>

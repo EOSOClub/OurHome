@@ -48,14 +48,20 @@ function withPlace<T extends SelectedTask>(tasks: T[], places: PlaceIndex) {
 
 /**
  * Requests that may wait on `userId` (attentionReason makes the final call):
- * open requests of the approve-workflow kinds they handle (media), plus
- * assign-workflow ones (maintenance) assigned to them - kinds that are on only.
+ * open requests of the approve-workflow kinds they may decide (media,
+ * purchase, permission: ones they handle, or where supervisors decide and
+ * they supervise someone), plus assign-workflow ones (maintenance) assigned to
+ * them - kinds that are on only.
  */
 function waitingRequestsWhere(householdId: string, userId: string, handling: RequestHandling) {
+  const mayDecide = handling.on.filter(
+    (category) =>
+      handling.handles.has(category) || (handling.bySupervisors.has(category) && handling.supervising.size > 0),
+  );
   return {
     householdId,
     OR: [
-      ...[...handling.handles].map((category) => ({
+      ...mayDecide.map((category) => ({
         category,
         OR: [{ status: null }, { status: { isSet: false } }, { status: { in: ['pending', 'accepted'] } }],
       })),
@@ -82,9 +88,9 @@ export async function countRequestsWaitingOn(
   if (handling.on.length === 0) return 0;
   const rows = await prisma.request.findMany({
     where: waitingRequestsWhere(user.householdId, user.id, handling),
-    select: { category: true, status: true, assigneeId: true, dueAt: true },
+    select: { category: true, status: true, requesterId: true, assigneeId: true, dueAt: true },
   });
-  return rows.filter((r) => attentionReason(r, user.id, handling.handles, endOfToday)).length;
+  return rows.filter((r) => attentionReason(r, user.id, handling, endOfToday)).length;
 }
 
 /**
@@ -225,8 +231,10 @@ export async function getDashboard(
         issue: true,
         episode: true,
         status: true,
+        requesterId: true,
         assigneeId: true,
         dueAt: true,
+        startsAt: true,
         createdAt: true,
         requester: { select: { id: true, name: true } },
       },
@@ -276,7 +284,7 @@ export async function getDashboard(
       openToAnyone: tasksOn ? withPlace(openTasks, places) : [],
       requests: on('requests')
         ? requests.flatMap((r) => {
-            const reason = attentionReason(r, user.id, requestHandling.handles, endOfToday);
+            const reason = attentionReason(r, user.id, requestHandling, endOfToday);
             return reason ? [{ ...r, reason: reason satisfies RequestAttentionReason }] : [];
           })
         : [],

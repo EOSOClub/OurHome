@@ -5,7 +5,7 @@
 import { REQUEST_MODULE_WORKFLOWS, isRequestCategory } from '@/lib/requestModules';
 
 export type RequestAttentionReason =
-  /** An open request of a kind they handle (approve workflow: media). */
+  /** An open request of a kind they decide (approve workflow: media, purchase, permission). */
   | 'approve'
   /** A maintenance request assigned to them, waiting for them to accept. */
   | 'accept'
@@ -15,13 +15,25 @@ export type RequestAttentionReason =
 export interface AttentionRequest {
   category: string;
   status: string | null;
+  requesterId: string;
   assigneeId: string | null;
   dueAt: Date | null;
 }
 
+/** Who decides which approve-workflow requests, from one member's side (Settings → Request types). */
+export interface RequestDeciding {
+  /** Approve-workflow kinds they handle (for requesters the supervisors rule doesn't cover). */
+  handles: ReadonlySet<string>;
+  /** Kinds where a request from someone with supervisors goes to those supervisors. */
+  bySupervisors: ReadonlySet<string>;
+  /** Members who have supervisors. */
+  supervised: ReadonlySet<string>;
+  /** Members this member supervises. */
+  supervising: ReadonlySet<string>;
+}
+
 /**
- * Why `userId` should act on `r` now, or null. `handles`: the approve-workflow
- * kinds they handle (Settings → Request types). The caller leaves out requests
+ * Why `userId` should act on `r` now, or null. The caller leaves out requests
  * of kinds that are turned off.
  * Media made before statuses existed has none (still waiting); "accepted"
  * media from the older two-step flow also still waits to be added; declined
@@ -31,13 +43,17 @@ export interface AttentionRequest {
 export function attentionReason(
   r: AttentionRequest,
   userId: string,
-  handles: ReadonlySet<string>,
+  deciding: RequestDeciding,
   endOfToday: Date,
 ): RequestAttentionReason | null {
   if (!isRequestCategory(r.category)) return null;
   if (r.status === 'completed' || r.status === 'declined') return null;
   if (REQUEST_MODULE_WORKFLOWS[r.category] === 'approve') {
-    return handles.has(r.category) ? 'approve' : null;
+    const decides =
+      deciding.bySupervisors.has(r.category) && deciding.supervised.has(r.requesterId)
+        ? deciding.supervising.has(r.requesterId)
+        : deciding.handles.has(r.category);
+    return decides ? 'approve' : null;
   }
   if (r.assigneeId !== userId) return null;
   if ((r.status ?? 'pending') === 'pending') return 'accept';

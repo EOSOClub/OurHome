@@ -19,7 +19,7 @@ export default async function RequestsPage() {
       orderBy: { name: 'asc' },
     }),
     // The kinds of request that are on (Settings → Request types), as this member sees them.
-    getModuleViews(householdId, user, access.requests),
+    getModuleViews(householdId, user, access.requests, access.shopping.create),
   ]);
 
   return (

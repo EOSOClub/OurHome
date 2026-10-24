@@ -7,7 +7,9 @@
 // Two workflows so far:
 //   approve: whoever handles the module (chosen people, or by default everyone
 //            with the Requests "Approve" switch) marks it done in one step, or
-//            declines it where the module allows that.
+//            declines it where the module allows that. Where the head chose
+//            `bySupervisors`, a request from someone with supervisors (People
+//            you look after) goes to those supervisors instead.
 //   assign:  the requester asks one person, who accepts it (with a done-by
 //            date unless the head made that optional) and later marks it done,
 //            or declines it where the module allows that.
@@ -34,6 +36,8 @@ export type RequestWorkflow = 'approve' | 'assign';
 export const REQUEST_MODULE_WORKFLOWS: Record<RequestCategory, RequestWorkflow> = {
   media: 'approve',
   maintenance: 'assign',
+  purchase: 'approve',
+  permission: 'approve',
 };
 
 /** What each module is for, under its name on the Settings card. */
@@ -41,7 +45,14 @@ export const REQUEST_MODULE_DESCRIPTIONS: Record<RequestCategory, string> = {
   media: 'Movies and TV shows to get. Whoever approves them marks each one added.',
   maintenance:
     'Something to fix or do around the house. The person asked accepts it, then marks it done.',
+  purchase:
+    'Something someone would like bought. Whoever decides says yes or no, and can put it on a shopping list.',
+  permission:
+    'Asking to do something, like a sleepover or a new app. Whoever decides says yes or no.',
 };
+
+/** Modules that are always yes or no: declining is built in, not a switch. */
+export const DECISION_MODULES: readonly RequestCategory[] = ['purchase', 'permission'];
 
 export const REQUEST_MODULE_LIMITS = { label: 40, note: 300 } as const;
 
@@ -62,11 +73,19 @@ export interface ApproveModuleSettings {
   handlerIds: string[];
   /** Whether those people may decline, with an optional reason. */
   allowDecline: boolean;
+  /**
+   * A request from someone with supervisors goes to their supervisors
+   * instead; everyone else's to the people above. Media doesn't offer it.
+   */
+  bySupervisors: boolean;
 }
 
 export interface MediaModuleSettings extends CommonModuleSettings, ApproveModuleSettings {
   mediaTypes: MediaType[];
 }
+
+/** Purchase and Permission: yes or no, so `allowDecline` is always true. */
+export type DecisionModuleSettings = CommonModuleSettings & ApproveModuleSettings;
 
 export interface MaintenanceModuleSettings extends CommonModuleSettings {
   /** Who may be asked; empty = anyone in the household. */
@@ -82,6 +101,8 @@ export interface MaintenanceModuleSettings extends CommonModuleSettings {
 export interface RequestModuleSettings {
   media: MediaModuleSettings;
   maintenance: MaintenanceModuleSettings;
+  purchase: DecisionModuleSettings;
+  permission: DecisionModuleSettings;
 }
 
 const COMMON_DEFAULTS: CommonModuleSettings = {
@@ -91,8 +112,24 @@ const COMMON_DEFAULTS: CommonModuleSettings = {
   askRoles: [...USER_ROLES],
 };
 
+// Purchase and Permission came later, so they start off: a household sees
+// nothing new until the head turns them on.
+const DECISION_DEFAULTS: DecisionModuleSettings = {
+  ...COMMON_DEFAULTS,
+  enabled: false,
+  handlerIds: [],
+  allowDecline: true,
+  bySupervisors: true,
+};
+
 export const DEFAULT_REQUEST_MODULES: RequestModuleSettings = {
-  media: { ...COMMON_DEFAULTS, handlerIds: [], allowDecline: false, mediaTypes: [...MEDIA_TYPES] },
+  media: {
+    ...COMMON_DEFAULTS,
+    handlerIds: [],
+    allowDecline: false,
+    bySupervisors: false,
+    mediaTypes: [...MEDIA_TYPES],
+  },
   maintenance: {
     ...COMMON_DEFAULTS,
     assigneeIds: [],
@@ -100,6 +137,8 @@ export const DEFAULT_REQUEST_MODULES: RequestModuleSettings = {
     requireDueDate: true,
     allowDecline: false,
   },
+  purchase: DECISION_DEFAULTS,
+  permission: { ...DECISION_DEFAULTS, askRoles: ['teen', 'child'] },
 };
 
 // --- Validation ---------------------------------------------------------------
@@ -127,9 +166,13 @@ const commonSchema = z.object({
 const approveSchema = z.object({
   handlerIds: ids,
   allowDecline: z.boolean(),
+  // App builds from before Purchase and Permission don't send it.
+  bySupervisors: z.boolean().default(false),
 });
 
 export const mediaModuleSchema = commonSchema.extend(approveSchema.shape).extend({
+  // Not offered for media.
+  bySupervisors: z.literal(false).default(false),
   mediaTypes: z
     .array(z.enum(MEDIA_TYPES))
     .min(1, 'Offer at least one kind of media, or turn Media off.')
@@ -153,10 +196,20 @@ export const maintenanceModuleSchema = commonSchema
     }
   });
 
-/** What the Settings card sends: every module, every field. */
+export const decisionModuleSchema = commonSchema.extend(approveSchema.shape).extend({
+  allowDecline: z.literal(true),
+});
+
+/**
+ * What the Settings card sends: every module, every field. App builds from
+ * before Purchase and Permission send only media and maintenance; the service
+ * keeps the stored settings of a module that isn't sent.
+ */
 export const requestModulesSchema = z.object({
   media: mediaModuleSchema,
   maintenance: maintenanceModuleSchema,
+  purchase: decisionModuleSchema.optional(),
+  permission: decisionModuleSchema.optional(),
 });
 
 export type RequestModulesInput = z.infer<typeof requestModulesSchema>;
@@ -193,6 +246,8 @@ export function parseRequestModules(raw: string | null | undefined): RequestModu
   return {
     media: readModule(DEFAULT_REQUEST_MODULES.media, stored.media, mediaModuleSchema),
     maintenance: readModule(DEFAULT_REQUEST_MODULES.maintenance, stored.maintenance, maintenanceModuleSchema),
+    purchase: readModule(DEFAULT_REQUEST_MODULES.purchase, stored.purchase, decisionModuleSchema),
+    permission: readModule(DEFAULT_REQUEST_MODULES.permission, stored.permission, decisionModuleSchema),
   };
 }
 
@@ -236,6 +291,38 @@ export function handlesApproval(
 }
 
 /**
+ * Whether `userId` decides one approve-workflow request: with `bySupervisors`,
+ * a requester who has supervisors (`requesterSupervisorIds`, still in the
+ * household) is decided by those supervisors only; anyone else's request by
+ * handlesApproval's people.
+ */
+export function decidesRequest(
+  settings: ApproveModuleSettings,
+  userId: string,
+  approveSwitch: boolean,
+  memberIds: ReadonlySet<string>,
+  requesterSupervisorIds: readonly string[],
+): boolean {
+  if (settings.bySupervisors) {
+    const supervisors = requesterSupervisorIds.filter((id) => memberIds.has(id));
+    if (supervisors.length > 0) return supervisors.includes(userId);
+  }
+  return handlesApproval(settings, userId, approveSwitch, memberIds);
+}
+
+/**
+ * The same decision from a member's module view, as the Requests page and the
+ * Android app make it for each request on the page.
+ */
+export function viewDecides(
+  view: Pick<RequestModuleView, 'handles' | 'bySupervisors' | 'supervisedIds' | 'supervisingIds'>,
+  requesterId: string,
+): boolean {
+  if (view.bySupervisors && view.supervisedIds.includes(requesterId)) return view.supervisingIds.includes(requesterId);
+  return view.handles;
+}
+
+/**
  * The people a maintenance request may go to: the chosen ones still in the
  * household (everyone when none are), never the requester.
  */
@@ -260,8 +347,23 @@ export interface RequestModuleView {
   note: string | null;
   /** May ask: the Requests "Add" switch and the module's roles. */
   canAsk: boolean;
-  /** Approve workflow: marks these done (and declines, where allowed). */
+  /**
+   * Approve workflow: marks these done (and declines, where allowed). With
+   * `bySupervisors`, only the requests of people without supervisors; use
+   * viewDecides for one request.
+   */
   handles: boolean;
+  /** Approve workflow: a request from someone with supervisors goes to them. */
+  bySupervisors: boolean;
+  /** With bySupervisors: the members who have supervisors. Empty otherwise. */
+  supervisedIds: string[];
+  /** With bySupervisors: those of them this member supervises. Empty otherwise. */
+  supervisingIds: string[];
+  /**
+   * Purchase: the shopping lists this member may put an approved purchase on
+   * (empty when they can't add to shopping). Empty for other modules.
+   */
+  shoppingLists: { id: string; name: string }[];
   /** Whoever handles one may decline it: approve workflow, the handlers; assign workflow, the person asked. */
   allowDecline: boolean;
   /** Media: the kinds offered. Empty for other modules. */
@@ -274,43 +376,73 @@ export interface RequestModuleView {
   requireDueDate: boolean;
 }
 
+/**
+ * `supervisors`: each supervised member's supervisors (for bySupervisors).
+ * `shoppingLists`: the lists the viewer may add to (Purchase), empty when they
+ * can't add to shopping.
+ */
 export function moduleViews(
   settings: RequestModuleSettings,
   viewer: { id: string; role: string },
   access: { create: boolean; approve: boolean },
   memberIds: readonly string[],
+  extra: {
+    supervisors?: ReadonlyMap<string, readonly string[]>;
+    shoppingLists?: { id: string; name: string }[];
+  } = {},
 ): RequestModuleView[] {
   const members = new Set(memberIds);
-  return enabledModules(settings).map((id) => {
+  // Members with at least one supervisor still here, and which of them the viewer supervises.
+  const supervisedIds: string[] = [];
+  const supervisingIds: string[] = [];
+  for (const [kid, sups] of extra.supervisors ?? []) {
+    if (!members.has(kid)) continue;
+    const here = sups.filter((s) => members.has(s));
+    if (here.length === 0) continue;
+    supervisedIds.push(kid);
+    if (here.includes(viewer.id)) supervisingIds.push(kid);
+  }
+  const none = {
+    bySupervisors: false,
+    supervisedIds: [],
+    supervisingIds: [],
+    shoppingLists: [],
+    mediaTypes: [],
+    assigneeIds: [],
+    defaultAssigneeId: null,
+    requireDueDate: false,
+  };
+  return enabledModules(settings).map((id): RequestModuleView => {
     const common = {
+      ...none,
       id,
       workflow: REQUEST_MODULE_WORKFLOWS[id],
       label: moduleLabel(settings, id),
       note: settings[id].note,
       canAsk: access.create && roleMayAsk(settings[id], viewer.role),
     };
-    if (id === 'media') {
-      const m = settings.media;
+    if (id === 'maintenance') {
+      const m = settings.maintenance;
+      const choices = assigneeChoices(m, memberIds, viewer.id);
       return {
         ...common,
-        handles: handlesApproval(m, viewer.id, access.approve, members),
+        handles: false,
         allowDecline: m.allowDecline,
-        mediaTypes: m.mediaTypes,
-        assigneeIds: [],
-        defaultAssigneeId: null,
-        requireDueDate: false,
+        assigneeIds: choices,
+        defaultAssigneeId: m.defaultAssigneeId && choices.includes(m.defaultAssigneeId) ? m.defaultAssigneeId : null,
+        requireDueDate: m.requireDueDate,
       };
     }
-    const m = settings.maintenance;
-    const choices = assigneeChoices(m, memberIds, viewer.id);
+    const m = settings[id];
     return {
       ...common,
-      handles: false,
+      handles: handlesApproval(m, viewer.id, access.approve, members),
       allowDecline: m.allowDecline,
-      mediaTypes: [],
-      assigneeIds: choices,
-      defaultAssigneeId: m.defaultAssigneeId && choices.includes(m.defaultAssigneeId) ? m.defaultAssigneeId : null,
-      requireDueDate: m.requireDueDate,
+      bySupervisors: m.bySupervisors,
+      supervisedIds: m.bySupervisors ? supervisedIds : [],
+      supervisingIds: m.bySupervisors ? supervisingIds : [],
+      shoppingLists: id === 'purchase' ? (extra.shoppingLists ?? []) : [],
+      mediaTypes: id === 'media' ? settings.media.mediaTypes : [],
     };
   });
 }

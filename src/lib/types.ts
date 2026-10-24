@@ -556,8 +556,20 @@ export interface RequestDTO {
   issue: boolean;
   /** TV problem reports: the episode within `season`; null is the whole season. */
   episode: number | null;
-  // maintenance; also a media problem report's "what's wrong"
+  // maintenance; also a media problem report's "what's wrong", a purchase's
+  // why and a permission's details
   details: string | null;
+  // purchase
+  url: string | null;
+  imageUrl: string | null;
+  /** Estimated price of one. */
+  price: number | null;
+  quantity: number | null;
+  /** Approved and put on this shopping list (its name then). */
+  addedToList: string | null;
+  // permission
+  startsAt: string | null;
+  endsAt: string | null;
   assignee: MemberDTO | null;
   status: string | null;
   /** Done-by date the assignee committed to (the deadline). */

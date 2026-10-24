@@ -16,6 +16,7 @@ import {
   REQUEST_MODULE_DESCRIPTIONS,
   REQUEST_MODULE_LIMITS,
   type CommonModuleSettings,
+  type DecisionModuleSettings,
   type RequestModuleSettings,
 } from '@/lib/requestModules';
 import { apiFetch } from '@/lib/api';
@@ -142,8 +143,87 @@ function CommonFields<T extends CommonModuleSettings>({
 }
 
 /**
+ * Purchase or Permission: on, the common fields, and who decides - the
+ * asker's supervisors first if ticked, then the Approve switch or chosen
+ * people. Declining is built in.
+ */
+function DecisionSection({
+  id,
+  module,
+  members,
+  value,
+  chosen,
+  onChange,
+  onChosenChange,
+}: {
+  id: string;
+  module: 'purchase' | 'permission';
+  members: Member[];
+  value: DecisionModuleSettings;
+  chosen: boolean;
+  onChange: (next: DecisionModuleSettings) => void;
+  onChosenChange: (chosen: boolean) => void;
+}) {
+  const missing = value.enabled && chosen && value.handlerIds.length === 0;
+  return (
+    <div data-field={module}>
+      <SectionCard title={REQUEST_CATEGORY_LABELS[module]} description={REQUEST_MODULE_DESCRIPTIONS[module]}>
+        <div className="space-y-4">
+          <Check label="On" checked={value.enabled} onChange={(on) => onChange({ ...value, enabled: on })} />
+          {value.enabled ? (
+            <>
+              <CommonFields id={id} defaultLabel={REQUEST_CATEGORY_LABELS[module]} value={value} onChange={onChange} />
+              <div className="space-y-2">
+                <Check
+                  label="The asker's supervisors decide, when they have any"
+                  checked={value.bySupervisors}
+                  onChange={(on) => onChange({ ...value, bySupervisors: on })}
+                />
+                <FieldNote
+                  id={`${id}-supervisors-note`}
+                  hint="A child's or teen's supervisors are set on the Members page. Only they decide that child's request; the head and managers don't, unless they're one of them."
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`${id}-handlers`}>
+                  {value.bySupervisors ? 'Who decides for everyone else' : 'Who decides'}
+                </Label>
+                <Select
+                  id={`${id}-handlers`}
+                  value={chosen ? 'chosen' : 'switch'}
+                  onChange={(e) => onChosenChange(e.target.value === 'chosen')}
+                >
+                  <option value="switch">Everyone with Requests “Approve”</option>
+                  <option value="chosen">Only the people I pick</option>
+                </Select>
+                {chosen ? (
+                  <PeoplePicker
+                    members={members}
+                    selected={value.handlerIds}
+                    onChange={(ids) => onChange({ ...value, handlerIds: ids })}
+                  />
+                ) : null}
+                <FieldNote
+                  id={`${id}-handlers-note`}
+                  error={missing ? 'Pick at least one person.' : null}
+                  hint={
+                    chosen
+                      ? 'They can always say no, with a reason.'
+                      : 'Set in Members → Permissions. Out of the box: you and Managers. They can always say no, with a reason.'
+                  }
+                />
+              </div>
+            </>
+          ) : null}
+        </div>
+      </SectionCard>
+    </div>
+  );
+}
+
+/**
  * Head only: which kinds of request the household can make (Media,
- * Maintenance) and how each one works. Saved as a whole.
+ * Maintenance, Purchase, Permission) and how each one works. Saved as a whole.
  */
 export function RequestTypesCard({
   initial,
@@ -155,9 +235,13 @@ export function RequestTypesCard({
   const queryClient = useQueryClient();
   const [media, setMedia] = useState(initial.media);
   const [maintenance, setMaintenance] = useState(initial.maintenance);
+  const [purchase, setPurchase] = useState(initial.purchase);
+  const [permission, setPermission] = useState(initial.permission);
   // "Chosen people" is on while the list has anyone in it; an empty list means everyone.
   const [mediaChosen, setMediaChosen] = useState(initial.media.handlerIds.length > 0);
   const [maintenanceChosen, setMaintenanceChosen] = useState(initial.maintenance.assigneeIds.length > 0);
+  const [purchaseChosen, setPurchaseChosen] = useState(initial.purchase.handlerIds.length > 0);
+  const [permissionChosen, setPermissionChosen] = useState(initial.permission.handlerIds.length > 0);
   const fe = useFieldErrors('rt-card');
 
   const handlerIds = mediaChosen ? media.handlerIds : [];
@@ -170,6 +254,9 @@ export function RequestTypesCard({
       : null;
   const missingHandlers = media.enabled && mediaChosen && handlerIds.length === 0;
   const missingAssignees = maintenance.enabled && maintenanceChosen && assigneeIds.length === 0;
+  const missingDeciders =
+    (purchase.enabled && purchaseChosen && purchase.handlerIds.length === 0) ||
+    (permission.enabled && permissionChosen && permission.handlerIds.length === 0);
 
   const save = useMutation({
     mutationFn: () =>
@@ -179,13 +266,19 @@ export function RequestTypesCard({
           // Unticking both kinds is only allowed with Media off: keep what it had then.
           media: { ...media, handlerIds, mediaTypes: media.mediaTypes.length ? media.mediaTypes : initial.media.mediaTypes },
           maintenance: { ...maintenance, assigneeIds, defaultAssigneeId },
+          purchase: { ...purchase, handlerIds: purchaseChosen ? purchase.handlerIds : [] },
+          permission: { ...permission, handlerIds: permissionChosen ? permission.handlerIds : [] },
         }),
       }),
     onSuccess: (s) => {
       setMedia(s.media);
       setMaintenance(s.maintenance);
+      setPurchase(s.purchase);
+      setPermission(s.permission);
       setMediaChosen(s.media.handlerIds.length > 0);
       setMaintenanceChosen(s.maintenance.assigneeIds.length > 0);
+      setPurchaseChosen(s.purchase.handlerIds.length > 0);
+      setPermissionChosen(s.permission.handlerIds.length > 0);
       queryClient.invalidateQueries({ queryKey: ['request-modules'] });
       toast.success('Request types saved');
     },
@@ -332,10 +425,36 @@ export function RequestTypesCard({
           </SectionCard>
         </div>
 
+        <DecisionSection
+          id="rt-purchase"
+          module="purchase"
+          members={members}
+          value={purchase}
+          chosen={purchaseChosen}
+          onChange={setPurchase}
+          onChosenChange={setPurchaseChosen}
+        />
+
+        <DecisionSection
+          id="rt-permission"
+          module="permission"
+          members={members}
+          value={permission}
+          chosen={permissionChosen}
+          onChange={setPermission}
+          onChosenChange={setPermissionChosen}
+        />
+
         <div className="flex justify-end">
           <Button
             onClick={() => save.mutate()}
-            disabled={save.isPending || missingHandlers || missingAssignees || (media.enabled && media.mediaTypes.length === 0)}
+            disabled={
+              save.isPending ||
+              missingHandlers ||
+              missingAssignees ||
+              missingDeciders ||
+              (media.enabled && media.mediaTypes.length === 0)
+            }
           >
             {save.isPending ? <Loader2 className="animate-spin" /> : null}
             Save

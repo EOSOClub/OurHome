@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { MEDIA_TYPES } from '@/lib/enums';
+import { httpLink } from '@/lib/validation/shopping';
 
 // A request is either media (name + year, optional TV season) or maintenance
 // (what needs doing + who should do it). For media the year is the release
@@ -8,9 +9,13 @@ import { MEDIA_TYPES } from '@/lib/enums';
 // reports a problem with something the household already has: `details` says
 // what's wrong, and on TV `season` (none = the whole show) and `episode`
 // (none = the whole season) say where.
+// A purchase is what to buy, with an optional link, picture, price of one,
+// how many and why (`details`). A permission is what for, with an optional
+// from and until (`startsAt`, `endsAt`) and details.
 
 const title = z.string().trim().min(1, 'Name is required.').max(200);
 const details = z.string().trim().max(2000).optional().nullable();
+const link = httpLink.optional().nullable();
 
 const mediaFields = {
   category: z.literal('media'),
@@ -31,6 +36,37 @@ const maintenanceFields = {
   // The member asked to do it; the service rejects the requester themself.
   assigneeId: z.string().cuid(),
 };
+
+const purchaseFields = {
+  category: z.literal('purchase'),
+  title,
+  details,
+  url: link,
+  imageUrl: link,
+  price: z.number().nonnegative().max(1_000_000).optional().nullable(),
+  quantity: z.number().int().min(1).max(999).optional().nullable(),
+};
+
+const permissionFields = {
+  category: z.literal('permission'),
+  title,
+  details,
+  startsAt: z.coerce.date().optional().nullable(),
+  endsAt: z.coerce.date().optional().nullable(),
+};
+
+/** Permission: "until" needs a "from" before it, and neither in the past (a day of slack for time zones). */
+function checkPermission(r: { category: string; startsAt?: Date | null; endsAt?: Date | null }, ctx: z.RefinementCtx) {
+  if (r.category !== 'permission') return;
+  if (r.startsAt && r.startsAt.getTime() < Date.now() - 86_400_000) {
+    ctx.addIssue({ code: 'custom', message: 'Pick a time from today on.', path: ['startsAt'] });
+  }
+  if (r.endsAt && !r.startsAt) {
+    ctx.addIssue({ code: 'custom', message: 'Say when it starts too.', path: ['startsAt'] });
+  } else if (r.endsAt && r.startsAt && r.endsAt <= r.startsAt) {
+    ctx.addIssue({ code: 'custom', message: 'Until has to be after from.', path: ['endsAt'] });
+  }
+}
 
 function checkMedia(
   r: {
@@ -63,9 +99,19 @@ function checkMedia(
   }
 }
 
+function checkRequest(r: Parameters<typeof checkMedia>[0] & Parameters<typeof checkPermission>[0], ctx: z.RefinementCtx) {
+  checkMedia(r, ctx);
+  checkPermission(r, ctx);
+}
+
 export const createRequestSchema = z
-  .discriminatedUnion('category', [z.object(mediaFields), z.object(maintenanceFields)])
-  .superRefine(checkMedia);
+  .discriminatedUnion('category', [
+    z.object(mediaFields),
+    z.object(maintenanceFields),
+    z.object(purchaseFields),
+    z.object(permissionFields),
+  ])
+  .superRefine(checkRequest);
 
 export type CreateRequestInput = z.infer<typeof createRequestSchema>;
 
@@ -77,13 +123,19 @@ export const updateRequestSchema = z
   .discriminatedUnion('category', [
     z.object({ id, ...mediaFields }),
     z.object({ id, ...maintenanceFields }),
+    z.object({ id, ...purchaseFields }),
+    z.object({ id, ...permissionFields }),
   ])
-  .superRefine(checkMedia);
+  .superRefine(checkRequest);
 
 export type UpdateRequestInput = z.infer<typeof updateRequestSchema>;
 
 export const requestIdSchema = z.object({ id });
 export type RequestIdInput = z.infer<typeof requestIdSchema>;
+
+// Marking done / approving. A purchase may name a shopping list to put it on.
+export const completeRequestSchema = z.object({ id, listId: z.string().cuid().nullish() });
+export type CompleteRequestInput = z.infer<typeof completeRequestSchema>;
 
 // Accepting: a maintenance request's assignee gives a done-by date (the
 // deadline; the service requires it unless the head made it optional); older

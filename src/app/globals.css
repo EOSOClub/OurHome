@@ -4,6 +4,10 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
+  /* The browser's own controls (date and time pickers, select lists,
+     checkboxes, scrollbars) follow the theme; without it the dark theme got
+     light controls, such as a dark calendar icon on a dark field. */
+  color-scheme: light;
   --radius: 0.7rem;
 
   --background: hsl(0 0% 100%);
@@ -26,6 +30,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --background: hsl(222 47% 7%);
   --foreground: hsl(210 40% 96%);
   --card: hsl(222 44% 10%);

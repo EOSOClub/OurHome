@@ -30,10 +30,13 @@ export interface UpdateItemPayload {
 }
 
 /** Compact link affordance: a "View on Amazon" pill (with the ASIN) for Amazon
- * listings, or the bare hostname for any other product link. */
-function ItemLink({ url }: { url: string }) {
+ * listings, or the bare hostname for any other product link. Also on purchase
+ * requests. */
+export function ItemLink({ url }: { url: string }) {
   const { href, asin } = parseAmazonLink(url);
   const amazon = isAmazonUrl(url);
+  // Web links only: one stored before the server checked could be javascript: or data:.
+  if (!/^https?:\/\//i.test(href)) return null;
 
   let host = href;
   try {

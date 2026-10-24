@@ -1,5 +1,6 @@
 import { prisma } from '@/server/db/prisma';
 import { pingInstall, pushSync } from '@/server/services/pushService';
+import { saveBattery } from '@/server/services/batteryService';
 import { connectedInstalls } from '@/server/push/streamHub';
 import { isFeatureEnabled } from '@/server/services/serverAdminService';
 import { canBeSupervised, canSupervise } from '@/lib/permissions';
@@ -30,9 +31,10 @@ export const SUPERVISED_SELECT = {
 } as const;
 
 // Phone check-ins and the alerts they feed (parental controls). Every phone
-// with the app checks in about hourly; for a supervised child, the 15-minute
-// sweep (and each check-in) turns a quiet phone, or location switched off
-// while required, into a bell notification for that child's supervisors only.
+// with the app checks in about hourly (every 15 minutes while its app usage is
+// shared); for a supervised child, the 15-minute sweep (and each check-in)
+// turns a quiet phone, a low battery, or location switched off while
+// required, into a bell notification for that child's supervisors only.
 // The alert goes away by itself once the problem does. Rules: src/lib/phoneHealth.ts.
 
 /** The bell type, and the key every alert row carries (one per problem, child and supervisor). */
@@ -82,6 +84,11 @@ export async function checkIn(
     update: data,
     create: { installId: input.installId, ...data },
   });
+  // Its battery keeps the Map's reading fresh too; saveBattery skips anyone not sharing where they are.
+  const battery = input.status?.battery;
+  if (battery != null) {
+    await saveBattery(householdId, userId, { pct: battery, charging: input.status?.charging === true }, now, now);
+  }
   await refreshPhoneAlerts(householdId, now, [userId]);
   return { stayConnectedRequired: await isSupervised(householdId, userId) };
 }

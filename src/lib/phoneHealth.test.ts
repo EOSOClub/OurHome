@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  PHONE_LOW_PCT,
   PHONE_QUICK_QUIET_MS,
   PHONE_QUIET_MS,
   SILENT_PROBLEMS,
@@ -115,6 +116,41 @@ describe('phone problems', () => {
       'quiet',
     ]);
     expect(phoneAlertText('battery_restricted', 'Mia').body).toMatch(/allow Unrestricted battery/);
+  });
+
+  it('flags a low battery at 15% or below, not charging, from its latest reading', () => {
+    expect(PHONE_LOW_PCT).toBe(15);
+    // A check-in carrying its status: read with its last word.
+    const phone = { lastSeenAt: minsAgo(10), locationAlways: true, statusAt: minsAgo(10), batteryCharging: false };
+    expect(phoneProblems({ ...phone, batteryPct: 15 }, { sharing: 'on' }, now)).toEqual(['battery_low']);
+    expect(phoneProblems({ ...phone, batteryPct: 16 }, { sharing: 'on' }, now)).toEqual([]);
+    // Charging: it's being looked after. Unknown charging counts as not, as for a flat battery.
+    expect(phoneProblems({ ...phone, batteryPct: 9, batteryCharging: true }, { sharing: 'on' }, now)).toEqual([]);
+    expect(phoneProblems({ ...phone, batteryPct: 9, batteryCharging: null }, { sharing: 'on' }, now)).toEqual(['battery_low']);
+    // A reading from long before its last word may have changed since; none at all says nothing.
+    expect(phoneProblems({ ...phone, batteryPct: 9, statusAt: hoursAgo(2) }, { sharing: 'on' }, now)).toEqual([]);
+    expect(phoneProblems({ ...phone, batteryPct: 9, statusAt: null }, { sharing: 'on' }, now)).toEqual([]);
+    expect(phoneProblems({ ...phone, batteryPct: null }, { sharing: 'on' }, now)).toEqual([]);
+    // Its stream opening with a status counts as its last word too.
+    expect(
+      phoneProblems({ ...phone, lastSeenAt: hoursAgo(3), streamAt: minsAgo(5), statusAt: minsAgo(5), batteryPct: 12 }, { sharing: 'on' }, now),
+    ).toEqual(['battery_low']);
+    // Not required by any rule: it's said whatever the supervisors chose.
+    expect(
+      phoneProblems(
+        { ...phone, batteryPct: 12 },
+        { sharing: 'on', rules: { keepRunning: false, preventUninstall: false, batteryUnrestricted: false } },
+        now,
+      ),
+    ).toEqual(['battery_low']);
+    // Gone quiet low: only why it's quiet.
+    expect(
+      phoneProblems({ ...phone, lastSeenAt: hoursAgo(9), statusAt: hoursAgo(9), batteryPct: 3 }, { sharing: 'on' }, now),
+    ).toEqual(['battery_flat']);
+    expect(phoneAlertText('battery_low', 'Mia')).toEqual({
+      title: 'Mia’s phone battery is low',
+      body: 'Mia’s phone is at 15% or less and not charging. Remind them to charge it, so they can still be reached.',
+    });
   });
 
   it('flags a phone where OurHome can be closed, only when the app says', () => {

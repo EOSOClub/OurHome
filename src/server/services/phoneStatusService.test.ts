@@ -20,6 +20,8 @@ const push = { pushSync: vi.fn(), pingInstall: vi.fn(async () => 'sent') };
 vi.mock('@/server/services/pushService', () => push);
 const isFeatureEnabled = vi.fn(async () => true);
 vi.mock('@/server/services/serverAdminService', () => ({ isFeatureEnabled }));
+const battery = { saveBattery: vi.fn() };
+vi.mock('@/server/services/batteryService', () => battery);
 
 const { checkIn, clearPhoneWatches, phoneSetup, phoneSummaries, PING_AFTER_MS, recordStream, refreshPhoneAlerts } =
   await import('./phoneStatusService');
@@ -224,6 +226,44 @@ describe('phone alerts', () => {
     const update = prisma.phoneStatus.upsert.mock.calls[0][0].update;
     expect(update).not.toHaveProperty('batteryPct');
     expect(update.shutdownAt).toBeNull();
+  });
+
+  it('keeps the Map’s battery fresh from a check-in’s status, before judging its alerts', async () => {
+    const base = { installId: 'install-123', locationAlways: true, notifications: true };
+    await checkIn(H, 'mia', { ...base, status: { battery: 14, charging: true, network: 'wifi' } }, now);
+    expect(battery.saveBattery).toHaveBeenCalledWith(H, 'mia', { pct: 14, charging: true }, now, now);
+    expect(battery.saveBattery.mock.invocationCallOrder[0]).toBeLessThan(
+      prisma.notification.findMany.mock.invocationCallOrder[0],
+    );
+    // Charging not said counts as not charging; no battery or no status: nothing to save.
+    vi.clearAllMocks();
+    await checkIn(H, 'mia', { ...base, status: { battery: 50 } }, now);
+    expect(battery.saveBattery).toHaveBeenCalledWith(H, 'mia', { pct: 50, charging: false }, now, now);
+    vi.clearAllMocks();
+    await checkIn(H, 'mia', { ...base, status: { network: 'none' } }, now);
+    await checkIn(H, 'mia', base, now);
+    expect(battery.saveBattery).not.toHaveBeenCalled();
+  });
+
+  it('alerts supervisors when the battery runs low, and drops the alert once it charges', async () => {
+    const phone = { userId: 'mia', installId: 'i1', lastSeenAt: hoursAgo(0.2), statusAt: hoursAgo(0.2), locationAlways: true, deviceName: null };
+    prisma.supervision.findMany.mockResolvedValue([link('alex'), link('sam')]);
+    prisma.phoneStatus.findMany.mockResolvedValue([{ ...phone, batteryPct: 12, batteryCharging: false }]);
+    await refreshPhoneAlerts(H, now);
+    const rows = prisma.notification.createMany.mock.calls[0][0].data;
+    expect(rows.map((r: { dedupeKey: string }) => r.dedupeKey)).toEqual(['phone:battery_low:mia:alex', 'phone:battery_low:mia:sam']);
+    expect(rows[0]).toMatchObject({ title: 'Mia’s phone battery is low' });
+    expect(push.pushSync).toHaveBeenCalledWith(H, { userIds: ['alex', 'sam'] }, 'reminder');
+
+    vi.clearAllMocks();
+    prisma.phoneStatus.findMany.mockResolvedValue([{ ...phone, batteryPct: 13, batteryCharging: true }]);
+    prisma.notification.findMany.mockResolvedValue([
+      { id: 'n1', dedupeKey: 'phone:battery_low:mia:alex' },
+      { id: 'n2', dedupeKey: 'phone:battery_low:mia:sam' },
+    ]);
+    await refreshPhoneAlerts(H, now);
+    expect(prisma.notification.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ['n1', 'n2'] } } });
+    expect(prisma.notification.createMany).not.toHaveBeenCalled();
   });
 
   it('alerts supervisors while battery saving still holds OurHome back', async () => {

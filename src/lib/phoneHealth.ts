@@ -23,6 +23,9 @@ export const PHONE_QUICK_QUIET_MS = 20 * 60_000;
 /** At or below this (and not charging) at its last word, a quiet phone has probably run flat. */
 export const PHONE_FLAT_PCT = 5;
 
+/** At or below this (and not charging), the adults who look after them are told it's running low. */
+export const PHONE_LOW_PCT = 15;
+
 /** A status read this long before the phone's last word still says how it was then. */
 const STATUS_FRESH_MS = 45 * 60_000;
 /** A shutdown said this close to the phone's last word was what ended it. */
@@ -42,7 +45,9 @@ const SHUTDOWN_NEAR_MS = 5 * 60_000;
  * the household's alerts. location_off: their sharing is required, but
  * the phone no longer lets OurHome use location all the time. usage_off: their
  * app usage is shared, but the phone no longer allows Usage access (so nothing
- * can be measured). battery_restricted: Android's battery optimization still
+ * can be measured). battery_low: its battery was at [PHONE_LOW_PCT] or below
+ * and not charging at its last word, so it may soon go flat; gone once it
+ * charges or climbs back over. battery_restricted: Android's battery optimization still
  * applies to OurHome there, which can delay rings, live checks and alerts, or
  * stop the app in the background. close_guard_off: "Keep Our Home running" is
  * off in Android's Accessibility settings, so the child can close OurHome
@@ -64,6 +69,7 @@ export const PHONE_PROBLEMS = [
   'notifications_off',
   'location_off',
   'usage_off',
+  'battery_low',
   'battery_restricted',
   'close_guard_off',
   'uninstall_guard_off',
@@ -313,13 +319,20 @@ function isFlat(phone: PhoneSnapshot): boolean {
   return phone.batteryPct != null && phone.batteryPct <= PHONE_FLAT_PCT && phone.batteryCharging !== true;
 }
 
+/** Its battery was low and not charging, read with its last word (an older reading may have changed since). */
+function isLow(phone: PhoneSnapshot): boolean {
+  if (phone.batteryPct == null || phone.batteryPct > PHONE_LOW_PCT || phone.batteryCharging === true) return false;
+  return phone.statusAt != null && lastWordAt(phone).getTime() - phone.statusAt.getTime() <= STATUS_FRESH_MS;
+}
+
 /**
  * What's wrong with a child's phone right now. Nothing for a phone that never
  * checked in (no app yet, or an older app). A quiet phone's last report is
  * stale, so only why it's quiet is said then. Location matters only while
  * their sharing is required and the household uses Location; Usage access
  * only while their app usage is shared, and only from apps that report it.
- * Battery, the close guard and the uninstall guard only while their
+ * A low battery always, from its latest reading. Battery saving, the close
+ * guard and the uninstall guard only while their
  * supervisors require them ([PHONE_RULES]). The emergency unlock's milestones
  * always: the guard is there, and the child is taking it off.
  */
@@ -332,6 +345,7 @@ export function phoneProblems(phone: PhoneSnapshot | null, expect: PhoneExpectat
   if (phone.notifications === false) out.push('notifications_off');
   if (expect.locationOn !== false && expect.sharing === 'required' && !phone.locationAlways) out.push('location_off');
   if (expect.usageShared && phone.usageAccess === false) out.push('usage_off');
+  if (isLow(phone)) out.push('battery_low');
   if (rules.batteryUnrestricted && phone.batteryUnrestricted === false) out.push('battery_restricted');
   const emergency = EMERGENCY_PROBLEMS[phone.emergencyUnlockStage as EmergencyUnlockStage] ?? null;
   if (emergency) {
@@ -387,6 +401,12 @@ export function phoneAlertText(problem: PhoneProblem, name: string): { title: st
       body: `${name}’s app usage is shared, but their phone no longer gives OurHome Usage access, so their screen time can’t be seen.`,
     };
   }
+  if (problem === 'battery_low') {
+    return {
+      title: `${name}’s phone battery is low`,
+      body: `${name}’s phone is at ${PHONE_LOW_PCT}% or less and not charging. Remind them to charge it, so they can still be reached.`,
+    };
+  }
   if (problem === 'battery_restricted') {
     return {
       title: `Battery saving may hold OurHome back on ${name}’s phone`,
@@ -440,6 +460,7 @@ export const PHONE_PROBLEM_LABELS: Record<PhoneProblem, string> = {
   notifications_off: 'Notifications turned off on their phone',
   location_off: 'Location turned off on their phone',
   usage_off: 'Usage access turned off on their phone',
+  battery_low: 'Their phone battery is low',
   battery_restricted: 'Battery saving can delay OurHome on their phone',
   close_guard_off: 'OurHome can be closed on their phone',
   uninstall_guard_off: 'OurHome can be uninstalled on their phone',

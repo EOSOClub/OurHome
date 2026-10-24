@@ -33,6 +33,14 @@ export const setPhoneRuleSchema = z.object({
 });
 export type SetPhoneRuleInput = z.infer<typeof setPhoneRuleSchema>;
 
+/** Block an app on a supervised child's phone (app: its package name), or unblock it. */
+export const setAppBlockedSchema = z.object({
+  supervisedId: z.string().min(1),
+  app: z.string().trim().min(1).max(200),
+  blocked: z.boolean(),
+});
+export type SetAppBlockedInput = z.infer<typeof setAppBlockedSchema>;
+
 /** Ask a supervised child's phone to send its app usage now. */
 export const refreshUsageSchema = z.object({ supervisedId: z.string().min(1) });
 

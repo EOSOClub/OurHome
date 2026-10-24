@@ -25,6 +25,8 @@ const prisma = {
 vi.mock('@/server/db/prisma', () => ({ prisma }));
 const push = { pushSync: vi.fn() };
 vi.mock('@/server/services/pushService', () => push);
+const blocks = { blockedAppNames: vi.fn(async (): Promise<string[]> => []) };
+vi.mock('@/server/services/appBlockService', () => blocks);
 
 const {
   findIcon,
@@ -34,6 +36,7 @@ const {
   reportNewApps,
   reportUsage,
   usageHistory,
+  usageLabel,
   usageNamesApp,
   usageSummaries,
 } = await import('./appUsageService');
@@ -236,6 +239,35 @@ describe('app icons', () => {
     expect(prisma.appIcon.deleteMany).toHaveBeenCalledWith({
       where: { householdId: 'h1', app: { notIn: ['com.roblox.client'] } },
     });
+  });
+
+  it('keeps a blocked app’s icon after no usage names it, for the Blocked apps list', async () => {
+    prisma.appUsageDay.findMany.mockResolvedValueOnce([stored(yt.app)]);
+    blocks.blockedAppNames.mockResolvedValueOnce(['com.roblox.client', yt.app]);
+    await forgetUsage(prisma as never, 'h1', ['mia']);
+    expect(blocks.blockedAppNames).toHaveBeenCalledWith(prisma, 'h1');
+    expect(prisma.appIcon.deleteMany).toHaveBeenCalledWith({
+      where: { householdId: 'h1', app: { notIn: [yt.app, 'com.roblox.client'] } },
+    });
+  });
+
+  it('names an app from the newest stored day that has it', async () => {
+    prisma.appUsageDay.findMany.mockResolvedValueOnce([
+      { apps: JSON.stringify([{ app: 'com.other', label: 'Other', minutes: 3 }]) },
+      { apps: JSON.stringify([{ app: yt.app, label: 'YouTube Kids', minutes: 3 }]) },
+      { apps: JSON.stringify([{ app: yt.app, label: 'YouTube', minutes: 9 }]) },
+    ]);
+    expect(await usageLabel('mia', yt.app)).toBe('YouTube Kids');
+    expect(prisma.appUsageDay.findMany).toHaveBeenCalledWith({
+      where: { userId: 'mia' },
+      orderBy: { day: 'desc' },
+      select: { apps: true },
+    });
+    // No name kept: its package name.
+    prisma.appUsageDay.findMany.mockResolvedValueOnce([{ apps: JSON.stringify([{ app: 'com.x', label: '', minutes: 1 }]) }]);
+    expect(await usageLabel('mia', 'com.x')).toBe('com.x');
+    prisma.appUsageDay.findMany.mockResolvedValueOnce([]);
+    expect(await usageLabel('mia', 'com.x')).toBeNull();
   });
 
   it('finds an icon in the household, and whether someone’s usage names an app', async () => {

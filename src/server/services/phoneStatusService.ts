@@ -1,6 +1,7 @@
 import { prisma } from '@/server/db/prisma';
 import { pingInstall, pushSync } from '@/server/services/pushService';
 import { saveBattery } from '@/server/services/batteryService';
+import { phoneBlocks, type PhoneBlock } from '@/server/services/appBlockService';
 import { connectedInstalls } from '@/server/push/streamHub';
 import { isFeatureEnabled } from '@/server/services/serverAdminService';
 import { canBeSupervised, canSupervise } from '@/lib/permissions';
@@ -46,14 +47,15 @@ const alertKey = (problem: PhoneProblem, kidId: string, supervisorId: string) =>
  * A phone checking in. Then its member's alerts are brought up to date at
  * once. Answers whether the phone must Stay connected: while an adult looks
  * after its member, so they can always be reached (the switch is locked on,
- * and the app starts it again after Android's Stop).
+ * and the app starts it again after Android's Stop). Then also the apps their
+ * supervisors blocked, which the phone covers with its "blocked" screen.
  */
 export async function checkIn(
   householdId: string,
   userId: string,
   input: PhoneCheckInInput,
   now: Date = new Date(),
-): Promise<{ stayConnectedRequired: boolean }> {
+): Promise<{ stayConnectedRequired: boolean; blockedApps: PhoneBlock[] }> {
   const data = {
     householdId,
     userId,
@@ -73,6 +75,8 @@ export async function checkIn(
     uninstallGuard: input.uninstallGuard ?? null,
     ...(await emergencyData(input)),
     ...statusData(input.status, now),
+    // Like the status: sent only while an adult looks after them.
+    ...(input.alwaysAllowed ? { alwaysAllowed: [...new Set(input.alwaysAllowed)] } : {}),
     // Its last word before Android switches it off; any other word clears it.
     shutdownAt: input.shuttingDown ? now : null,
     // It's here, so whatever Firebase said about an old token no longer counts.
@@ -90,7 +94,12 @@ export async function checkIn(
     await saveBattery(householdId, userId, { pct: battery, charging: input.status?.charging === true }, now, now);
   }
   await refreshPhoneAlerts(householdId, now, [userId]);
-  return { stayConnectedRequired: await isSupervised(householdId, userId) };
+  const supervised = await isSupervised(householdId, userId);
+  return {
+    stayConnectedRequired: supervised,
+    // Blocks only count while someone looks after them (they're deleted when nobody does).
+    blockedApps: supervised ? await phoneBlocks(householdId, userId) : [],
+  };
 }
 
 /**
@@ -251,6 +260,8 @@ export interface PhoneSummary {
   connected: boolean;
   /** What it last said about each step of Set up this phone. */
   checks: PhoneSetupChecks;
+  /** The apps it never blocks (package names). */
+  alwaysAllowed: string[];
 }
 
 /** Each child's freshest phone and what's wrong with it, for the Map card. */
@@ -286,6 +297,7 @@ export async function phoneSummaries(
         statusAt: true,
         shutdownAt: true,
         pushGoneAt: true,
+        alwaysAllowed: true,
       },
     }),
     isFeatureEnabled(householdId, 'location').catch(() => true),
@@ -302,6 +314,7 @@ export async function phoneSummaries(
       stayConnected: phone.stayConnected === true,
       connected: connected.has(phone.installId),
       checks: setupChecks(phone),
+      alwaysAllowed: phone.alwaysAllowed,
       problems: phoneProblems(
         { ...phone, connected: connected.has(phone.installId) },
         {

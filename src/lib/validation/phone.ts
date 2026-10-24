@@ -48,6 +48,11 @@ export const phoneCheckInSchema = z.object({
   emergencyUnlockReadyAtMs: z.number().int().positive().optional(),
   /** Sent only while an adult looks after the member (phoneStatusSchema). */
   status: phoneStatusSchema.optional(),
+  /**
+   * Package names the phone never blocks (its phone, messages, home screen and
+   * OurHome itself); sent only while an adult looks after the member.
+   */
+  alwaysAllowed: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
   /** Android is switching the phone off: this is its last word until it's back. */
   shuttingDown: z.boolean().optional(),
 });

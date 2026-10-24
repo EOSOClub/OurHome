@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { UsageAppDTO, UsageHistoryDTO } from '@/lib/types';
 import {
   USAGE_CHART_DAYS,
@@ -40,22 +40,26 @@ export function AppIcon({ app }: { app: UsageAppDTO }) {
   );
 }
 
-/** Apps as rows: icon, name, time. */
-export function AppList({ apps }: { apps: UsageAppDTO[] }) {
+/** What goes at the end of an app's row (a supervisor's Block), if anything. */
+export type AppAction = (app: UsageAppDTO) => ReactNode;
+
+/** Apps as rows: icon, name, time, then [action]'s part. */
+export function AppList({ apps, action }: { apps: UsageAppDTO[]; action?: AppAction }) {
   return (
     <ul className="space-y-1">
       {apps.map((a) => (
-        <li key={a.app} className="flex items-center gap-2 text-xs">
+        <li key={a.app} className={cn('flex items-center gap-2 text-xs', action && 'min-h-6')}>
           <AppIcon app={a} />
           <span className="min-w-0 flex-1 truncate">{a.label}</span>
           <span className="shrink-0 tabular-nums text-muted-foreground">{formatMinutes(a.minutes)}</span>
+          {action ? action(a) : null}
         </li>
       ))}
     </ul>
   );
 }
 
-export function UsageHistory({ history }: { history: UsageHistoryDTO }) {
+export function UsageHistory({ history, appAction }: { history: UsageHistoryDTO; appAction?: AppAction }) {
   const [picked, setPicked] = useState<string | null>(null);
   // en-CA writes the viewer's local date as YYYY-MM-DD, like the phone's day.
   const today = new Date().toLocaleDateString('en-CA');
@@ -120,7 +124,7 @@ export function UsageHistory({ history }: { history: UsageHistoryDTO }) {
           {usageDayLabel(shown.day, today)}: {formatMinutes(shown.totalMinutes)}
         </p>
         {shown.apps.length > 0 ? (
-          <AppList apps={shown.apps} />
+          <AppList apps={shown.apps} action={appAction} />
         ) : (
           <p className="text-xs text-muted-foreground">No app was open for a full minute.</p>
         )}

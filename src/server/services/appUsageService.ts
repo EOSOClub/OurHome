@@ -3,6 +3,7 @@ import { prisma } from '@/server/db/prisma';
 import { createHash } from 'node:crypto';
 import { ConflictError } from '@/server/services/errors';
 import { pushSync } from '@/server/services/pushService';
+import { blockedAppNames } from '@/server/services/appBlockService';
 import { canBeSupervised, canSupervise } from '@/lib/permissions';
 import {
   USAGE_CARD_APPS,
@@ -18,7 +19,8 @@ import type { UsageHistoryDTO } from '@/lib/types';
 
 // App usage (parental controls): a child's phone reports its screen time per
 // app while a supervising adult has turned sharing it on (User.shareAppUsage,
-// set in supervisionService). Read-only: nothing is limited or blocked yet.
+// set in supervisionService). Their supervisors block apps from its lists
+// (appBlockService); nothing is limited by time yet.
 // Only the last USAGE_KEEP_DAYS days are kept; turning sharing off deletes it.
 // The phone also sends each app's icon once (AppIcon), when the server says
 // it has none; an icon goes when no stored day names its app any more.
@@ -137,10 +139,26 @@ export async function forgetUsage(db: Db, householdId: string, userIds: string[]
   await pruneIcons(db, householdId);
 }
 
-/** Deletes the household's icons that no stored usage day names. */
+/**
+ * The name [userId]'s newest stored day gives [app], or null when no stored
+ * day names it (blocking an app takes its name from here).
+ */
+export async function usageLabel(userId: string, app: string): Promise<string | null> {
+  const rows = await prisma.appUsageDay.findMany({ where: { userId }, orderBy: { day: 'desc' }, select: { apps: true } });
+  for (const row of rows) {
+    const found = parseApps(row.apps).find((a) => a.app === app);
+    if (found) return found.label || found.app;
+  }
+  return null;
+}
+
+/** Deletes the household's icons that no stored usage day names, keeping blocked apps' (their list shows them). */
 export async function pruneIcons(db: Db, householdId: string): Promise<void> {
-  const rows = await db.appUsageDay.findMany({ where: { householdId }, select: { apps: true } });
-  const named = [...new Set(rows.flatMap((r) => parseApps(r.apps).map((a) => a.app)))];
+  const [rows, blocked] = await Promise.all([
+    db.appUsageDay.findMany({ where: { householdId }, select: { apps: true } }),
+    blockedAppNames(db, householdId),
+  ]);
+  const named = [...new Set([...rows.flatMap((r) => parseApps(r.apps).map((a) => a.app)), ...blocked])];
   await db.appIcon.deleteMany({ where: { householdId, app: { notIn: named } } });
 }
 

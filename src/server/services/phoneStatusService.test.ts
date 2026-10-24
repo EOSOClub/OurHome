@@ -22,6 +22,8 @@ const isFeatureEnabled = vi.fn(async () => true);
 vi.mock('@/server/services/serverAdminService', () => ({ isFeatureEnabled }));
 const battery = { saveBattery: vi.fn() };
 vi.mock('@/server/services/batteryService', () => battery);
+const blocks = { phoneBlocks: vi.fn(async (): Promise<unknown[]> => []) };
+vi.mock('@/server/services/appBlockService', () => blocks);
 
 const { checkIn, clearPhoneWatches, phoneSetup, phoneSummaries, PING_AFTER_MS, recordStream, refreshPhoneAlerts } =
   await import('./phoneStatusService');
@@ -119,12 +121,38 @@ describe('phone alerts', () => {
   it('tells the phone to Stay connected while an adult looks after its member, and only then', async () => {
     const base = { installId: 'install-123', locationAlways: true, notifications: true };
     prisma.supervision.findMany.mockResolvedValue([link('alex')]);
-    expect(await checkIn(H, 'mia', base, now)).toEqual({ stayConnectedRequired: true });
+    expect(await checkIn(H, 'mia', base, now)).toEqual({ stayConnectedRequired: true, blockedApps: [] });
     // A link whose supervisor became a guest no longer counts.
     prisma.supervision.findMany.mockResolvedValue([link('alex', 'guest')]);
-    expect(await checkIn(H, 'mia', base, now)).toEqual({ stayConnectedRequired: false });
+    expect(await checkIn(H, 'mia', base, now)).toEqual({ stayConnectedRequired: false, blockedApps: [] });
     prisma.supervision.findMany.mockResolvedValue([]);
-    expect(await checkIn(H, 'alex', base, now)).toEqual({ stayConnectedRequired: false });
+    expect(await checkIn(H, 'alex', base, now)).toEqual({ stayConnectedRequired: false, blockedApps: [] });
+  });
+
+  it('answers a looked-after phone with its blocked apps, and keeps what it always leaves open', async () => {
+    const roblox = { app: 'com.roblox.client', label: 'Roblox', by: 'Alex' };
+    blocks.phoneBlocks.mockResolvedValue([roblox]);
+    const base = { installId: 'install-123', locationAlways: true, notifications: true };
+    prisma.supervision.findMany.mockResolvedValue([link('alex')]);
+    const allowed = ['com.google.android.dialer', 'com.google.android.apps.messaging', 'com.google.android.dialer'];
+    expect(await checkIn(H, 'mia', { ...base, alwaysAllowed: allowed }, now)).toEqual({
+      stayConnectedRequired: true,
+      blockedApps: [roblox],
+    });
+    expect(blocks.phoneBlocks).toHaveBeenCalledWith(H, 'mia');
+    expect(prisma.phoneStatus.upsert.mock.calls[0][0].update.alwaysAllowed).toEqual([
+      'com.google.android.dialer',
+      'com.google.android.apps.messaging',
+    ]);
+    // A phone that sends none (nobody looked after them then, or an older app) leaves what's stored.
+    await checkIn(H, 'mia', base, now);
+    expect(prisma.phoneStatus.upsert.mock.calls[1][0].update).not.toHaveProperty('alwaysAllowed');
+    // Nobody looks after them: no blocks, whatever is still stored.
+    vi.clearAllMocks();
+    prisma.supervision.findMany.mockResolvedValue([]);
+    expect((await checkIn(H, 'mia', base, now)).blockedApps).toEqual([]);
+    expect(blocks.phoneBlocks).not.toHaveBeenCalled();
+    blocks.phoneBlocks.mockResolvedValue([]);
   });
 
   it('records how alerts reach the phone, never trusting a phone clock ahead of the server', async () => {
@@ -463,5 +491,13 @@ describe('check-in fields', () => {
     const parsed = phoneCheckInSchema.parse({ ...base, emergencyUnlockStage: '12h_left', emergencyUnlockReadyAtMs: 5 });
     expect(parsed.emergencyUnlockStage).toBeUndefined();
     expect(parsed.emergencyUnlockReadyAtMs).toBe(5);
+  });
+
+  it('takes up to 50 always-open apps', async () => {
+    const { phoneCheckInSchema } = await import('@/lib/validation/phone');
+    const apps = Array.from({ length: 50 }, (_, i) => `com.example.app${i}`);
+    expect(phoneCheckInSchema.parse({ ...base, alwaysAllowed: apps }).alwaysAllowed).toHaveLength(50);
+    expect(() => phoneCheckInSchema.parse({ ...base, alwaysAllowed: [...apps, 'one.more'] })).toThrow();
+    expect(() => phoneCheckInSchema.parse({ ...base, alwaysAllowed: [''] })).toThrow();
   });
 });

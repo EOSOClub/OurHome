@@ -6,7 +6,7 @@ import { useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BellRing, ChevronLeft, ChevronRight, HeartHandshake, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { LookAfterDTO, RingDTO, UsageHistoryDTO } from '@/lib/types';
+import type { BlockedAppDTO, LookAfterDTO, RingDTO, UsageAppDTO, UsageHistoryDTO } from '@/lib/types';
 import { apiFetch, ApiError } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -23,15 +23,15 @@ import {
 import { formatMinutes, usageDayLabel } from '@/lib/appUsage';
 import { RING_MS, ringActive, ringOutcome } from '@/lib/ring';
 import { SetupProgress, setupSummary } from '@/components/look-after/setup-progress';
-import { AppList, UsageHistory } from '@/components/look-after/usage-history';
+import { AppIcon, AppList, UsageHistory, type AppAction } from '@/components/look-after/usage-history';
 
 // The "People you look after" page: the children and teens the viewer
 // supervises (the Head's supervision list). First a summary card for each
 // (with Ring); a card opens that person's page (?person=<id>), where the
 // viewer can ring their phone, make their
-// location sharing required, share their app usage, choose which protections
-// their phone must have on (PHONE_RULES). Only linked for adults
-// who supervise someone; the server checks it again.
+// location sharing required, share their app usage and block apps from it,
+// choose which protections their phone must have on (PHONE_RULES). Only
+// linked for adults who supervise someone; the server checks it again.
 
 export const LOOK_AFTER_KEY = ['look-after'];
 
@@ -126,6 +126,9 @@ export function LookAfterView({ initial }: { initial: LookAfterDTO }) {
               shows you how long they spend in each app; their phone needs Usage access for it. Their phone sends it
               every 15 minutes, and opening this page asks it for the latest numbers. They see the same numbers on their
               Profile. While it&apos;s shared, you&apos;re also told when a new app turns up on their phone.{' '}
+              <strong>Block</strong> next to an app stops it opening on their phone: they see a screen saying you
+              blocked it. Blocking needs Keep Our Home running on their phone. Phone calls, messages and OurHome
+              always stay open.{' '}
               <strong>Require Keep Our Home running</strong> stops OurHome being closed on their phone.{' '}
               <strong>Require Prevent uninstall</strong> stops it being removed without your PIN.{' '}
               <strong>Require Unrestricted battery</strong> stops battery saving from holding back rings and alerts.
@@ -219,6 +222,9 @@ function PersonCard({ person, canRing, until, onRang }: RingButtonProps & { canR
                 ? `${usageDayLabel(latest.day, new Date().toLocaleDateString('en-CA'))}: ${formatMinutes(latest.totalMinutes)} in apps`
                 : 'No app usage from their phone yet'}
           </span>
+          {person.blocking.apps.length > 0 ? (
+            <span className="block text-xs text-muted-foreground">{blockedSummary(person.blocking.apps)}</span>
+          ) : null}
           <span className="block text-xs text-muted-foreground">{setupSummary(person)}</span>
           {person.ring ? <RingLine ring={person.ring} /> : null}
         </Link>
@@ -304,14 +310,10 @@ function RingLine({ ring }: { ring: RingDTO }) {
  * The latest day their phone reported: total, then the top apps with their
  * icons; then, on request, the week's chart and every app.
  */
-function UsageLine({
-  personId,
-  latest,
-}: {
-  personId: string;
-  latest: LookAfterDTO['people'][number]['appUsage']['latest'];
-}) {
+function UsageLine({ person }: { person: Person }) {
   const [open, setOpen] = useState(false);
+  const latest = person.appUsage.latest;
+  const action: AppAction = (app) => <BlockButton person={person} app={app} />;
   if (!latest) {
     return (
       <p className="text-xs text-muted-foreground">
@@ -330,9 +332,9 @@ function UsageLine({
         {' · '}updated <RelativeTime date={latest.updatedAt} />
       </p>
       {open ? (
-        <UsageHistoryPanel personId={personId} />
+        <UsageHistoryPanel personId={person.id} action={action} />
       ) : latest.top.length > 0 ? (
-        <AppList apps={latest.top} />
+        <AppList apps={latest.top} action={action} />
       ) : null}
       <Button
         size="sm"
@@ -348,7 +350,7 @@ function UsageLine({
 }
 
 /** Their week's chart and every app, loaded when opened and kept current while open. */
-function UsageHistoryPanel({ personId }: { personId: string }) {
+function UsageHistoryPanel({ personId, action }: { personId: string; action: AppAction }) {
   const { data, isPending, isError } = useQuery({
     queryKey: [...USAGE_HISTORY_KEY, personId],
     queryFn: () =>
@@ -357,7 +359,119 @@ function UsageHistoryPanel({ personId }: { personId: string }) {
   });
   if (isPending) return <Loader2 className="size-4 animate-spin text-muted-foreground" />;
   if (isError) return <p className="text-xs text-destructive">Couldn&apos;t load their app usage.</p>;
-  return <UsageHistory history={data} />;
+  return <UsageHistory history={data} appAction={action} />;
+}
+
+/** "Roblox blocked", "Roblox and TikTok blocked", "3 apps blocked". */
+function blockedSummary(apps: BlockedAppDTO[]): string {
+  if (apps.length === 1) return `${apps[0].label} blocked`;
+  if (apps.length === 2) return `${apps[0].label} and ${apps[1].label} blocked`;
+  return `${apps.length} apps blocked`;
+}
+
+/** Blocks or unblocks one app on their phone; the answer is the page's new data. */
+function useBlockApp(person: Person) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    // A refetch already on its way mustn't put the old list back.
+    onMutate: () => queryClient.cancelQueries({ queryKey: LOOK_AFTER_KEY }),
+    mutationFn: ({ app, blocked }: { app: string; label: string; blocked: boolean }) =>
+      apiFetch<LookAfterDTO>('/api/supervision/blocked-apps', {
+        method: 'POST',
+        body: JSON.stringify({ supervisedId: person.id, app, blocked }),
+      }),
+    onSuccess: (next, { label, blocked }) => {
+      queryClient.setQueryData(LOOK_AFTER_KEY, next);
+      toast.success(
+        blocked ? `${label} is blocked on ${person.name}’s phone` : `${label} is unblocked on ${person.name}’s phone`,
+      );
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not change it.'),
+  });
+}
+
+/** The end of an app's row in their usage: Block, or Unblock (red) once blocked; "Always open" for an app their phone never blocks. */
+function BlockButton({ person, app }: { person: Person; app: UsageAppDTO }) {
+  const block = useBlockApp(person);
+  if (person.blocking.alwaysAllowed.includes(app.app)) {
+    return <span className="w-16 shrink-0 text-right text-[11px] text-muted-foreground">Always open</span>;
+  }
+  const isBlocked = block.isPending
+    ? block.variables.blocked
+    : person.blocking.apps.some((b) => b.app === app.app);
+  return (
+    <span className="flex w-16 shrink-0 justify-end">
+      {isBlocked ? (
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 px-1.5 text-[11px] text-destructive hover:text-destructive"
+          disabled={block.isPending}
+          aria-label={`Unblock ${app.label}`}
+          onClick={() => block.mutate({ app: app.app, label: app.label, blocked: false })}
+        >
+          Unblock
+        </Button>
+      ) : (
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 px-1.5 text-[11px]"
+          disabled={block.isPending}
+          aria-label={`Block ${app.label}`}
+          onClick={() => block.mutate({ app: app.app, label: app.label, blocked: true })}
+        >
+          Block
+        </Button>
+      )}
+    </span>
+  );
+}
+
+/** The apps blocked on their phone, who blocked each and when, with Unblock. */
+function BlockedApps({ person }: { person: Person }) {
+  const { apps, works } = person.blocking;
+  if (apps.length === 0) return null;
+  return (
+    <div className="space-y-1.5">
+      <p className="text-sm font-medium">Blocked apps</p>
+      {works === false ? (
+        <p className="text-xs text-destructive">
+          Keep Our Home running is off on their phone, so these apps open anyway until it&apos;s back on.
+        </p>
+      ) : null}
+      <ul className="space-y-1">
+        {apps.map((a) => (
+          <BlockedRow key={a.app} person={person} app={a} />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function BlockedRow({ person, app }: { person: Person; app: BlockedAppDTO }) {
+  const block = useBlockApp(person);
+  return (
+    <li className="flex min-h-7 items-center gap-2 text-xs">
+      <AppIcon app={{ app: app.app, label: app.label, icon: app.icon, minutes: 0 }} />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate">{app.label}</span>
+        <span className="block text-[11px] text-muted-foreground">
+          Blocked by {app.byName} <RelativeTime date={app.at} />
+        </span>
+      </span>
+      <Button
+        size="sm"
+        variant="outline"
+        className="h-7 shrink-0 px-2 text-xs"
+        disabled={block.isPending}
+        onClick={() => block.mutate({ app: app.app, label: app.label, blocked: false })}
+      >
+        {block.isPending ? <Loader2 className="animate-spin" /> : null}
+        Unblock
+      </Button>
+    </li>
+  );
 }
 
 interface RingButtonProps {
@@ -492,7 +606,8 @@ function PersonDetail({ person, canRing, until, onRang }: RingButtonProps & { ca
         Share app usage
         {usage.isPending ? <Loader2 className="size-3.5 animate-spin text-muted-foreground" /> : null}
       </label>
-      {person.appUsage.shared ? <UsageLine personId={person.id} latest={person.appUsage.latest} /> : null}
+      {person.appUsage.shared ? <UsageLine person={person} /> : null}
+      <BlockedApps person={person} />
       {PHONE_RULES.map((rule) => (
         <RuleBox key={rule} person={person} rule={rule} />
       ))}

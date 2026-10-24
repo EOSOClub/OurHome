@@ -680,6 +680,16 @@ export interface LookAfterDTO {
     };
     /** The protections their phone must have on (POST /api/supervision/phone-rules). */
     rules: PhoneRules;
+    /** Apps blocked on their phone (POST /api/supervision/blocked-apps), newest
+     *  first. alwaysAllowed: package names their phone never blocks (its phone,
+     *  messages, home screen and OurHome), so they get no Block. works: whether
+     *  "Keep Our Home running" is on there, which does the blocking (null: no
+     *  phone checked in yet, or an app too old to say). */
+    blocking: {
+      apps: BlockedAppDTO[];
+      alwaysAllowed: string[];
+      works: boolean | null;
+    };
     /** How far Set up this phone has got. passwordChosen: they replaced their
      *  temporary password. steps: what their phone must do, in the app's
      *  order; done is null until a phone of theirs that can say checks in. */
@@ -707,6 +717,15 @@ export interface UsageAppDTO {
   label: string;
   minutes: number;
   icon: boolean;
+}
+
+/** An app blocked on a child's phone: who blocked it (byName) and when (at). */
+export interface BlockedAppDTO {
+  app: string;
+  label: string;
+  icon: boolean;
+  byName: string;
+  at: string;
 }
 
 /**

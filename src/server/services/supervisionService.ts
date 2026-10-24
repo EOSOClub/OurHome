@@ -13,6 +13,7 @@ import {
 import {
   PHONE_RULE_COLUMNS,
   PHONE_RULE_LABELS,
+  freshestPhone,
   phoneRules,
   setupProgress,
   setupRequired,
@@ -23,9 +24,11 @@ import {
   findIcon,
   forgetUsage,
   usageHistory,
+  usageLabel,
   usageNamesApp,
   usageSummaries,
 } from '@/server/services/appUsageService';
+import { blockedAppsByKid, isBlockedFor } from '@/server/services/appBlockService';
 import { USAGE_REFRESH_COOLDOWN_MS } from '@/lib/appUsage';
 import {
   RING_MS,
@@ -41,6 +44,7 @@ import { sharingMode } from '@/lib/location';
 import type { LookAfterDTO, RingDTO, SupervisionDTO, UsageHistoryDTO } from '@/lib/types';
 import type { ReportRingInput } from '@/lib/validation/phone';
 import type {
+  SetAppBlockedInput,
   SetPhoneRuleInput,
   SetRequiredSharingInput,
   SetSupervisorsInput,
@@ -236,6 +240,8 @@ export async function linkNewSupervisors(
 //    liveCheckAllowed). It goes back to "on" when nobody supervises them.
 //  - Share their app usage with their supervisors (appUsageService). It goes
 //    off, and what was kept is deleted, when nobody supervises them.
+//  - Block apps from that usage on their phone (setAppBlocked). The blocks go
+//    when nobody supervises them.
 //  - Be told when their phone goes quiet (phoneStatusService).
 
 /** One ring per child at a time: the phone rings for about this long. */
@@ -312,9 +318,10 @@ export async function lookAfterOverview(
   now: number = Date.now(),
 ): Promise<LookAfterDTO> {
   const kids = await supervisedBy(householdId, actorId);
-  const [phones, usage, locationOn] = await Promise.all([
+  const [phones, usage, blocked, locationOn] = await Promise.all([
     phoneSummaries(householdId, kids),
     usageSummaries(householdId, kids.filter((k) => k.shareAppUsage === true).map((k) => k.id)),
+    blockedAppsByKid(householdId, kids.map((k) => k.id)),
     isFeatureEnabled(householdId, 'location').catch(() => true),
   ]);
   return {
@@ -322,15 +329,20 @@ export async function lookAfterOverview(
     people: kids.map((k) => {
       const sharing = sharingMode(k.locationSharing);
       const rules = phoneRules(k);
-      // Its checks only feed setup below.
-      const { checks = null, ...phone } = phones.get(k.id) ?? {};
+      // Its checks only feed setup and blocking below.
+      const { checks = null, alwaysAllowed = [], ...phone } = phones.get(k.id) ?? {};
       return {
         id: k.id,
         name: k.name,
         sharing,
-        phone: phones.has(k.id) ? (phone as Omit<PhoneSummary, 'checks'>) : null,
+        phone: phones.has(k.id) ? (phone as Omit<PhoneSummary, 'checks' | 'alwaysAllowed'>) : null,
         appUsage: { shared: k.shareAppUsage === true, latest: usage.get(k.id) ?? null },
         rules,
+        blocking: {
+          apps: blocked.get(k.id) ?? [],
+          alwaysAllowed,
+          works: checks?.keepRunning ?? null,
+        },
         setup: {
           passwordChosen: !k.mustChangePassword,
           steps: setupProgress(
@@ -428,6 +440,79 @@ export async function setUsageSharing(
     // A "Usage access off" alert only holds while usage is shared.
     await refreshPhoneAlerts(householdId, new Date(), [kid.id]);
   }
+  return lookAfterOverview(householdId, actor.id);
+}
+
+/**
+ * Block an app on a supervised child's phone, or unblock it. Only an app
+ * their stored usage names (its name comes from there), and never one their
+ * phone always keeps open (its phone, messages, home screen, OurHome). Wakes
+ * their phone, which checks in and learns the new list at once.
+ */
+export async function setAppBlocked(
+  householdId: string,
+  actor: { id: string },
+  input: SetAppBlockedInput,
+): Promise<LookAfterDTO> {
+  const kid = (await supervisedBy(householdId, actor.id)).find((k) => k.id === input.supervisedId);
+  if (!kid) {
+    throw new ForbiddenError(
+      'Only an adult who supervises them can block apps on their phone. The Head of House chooses that on the Members page.',
+    );
+  }
+  const existing = await prisma.blockedApp.findUnique({
+    where: { userId_app: { userId: kid.id, app: input.app } },
+    select: { id: true, label: true },
+  });
+  let changed = false;
+  if (input.blocked && !existing) {
+    const phones = await prisma.phoneStatus.findMany({
+      where: { householdId, userId: kid.id },
+      select: { lastSeenAt: true, alwaysAllowed: true },
+    });
+    if (freshestPhone(phones)?.alwaysAllowed.includes(input.app)) {
+      throw new ConflictError(
+        `${kid.name}’s phone always keeps this app open: phone calls, messages, the home screen and OurHome can’t be blocked.`,
+      );
+    }
+    const label = await usageLabel(kid.id, input.app);
+    if (!label) throw new NotFoundError(`That app isn’t in ${kid.name}’s app usage.`);
+    await prisma.$transaction(async (tx) => {
+      await tx.blockedApp.create({
+        data: { householdId, userId: kid.id, app: input.app, label, blockedById: actor.id },
+      });
+      await logActivity(
+        {
+          householdId,
+          actorId: actor.id,
+          verb: 'updated',
+          subjectType: 'member',
+          subjectId: kid.id,
+          message: `blocked ${label} on ${kid.name}’s phone`,
+        },
+        tx,
+      );
+    });
+    changed = true;
+  } else if (!input.blocked && existing) {
+    await prisma.$transaction(async (tx) => {
+      await tx.blockedApp.delete({ where: { id: existing.id } });
+      await logActivity(
+        {
+          householdId,
+          actorId: actor.id,
+          verb: 'updated',
+          subjectType: 'member',
+          subjectId: kid.id,
+          message: `unblocked ${existing.label} on ${kid.name}’s phone`,
+        },
+        tx,
+      );
+    });
+    changed = true;
+  }
+  // Their phone checks in at once and learns the new list.
+  if (changed) pushSync(householdId, { userIds: [kid.id] }, 'supervision');
   return lookAfterOverview(householdId, actor.id);
 }
 
@@ -613,14 +698,17 @@ export async function supervisedUsageHistory(
 
 /**
  * An app's icon (PNG), for a supervisor of a child whose shared usage names
- * the app, or for the child themself (their Profile). Not found otherwise, so
- * nobody else can tell which apps a child has. A member's own days only exist
- * while their usage is shared: turning it off deletes them.
+ * the app or who has it blocked, or for the child themself (their Profile).
+ * Not found otherwise, so nobody else can tell which apps a child has. A
+ * member's own days only exist while their usage is shared: turning it off
+ * deletes them.
  */
 export async function usageIcon(householdId: string, actorId: string, app: string): Promise<Uint8Array> {
-  const sharing = (await supervisedBy(householdId, actorId)).filter((k) => k.shareAppUsage === true);
-  const whose = [...sharing.map((k) => k.id), actorId];
-  const png = (await usageNamesApp(whose, app)) ? await findIcon(householdId, app) : null;
+  const kids = await supervisedBy(householdId, actorId);
+  const whose = [...kids.filter((k) => k.shareAppUsage === true).map((k) => k.id), actorId];
+  // A blocked app stays in their Blocked apps list after it leaves their usage.
+  const named = (await usageNamesApp(whose, app)) || (await isBlockedFor(kids.map((k) => k.id), app));
+  const png = named ? await findIcon(householdId, app) : null;
   if (!png) throw new NotFoundError('No icon for that app.');
   return png;
 }
@@ -647,14 +735,18 @@ export async function dropBrokenSupervision(db: Db, userId: string, role: string
 /**
  * Supervisors' controls only last while someone supervises them: anyone in
  * [userIds] with no supervisor left (or no longer a child or teen) gets
- * required sharing back as "on" (they may turn it off again), and app usage
- * sharing off with what was stored deleted (nobody is left to see it).
+ * required sharing back as "on" (they may turn it off again), app usage
+ * sharing off with what was stored deleted (nobody is left to see it), and
+ * every app unblocked.
  */
 export async function releaseIfUnsupervised(db: Db, userIds: string[]): Promise<void> {
+  const ids = [...new Set(userIds)];
+  const blocked = await db.blockedApp.findMany({ where: { userId: { in: ids } }, select: { userId: true } });
+  const withBlocks = new Set(blocked.map((b) => b.userId));
   const controlled = await db.user.findMany({
     where: {
-      id: { in: [...new Set(userIds)] },
-      OR: [{ locationSharing: 'required' }, { shareAppUsage: true }],
+      id: { in: ids },
+      OR: [{ locationSharing: 'required' }, { shareAppUsage: true }, { id: { in: [...withBlocks] } }],
     },
     select: { id: true, role: true, householdId: true, locationSharing: true, shareAppUsage: true },
   });
@@ -669,6 +761,8 @@ export async function releaseIfUnsupervised(db: Db, userIds: string[]): Promise<
     if (user.locationSharing === 'required') {
       await db.user.update({ where: { id: user.id }, data: { locationSharing: 'on' } });
     }
+    // Before forgetting their usage, so pruning icons no longer keeps these apps'.
+    if (withBlocks.has(user.id)) await db.blockedApp.deleteMany({ where: { userId: user.id } });
     if (user.shareAppUsage) {
       await db.user.update({ where: { id: user.id }, data: { shareAppUsage: null } });
       if (user.householdId) await forgetUsage(db, user.householdId, [user.id]);

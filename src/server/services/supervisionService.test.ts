@@ -14,6 +14,12 @@ const tx = {
     update: vi.fn(),
   },
   appUsageDay: { deleteMany: vi.fn() },
+  blockedApp: {
+    findMany: vi.fn(async (): Promise<unknown[]> => []),
+    deleteMany: vi.fn(),
+    create: vi.fn(),
+    delete: vi.fn(),
+  },
 };
 const prisma = {
   user: {
@@ -24,6 +30,8 @@ const prisma = {
     findMany: vi.fn(async (): Promise<Link[]> => []),
     findUnique: vi.fn(async (): Promise<unknown> => null),
   },
+  blockedApp: { findUnique: vi.fn(async (): Promise<unknown> => null) },
+  phoneStatus: { findMany: vi.fn(async (): Promise<unknown[]> => []) },
   $transaction: vi.fn(async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx)),
 };
 vi.mock('@/server/db/prisma', () => ({ prisma }));
@@ -49,8 +57,14 @@ const usage = {
   usageNamesApp: vi.fn(async () => false),
   findIcon: vi.fn(async (): Promise<Uint8Array | null> => null),
   usageHistory: vi.fn(async (): Promise<unknown> => ({ days: [] })),
+  usageLabel: vi.fn(async (): Promise<string | null> => null),
 };
 vi.mock('@/server/services/appUsageService', () => usage);
+const blocks = {
+  blockedAppsByKid: vi.fn(async (): Promise<Map<string, unknown[]>> => new Map()),
+  isBlockedFor: vi.fn(async () => false),
+};
+vi.mock('@/server/services/appBlockService', () => blocks);
 const admin = { isFeatureEnabled: vi.fn(async () => true) };
 vi.mock('@/server/services/serverAdminService', () => admin);
 
@@ -65,6 +79,7 @@ const {
   refreshUsage,
   reportRing,
   ringPhone,
+  setAppBlocked,
   setPhoneRule,
   setRequiredSharing,
   setSupervisors,
@@ -82,6 +97,7 @@ const sam: Person = { id: 'sam', name: 'Sam', role: 'child' };
 const jo: Person = { id: 'jo', name: 'Jo', role: 'teen' };
 const guest: Person = { id: 'guest', name: 'Guest', role: 'guest' };
 const ALL_RULES = { keepRunning: true, preventUninstall: true, batteryUnrestricted: true };
+const NO_BLOCKS = { apps: [], alwaysAllowed: [], works: null };
 
 describe('getSupervision', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -278,7 +294,10 @@ describe('dropBrokenSupervision', () => {
     await dropBrokenSupervision(tx as never, 'alex', 'teen');
     expect(tx.user.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: { in: ['sam', 'jo'] }, OR: [{ locationSharing: 'required' }, { shareAppUsage: true }] },
+        where: {
+          id: { in: ['sam', 'jo'] },
+          OR: [{ locationSharing: 'required' }, { shareAppUsage: true }, { id: { in: [] } }],
+        },
       }),
     );
   });
@@ -313,6 +332,36 @@ describe('releaseIfUnsupervised', () => {
     // Their days, and the icons nobody else's usage names.
     expect(usage.forgetUsage).toHaveBeenCalledWith(tx, H, ['sam']);
   });
+
+  it('unblocks every app when nobody is left to supervise them, before their usage goes', async () => {
+    tx.blockedApp.findMany.mockResolvedValueOnce([{ userId: 'sam' }, { userId: 'sam' }]);
+    tx.user.findMany.mockResolvedValueOnce([
+      { id: 'sam', role: 'child', householdId: H, locationSharing: 'on', shareAppUsage: true },
+    ]);
+    tx.supervision.findMany.mockResolvedValueOnce([]);
+    await releaseIfUnsupervised(tx as never, ['sam', 'sam']);
+    // Someone with blocks counts even when nothing else is controlled.
+    expect(tx.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: { in: ['sam'] },
+          OR: [{ locationSharing: 'required' }, { shareAppUsage: true }, { id: { in: ['sam'] } }],
+        },
+      }),
+    );
+    expect(tx.blockedApp.deleteMany).toHaveBeenCalledWith({ where: { userId: 'sam' } });
+    expect(tx.blockedApp.deleteMany.mock.invocationCallOrder[0]).toBeLessThan(
+      usage.forgetUsage.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('keeps the blocks while another adult still supervises them', async () => {
+    tx.blockedApp.findMany.mockResolvedValueOnce([{ userId: 'sam' }]);
+    tx.user.findMany.mockResolvedValueOnce([{ id: 'sam', role: 'child', locationSharing: 'on' }]);
+    tx.supervision.findMany.mockResolvedValueOnce([{ supervisor: { role: 'adult' } }]);
+    await releaseIfUnsupervised(tx as never, ['sam']);
+    expect(tx.blockedApp.deleteMany).not.toHaveBeenCalled();
+  });
 });
 
 describe('required sharing', () => {
@@ -344,6 +393,7 @@ describe('required sharing', () => {
           phone: null,
           appUsage: { shared: false, latest: null },
           rules: ALL_RULES,
+          blocking: NO_BLOCKS,
           setup: waiting('notifications', 'batteryUnrestricted', 'preventUninstall', 'keepRunning'),
           ring: null,
         },
@@ -354,6 +404,7 @@ describe('required sharing', () => {
           phone: null,
           appUsage: { shared: false, latest: null },
           rules: ALL_RULES,
+          blocking: NO_BLOCKS,
           setup: waiting('notifications', 'location', 'batteryUnrestricted', 'preventUninstall', 'keepRunning'),
           ring: null,
         },
@@ -397,11 +448,16 @@ describe('required sharing', () => {
       keepRunning: true,
     };
     const latest = { day: '2026-10-12', totalMinutes: 30, top: [], updatedAt: '2026-10-12T17:00:00.000Z' };
-    phones.phoneSummaries.mockResolvedValueOnce(new Map([['sam', { ...phone, checks }]]));
+    const roblox = { app: 'com.roblox.client', label: 'Roblox', icon: true, byName: 'Alex', at: '2026-10-12T16:00:00.000Z' };
+    phones.phoneSummaries.mockResolvedValueOnce(
+      new Map([['sam', { ...phone, checks, alwaysAllowed: ['com.google.android.dialer'] }]]),
+    );
     usage.usageSummaries.mockResolvedValueOnce(new Map([['sam', latest]]));
+    blocks.blockedAppsByKid.mockResolvedValueOnce(new Map([['sam', [roblox]]]));
     const { people } = await lookAfterOverview(H, 'alex');
-    // Jo's usage isn't shared, so it isn't even looked up.
+    // Jo's usage isn't shared, so it isn't even looked up; blocks are looked up for both.
     expect(usage.usageSummaries).toHaveBeenCalledWith(H, ['sam']);
+    expect(blocks.blockedAppsByKid).toHaveBeenCalledWith(H, ['jo', 'sam']);
     expect(people).toEqual([
       {
         id: 'jo',
@@ -410,6 +466,7 @@ describe('required sharing', () => {
         phone: null,
         appUsage: { shared: false, latest: null },
         rules: ALL_RULES,
+        blocking: NO_BLOCKS,
         setup: {
           passwordChosen: true,
           steps: ['notifications', 'batteryUnrestricted', 'preventUninstall', 'keepRunning'].map((step) => ({
@@ -423,10 +480,12 @@ describe('required sharing', () => {
         id: 'sam',
         name: 'Sam',
         sharing: 'on',
-        // The checks only feed setup.
+        // The checks and the always-open apps only feed setup and blocking.
         phone,
         appUsage: { shared: true, latest },
         rules: { ...ALL_RULES, preventUninstall: false },
+        // Keep Our Home running is on, which does the blocking.
+        blocking: { apps: [roblox], alwaysAllowed: ['com.google.android.dialer'], works: true },
         // Location isn't required and Prevent uninstall isn't either, so neither is a step.
         setup: {
           passwordChosen: false,
@@ -535,6 +594,77 @@ describe('required sharing', () => {
     await expect(setUsageSharing(H, { id: 'jordan' }, { supervisedId: 'sam', share: true })).rejects.toThrow(
       /Only an adult who supervises/,
     );
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('a supervisor blocks an app from their usage: named from it, logged, phone woken', async () => {
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    prisma.phoneStatus.findMany.mockResolvedValueOnce([
+      { lastSeenAt: new Date('2026-10-12T10:00:00Z'), alwaysAllowed: ['com.roblox.client'] },
+      // The freshest phone decides what's always open.
+      { lastSeenAt: new Date('2026-10-12T17:00:00Z'), alwaysAllowed: ['com.google.android.dialer'] },
+    ]);
+    usage.usageLabel.mockResolvedValueOnce('Roblox');
+    await setAppBlocked(H, { id: 'alex' }, { supervisedId: 'sam', app: 'com.roblox.client', blocked: true });
+    expect(usage.usageLabel).toHaveBeenCalledWith('sam', 'com.roblox.client');
+    expect(tx.blockedApp.create).toHaveBeenCalledWith({
+      data: { householdId: H, userId: 'sam', app: 'com.roblox.client', label: 'Roblox', blockedById: 'alex' },
+    });
+    expect(logActivity).toHaveBeenCalledWith(expect.objectContaining({ message: 'blocked Roblox on Sam’s phone' }), tx);
+    expect(push.pushSync).toHaveBeenCalledWith(H, { userIds: ['sam'] }, 'supervision');
+  });
+
+  it('never blocks an app their phone always keeps open', async () => {
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    prisma.phoneStatus.findMany.mockResolvedValueOnce([
+      { lastSeenAt: new Date('2026-10-12T17:00:00Z'), alwaysAllowed: ['com.google.android.dialer'] },
+    ]);
+    await expect(
+      setAppBlocked(H, { id: 'alex' }, { supervisedId: 'sam', app: 'com.google.android.dialer', blocked: true }),
+    ).rejects.toThrow(/phone calls, messages, the home screen and OurHome can’t be blocked/);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(push.pushSync).not.toHaveBeenCalled();
+  });
+
+  it('only blocks an app their usage names', async () => {
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    usage.usageLabel.mockResolvedValueOnce(null);
+    await expect(
+      setAppBlocked(H, { id: 'alex' }, { supervisedId: 'sam', app: 'com.made.up', blocked: true }),
+    ).rejects.toThrow(/isn’t in Sam’s app usage/);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('unblocks with the stored name, even once it has left their usage', async () => {
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    prisma.blockedApp.findUnique.mockResolvedValueOnce({ id: 'b1', label: 'Roblox' });
+    await setAppBlocked(H, { id: 'gran' }, { supervisedId: 'sam', app: 'com.roblox.client', blocked: false });
+    expect(prisma.blockedApp.findUnique).toHaveBeenCalledWith({
+      where: { userId_app: { userId: 'sam', app: 'com.roblox.client' } },
+      select: { id: true, label: true },
+    });
+    expect(usage.usageLabel).not.toHaveBeenCalled();
+    expect(tx.blockedApp.delete).toHaveBeenCalledWith({ where: { id: 'b1' } });
+    expect(logActivity).toHaveBeenCalledWith(expect.objectContaining({ message: 'unblocked Roblox on Sam’s phone' }), tx);
+    expect(push.pushSync).toHaveBeenCalledWith(H, { userIds: ['sam'] }, 'supervision');
+  });
+
+  it('writes nothing when the app is already so', async () => {
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    prisma.blockedApp.findUnique.mockResolvedValueOnce({ id: 'b1', label: 'Roblox' });
+    await setAppBlocked(H, { id: 'alex' }, { supervisedId: 'sam', app: 'com.roblox.client', blocked: true });
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    await setAppBlocked(H, { id: 'alex' }, { supervisedId: 'sam', app: 'com.roblox.client', blocked: false });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(push.pushSync).not.toHaveBeenCalled();
+  });
+
+  it('refuses blocking from anyone who does not supervise them', async () => {
+    findLinks.mockResolvedValueOnce(linkTo(jo, 'on'));
+    await expect(
+      setAppBlocked(H, { id: 'jordan' }, { supervisedId: 'sam', app: 'com.roblox.client', blocked: true }),
+    ).rejects.toThrow(/Only an adult who supervises them can block apps/);
+    expect(prisma.blockedApp.findUnique).not.toHaveBeenCalled();
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
@@ -742,6 +872,16 @@ describe('fresh app usage when a supervisor looks', () => {
     await expect(usageIcon(H, 'alex', 'com.example.secret')).rejects.toThrow(/No icon/);
     expect(usage.findIcon).not.toHaveBeenCalled();
     usage.findIcon.mockReset();
+  });
+
+  it('gives the icon of an app blocked for a child they supervise, shared or not', async () => {
+    const png = new Uint8Array([5]);
+    findLinks.mockResolvedValueOnce([...sharing(sam, true), ...sharing(jo, null)]);
+    blocks.isBlockedFor.mockResolvedValueOnce(true);
+    usage.findIcon.mockResolvedValueOnce(png);
+    expect(await usageIcon(H, 'alex', 'com.roblox.client')).toBe(png);
+    // Every child they supervise, Jo (teen) first by role.
+    expect(blocks.isBlockedFor).toHaveBeenCalledWith(['jo', 'sam'], 'com.roblox.client');
   });
 
   it('gives a child the icons of apps in their own usage', async () => {

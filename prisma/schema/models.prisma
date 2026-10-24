@@ -84,6 +84,7 @@ model Household {
   phoneStatuses  PhoneStatus[]
   appUsage       AppUsageDay[]
   appIcons       AppIcon[]
+  blockedApps    BlockedApp[]
   integrations   HomeAssistantIntegration[]
   requests       Request[]
   bugReports     BugReport[]
@@ -174,6 +175,7 @@ model User {
   liveChecksOnMe    LocationCheck[] @relation("LocationCheckTarget")
   phones            PhoneStatus[]
   appUsage          AppUsageDay[]
+  blockedApps       BlockedApp[]
   supervising      Supervision[]   @relation("SupervisionSupervisor")
   supervisedBy      Supervision[]   @relation("SupervisionSupervised")
 
@@ -243,6 +245,10 @@ model PhoneStatus {
   // Firebase said this install's push token is dead: OurHome uninstalled or its
   // data cleared. Cleared when the install registers or checks in again.
   pushGoneAt      DateTime?
+  // The apps this phone never blocks (its phone, messages, home screen and
+  // OurHome itself), as package names, sent only while an adult looks after
+  // its member, so People you look after offers no Block for them.
+  alwaysAllowed   String[] @default([])
   createdAt      DateTime @default(now())
 
   household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
@@ -288,6 +294,30 @@ model AppIcon {
   household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
 
   @@unique([householdId, app])
+}
+
+// Parental controls: an app a supervising adult blocked on a child's phone
+// (People you look after). The phone learns them from its check-in and covers
+// the app with a "blocked" screen ("Keep Our Home running" sees which app is
+// open). label: the app's name from their app usage, kept so the list still
+// reads after the usage ages out. Gone when nobody supervises them any more.
+// Not exported, like the phone rules. See supervisionService.setAppBlocked.
+model BlockedApp {
+  id          String   @id @default(cuid()) @map("_id")
+  householdId String
+  userId      String
+  // The app's package name, e.g. "com.roblox.client".
+  app         String
+  label       String
+  // Who blocked it (plain id, no relation): their name shows on the phone.
+  blockedById String
+  createdAt   DateTime @default(now())
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, app])
+  @@index([householdId])
 }
 
 // Parental controls: which adult supervises which child or teen. Only the

@@ -7,6 +7,7 @@ import {
   Bell,
   Bug,
   CheckCheck,
+  Inbox,
   Info,
   Loader2,
   Package,
@@ -46,6 +47,7 @@ const TYPE_ICON: Record<NotificationType, LucideIcon> = {
   task_ready: ListChecks,
   phone_alert: Smartphone,
   new_app: PackagePlus,
+  request_update: Inbox,
 };
 
 const TYPE_VARIANT: Record<
@@ -61,6 +63,7 @@ const TYPE_VARIANT: Record<
   task_ready: 'default',
   phone_alert: 'warning',
   new_app: 'default',
+  request_update: 'default',
 };
 
 type ReadFilter = 'all' | 'unread' | 'read';

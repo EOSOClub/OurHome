@@ -251,6 +251,9 @@ export const NOTIFICATION_TYPES = [
   // Sent to a child's supervisors when their phone has a new app, while their
   // app usage is shared (appUsageService.reportNewApps).
   'new_app',
+  // Sent to a requester when someone else approves, declines, accepts or
+  // finishes their request (requestNoticeService).
+  'request_update',
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
@@ -264,6 +267,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   task_ready: 'Your turn',
   phone_alert: 'Phone',
   new_app: 'New app',
+  request_update: 'Request',
 };
 
 // --- Bug reports ----------------------------------------------------------

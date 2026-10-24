@@ -8,6 +8,12 @@ import {
   NotFoundError,
 } from '@/server/services/errors';
 import { getUserAccess } from '@/server/services/permissionService';
+import { getPointsSettings } from '@/server/services/pointsService';
+import {
+  announceRequestAnswer,
+  clearRequestNotice,
+  type RequestAnswer,
+} from '@/server/services/requestNoticeService';
 import {
   getRequestModules,
   householdMemberIds,
@@ -159,6 +165,46 @@ async function requesterSupervisors(householdId: string, requesterId: string): P
   } catch (err) {
     console.error('[requests] supervisor lookup for push failed', err);
     return [];
+  }
+}
+
+/**
+ * Tells the requester how their request was answered (requestNoticeService).
+ * Call before [pushRequestChange], so their phone finds the notice when it
+ * wakes. The actor's name comes from the saved request: whoever decides is
+ * `decidedBy`, a maintenance assignee is `assignee`. A failure only means no
+ * notice; the answer itself is saved.
+ */
+async function tellRequester(
+  householdId: string,
+  request: RequestWithPeople,
+  answer: RequestAnswer,
+  actorId: string,
+  quiet = false,
+) {
+  try {
+    const actor = [request.decidedBy, request.assignee].find((p) => p?.id === actorId);
+    const timeZone =
+      answer === 'accepted' && request.dueAt ? (await getPointsSettings(householdId)).timezone : undefined;
+    await announceRequestAnswer(
+      prisma,
+      householdId,
+      request,
+      answer,
+      { id: actorId, name: actor?.name ?? 'Someone' },
+      { timeZone, quiet },
+    );
+  } catch (err) {
+    console.error('[requests] answer notice failed', err);
+  }
+}
+
+/** Removes a request's answer notice; a failure leaves a stale bell row, nothing worse. */
+async function forgetAnswer(householdId: string, requestId: string) {
+  try {
+    await clearRequestNotice(prisma, householdId, requestId);
+  } catch (err) {
+    console.error('[requests] clearing answer notice failed', err);
   }
 }
 
@@ -485,6 +531,8 @@ export async function updateRequest(
       request.category === 'purchase' ? `to buy ${describePurchase(request)}` : describe(request)
     }`,
   });
+  // Reassigned: the old assignee's "Accepted" no longer holds.
+  if (request.assigneeId !== existing.assigneeId) await forgetAnswer(householdId, request.id);
   // `existing.assigneeId`: a reassigned request leaves the old assignee's list.
   await pushRequestChange(householdId, modules, request, [existing.assigneeId]);
 
@@ -541,6 +589,8 @@ export async function acceptRequest(
     subjectId: request.id,
     message,
   });
+  // A moved date rewrites the notice they already have instead of alerting again.
+  await tellRequester(householdId, request, 'accepted', actor.id, rescheduling);
   await pushRequestChange(householdId, modules, request);
 
   return request;
@@ -632,6 +682,7 @@ export async function completeRequest(
     subjectId: request.id,
     message,
   });
+  await tellRequester(householdId, request, approve ? 'approved' : 'done', actor.id);
   await pushRequestChange(householdId, modules, request);
 
   return request;
@@ -679,6 +730,7 @@ export async function declineRequest(
         ? `declined buying ${describePurchase(request)}`
         : `declined ${describe(request)}`,
   });
+  await tellRequester(householdId, request, 'declined', actor.id);
   await pushRequestChange(householdId, modules, request);
 
   return request;
@@ -691,6 +743,7 @@ export async function deleteRequest(
 ): Promise<void> {
   const existing = await getOwnRequest(householdId, id, userId);
   await prisma.request.delete({ where: { id } });
+  await forgetAnswer(householdId, id);
 
   await logActivity({
     householdId,

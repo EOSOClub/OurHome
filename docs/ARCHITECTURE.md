@@ -225,6 +225,14 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
   reminder notification). One per task: newer replaces older; completing,
   archiving or deleting removes it. Whoever caused it isn't notified. Not
   emailed.
+- **Request answers** (`requestNoticeService`, type `request_update`). When
+  someone else approves, declines, accepts (maintenance) or finishes a request,
+  the requester gets one bell row addressed to them; the title leads with the
+  outcome ("Approved: LEGO set"), the body names who and why. Written before
+  `pushRequestChange`, which already wakes the requester; the app alerts
+  through the household reminder notification. One per request: newer
+  replaces older, a moved done-by date rewrites it in place (same id, no new
+  alert), reassigning or withdrawing removes it. Not emailed.
 - **The bell** is a to-do list: the page shows unread by default, and opening a
   notification marks it read and goes to its subject (`/tasks?task=<id>` opens
   and highlights that task; bills, stock, requests, calendar, settings). The

@@ -149,15 +149,15 @@ export function SettingsView({
           ) : null}
           {features.includes('location') && initialLiveChecks ? <LiveCheckCard initial={initialLiveChecks} /> : null}
           <CategoriesCard initialCategories={initialCategories} />
-          {features.includes('requests') && initialRequestModules ? (
-            <RequestTypesCard initial={initialRequestModules} members={members} />
-          ) : null}
         </div>
         <div className="space-y-6">
           {features.includes('bills') ? <PaperlessCard /> : null}
           <HomeAssistantCard initialIntegrations={initialIntegrations} />
           {features.includes('inventory') ? (
             <NfcTagsCard initialTags={initialTags} items={items} initialPlaces={initialPlaces} />
+          ) : null}
+          {features.includes('requests') && initialRequestModules ? (
+            <RequestTypesCard initial={initialRequestModules} members={members} />
           ) : null}
           {canExport ? <ExportCard /> : null}
         </div>

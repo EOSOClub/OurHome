@@ -13,6 +13,18 @@ function subscribeHash(onChange: () => void) {
   return () => window.removeEventListener('hashchange', onChange);
 }
 
+/** Open or closed, starting as `defaultOpen` and opening by itself whenever `wanted` turns true. */
+function useFold(defaultOpen: boolean, wanted: boolean) {
+  const [open, setOpen] = React.useState(defaultOpen || wanted);
+  // Opened during render when `wanted` turns true, not in an effect, so it never shows closed first.
+  const [wasWanted, setWasWanted] = React.useState(wanted);
+  if (wanted !== wasWanted) {
+    setWasWanted(wanted);
+    if (wanted) setOpen(true);
+  }
+  return [open, setOpen] as const;
+}
+
 /**
  * A card whose body folds away under its title: the title row is a button
  * that opens or closes it. For long blocks; short ones stay a plain Card.
@@ -57,13 +69,7 @@ export function CollapsibleCard({
   // A link to the card (/settings#map-places) opens it.
   const hash = React.useSyncExternalStore(subscribeHash, () => window.location.hash, () => '');
   const wanted = openWhen || (!!id && hash === `#${id}`);
-  const [open, setOpen] = React.useState(defaultOpen || wanted);
-  // Opened during render when `wanted` turns true, not in an effect, so it never shows closed first.
-  const [wasWanted, setWasWanted] = React.useState(wanted);
-  if (wanted !== wasWanted) {
-    setWasWanted(wanted);
-    if (wanted) setOpen(true);
-  }
+  const [open, setOpen] = useFold(defaultOpen, wanted);
   const bodyId = React.useId();
   return (
     <Card id={id} className={className}>
@@ -109,21 +115,66 @@ export function CollapsibleCard({
 /**
  * A card with a title, used on its own or inside a grouped CollapsibleCard,
  * where it drops its frame and sits under a divider.
+ *
+ * Inside a grouped card, `foldable` makes its title row a button that folds
+ * the body away, as CollapsibleCard does: closed to start, opening by itself
+ * whenever `openWhen` turns true, the body kept mounted while closed. `aside`
+ * sits beside the title and shows while folded (an On / Off pill), so nothing
+ * clickable goes in it.
  */
 export function SectionCard({
   title,
   icon,
   description,
+  aside,
+  foldable = false,
+  openWhen = false,
   contentClassName,
   children,
 }: {
   title: React.ReactNode;
   icon?: React.ReactNode;
   description?: React.ReactNode;
+  aside?: React.ReactNode;
+  foldable?: boolean;
+  openWhen?: boolean;
   contentClassName?: string;
   children: React.ReactNode;
 }) {
   const grouped = React.useContext(GroupedSection);
+  const [open, setOpen] = useFold(false, openWhen);
+  const bodyId = React.useId();
+  if (grouped && foldable) {
+    return (
+      <section className="border-t border-border pt-2">
+        <h4>
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-controls={bodyId}
+            onClick={() => setOpen((o) => !o)}
+            className="-mx-2 flex w-[calc(100%+1rem)] items-start gap-3 rounded-md px-2 py-2 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <span className="flex-1 space-y-1">
+              <span className="flex items-center gap-2 text-sm font-semibold">
+                {icon}
+                {title}
+                {aside}
+              </span>
+              {description ? <span className="block text-sm font-normal text-muted-foreground">{description}</span> : null}
+            </span>
+            <ChevronDown
+              aria-hidden
+              className={cn('mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')}
+            />
+          </button>
+        </h4>
+        <div id={bodyId} hidden={!open} className={cn('pt-2', contentClassName)}>
+          {children}
+        </div>
+      </section>
+    );
+  }
   if (grouped) {
     return (
       <section className="space-y-3 border-t border-border pt-4">

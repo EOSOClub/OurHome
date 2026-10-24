@@ -21,6 +21,7 @@ import {
 } from '@/lib/requestModules';
 import { apiFetch } from '@/lib/api';
 import { toast } from '@/components/ui/toast';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CollapsibleCard, SectionCard } from '@/components/ui/collapsible-card';
 import { Input } from '@/components/ui/input';
@@ -59,6 +60,12 @@ function Check({
       {label}
     </label>
   );
+}
+
+/** Beside a section's title, so a folded section still shows whether it's on, or that it needs fixing before Save. */
+function StateBadge({ enabled, problem }: { enabled: boolean; problem: boolean }) {
+  if (problem) return <Badge variant="destructive">Needs fixing</Badge>;
+  return enabled ? <Badge variant="success">On</Badge> : <Badge variant="secondary">Off</Badge>;
 }
 
 /** A list of people to tick, for "chosen people" settings. */
@@ -167,7 +174,13 @@ function DecisionSection({
   const missing = value.enabled && chosen && value.handlerIds.length === 0;
   return (
     <div data-field={module}>
-      <SectionCard title={REQUEST_CATEGORY_LABELS[module]} description={REQUEST_MODULE_DESCRIPTIONS[module]}>
+      <SectionCard
+        title={REQUEST_CATEGORY_LABELS[module]}
+        description={REQUEST_MODULE_DESCRIPTIONS[module]}
+        aside={<StateBadge enabled={value.enabled} problem={missing} />}
+        foldable
+        openWhen={missing}
+      >
         <div className="space-y-4">
           <Check label="On" checked={value.enabled} onChange={(on) => onChange({ ...value, enabled: on })} />
           {value.enabled ? (
@@ -253,6 +266,7 @@ export function RequestTypesCard({
       ? maintenance.defaultAssigneeId
       : null;
   const missingHandlers = media.enabled && mediaChosen && handlerIds.length === 0;
+  const noMediaTypes = media.enabled && media.mediaTypes.length === 0;
   const missingAssignees = maintenance.enabled && maintenanceChosen && assigneeIds.length === 0;
   const missingDeciders =
     (purchase.enabled && purchaseChosen && purchase.handlerIds.length === 0) ||
@@ -295,7 +309,13 @@ export function RequestTypesCard({
     >
       <div className="space-y-5" {...fe.formProps}>
         <div data-field="media">
-          <SectionCard title={REQUEST_CATEGORY_LABELS.media} description={REQUEST_MODULE_DESCRIPTIONS.media}>
+          <SectionCard
+            title={REQUEST_CATEGORY_LABELS.media}
+            description={REQUEST_MODULE_DESCRIPTIONS.media}
+            aside={<StateBadge enabled={media.enabled} problem={missingHandlers || noMediaTypes} />}
+            foldable
+            openWhen={missingHandlers || noMediaTypes}
+          >
             <div className="space-y-4">
               <Check label="On" checked={media.enabled} onChange={(on) => setMedia({ ...media, enabled: on })} />
               {media.enabled ? (
@@ -315,7 +335,7 @@ export function RequestTypesCard({
                     </div>
                     <FieldNote
                       id="rt-media-types-note"
-                      error={media.mediaTypes.length === 0 ? 'Pick at least one, or turn Media off.' : null}
+                      error={noMediaTypes ? 'Pick at least one, or turn Media off.' : null}
                     />
                   </fieldset>
                   <div className="space-y-2">
@@ -353,7 +373,13 @@ export function RequestTypesCard({
         </div>
 
         <div data-field="maintenance">
-          <SectionCard title={REQUEST_CATEGORY_LABELS.maintenance} description={REQUEST_MODULE_DESCRIPTIONS.maintenance}>
+          <SectionCard
+            title={REQUEST_CATEGORY_LABELS.maintenance}
+            description={REQUEST_MODULE_DESCRIPTIONS.maintenance}
+            aside={<StateBadge enabled={maintenance.enabled} problem={missingAssignees} />}
+            foldable
+            openWhen={missingAssignees}
+          >
             <div className="space-y-4">
               <Check
                 label="On"
@@ -453,7 +479,7 @@ export function RequestTypesCard({
               missingHandlers ||
               missingAssignees ||
               missingDeciders ||
-              (media.enabled && media.mediaTypes.length === 0)
+              noMediaTypes
             }
           >
             {save.isPending ? <Loader2 className="animate-spin" /> : null}

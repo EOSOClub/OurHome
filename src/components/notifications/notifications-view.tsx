@@ -11,6 +11,7 @@ import {
   Info,
   Loader2,
   Package,
+  Hourglass,
   PackagePlus,
   Receipt,
   Clock,
@@ -47,6 +48,7 @@ const TYPE_ICON: Record<NotificationType, LucideIcon> = {
   task_ready: ListChecks,
   phone_alert: Smartphone,
   new_app: PackagePlus,
+  limit_reached: Hourglass,
   request_update: Inbox,
 };
 
@@ -63,6 +65,7 @@ const TYPE_VARIANT: Record<
   task_ready: 'default',
   phone_alert: 'warning',
   new_app: 'default',
+  limit_reached: 'default',
   request_update: 'default',
 };
 

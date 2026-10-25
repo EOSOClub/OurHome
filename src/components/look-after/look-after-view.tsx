@@ -6,10 +6,20 @@ import { useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BellRing, ChevronLeft, ChevronRight, HeartHandshake, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { BlockedAppDTO, LookAfterDTO, RingDTO, UsageAppDTO, UsageHistoryDTO } from '@/lib/types';
-import { apiFetch, ApiError } from '@/lib/api';
+import type {
+  AppLimitDTO,
+  BlockedAppDTO,
+  LookAfterDTO,
+  RingDTO,
+  ScheduleDTO,
+  UsageAppDTO,
+  UsageHistoryDTO,
+} from '@/lib/types';
+import { apiFetch, ApiError, fieldErrors } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { toast } from '@/components/ui/toast';
 import { LIVE_CHECKS_KEY } from '@/components/profile/location-card';
 import { RelativeTime } from '@/components/household-zone';
@@ -21,6 +31,20 @@ import {
   type PhoneRule,
 } from '@/lib/phoneHealth';
 import { formatMinutes, usageDayLabel } from '@/lib/appUsage';
+import { ALL_APPS, ALL_APPS_LABEL, limitLabel, limitOptions, limitsSummary } from '@/lib/appLimits';
+import {
+  EVERY_DAY,
+  MAX_ALLOWED,
+  MAX_SCHEDULES,
+  SCHEDULE_DAYS,
+  SCHEDULE_PRESETS,
+  WEEKDAYS,
+  clockValue,
+  daysLabel,
+  parseClock,
+  scheduleTimes,
+  schedulesSummary,
+} from '@/lib/appSchedules';
 import { RING_MS, ringActive, ringOutcome } from '@/lib/ring';
 import { SetupProgress, setupSummary } from '@/components/look-after/setup-progress';
 import { AppIcon, AppList, UsageHistory, type AppAction } from '@/components/look-after/usage-history';
@@ -29,8 +53,8 @@ import { AppIcon, AppList, UsageHistory, type AppAction } from '@/components/loo
 // supervises (the Head's supervision list). First a summary card for each
 // (with Ring); a card opens that person's page (?person=<id>), where the
 // viewer can ring their phone, make their
-// location sharing required, share their app usage and block apps from it,
-// choose which protections their phone must have on (PHONE_RULES). Only
+// location sharing required, share their app usage, block apps from it, give
+// apps a daily limit and set schedules, choose which protections their phone must have on (PHONE_RULES). Only
 // linked for adults who supervise someone; the server checks it again.
 
 export const LOOK_AFTER_KEY = ['look-after'];
@@ -129,6 +153,12 @@ export function LookAfterView({ initial }: { initial: LookAfterDTO }) {
               <strong>Block</strong> next to an app stops it opening on their phone: they see a screen saying you
               blocked it. Blocking needs Keep Our Home running on their phone. Phone calls, messages and OurHome
               always stay open.{' '}
+              <strong>Daily limits</strong> give all their apps together, or one app, so much time a day. Their phone
+              warns them 5 minutes before, then closes the app until midnight, and you&apos;re told. Limits need Usage
+              access and Keep Our Home running on their phone.{' '}
+              <strong>Schedules</strong> close all their apps at set times, like bedtime or school, apart from calls,
+              messages and any apps you leave open. Their phone warns them 5 minutes before. Schedules need Keep Our
+              Home running on their phone.{' '}
               <strong>Require Keep Our Home running</strong> stops OurHome being closed on their phone.{' '}
               <strong>Require Prevent uninstall</strong> stops it being removed without your PIN.{' '}
               <strong>Require Unrestricted battery</strong> stops battery saving from holding back rings and alerts.
@@ -224,6 +254,10 @@ function PersonCard({ person, canRing, until, onRang }: RingButtonProps & { canR
           </span>
           {person.blocking.apps.length > 0 ? (
             <span className="block text-xs text-muted-foreground">{blockedSummary(person.blocking.apps)}</span>
+          ) : null}
+          {limitsLine(person) ? <span className="block text-xs text-muted-foreground">{limitsLine(person)}</span> : null}
+          {person.schedules.length > 0 ? (
+            <span className="block text-xs text-muted-foreground">{schedulesSummary(person.schedules)}</span>
           ) : null}
           <span className="block text-xs text-muted-foreground">{setupSummary(person)}</span>
           {person.ring ? <RingLine ring={person.ring} /> : null}
@@ -474,6 +508,497 @@ function BlockedRow({ person, app }: { person: Person; app: BlockedAppDTO }) {
   );
 }
 
+/** The card's line about their daily limits, or null when there are none. */
+function limitsLine(person: Person): string | null {
+  return limitsSummary(person.limits.total?.minutes ?? null, person.limits.apps);
+}
+
+/** Sets, changes or removes (minutes null) one daily limit on their phone; the answer is the page's new data. */
+function useAppLimit(person: Person) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    // A refetch already on its way mustn't put the old limits back.
+    onMutate: () => queryClient.cancelQueries({ queryKey: LOOK_AFTER_KEY }),
+    mutationFn: ({ app, minutes }: { app: string; label: string; minutes: number | null }) =>
+      apiFetch<LookAfterDTO>('/api/supervision/app-limits', {
+        method: 'POST',
+        body: JSON.stringify({ supervisedId: person.id, app, minutes }),
+      }),
+    onSuccess: (next, { label, minutes }) => {
+      queryClient.setQueryData(LOOK_AFTER_KEY, next);
+      toast.success(
+        minutes === null
+          ? `${label}: no limit on ${person.name}’s phone`
+          : `${label}: ${limitLabel(minutes)} on ${person.name}’s phone`,
+      );
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not change it.'),
+  });
+}
+
+/** A limit's minutes as a dropdown; [none] adds a "No limit" choice (minutes null). */
+function LimitSelect({
+  value,
+  onChange,
+  none,
+  disabled,
+  label,
+}: {
+  value: number | null;
+  onChange: (minutes: number | null) => void;
+  none?: boolean;
+  disabled?: boolean;
+  label: string;
+}) {
+  return (
+    <Select
+      aria-label={label}
+      className="h-8 w-auto shrink-0 px-2 py-0 text-xs"
+      value={value === null ? '' : String(value)}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
+    >
+      {none ? <option value="">No limit</option> : null}
+      {limitOptions(value).map((m) => (
+        <option key={m} value={m}>
+          {limitLabel(m)}
+        </option>
+      ))}
+    </Select>
+  );
+}
+
+/**
+ * Their daily limits: all apps together, then each app's own with who set it,
+ * and adding one for an app from their usage. Shown while their usage is
+ * shared, or while a limit is left from before.
+ */
+function DailyLimits({ person }: { person: Person }) {
+  const { total, apps, counts } = person.limits;
+  // Any app from their usage without a limit of its own yet.
+  const choices = person.usageApps.filter((a) => !apps.some((l) => l.app === a.app));
+  const save = useAppLimit(person);
+  const [adding, setAdding] = useState('');
+  const [addMinutes, setAddMinutes] = useState(60);
+  if (!person.appUsage.shared && !total && apps.length === 0) return null;
+  const pendingFor = (app: string) => save.isPending && save.variables.app === app;
+  const totalValue = save.isPending && save.variables.app === ALL_APPS ? save.variables.minutes : (total?.minutes ?? null);
+  const pick = choices.find((c) => c.app === adding);
+  return (
+    <div className="space-y-1.5">
+      <p className="text-sm font-medium">Daily limits</p>
+      {counts === false ? (
+        <p className="text-xs text-destructive">
+          Usage access is off on their phone, so it can&apos;t count their time until it&apos;s back on.
+        </p>
+      ) : null}
+      {person.blocking.works === false && (total || apps.length > 0) ? (
+        <p className="text-xs text-destructive">
+          Keep Our Home running is off on their phone, so nothing closes when time runs out until it&apos;s back on.
+        </p>
+      ) : null}
+      <ul className="space-y-1">
+        <li className="flex min-h-8 items-center gap-2 text-xs">
+          <span className="min-w-0 flex-1">
+            <span className="block truncate">{ALL_APPS_LABEL}</span>
+            <span className="block text-[11px] text-muted-foreground">
+              {total ? (
+                <>
+                  Set by {total.byName} <RelativeTime date={total.at} />
+                </>
+              ) : (
+                'Together, apart from calls and messages'
+              )}
+            </span>
+          </span>
+          <LimitSelect
+            label="Daily limit for all apps"
+            none
+            value={totalValue}
+            disabled={save.isPending}
+            onChange={(minutes) => save.mutate({ app: ALL_APPS, label: ALL_APPS_LABEL, minutes })}
+          />
+        </li>
+        {apps.map((a) => (
+          <LimitRow key={a.app} limit={a} pending={pendingFor(a.app)} save={save} />
+        ))}
+      </ul>
+      {choices.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <Select
+            aria-label="App to limit"
+            className="h-8 min-w-0 flex-1 basis-48 px-2 py-0 text-xs"
+            value={adding}
+            disabled={save.isPending}
+            onChange={(e) => setAdding(e.target.value)}
+          >
+            <option value="">Add a limit for an app…</option>
+            {choices.map((c) => (
+              <option key={c.app} value={c.app}>
+                {c.label}
+              </option>
+            ))}
+          </Select>
+          {/* Together, so on a narrow screen they move under the app as one. */}
+          <span className="ml-auto flex shrink-0 items-center gap-2">
+            <LimitSelect
+              label="Daily limit for the app"
+              value={addMinutes}
+              disabled={save.isPending}
+              onChange={(minutes) => setAddMinutes(minutes ?? 60)}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 shrink-0 px-3 text-xs"
+              disabled={!pick || save.isPending}
+              onClick={() =>
+                pick &&
+                save.mutate(
+                  { app: pick.app, label: pick.label, minutes: addMinutes },
+                  { onSuccess: () => setAdding('') },
+                )
+              }
+            >
+              {pendingFor(adding) ? <Loader2 className="animate-spin" /> : null}
+              Add
+            </Button>
+          </span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** One app's own limit: who set it, its minutes (changed at once), and Remove. */
+function LimitRow({
+  limit,
+  pending,
+  save,
+}: {
+  limit: AppLimitDTO;
+  pending: boolean;
+  save: ReturnType<typeof useAppLimit>;
+}) {
+  const value = pending && save.variables?.minutes != null ? save.variables.minutes : limit.minutes;
+  return (
+    <li className="flex min-h-8 items-center gap-2 text-xs">
+      <AppIcon app={{ app: limit.app, label: limit.label, icon: limit.icon, minutes: 0 }} />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate">{limit.label}</span>
+        <span className="block text-[11px] text-muted-foreground">
+          Set by {limit.byName} <RelativeTime date={limit.at} />
+        </span>
+      </span>
+      <LimitSelect
+        label={`Daily limit for ${limit.label}`}
+        value={value}
+        disabled={save.isPending}
+        onChange={(minutes) => save.mutate({ app: limit.app, label: limit.label, minutes })}
+      />
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-8 shrink-0 px-2 text-xs"
+        disabled={save.isPending}
+        aria-label={`Remove the limit for ${limit.label}`}
+        onClick={() => save.mutate({ app: limit.app, label: limit.label, minutes: null })}
+      >
+        {pending && save.variables?.minutes === null ? <Loader2 className="animate-spin" /> : null}
+        Remove
+      </Button>
+    </li>
+  );
+}
+
+/** Their schedules, each with Edit and Remove, and Add a schedule (one form open at a time). */
+function Schedules({ person }: { person: Person }) {
+  const queryClient = useQueryClient();
+  const [editing, setEditing] = useState<string | null>(null);
+  const remove = useMutation({
+    onMutate: () => queryClient.cancelQueries({ queryKey: LOOK_AFTER_KEY }),
+    mutationFn: (schedule: ScheduleDTO) =>
+      apiFetch<LookAfterDTO>('/api/supervision/schedules/remove', {
+        method: 'POST',
+        body: JSON.stringify({ supervisedId: person.id, id: schedule.id }),
+      }),
+    onSuccess: (next, schedule) => {
+      queryClient.setQueryData(LOOK_AFTER_KEY, next);
+      toast.success(`${schedule.name} is off ${person.name}’s phone`);
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not remove it.'),
+  });
+  const list = person.schedules;
+  return (
+    <div className="space-y-1.5">
+      <p className="text-sm font-medium">Schedules</p>
+      {person.blocking.works === false && list.length > 0 ? (
+        <p className="text-xs text-destructive">
+          Keep Our Home running is off on their phone, so their apps stay open during these until it&apos;s back on.
+        </p>
+      ) : null}
+      {list.length === 0 && editing !== 'new' ? (
+        <p className="text-xs text-muted-foreground">
+          Times when their apps close, like bedtime or school. Calls and messages always work.
+        </p>
+      ) : null}
+      {list.length > 0 ? (
+        <ul className="space-y-2">
+          {list.map((s) =>
+            editing === s.id ? (
+              <li key={s.id}>
+                <ScheduleForm person={person} schedule={s} onDone={() => setEditing(null)} />
+              </li>
+            ) : (
+              <li key={s.id} className="flex items-start gap-2 text-xs">
+                <span className="min-w-0 flex-1">
+                  <span className="block font-medium">{s.name}</span>
+                  <span className="block text-muted-foreground">
+                    {daysLabel(s.days)} · {scheduleTimes(s.start, s.end)}
+                  </span>
+                  {s.allowed.length > 0 ? (
+                    <span className="block text-[11px] text-muted-foreground">
+                      Still open: {s.allowed.map((a) => a.label).join(', ')}
+                    </span>
+                  ) : null}
+                  <span className="block text-[11px] text-muted-foreground">
+                    Set by {s.byName} <RelativeTime date={s.at} />
+                  </span>
+                </span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 shrink-0 px-2 text-xs"
+                  disabled={remove.isPending || editing !== null}
+                  aria-label={`Edit ${s.name}`}
+                  onClick={() => setEditing(s.id)}
+                >
+                  Edit
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 shrink-0 px-2 text-xs"
+                  disabled={remove.isPending || editing !== null}
+                  aria-label={`Remove ${s.name}`}
+                  onClick={() => remove.mutate(s)}
+                >
+                  {remove.isPending && remove.variables.id === s.id ? <Loader2 className="animate-spin" /> : null}
+                  Remove
+                </Button>
+              </li>
+            ),
+          )}
+        </ul>
+      ) : null}
+      {editing === 'new' ? (
+        <ScheduleForm person={person} schedule={null} onDone={() => setEditing(null)} />
+      ) : list.length < MAX_SCHEDULES ? (
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8 text-xs"
+          disabled={editing !== null}
+          onClick={() => setEditing('new')}
+        >
+          Add a schedule
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * A schedule's name, days, times and the apps still open meanwhile; a new one
+ * starts as Bedtime, and the other presets fill it in with a tap.
+ */
+function ScheduleForm({
+  person,
+  schedule,
+  onDone,
+}: {
+  person: Person;
+  schedule: ScheduleDTO | null;
+  onDone: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const first = schedule ?? SCHEDULE_PRESETS[0];
+  const [name, setName] = useState(first.name);
+  const [days, setDays] = useState<number[]>([...first.days]);
+  const [start, setStart] = useState(clockValue(first.start));
+  const [end, setEnd] = useState(clockValue(first.end));
+  const [allowed, setAllowed] = useState<string[]>(schedule?.allowed.map((a) => a.app) ?? []);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  // Apps already allowed that have left their usage still show, so they can be unticked.
+  const apps = [
+    ...person.usageApps,
+    ...(schedule?.allowed ?? []).filter((a) => !person.usageApps.some((u) => u.app === a.app)),
+  ];
+  const save = useMutation({
+    onMutate: () => queryClient.cancelQueries({ queryKey: LOOK_AFTER_KEY }),
+    mutationFn: (body: { name: string; days: number[]; start: number; end: number; allowed: string[] }) =>
+      apiFetch<LookAfterDTO>('/api/supervision/schedules', {
+        method: 'POST',
+        body: JSON.stringify({ supervisedId: person.id, ...(schedule ? { id: schedule.id } : {}), ...body }),
+      }),
+    onSuccess: (next, body) => {
+      queryClient.setQueryData(LOOK_AFTER_KEY, next);
+      toast.success(`${body.name} is set on ${person.name}’s phone`);
+      onDone();
+    },
+    onError: (err) => {
+      setErrors(fieldErrors(err));
+      toast.error(err instanceof ApiError ? err.message : 'Could not save it.');
+    },
+  });
+  const submit = () => {
+    const from = parseClock(start);
+    const to = parseClock(end);
+    const found: Record<string, string> = {};
+    if (!name.trim()) found.name = 'Give it a name.';
+    if (days.length === 0) found.days = 'Pick at least one day.';
+    if (from === null) found.start = 'Choose a start time.';
+    if (to === null) found.end = 'Choose an end time.';
+    else if (from === to) found.end = 'The end has to be a different time from the start.';
+    setErrors(found);
+    if (Object.keys(found).length > 0 || from === null || to === null) return;
+    save.mutate({ name: name.trim(), days, start: from, end: to, allowed });
+  };
+  const toggle = (list: number[], day: number) => (list.includes(day) ? list.filter((d) => d !== day) : [...list, day]);
+  const id = `schedule-${schedule?.id ?? 'new'}`;
+  return (
+    <div className="space-y-3 rounded-md border border-border p-3">
+      {schedule ? null : (
+        <div className="flex flex-wrap gap-1.5">
+          {SCHEDULE_PRESETS.map((preset) => (
+            <Button
+              key={preset.name}
+              type="button"
+              size="sm"
+              variant={name === preset.name ? 'secondary' : 'outline'}
+              className="h-7 px-2 text-xs"
+              onClick={() => {
+                setName(preset.name);
+                setDays([...preset.days]);
+                setStart(clockValue(preset.start));
+                setEnd(clockValue(preset.end));
+              }}
+            >
+              {preset.name}
+            </Button>
+          ))}
+        </div>
+      )}
+      <div className="space-y-1">
+        <label htmlFor={`${id}-name`} className="text-xs font-medium">
+          Name
+        </label>
+        <Input
+          id={`${id}-name`}
+          className="h-9 text-sm"
+          value={name}
+          maxLength={40}
+          aria-invalid={!!errors.name}
+          onChange={(e) => setName(e.target.value)}
+        />
+        {errors.name ? <p className="text-xs text-destructive">{errors.name}</p> : null}
+      </div>
+      <div className="space-y-1">
+        <span className="text-xs font-medium">Days</span>
+        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Days">
+          {SCHEDULE_DAYS.map((label, day) => (
+            <button
+              key={day}
+              type="button"
+              aria-pressed={days.includes(day)}
+              onClick={() => setDays((d) => toggle(d, day))}
+              className={cn(
+                'size-8 rounded-md border text-xs font-medium transition-colors',
+                days.includes(day) ? 'border-primary bg-primary text-primary-foreground' : 'border-input hover:bg-accent',
+              )}
+            >
+              {label}
+            </button>
+          ))}
+          <Button type="button" variant="outline" size="sm" className="h-8 px-2 text-xs" onClick={() => setDays(WEEKDAYS)}>
+            Weekdays
+          </Button>
+          <Button type="button" variant="outline" size="sm" className="h-8 px-2 text-xs" onClick={() => setDays(EVERY_DAY)}>
+            Every day
+          </Button>
+        </div>
+        {errors.days ? <p className="text-xs text-destructive">{errors.days}</p> : null}
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <label htmlFor={`${id}-start`} className="text-xs font-medium">
+            From
+          </label>
+          <Input
+            id={`${id}-start`}
+            type="time"
+            className="h-9 text-sm"
+            value={start}
+            aria-invalid={!!errors.start}
+            onChange={(e) => setStart(e.target.value)}
+          />
+          {errors.start ? <p className="text-xs text-destructive">{errors.start}</p> : null}
+        </div>
+        <div className="space-y-1">
+          <label htmlFor={`${id}-end`} className="text-xs font-medium">
+            To
+          </label>
+          <Input
+            id={`${id}-end`}
+            type="time"
+            className="h-9 text-sm"
+            value={end}
+            aria-invalid={!!errors.end}
+            onChange={(e) => setEnd(e.target.value)}
+          />
+          {errors.end ? <p className="text-xs text-destructive">{errors.end}</p> : null}
+        </div>
+      </div>
+      {parseClock(end) !== null && parseClock(start) !== null && parseClock(end)! < parseClock(start)! ? (
+        <p className="text-xs text-muted-foreground">It ends the next morning.</p>
+      ) : null}
+      {apps.length > 0 ? (
+        <div className="space-y-1">
+          <span className="text-xs font-medium">Still open (calls and messages always are)</span>
+          <ul className="max-h-48 space-y-1 overflow-y-auto rounded-md border border-border p-2">
+            {apps.map((a) => (
+              <li key={a.app}>
+                <label className="flex items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    className="size-4 rounded border-input"
+                    checked={allowed.includes(a.app)}
+                    disabled={!allowed.includes(a.app) && allowed.length >= MAX_ALLOWED}
+                    onChange={(e) =>
+                      setAllowed((list) => (e.target.checked ? [...list, a.app] : list.filter((x) => x !== a.app)))
+                    }
+                  />
+                  <AppIcon app={{ app: a.app, label: a.label, icon: a.icon, minutes: 0 }} />
+                  <span className="min-w-0 flex-1 truncate">{a.label}</span>
+                </label>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      <div className="flex justify-end gap-2">
+        <Button type="button" size="sm" variant="ghost" className="h-8 text-xs" disabled={save.isPending} onClick={onDone}>
+          Cancel
+        </Button>
+        <Button type="button" size="sm" className="h-8 text-xs" disabled={save.isPending} onClick={submit}>
+          {save.isPending ? <Loader2 className="animate-spin" /> : null}
+          Save
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 interface RingButtonProps {
   person: Person;
   /** When the viewer's last ring from this page stops resting the button (0: none). */
@@ -608,6 +1133,8 @@ function PersonDetail({ person, canRing, until, onRang }: RingButtonProps & { ca
       </label>
       {person.appUsage.shared ? <UsageLine person={person} /> : null}
       <BlockedApps person={person} />
+      <DailyLimits person={person} />
+      <Schedules person={person} />
       {PHONE_RULES.map((rule) => (
         <RuleBox key={rule} person={person} rule={rule} />
       ))}

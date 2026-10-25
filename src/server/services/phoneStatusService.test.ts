@@ -24,6 +24,13 @@ const battery = { saveBattery: vi.fn() };
 vi.mock('@/server/services/batteryService', () => battery);
 const blocks = { phoneBlocks: vi.fn(async (): Promise<unknown[]> => []) };
 vi.mock('@/server/services/appBlockService', () => blocks);
+const limits = {
+  phoneLimits: vi.fn(async (): Promise<unknown[]> => []),
+  reportLimitsReached: vi.fn(async () => ({ told: 0 })),
+};
+vi.mock('@/server/services/appLimitService', () => limits);
+const schedules = { phoneSchedules: vi.fn(async (): Promise<unknown[]> => []) };
+vi.mock('@/server/services/appScheduleService', () => schedules);
 
 const { checkIn, clearPhoneWatches, phoneSetup, phoneSummaries, PING_AFTER_MS, recordStream, refreshPhoneAlerts } =
   await import('./phoneStatusService');
@@ -121,12 +128,12 @@ describe('phone alerts', () => {
   it('tells the phone to Stay connected while an adult looks after its member, and only then', async () => {
     const base = { installId: 'install-123', locationAlways: true, notifications: true };
     prisma.supervision.findMany.mockResolvedValue([link('alex')]);
-    expect(await checkIn(H, 'mia', base, now)).toEqual({ stayConnectedRequired: true, blockedApps: [] });
+    expect(await checkIn(H, 'mia', base, now)).toEqual({ stayConnectedRequired: true, blockedApps: [], appLimits: [], schedules: [] });
     // A link whose supervisor became a guest no longer counts.
     prisma.supervision.findMany.mockResolvedValue([link('alex', 'guest')]);
-    expect(await checkIn(H, 'mia', base, now)).toEqual({ stayConnectedRequired: false, blockedApps: [] });
+    expect(await checkIn(H, 'mia', base, now)).toEqual({ stayConnectedRequired: false, blockedApps: [], appLimits: [], schedules: [] });
     prisma.supervision.findMany.mockResolvedValue([]);
-    expect(await checkIn(H, 'alex', base, now)).toEqual({ stayConnectedRequired: false, blockedApps: [] });
+    expect(await checkIn(H, 'alex', base, now)).toEqual({ stayConnectedRequired: false, blockedApps: [], appLimits: [], schedules: [] });
   });
 
   it('answers a looked-after phone with its blocked apps, and keeps what it always leaves open', async () => {
@@ -138,6 +145,8 @@ describe('phone alerts', () => {
     expect(await checkIn(H, 'mia', { ...base, alwaysAllowed: allowed }, now)).toEqual({
       stayConnectedRequired: true,
       blockedApps: [roblox],
+      appLimits: [],
+      schedules: [],
     });
     expect(blocks.phoneBlocks).toHaveBeenCalledWith(H, 'mia');
     expect(prisma.phoneStatus.upsert.mock.calls[0][0].update.alwaysAllowed).toEqual([
@@ -153,6 +162,38 @@ describe('phone alerts', () => {
     expect((await checkIn(H, 'mia', base, now)).blockedApps).toEqual([]);
     expect(blocks.phoneBlocks).not.toHaveBeenCalled();
     blocks.phoneBlocks.mockResolvedValue([]);
+  });
+
+  it('answers a looked-after phone with its daily limits, and passes on the limits it used up', async () => {
+    const youtube = { app: 'com.google.android.youtube', label: 'YouTube', minutes: 60, by: 'Alex' };
+    limits.phoneLimits.mockResolvedValue([youtube]);
+    const base = { installId: 'install-123', locationAlways: true, notifications: true };
+    const reached = { day: '2026-10-12', apps: ['com.google.android.youtube', '*'] };
+    prisma.supervision.findMany.mockResolvedValue([link('alex')]);
+    expect((await checkIn(H, 'mia', { ...base, limitsReached: reached }, now)).appLimits).toEqual([youtube]);
+    expect(limits.phoneLimits).toHaveBeenCalledWith(H, 'mia');
+    expect(limits.reportLimitsReached).toHaveBeenCalledWith(H, 'mia', reached, now);
+    // Nobody looks after them: no limits, and nobody to tell.
+    vi.clearAllMocks();
+    prisma.supervision.findMany.mockResolvedValue([]);
+    expect((await checkIn(H, 'mia', { ...base, limitsReached: reached }, now)).appLimits).toEqual([]);
+    expect(limits.phoneLimits).not.toHaveBeenCalled();
+    expect(limits.reportLimitsReached).not.toHaveBeenCalled();
+    limits.phoneLimits.mockResolvedValue([]);
+  });
+
+  it('answers a looked-after phone with its schedules, and nobody else’s phone', async () => {
+    const bedtime = { id: 's1', name: 'Bedtime', days: [0, 1], start: 1260, end: 420, allowed: [], by: 'Alex' };
+    schedules.phoneSchedules.mockResolvedValue([bedtime]);
+    const base = { installId: 'install-123', locationAlways: true, notifications: true };
+    prisma.supervision.findMany.mockResolvedValue([link('alex')]);
+    expect((await checkIn(H, 'mia', base, now)).schedules).toEqual([bedtime]);
+    expect(schedules.phoneSchedules).toHaveBeenCalledWith(H, 'mia');
+    vi.clearAllMocks();
+    prisma.supervision.findMany.mockResolvedValue([]);
+    expect((await checkIn(H, 'mia', base, now)).schedules).toEqual([]);
+    expect(schedules.phoneSchedules).not.toHaveBeenCalled();
+    schedules.phoneSchedules.mockResolvedValue([]);
   });
 
   it('records how alerts reach the phone, never trusting a phone clock ahead of the server', async () => {
@@ -499,5 +540,9 @@ describe('check-in fields', () => {
     expect(phoneCheckInSchema.parse({ ...base, alwaysAllowed: apps }).alwaysAllowed).toHaveLength(50);
     expect(() => phoneCheckInSchema.parse({ ...base, alwaysAllowed: [...apps, 'one.more'] })).toThrow();
     expect(() => phoneCheckInSchema.parse({ ...base, alwaysAllowed: [''] })).toThrow();
+    // The limits it used up today: its own date and the apps ("*" for all apps).
+    const reached = { day: '2026-10-12', apps: ['com.google.android.youtube', '*'] };
+    expect(phoneCheckInSchema.parse({ ...base, limitsReached: reached }).limitsReached).toEqual(reached);
+    expect(() => phoneCheckInSchema.parse({ ...base, limitsReached: { day: 'today', apps: [] } })).toThrow();
   });
 });

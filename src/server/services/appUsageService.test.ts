@@ -27,6 +27,10 @@ const push = { pushSync: vi.fn() };
 vi.mock('@/server/services/pushService', () => push);
 const blocks = { blockedAppNames: vi.fn(async (): Promise<string[]> => []) };
 vi.mock('@/server/services/appBlockService', () => blocks);
+const limits = { limitedAppNames: vi.fn(async (): Promise<string[]> => []) };
+vi.mock('@/server/services/appLimitService', () => limits);
+const schedules = { scheduledAppNames: vi.fn(async (): Promise<string[]> => []) };
+vi.mock('@/server/services/appScheduleService', () => schedules);
 
 const {
   findIcon,
@@ -35,6 +39,7 @@ const {
   reportIcons,
   reportNewApps,
   reportUsage,
+  usageApps,
   usageHistory,
   usageLabel,
   usageNamesApp,
@@ -249,6 +254,45 @@ describe('app icons', () => {
     expect(prisma.appIcon.deleteMany).toHaveBeenCalledWith({
       where: { householdId: 'h1', app: { notIn: [yt.app, 'com.roblox.client'] } },
     });
+  });
+
+  it('keeps the icon of an app with a limit after no usage names it, for the limits list', async () => {
+    prisma.appUsageDay.findMany.mockResolvedValueOnce([]);
+    limits.limitedAppNames.mockResolvedValueOnce([yt.app]);
+    await forgetUsage(prisma as never, 'h1', ['mia']);
+    expect(limits.limitedAppNames).toHaveBeenCalledWith(prisma, 'h1');
+    expect(prisma.appIcon.deleteMany).toHaveBeenCalledWith({ where: { householdId: 'h1', app: { notIn: [yt.app] } } });
+  });
+
+  it('keeps the icon of an app a schedule still allows', async () => {
+    prisma.appUsageDay.findMany.mockResolvedValueOnce([]);
+    schedules.scheduledAppNames.mockResolvedValueOnce(['com.google.android.apps.maps']);
+    await forgetUsage(prisma as never, 'h1', ['mia']);
+    expect(schedules.scheduledAppNames).toHaveBeenCalledWith(prisma, 'h1');
+    expect(prisma.appIcon.deleteMany).toHaveBeenCalledWith({
+      where: { householdId: 'h1', app: { notIn: ['com.google.android.apps.maps'] } },
+    });
+  });
+
+  it('lists each member’s apps once, by name, named from their newest day', async () => {
+    prisma.appUsageDay.findMany.mockResolvedValueOnce([
+      { userId: 'mia', apps: JSON.stringify([{ app: yt.app, label: 'YouTube Kids', minutes: 3 }]) },
+      { userId: 'mia', apps: JSON.stringify([{ app: yt.app, label: 'YouTube', minutes: 9 }, { app: 'com.a', label: '', minutes: 2 }]) },
+      { userId: 'jo', apps: JSON.stringify([{ app: 'com.roblox.client', label: 'Roblox', minutes: 5 }]) },
+    ]);
+    prisma.appIcon.findMany.mockResolvedValueOnce([{ app: yt.app }]);
+    const apps = await usageApps('h1', ['mia', 'jo']);
+    expect(prisma.appUsageDay.findMany).toHaveBeenCalledWith({
+      where: { userId: { in: ['mia', 'jo'] } },
+      orderBy: { day: 'desc' },
+      select: { userId: true, apps: true },
+    });
+    expect(apps.get('mia')).toEqual([
+      { app: 'com.a', label: 'com.a', icon: false },
+      { app: yt.app, label: 'YouTube Kids', icon: true },
+    ]);
+    expect(apps.get('jo')).toEqual([{ app: 'com.roblox.client', label: 'Roblox', icon: false }]);
+    expect((await usageApps('h1', [])).size).toBe(0);
   });
 
   it('names an app from the newest stored day that has it', async () => {

@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { PHONE_RULES } from '@/lib/phoneHealth';
+import { LIMIT_MAX, LIMIT_MIN } from '@/lib/appLimits';
+import { MAX_ALLOWED } from '@/lib/appSchedules';
 
 /** Replace who supervises one child or teen. An empty list means nobody does. */
 export const setSupervisorsSchema = z.object({
@@ -40,6 +42,39 @@ export const setAppBlockedSchema = z.object({
   blocked: z.boolean(),
 });
 export type SetAppBlockedInput = z.infer<typeof setAppBlockedSchema>;
+
+/**
+ * Set a daily limit on a supervised child's phone, or remove it (minutes
+ * null). app: its package name, or "*" for all apps together.
+ */
+export const setAppLimitSchema = z.object({
+  supervisedId: z.string().min(1),
+  app: z.string().trim().min(1).max(200),
+  minutes: z.number().int().min(LIMIT_MIN).max(LIMIT_MAX).nullable(),
+});
+export type SetAppLimitInput = z.infer<typeof setAppLimitSchema>;
+
+/**
+ * Add a schedule to a supervised child's phone, or change one (id). days: 0
+ * (Sunday) to 6; start and end: minutes after midnight, end before start runs
+ * past midnight. allowed: package names still open meanwhile.
+ */
+export const saveScheduleSchema = z
+  .object({
+    supervisedId: z.string().min(1),
+    id: z.string().min(1).max(64).optional(),
+    name: z.string().trim().min(1, 'Give it a name.').max(40, 'Keep the name under 40 characters.'),
+    days: z.array(z.number().int().min(0).max(6)).min(1, 'Pick at least one day.').max(7),
+    start: z.number().int().min(0).max(1439),
+    end: z.number().int().min(0).max(1439),
+    allowed: z.array(z.string().trim().min(1).max(200)).max(MAX_ALLOWED),
+  })
+  .refine((s) => s.start !== s.end, { message: 'The end has to be a different time from the start.', path: ['end'] });
+export type SaveScheduleInput = z.infer<typeof saveScheduleSchema>;
+
+/** Remove a schedule from a supervised child's phone. */
+export const removeScheduleSchema = z.object({ supervisedId: z.string().min(1), id: z.string().min(1).max(64) });
+export type RemoveScheduleInput = z.infer<typeof removeScheduleSchema>;
 
 /** Ask a supervised child's phone to send its app usage now. */
 export const refreshUsageSchema = z.object({ supervisedId: z.string().min(1) });

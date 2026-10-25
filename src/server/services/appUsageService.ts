@@ -4,6 +4,8 @@ import { createHash } from 'node:crypto';
 import { ConflictError } from '@/server/services/errors';
 import { pushSync } from '@/server/services/pushService';
 import { blockedAppNames } from '@/server/services/appBlockService';
+import { limitedAppNames } from '@/server/services/appLimitService';
+import { scheduledAppNames } from '@/server/services/appScheduleService';
 import { canBeSupervised, canSupervise } from '@/lib/permissions';
 import {
   USAGE_CARD_APPS,
@@ -20,7 +22,8 @@ import type { UsageHistoryDTO } from '@/lib/types';
 // App usage (parental controls): a child's phone reports its screen time per
 // app while a supervising adult has turned sharing it on (User.shareAppUsage,
 // set in supervisionService). Their supervisors block apps from its lists
-// (appBlockService); nothing is limited by time yet.
+// (appBlockService), give apps a daily limit (appLimitService) and still
+// allow apps in a schedule (appScheduleService).
 // Only the last USAGE_KEEP_DAYS days are kept; turning sharing off deletes it.
 // The phone also sends each app's icon once (AppIcon), when the server says
 // it has none; an icon goes when no stored day names its app any more.
@@ -152,13 +155,25 @@ export async function usageLabel(userId: string, app: string): Promise<string | 
   return null;
 }
 
-/** Deletes the household's icons that no stored usage day names, keeping blocked apps' (their list shows them). */
+/**
+ * Deletes the household's icons that no stored usage day names, keeping the
+ * icons of blocked, limited and schedule-allowed apps (their lists show them).
+ */
 export async function pruneIcons(db: Db, householdId: string): Promise<void> {
-  const [rows, blocked] = await Promise.all([
+  const [rows, blocked, limited, scheduled] = await Promise.all([
     db.appUsageDay.findMany({ where: { householdId }, select: { apps: true } }),
     blockedAppNames(db, householdId),
+    limitedAppNames(db, householdId),
+    scheduledAppNames(db, householdId),
   ]);
-  const named = [...new Set([...rows.flatMap((r) => parseApps(r.apps).map((a) => a.app)), ...blocked])];
+  const named = [
+    ...new Set([
+      ...rows.flatMap((r) => parseApps(r.apps).map((a) => a.app)),
+      ...blocked,
+      ...limited,
+      ...scheduled,
+    ]),
+  ];
   await db.appIcon.deleteMany({ where: { householdId, app: { notIn: named } } });
 }
 
@@ -285,6 +300,43 @@ export async function usageHistory(householdId: string, userId: string): Promise
       updatedAt: row.updatedAt.toISOString(),
     })),
   };
+}
+
+/**
+ * Every app in each of [userIds]' stored days, once, by name, with the name
+ * from the newest day naming it: the apps a supervisor can give a limit.
+ */
+export async function usageApps(
+  householdId: string,
+  userIds: string[],
+): Promise<Map<string, { app: string; label: string; icon: boolean }[]>> {
+  const out = new Map<string, { app: string; label: string; icon: boolean }[]>();
+  if (userIds.length === 0) return out;
+  const rows = await prisma.appUsageDay.findMany({
+    where: { userId: { in: userIds } },
+    orderBy: { day: 'desc' },
+    select: { userId: true, apps: true },
+  });
+  const byKid = new Map<string, Map<string, string>>();
+  for (const row of rows) {
+    const named = byKid.get(row.userId) ?? new Map<string, string>();
+    for (const a of parseApps(row.apps)) if (!named.has(a.app)) named.set(a.app, a.label || a.app);
+    byKid.set(row.userId, named);
+  }
+  const all = [...new Set([...byKid.values()].flatMap((m) => [...m.keys()]))];
+  const icons = all.length
+    ? await prisma.appIcon.findMany({ where: { householdId, app: { in: all } }, select: { app: true } })
+    : [];
+  const withIcon = new Set(icons.map((i) => i.app));
+  for (const [userId, named] of byKid) {
+    out.set(
+      userId,
+      [...named]
+        .map(([app, label]) => ({ app, label, icon: withIcon.has(app) }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    );
+  }
+  return out;
 }
 
 /** The signed-in member's own usage history (their Profile). 409 while it isn't shared. */

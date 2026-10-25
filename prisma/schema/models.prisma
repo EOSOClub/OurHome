@@ -85,6 +85,8 @@ model Household {
   appUsage       AppUsageDay[]
   appIcons       AppIcon[]
   blockedApps    BlockedApp[]
+  appLimits      AppLimit[]
+  appSchedules   AppSchedule[]
   integrations   HomeAssistantIntegration[]
   requests       Request[]
   bugReports     BugReport[]
@@ -176,6 +178,8 @@ model User {
   phones            PhoneStatus[]
   appUsage          AppUsageDay[]
   blockedApps       BlockedApp[]
+  appLimits         AppLimit[]
+  appSchedules      AppSchedule[]
   supervising      Supervision[]   @relation("SupervisionSupervisor")
   supervisedBy      Supervision[]   @relation("SupervisionSupervised")
 
@@ -317,6 +321,62 @@ model BlockedApp {
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, app])
+  @@index([householdId])
+}
+
+// Parental controls: a daily time limit a supervising adult set on a child's
+// phone (People you look after), for one app or, with app "*", for all their
+// apps together (not the ones their phone always keeps open). The phone
+// learns them from its check-in, counts today's minutes itself, warns 5
+// minutes before and then covers the app like a blocked one. label: the
+// app's name from their app usage ("All apps" for "*"). Gone when nobody
+// supervises them any more. Not exported, like the phone rules. See
+// supervisionService.setAppLimit.
+model AppLimit {
+  id          String   @id @default(cuid()) @map("_id")
+  householdId String
+  userId      String
+  // The app's package name, or "*" for all apps together.
+  app         String
+  label       String
+  minutes     Int
+  // Who set it last (plain id, no relation): their name shows on the phone.
+  setById     String
+  updatedAt   DateTime @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, app])
+  @@index([householdId])
+}
+
+// Parental controls: a time window on a child's phone (People you look
+// after), like Bedtime 21:00 to 07:00 every day, when every app is closed
+// apart from the ones their phone always keeps open and [allowed]. Times are
+// minutes after midnight on the phone's own clock; end before start runs past
+// midnight, and days (0 Sunday to 6 Saturday) are the days it starts on. The
+// phone learns them from its check-in, warns 5 minutes before the start and
+// covers apps like a blocked one. Gone when nobody supervises them any more.
+// Not exported, like the phone rules. See supervisionService.saveSchedule.
+model AppSchedule {
+  id          String   @id @default(cuid()) @map("_id")
+  householdId String
+  userId      String
+  name        String
+  days        Int[]
+  start       Int
+  end         Int
+  // JSON [{ app, label }]: the apps still allowed, named from their app usage.
+  allowed     String   @default("[]")
+  // Who saved it last (plain id, no relation): their name shows on the phone.
+  setById     String
+  updatedAt   DateTime @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
   @@index([householdId])
 }
 

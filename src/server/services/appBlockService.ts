@@ -17,7 +17,8 @@ export interface PhoneBlock {
   by: string | null;
 }
 
-async function namesOf(db: Db, ids: string[]): Promise<Map<string, string>> {
+/** Members' names by id (who blocked an app, or set a limit). */
+export async function namesOf(db: Db, ids: string[]): Promise<Map<string, string>> {
   const unique = [...new Set(ids)];
   if (unique.length === 0) return new Map();
   const users = await db.user.findMany({ where: { id: { in: unique } }, select: { id: true, name: true } });

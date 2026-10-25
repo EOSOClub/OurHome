@@ -25,11 +25,16 @@ import {
   forgetUsage,
   usageHistory,
   usageLabel,
+  usageApps,
   usageNamesApp,
   usageSummaries,
 } from '@/server/services/appUsageService';
 import { blockedAppsByKid, isBlockedFor } from '@/server/services/appBlockService';
+import { appLimitsByKid, isLimitedFor } from '@/server/services/appLimitService';
+import { allowedApps, isScheduledFor, schedulesByKid } from '@/server/services/appScheduleService';
 import { USAGE_REFRESH_COOLDOWN_MS } from '@/lib/appUsage';
+import { ALL_APPS, ALL_APPS_LABEL, limitLabel } from '@/lib/appLimits';
+import { MAX_SCHEDULES, daysLabel, formatClock } from '@/lib/appSchedules';
 import {
   RING_MS,
   RING_SHOWN_MS,
@@ -45,6 +50,9 @@ import type { LookAfterDTO, RingDTO, SupervisionDTO, UsageHistoryDTO } from '@/l
 import type { ReportRingInput } from '@/lib/validation/phone';
 import type {
   SetAppBlockedInput,
+  RemoveScheduleInput,
+  SaveScheduleInput,
+  SetAppLimitInput,
   SetPhoneRuleInput,
   SetRequiredSharingInput,
   SetSupervisorsInput,
@@ -240,8 +248,10 @@ export async function linkNewSupervisors(
 //    liveCheckAllowed). It goes back to "on" when nobody supervises them.
 //  - Share their app usage with their supervisors (appUsageService). It goes
 //    off, and what was kept is deleted, when nobody supervises them.
-//  - Block apps from that usage on their phone (setAppBlocked). The blocks go
-//    when nobody supervises them.
+//  - Block apps from that usage on their phone (setAppBlocked), and give
+//    apps, or all apps together, a daily limit (setAppLimit), and set
+//    schedules when apps are closed (saveSchedule). All go when nobody
+//    supervises them.
 //  - Be told when their phone goes quiet (phoneStatusService).
 
 /** One ring per child at a time: the phone rings for about this long. */
@@ -318,10 +328,14 @@ export async function lookAfterOverview(
   now: number = Date.now(),
 ): Promise<LookAfterDTO> {
   const kids = await supervisedBy(householdId, actorId);
-  const [phones, usage, blocked, locationOn] = await Promise.all([
+  const shared = kids.filter((k) => k.shareAppUsage === true).map((k) => k.id);
+  const [phones, usage, blocked, limits, schedules, usedApps, locationOn] = await Promise.all([
     phoneSummaries(householdId, kids),
-    usageSummaries(householdId, kids.filter((k) => k.shareAppUsage === true).map((k) => k.id)),
+    usageSummaries(householdId, shared),
     blockedAppsByKid(householdId, kids.map((k) => k.id)),
+    appLimitsByKid(householdId, kids.map((k) => k.id)),
+    schedulesByKid(householdId, kids.map((k) => k.id)),
+    usageApps(householdId, shared),
     isFeatureEnabled(householdId, 'location').catch(() => true),
   ]);
   return {
@@ -329,8 +343,9 @@ export async function lookAfterOverview(
     people: kids.map((k) => {
       const sharing = sharingMode(k.locationSharing);
       const rules = phoneRules(k);
-      // Its checks only feed setup and blocking below.
+      // Its checks only feed setup, blocking and limits below.
       const { checks = null, alwaysAllowed = [], ...phone } = phones.get(k.id) ?? {};
+      const kidLimits = limits.get(k.id) ?? [];
       return {
         id: k.id,
         name: k.name,
@@ -343,6 +358,13 @@ export async function lookAfterOverview(
           alwaysAllowed,
           works: checks?.keepRunning ?? null,
         },
+        usageApps: (usedApps.get(k.id) ?? []).filter((a) => !alwaysAllowed.includes(a.app)),
+        limits: {
+          total: kidLimits.find((l) => l.app === ALL_APPS) ?? null,
+          apps: kidLimits.filter((l) => l.app !== ALL_APPS),
+          counts: checks?.usageAccess ?? null,
+        },
+        schedules: schedules.get(k.id) ?? [],
         setup: {
           passwordChosen: !k.mustChangePassword,
           steps: setupProgress(
@@ -466,11 +488,7 @@ export async function setAppBlocked(
   });
   let changed = false;
   if (input.blocked && !existing) {
-    const phones = await prisma.phoneStatus.findMany({
-      where: { householdId, userId: kid.id },
-      select: { lastSeenAt: true, alwaysAllowed: true },
-    });
-    if (freshestPhone(phones)?.alwaysAllowed.includes(input.app)) {
+    if (await keptOpen(householdId, kid.id, input.app)) {
       throw new ConflictError(
         `${kid.name}’s phone always keeps this app open: phone calls, messages, the home screen and OurHome can’t be blocked.`,
       );
@@ -513,6 +531,191 @@ export async function setAppBlocked(
   }
   // Their phone checks in at once and learns the new list.
   if (changed) pushSync(householdId, { userIds: [kid.id] }, 'supervision');
+  return lookAfterOverview(householdId, actor.id);
+}
+
+/** Whether [kidId]'s freshest phone always keeps [app] open (its phone, messages, home screen, OurHome). */
+async function keptOpen(householdId: string, kidId: string, app: string): Promise<boolean> {
+  const phones = await prisma.phoneStatus.findMany({
+    where: { householdId, userId: kidId },
+    select: { lastSeenAt: true, alwaysAllowed: true },
+  });
+  return freshestPhone(phones)?.alwaysAllowed.includes(app) ?? false;
+}
+
+/**
+ * Give an app, or all apps together (app ALL_APPS), a daily limit on a
+ * supervised child's phone, change it, or remove it (minutes null). One app
+ * only from their stored usage (its name comes from there), and never one
+ * their phone always keeps open. Wakes their phone, which checks in and
+ * learns the new limits at once.
+ */
+export async function setAppLimit(
+  householdId: string,
+  actor: { id: string },
+  input: SetAppLimitInput,
+): Promise<LookAfterDTO> {
+  const kid = (await supervisedBy(householdId, actor.id)).find((k) => k.id === input.supervisedId);
+  if (!kid) {
+    throw new ForbiddenError(
+      'Only an adult who supervises them can set limits on their phone. The Head of House chooses that on the Members page.',
+    );
+  }
+  const all = input.app === ALL_APPS;
+  const existing = await prisma.appLimit.findUnique({
+    where: { userId_app: { userId: kid.id, app: input.app } },
+    select: { id: true, label: true, minutes: true },
+  });
+  const what = (label: string) => (all ? 'all apps' : label);
+  let save: ((tx: Prisma.TransactionClient) => Promise<unknown>) | null = null;
+  let message = '';
+  if (input.minutes === null) {
+    if (existing) {
+      save = (tx) => tx.appLimit.delete({ where: { id: existing.id } });
+      message = `removed the daily limit for ${what(existing.label)} on ${kid.name}’s phone`;
+    }
+  } else if (existing) {
+    if (existing.minutes !== input.minutes) {
+      const minutes = input.minutes;
+      save = (tx) => tx.appLimit.update({ where: { id: existing.id }, data: { minutes, setById: actor.id } });
+      message = `changed the limit for ${what(existing.label)} to ${limitLabel(minutes)} on ${kid.name}’s phone`;
+    }
+  } else {
+    let label = ALL_APPS_LABEL;
+    if (!all) {
+      if (await keptOpen(householdId, kid.id, input.app)) {
+        throw new ConflictError(
+          `${kid.name}’s phone always keeps this app open: phone calls, messages, the home screen and OurHome have no limit.`,
+        );
+      }
+      const named = await usageLabel(kid.id, input.app);
+      if (!named) throw new NotFoundError(`That app isn’t in ${kid.name}’s app usage.`);
+      label = named;
+    }
+    const minutes = input.minutes;
+    save = (tx) =>
+      tx.appLimit.create({
+        data: { householdId, userId: kid.id, app: input.app, label, minutes, setById: actor.id },
+      });
+    message = `limited ${what(label)} to ${limitLabel(minutes)} on ${kid.name}’s phone`;
+  }
+  if (save) {
+    const write = save;
+    await prisma.$transaction(async (tx) => {
+      await write(tx);
+      await logActivity(
+        { householdId, actorId: actor.id, verb: 'updated', subjectType: 'member', subjectId: kid.id, message },
+        tx,
+      );
+    });
+    // Their phone checks in at once and learns the new limits.
+    pushSync(householdId, { userIds: [kid.id] }, 'supervision');
+  }
+  return lookAfterOverview(householdId, actor.id);
+}
+
+/**
+ * Add a schedule to a supervised child's phone, or change one: a time window
+ * when every app is closed apart from the ones their phone always keeps open
+ * and [allowed] (named from their stored usage; ones already allowed keep
+ * their name after leaving it). At most MAX_SCHEDULES. Wakes their phone,
+ * which checks in and learns the new schedules at once.
+ */
+export async function saveSchedule(
+  householdId: string,
+  actor: { id: string },
+  input: SaveScheduleInput,
+): Promise<LookAfterDTO> {
+  const kid = (await supervisedBy(householdId, actor.id)).find((k) => k.id === input.supervisedId);
+  if (!kid) {
+    throw new ForbiddenError(
+      'Only an adult who supervises them can set schedules on their phone. The Head of House chooses that on the Members page.',
+    );
+  }
+  const existing = input.id
+    ? await prisma.appSchedule.findFirst({ where: { id: input.id, userId: kid.id } })
+    : null;
+  if (input.id && !existing) throw new NotFoundError('That schedule isn’t there any more. Reload the page.');
+  if (!existing && (await prisma.appSchedule.count({ where: { userId: kid.id } })) >= MAX_SCHEDULES) {
+    throw new ConflictError(`${kid.name} has ${MAX_SCHEDULES} schedules already. Remove one first.`);
+  }
+  const named = new Map(((await usageApps(householdId, [kid.id])).get(kid.id) ?? []).map((a) => [a.app, a.label]));
+  for (const a of existing ? allowedApps(existing.allowed) : []) if (!named.has(a.app)) named.set(a.app, a.label);
+  const apps = [...new Set(input.allowed)];
+  if (apps.some((a) => !named.has(a))) throw new NotFoundError(`That app isn’t in ${kid.name}’s app usage.`);
+  const data = {
+    name: input.name,
+    days: [...new Set(input.days)].sort((a, b) => a - b),
+    start: input.start,
+    end: input.end,
+    allowed: JSON.stringify(apps.map((app) => ({ app, label: named.get(app)! }))),
+    setById: actor.id,
+  };
+  const unchanged =
+    existing &&
+    existing.name === data.name &&
+    existing.start === data.start &&
+    existing.end === data.end &&
+    existing.allowed === data.allowed &&
+    [...existing.days].sort((a, b) => a - b).join() === data.days.join();
+  if (!unchanged) {
+    const when = `${daysLabel(data.days)}, ${formatClock(data.start)} to ${formatClock(data.end)}`;
+    await prisma.$transaction(async (tx) => {
+      if (existing) await tx.appSchedule.update({ where: { id: existing.id }, data });
+      else await tx.appSchedule.create({ data: { householdId, userId: kid.id, ...data } });
+      await logActivity(
+        {
+          householdId,
+          actorId: actor.id,
+          verb: 'updated',
+          subjectType: 'member',
+          subjectId: kid.id,
+          message: existing
+            ? `changed ${data.name} on ${kid.name}’s phone (${when})`
+            : `added ${data.name} to ${kid.name}’s phone (${when})`,
+        },
+        tx,
+      );
+    });
+    // Their phone checks in at once and learns the new schedules.
+    pushSync(householdId, { userIds: [kid.id] }, 'supervision');
+  }
+  return lookAfterOverview(householdId, actor.id);
+}
+
+/** Remove a schedule from a supervised child's phone. Wakes their phone. */
+export async function removeSchedule(
+  householdId: string,
+  actor: { id: string },
+  input: RemoveScheduleInput,
+): Promise<LookAfterDTO> {
+  const kid = (await supervisedBy(householdId, actor.id)).find((k) => k.id === input.supervisedId);
+  if (!kid) {
+    throw new ForbiddenError(
+      'Only an adult who supervises them can set schedules on their phone. The Head of House chooses that on the Members page.',
+    );
+  }
+  const existing = await prisma.appSchedule.findFirst({
+    where: { id: input.id, userId: kid.id },
+    select: { id: true, name: true },
+  });
+  if (existing) {
+    await prisma.$transaction(async (tx) => {
+      await tx.appSchedule.delete({ where: { id: existing.id } });
+      await logActivity(
+        {
+          householdId,
+          actorId: actor.id,
+          verb: 'updated',
+          subjectType: 'member',
+          subjectId: kid.id,
+          message: `removed ${existing.name} from ${kid.name}’s phone`,
+        },
+        tx,
+      );
+    });
+    pushSync(householdId, { userIds: [kid.id] }, 'supervision');
+  }
   return lookAfterOverview(householdId, actor.id);
 }
 
@@ -698,7 +901,7 @@ export async function supervisedUsageHistory(
 
 /**
  * An app's icon (PNG), for a supervisor of a child whose shared usage names
- * the app or who has it blocked, or for the child themself (their Profile).
+ * the app or who has it blocked, limited or allowed in a schedule, or for the child themself (their Profile).
  * Not found otherwise, so nobody else can tell which apps a child has. A
  * member's own days only exist while their usage is shared: turning it off
  * deletes them.
@@ -706,8 +909,13 @@ export async function supervisedUsageHistory(
 export async function usageIcon(householdId: string, actorId: string, app: string): Promise<Uint8Array> {
   const kids = await supervisedBy(householdId, actorId);
   const whose = [...kids.filter((k) => k.shareAppUsage === true).map((k) => k.id), actorId];
-  // A blocked app stays in their Blocked apps list after it leaves their usage.
-  const named = (await usageNamesApp(whose, app)) || (await isBlockedFor(kids.map((k) => k.id), app));
+  // A blocked or limited app stays in their lists after it leaves their usage.
+  const ids = kids.map((k) => k.id);
+  const named =
+    (await usageNamesApp(whose, app)) ||
+    (await isBlockedFor(ids, app)) ||
+    (await isLimitedFor(ids, app)) ||
+    (await isScheduledFor(ids, app));
   const png = named ? await findIcon(householdId, app) : null;
   if (!png) throw new NotFoundError('No icon for that app.');
   return png;
@@ -737,16 +945,24 @@ export async function dropBrokenSupervision(db: Db, userId: string, role: string
  * [userIds] with no supervisor left (or no longer a child or teen) gets
  * required sharing back as "on" (they may turn it off again), app usage
  * sharing off with what was stored deleted (nobody is left to see it), and
- * every app unblocked.
+ * every app unblocked and every limit and schedule removed.
  */
 export async function releaseIfUnsupervised(db: Db, userIds: string[]): Promise<void> {
   const ids = [...new Set(userIds)];
   const blocked = await db.blockedApp.findMany({ where: { userId: { in: ids } }, select: { userId: true } });
   const withBlocks = new Set(blocked.map((b) => b.userId));
+  const limited = await db.appLimit.findMany({ where: { userId: { in: ids } }, select: { userId: true } });
+  const withLimits = new Set(limited.map((l) => l.userId));
+  const scheduled = await db.appSchedule.findMany({ where: { userId: { in: ids } }, select: { userId: true } });
+  const withSchedules = new Set(scheduled.map((s) => s.userId));
   const controlled = await db.user.findMany({
     where: {
       id: { in: ids },
-      OR: [{ locationSharing: 'required' }, { shareAppUsage: true }, { id: { in: [...withBlocks] } }],
+      OR: [
+        { locationSharing: 'required' },
+        { shareAppUsage: true },
+        { id: { in: [...new Set([...withBlocks, ...withLimits, ...withSchedules])] } },
+      ],
     },
     select: { id: true, role: true, householdId: true, locationSharing: true, shareAppUsage: true },
   });
@@ -763,6 +979,8 @@ export async function releaseIfUnsupervised(db: Db, userIds: string[]): Promise<
     }
     // Before forgetting their usage, so pruning icons no longer keeps these apps'.
     if (withBlocks.has(user.id)) await db.blockedApp.deleteMany({ where: { userId: user.id } });
+    if (withLimits.has(user.id)) await db.appLimit.deleteMany({ where: { userId: user.id } });
+    if (withSchedules.has(user.id)) await db.appSchedule.deleteMany({ where: { userId: user.id } });
     if (user.shareAppUsage) {
       await db.user.update({ where: { id: user.id }, data: { shareAppUsage: null } });
       if (user.householdId) await forgetUsage(db, user.householdId, [user.id]);

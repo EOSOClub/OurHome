@@ -20,6 +20,20 @@ const tx = {
     create: vi.fn(),
     delete: vi.fn(),
   },
+  appLimit: {
+    findMany: vi.fn(async (): Promise<unknown[]> => []),
+    deleteMany: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+    delete: vi.fn(),
+  },
+  appSchedule: {
+    findMany: vi.fn(async (): Promise<unknown[]> => []),
+    deleteMany: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+    delete: vi.fn(),
+  },
 };
 const prisma = {
   user: {
@@ -31,6 +45,8 @@ const prisma = {
     findUnique: vi.fn(async (): Promise<unknown> => null),
   },
   blockedApp: { findUnique: vi.fn(async (): Promise<unknown> => null) },
+  appLimit: { findUnique: vi.fn(async (): Promise<unknown> => null) },
+  appSchedule: { findFirst: vi.fn(async (): Promise<unknown> => null), count: vi.fn(async () => 0) },
   phoneStatus: { findMany: vi.fn(async (): Promise<unknown[]> => []) },
   $transaction: vi.fn(async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx)),
 };
@@ -58,6 +74,7 @@ const usage = {
   findIcon: vi.fn(async (): Promise<Uint8Array | null> => null),
   usageHistory: vi.fn(async (): Promise<unknown> => ({ days: [] })),
   usageLabel: vi.fn(async (): Promise<string | null> => null),
+  usageApps: vi.fn(async (): Promise<Map<string, unknown[]>> => new Map()),
 };
 vi.mock('@/server/services/appUsageService', () => usage);
 const blocks = {
@@ -65,6 +82,17 @@ const blocks = {
   isBlockedFor: vi.fn(async () => false),
 };
 vi.mock('@/server/services/appBlockService', () => blocks);
+const limits = {
+  appLimitsByKid: vi.fn(async (): Promise<Map<string, unknown[]>> => new Map()),
+  isLimitedFor: vi.fn(async () => false),
+};
+vi.mock('@/server/services/appLimitService', () => limits);
+const schedules = {
+  schedulesByKid: vi.fn(async (): Promise<Map<string, unknown[]>> => new Map()),
+  isScheduledFor: vi.fn(async () => false),
+  allowedApps: (raw: string) => JSON.parse(raw) as { app: string; label: string }[],
+};
+vi.mock('@/server/services/appScheduleService', () => schedules);
 const admin = { isFeatureEnabled: vi.fn(async () => true) };
 vi.mock('@/server/services/serverAdminService', () => admin);
 
@@ -80,6 +108,9 @@ const {
   reportRing,
   ringPhone,
   setAppBlocked,
+  setAppLimit,
+  saveSchedule,
+  removeSchedule,
   setPhoneRule,
   setRequiredSharing,
   setSupervisors,
@@ -98,6 +129,7 @@ const jo: Person = { id: 'jo', name: 'Jo', role: 'teen' };
 const guest: Person = { id: 'guest', name: 'Guest', role: 'guest' };
 const ALL_RULES = { keepRunning: true, preventUninstall: true, batteryUnrestricted: true };
 const NO_BLOCKS = { apps: [], alwaysAllowed: [], works: null };
+const NO_LIMITS = { total: null, apps: [], counts: null };
 
 describe('getSupervision', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -355,6 +387,55 @@ describe('releaseIfUnsupervised', () => {
     );
   });
 
+  it('removes every limit when nobody is left to supervise them', async () => {
+    tx.appLimit.findMany.mockResolvedValueOnce([{ userId: 'sam' }]);
+    tx.user.findMany.mockResolvedValueOnce([{ id: 'sam', role: 'child', householdId: H, locationSharing: 'on' }]);
+    tx.supervision.findMany.mockResolvedValueOnce([]);
+    await releaseIfUnsupervised(tx as never, ['sam']);
+    // Someone with limits counts even when nothing else is controlled.
+    expect(tx.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: { in: ['sam'] },
+          OR: [{ locationSharing: 'required' }, { shareAppUsage: true }, { id: { in: ['sam'] } }],
+        },
+      }),
+    );
+    expect(tx.appLimit.deleteMany).toHaveBeenCalledWith({ where: { userId: 'sam' } });
+    expect(tx.blockedApp.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('removes every schedule when nobody is left to supervise them, and keeps them otherwise', async () => {
+    tx.appSchedule.findMany.mockResolvedValueOnce([{ userId: 'sam' }]);
+    tx.user.findMany.mockResolvedValueOnce([{ id: 'sam', role: 'child', householdId: H, locationSharing: 'on' }]);
+    tx.supervision.findMany.mockResolvedValueOnce([]);
+    await releaseIfUnsupervised(tx as never, ['sam']);
+    expect(tx.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: { in: ['sam'] },
+          OR: [{ locationSharing: 'required' }, { shareAppUsage: true }, { id: { in: ['sam'] } }],
+        },
+      }),
+    );
+    expect(tx.appSchedule.deleteMany).toHaveBeenCalledWith({ where: { userId: 'sam' } });
+
+    vi.clearAllMocks();
+    tx.appSchedule.findMany.mockResolvedValueOnce([{ userId: 'sam' }]);
+    tx.user.findMany.mockResolvedValueOnce([{ id: 'sam', role: 'child', locationSharing: 'on' }]);
+    tx.supervision.findMany.mockResolvedValueOnce([{ supervisor: { role: 'adult' } }]);
+    await releaseIfUnsupervised(tx as never, ['sam']);
+    expect(tx.appSchedule.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('keeps the limits while another adult still supervises them', async () => {
+    tx.appLimit.findMany.mockResolvedValueOnce([{ userId: 'sam' }]);
+    tx.user.findMany.mockResolvedValueOnce([{ id: 'sam', role: 'child', locationSharing: 'on' }]);
+    tx.supervision.findMany.mockResolvedValueOnce([{ supervisor: { role: 'adult' } }]);
+    await releaseIfUnsupervised(tx as never, ['sam']);
+    expect(tx.appLimit.deleteMany).not.toHaveBeenCalled();
+  });
+
   it('keeps the blocks while another adult still supervises them', async () => {
     tx.blockedApp.findMany.mockResolvedValueOnce([{ userId: 'sam' }]);
     tx.user.findMany.mockResolvedValueOnce([{ id: 'sam', role: 'child', locationSharing: 'on' }]);
@@ -394,6 +475,9 @@ describe('required sharing', () => {
           appUsage: { shared: false, latest: null },
           rules: ALL_RULES,
           blocking: NO_BLOCKS,
+          usageApps: [],
+          limits: NO_LIMITS,
+          schedules: [],
           setup: waiting('notifications', 'batteryUnrestricted', 'preventUninstall', 'keepRunning'),
           ring: null,
         },
@@ -405,6 +489,9 @@ describe('required sharing', () => {
           appUsage: { shared: false, latest: null },
           rules: ALL_RULES,
           blocking: NO_BLOCKS,
+          usageApps: [],
+          limits: NO_LIMITS,
+          schedules: [],
           setup: waiting('notifications', 'location', 'batteryUnrestricted', 'preventUninstall', 'keepRunning'),
           ring: null,
         },
@@ -454,10 +541,30 @@ describe('required sharing', () => {
     );
     usage.usageSummaries.mockResolvedValueOnce(new Map([['sam', latest]]));
     blocks.blockedAppsByKid.mockResolvedValueOnce(new Map([['sam', [roblox]]]));
+    const allApps = { app: '*', label: 'All apps', icon: false, minutes: 180, byName: 'Alex', at: '2026-10-12T15:00:00.000Z' };
+    const youtube = { app: 'com.google.android.youtube', label: 'YouTube', icon: true, minutes: 60, byName: 'Pat', at: '2026-10-12T14:00:00.000Z' };
+    limits.appLimitsByKid.mockResolvedValueOnce(new Map([['sam', [allApps, youtube]]]));
+    const bedtime = { id: 's1', name: 'Bedtime', days: [0, 6], start: 1260, end: 420, allowed: [], byName: 'Alex', at: '2026-10-12T13:00:00.000Z' };
+    schedules.schedulesByKid.mockResolvedValueOnce(new Map([['sam', [bedtime]]]));
+    usage.usageApps.mockResolvedValueOnce(
+      new Map([
+        [
+          'sam',
+          [
+            { app: 'com.google.android.dialer', label: 'Phone', icon: false },
+            { app: 'com.roblox.client', label: 'Roblox', icon: true },
+            { app: 'com.google.android.youtube', label: 'YouTube', icon: true },
+          ],
+        ],
+      ]),
+    );
     const { people } = await lookAfterOverview(H, 'alex');
-    // Jo's usage isn't shared, so it isn't even looked up; blocks are looked up for both.
+    // Jo's usage isn't shared, so it isn't even looked up; blocks and limits are looked up for both.
     expect(usage.usageSummaries).toHaveBeenCalledWith(H, ['sam']);
+    expect(usage.usageApps).toHaveBeenCalledWith(H, ['sam']);
     expect(blocks.blockedAppsByKid).toHaveBeenCalledWith(H, ['jo', 'sam']);
+    expect(limits.appLimitsByKid).toHaveBeenCalledWith(H, ['jo', 'sam']);
+    expect(schedules.schedulesByKid).toHaveBeenCalledWith(H, ['jo', 'sam']);
     expect(people).toEqual([
       {
         id: 'jo',
@@ -467,6 +574,9 @@ describe('required sharing', () => {
         appUsage: { shared: false, latest: null },
         rules: ALL_RULES,
         blocking: NO_BLOCKS,
+        usageApps: [],
+        limits: NO_LIMITS,
+        schedules: [],
         setup: {
           passwordChosen: true,
           steps: ['notifications', 'batteryUnrestricted', 'preventUninstall', 'keepRunning'].map((step) => ({
@@ -486,6 +596,13 @@ describe('required sharing', () => {
         rules: { ...ALL_RULES, preventUninstall: false },
         // Keep Our Home running is on, which does the blocking.
         blocking: { apps: [roblox], alwaysAllowed: ['com.google.android.dialer'], works: true },
+        // Every app from their usage except the ones their phone keeps open; Usage access counts.
+        usageApps: [
+          { app: 'com.roblox.client', label: 'Roblox', icon: true },
+          { app: 'com.google.android.youtube', label: 'YouTube', icon: true },
+        ],
+        limits: { total: allApps, apps: [youtube], counts: true },
+        schedules: [bedtime],
         // Location isn't required and Prevent uninstall isn't either, so neither is a step.
         setup: {
           passwordChosen: false,
@@ -666,6 +783,193 @@ describe('required sharing', () => {
     ).rejects.toThrow(/Only an adult who supervises them can block apps/);
     expect(prisma.blockedApp.findUnique).not.toHaveBeenCalled();
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('a supervisor gives an app from their usage a daily limit: named from it, logged, phone woken', async () => {
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    usage.usageLabel.mockResolvedValueOnce('YouTube');
+    await setAppLimit(H, { id: 'alex' }, { supervisedId: 'sam', app: 'com.google.android.youtube', minutes: 60 });
+    expect(prisma.appLimit.findUnique).toHaveBeenCalledWith({
+      where: { userId_app: { userId: 'sam', app: 'com.google.android.youtube' } },
+      select: { id: true, label: true, minutes: true },
+    });
+    expect(tx.appLimit.create).toHaveBeenCalledWith({
+      data: { householdId: H, userId: 'sam', app: 'com.google.android.youtube', label: 'YouTube', minutes: 60, setById: 'alex' },
+    });
+    expect(logActivity).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'limited YouTube to 1 h a day on Sam’s phone' }),
+      tx,
+    );
+    expect(push.pushSync).toHaveBeenCalledWith(H, { userIds: ['sam'] }, 'supervision');
+  });
+
+  it('gives all apps together a limit without looking at their usage', async () => {
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    await setAppLimit(H, { id: 'alex' }, { supervisedId: 'sam', app: '*', minutes: 180 });
+    expect(usage.usageLabel).not.toHaveBeenCalled();
+    expect(prisma.phoneStatus.findMany).not.toHaveBeenCalled();
+    expect(tx.appLimit.create).toHaveBeenCalledWith({
+      data: { householdId: H, userId: 'sam', app: '*', label: 'All apps', minutes: 180, setById: 'alex' },
+    });
+    expect(logActivity).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'limited all apps to 3 h a day on Sam’s phone' }),
+      tx,
+    );
+  });
+
+  it('changes a limit, and the adult who changed it is the one named', async () => {
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    prisma.appLimit.findUnique.mockResolvedValueOnce({ id: 'l1', label: 'YouTube', minutes: 60 });
+    await setAppLimit(H, { id: 'gran' }, { supervisedId: 'sam', app: 'com.google.android.youtube', minutes: 90 });
+    expect(usage.usageLabel).not.toHaveBeenCalled();
+    expect(tx.appLimit.update).toHaveBeenCalledWith({ where: { id: 'l1' }, data: { minutes: 90, setById: 'gran' } });
+    expect(logActivity).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'changed the limit for YouTube to 1 h 30 min a day on Sam’s phone' }),
+      tx,
+    );
+    expect(push.pushSync).toHaveBeenCalledWith(H, { userIds: ['sam'] }, 'supervision');
+  });
+
+  it('removes a limit with its stored name, even once the app has left their usage', async () => {
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    prisma.appLimit.findUnique.mockResolvedValueOnce({ id: 'l1', label: 'All apps', minutes: 180 });
+    await setAppLimit(H, { id: 'alex' }, { supervisedId: 'sam', app: '*', minutes: null });
+    expect(tx.appLimit.delete).toHaveBeenCalledWith({ where: { id: 'l1' } });
+    expect(logActivity).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'removed the daily limit for all apps on Sam’s phone' }),
+      tx,
+    );
+    expect(push.pushSync).toHaveBeenCalledWith(H, { userIds: ['sam'] }, 'supervision');
+  });
+
+  it('writes nothing for a limit that is already so, or a missing one removed', async () => {
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    prisma.appLimit.findUnique.mockResolvedValueOnce({ id: 'l1', label: 'YouTube', minutes: 60 });
+    await setAppLimit(H, { id: 'alex' }, { supervisedId: 'sam', app: 'com.google.android.youtube', minutes: 60 });
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    await setAppLimit(H, { id: 'alex' }, { supervisedId: 'sam', app: 'com.google.android.youtube', minutes: null });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(push.pushSync).not.toHaveBeenCalled();
+  });
+
+  it('never limits an app their phone always keeps open, nor one their usage doesn’t name', async () => {
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    prisma.phoneStatus.findMany.mockResolvedValueOnce([
+      { lastSeenAt: new Date('2026-10-12T17:00:00Z'), alwaysAllowed: ['com.google.android.dialer'] },
+    ]);
+    await expect(
+      setAppLimit(H, { id: 'alex' }, { supervisedId: 'sam', app: 'com.google.android.dialer', minutes: 30 }),
+    ).rejects.toThrow(/phone calls, messages, the home screen and OurHome have no limit/);
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    usage.usageLabel.mockResolvedValueOnce(null);
+    await expect(
+      setAppLimit(H, { id: 'alex' }, { supervisedId: 'sam', app: 'com.made.up', minutes: 30 }),
+    ).rejects.toThrow(/isn’t in Sam’s app usage/);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(push.pushSync).not.toHaveBeenCalled();
+  });
+
+  it('refuses limits from anyone who does not supervise them', async () => {
+    findLinks.mockResolvedValueOnce(linkTo(jo, 'on'));
+    await expect(
+      setAppLimit(H, { id: 'jordan' }, { supervisedId: 'sam', app: '*', minutes: 60 }),
+    ).rejects.toThrow(/Only an adult who supervises them can set limits/);
+    expect(prisma.appLimit.findUnique).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('a supervisor adds a schedule: allowed apps named from their usage, logged, phone woken', async () => {
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    usage.usageApps.mockResolvedValueOnce(new Map([['sam', [{ app: 'com.google.android.apps.maps', label: 'Maps', icon: false }]]]));
+    await saveSchedule(H, { id: 'alex' }, {
+      supervisedId: 'sam',
+      name: 'Bedtime',
+      days: [6, 0, 1, 2, 3, 4, 5, 5],
+      start: 1260,
+      end: 420,
+      allowed: ['com.google.android.apps.maps'],
+    });
+    expect(tx.appSchedule.create).toHaveBeenCalledWith({
+      data: {
+        householdId: H,
+        userId: 'sam',
+        name: 'Bedtime',
+        days: [0, 1, 2, 3, 4, 5, 6],
+        start: 1260,
+        end: 420,
+        allowed: JSON.stringify([{ app: 'com.google.android.apps.maps', label: 'Maps' }]),
+        setById: 'alex',
+      },
+    });
+    expect(logActivity).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'added Bedtime to Sam’s phone (Every day, 9:00 PM to 7:00 AM)' }),
+      tx,
+    );
+    expect(push.pushSync).toHaveBeenCalledWith(H, { userIds: ['sam'] }, 'supervision');
+  });
+
+  it('changes a schedule, keeping an allowed app that has left their usage, and skips one unchanged', async () => {
+    const stored = {
+      id: 's1',
+      name: 'School',
+      days: [1, 2, 3, 4, 5],
+      start: 480,
+      end: 900,
+      allowed: JSON.stringify([{ app: 'com.classroom', label: 'Classroom' }]),
+    };
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    prisma.appSchedule.findFirst.mockResolvedValueOnce(stored);
+    await saveSchedule(H, { id: 'gran' }, { supervisedId: 'sam', id: 's1', name: 'School', days: [1, 2, 3, 4, 5], start: 480, end: 930, allowed: ['com.classroom'] });
+    expect(prisma.appSchedule.findFirst).toHaveBeenCalledWith({ where: { id: 's1', userId: 'sam' } });
+    expect(tx.appSchedule.update).toHaveBeenCalledWith({
+      where: { id: 's1' },
+      data: expect.objectContaining({ end: 930, allowed: stored.allowed, setById: 'gran' }),
+    });
+    expect(logActivity).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'changed School on Sam’s phone (Weekdays, 8:00 AM to 3:30 PM)' }),
+      tx,
+    );
+
+    vi.clearAllMocks();
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    prisma.appSchedule.findFirst.mockResolvedValueOnce(stored);
+    await saveSchedule(H, { id: 'alex' }, { supervisedId: 'sam', id: 's1', name: 'School', days: [5, 4, 3, 2, 1], start: 480, end: 900, allowed: ['com.classroom'] });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(push.pushSync).not.toHaveBeenCalled();
+  });
+
+  it('refuses an app their usage doesn’t name, a missing schedule, and more than the most', async () => {
+    const body = { supervisedId: 'sam', name: 'School', days: [1], start: 480, end: 900, allowed: [] as string[] };
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    await expect(saveSchedule(H, { id: 'alex' }, { ...body, allowed: ['com.made.up'] })).rejects.toThrow(
+      /isn’t in Sam’s app usage/,
+    );
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    await expect(saveSchedule(H, { id: 'alex' }, { ...body, id: 'gone' })).rejects.toThrow(/isn’t there any more/);
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    prisma.appSchedule.count.mockResolvedValueOnce(10);
+    await expect(saveSchedule(H, { id: 'alex' }, body)).rejects.toThrow(/Sam has 10 schedules already/);
+    findLinks.mockResolvedValueOnce(linkTo(jo, 'on'));
+    await expect(saveSchedule(H, { id: 'jordan' }, body)).rejects.toThrow(/Only an adult who supervises them can set schedules/);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('removes a schedule, logs it and wakes their phone; a missing one changes nothing', async () => {
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    prisma.appSchedule.findFirst.mockResolvedValueOnce({ id: 's1', name: 'Bedtime' });
+    await removeSchedule(H, { id: 'alex' }, { supervisedId: 'sam', id: 's1' });
+    expect(tx.appSchedule.delete).toHaveBeenCalledWith({ where: { id: 's1' } });
+    expect(logActivity).toHaveBeenCalledWith(expect.objectContaining({ message: 'removed Bedtime from Sam’s phone' }), tx);
+    expect(push.pushSync).toHaveBeenCalledWith(H, { userIds: ['sam'] }, 'supervision');
+
+    vi.clearAllMocks();
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    await removeSchedule(H, { id: 'alex' }, { supervisedId: 'sam', id: 's1' });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    findLinks.mockResolvedValueOnce([]);
+    await expect(removeSchedule(H, { id: 'jordan' }, { supervisedId: 'sam', id: 's1' })).rejects.toThrow(
+      /Only an adult who supervises them/,
+    );
   });
 
   it('knows a supervisor only while both roles fit', async () => {
@@ -882,6 +1186,15 @@ describe('fresh app usage when a supervisor looks', () => {
     expect(await usageIcon(H, 'alex', 'com.roblox.client')).toBe(png);
     // Every child they supervise, Jo (teen) first by role.
     expect(blocks.isBlockedFor).toHaveBeenCalledWith(['jo', 'sam'], 'com.roblox.client');
+  });
+
+  it('gives the icon of an app with a limit for a child they supervise', async () => {
+    const png = new Uint8Array([6]);
+    findLinks.mockResolvedValueOnce(sharing(jo, null));
+    limits.isLimitedFor.mockResolvedValueOnce(true);
+    usage.findIcon.mockResolvedValueOnce(png);
+    expect(await usageIcon(H, 'alex', 'com.google.android.youtube')).toBe(png);
+    expect(limits.isLimitedFor).toHaveBeenCalledWith(['jo'], 'com.google.android.youtube');
   });
 
   it('gives a child the icons of apps in their own usage', async () => {

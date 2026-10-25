@@ -50,6 +50,8 @@ export const HOUSEHOLD_MODELS = [
   'AppUsageDay',
   'AppIcon',
   'BlockedApp',
+  'AppLimit',
+  'AppSchedule',
   'HomeAssistantIntegration',
 ] as const;
 
@@ -73,7 +75,8 @@ export const EXPORT_VERSION = 1;
  * records, and come back with the next check-in. App usage (AppUsageDay) and
  * its app icons (AppIcon) stay out as well: it's a child's screen time, kept
  * two weeks, and sharing it starts again off after a restore. Apps blocked on
- * a child's phone (BlockedApp) stay out like the other phone rules.
+ * a child's phone (BlockedApp), their daily limits (AppLimit) and schedules
+ * (AppSchedule) stay out like the other phone rules.
  */
 export async function exportHousehold(householdId: string) {
   const where = { householdId };
@@ -262,6 +265,8 @@ export async function deleteHousehold(adminId: string, householdId: string, conf
       count('AppUsageDay', await tx.appUsageDay.deleteMany({ where }));
       count('AppIcon', await tx.appIcon.deleteMany({ where }));
       count('BlockedApp', await tx.blockedApp.deleteMany({ where }));
+      count('AppLimit', await tx.appLimit.deleteMany({ where }));
+      count('AppSchedule', await tx.appSchedule.deleteMany({ where }));
       count('HomeAssistantIntegration', await tx.homeAssistantIntegration.deleteMany({ where }));
       count('PaperlessSync', await tx.paperlessSync.deleteMany({ where }));
       count('PaperlessConnection', await tx.paperlessConnection.deleteMany({ where }));

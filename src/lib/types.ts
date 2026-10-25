@@ -690,6 +690,22 @@ export interface LookAfterDTO {
       alwaysAllowed: string[];
       works: boolean | null;
     };
+    /** The apps in their stored usage (any day kept), by name, apart from the
+     *  ones their phone always keeps open: what a limit or a schedule can name. */
+    usageApps: { app: string; label: string; icon: boolean }[];
+    /** Daily limits on their phone (POST /api/supervision/app-limits). total:
+     *  all apps together (null: none). apps: one app each, newest first.
+     *  counts: whether Usage access is on there, which counts the minutes
+     *  (null: no phone checked in yet, or an app too old to say); the covering
+     *  also needs Keep Our Home running (blocking.works). */
+    limits: {
+      total: AppLimitDTO | null;
+      apps: AppLimitDTO[];
+      counts: boolean | null;
+    };
+    /** Schedules on their phone (POST /api/supervision/schedules), earliest start
+     *  first. They need Keep Our Home running there (blocking.works). */
+    schedules: ScheduleDTO[];
     /** How far Set up this phone has got. passwordChosen: they replaced their
      *  temporary password. steps: what their phone must do, in the app's
      *  order; done is null until a phone of theirs that can say checks in. */
@@ -724,6 +740,33 @@ export interface BlockedAppDTO {
   app: string;
   label: string;
   icon: boolean;
+  byName: string;
+  at: string;
+}
+
+/** A daily limit on a child's phone: app "*" (ALL_APPS) is all apps together. byName: who set it last; at: when. */
+export interface AppLimitDTO {
+  app: string;
+  label: string;
+  icon: boolean;
+  minutes: number;
+  byName: string;
+  at: string;
+}
+
+/**
+ * A schedule on a child's phone: days 0 (Sunday) to 6, start and end in
+ * minutes after midnight on their phone's clock (end before start: past
+ * midnight). allowed: the apps still open meanwhile. byName: who saved it
+ * last; at: when.
+ */
+export interface ScheduleDTO {
+  id: string;
+  name: string;
+  days: number[];
+  start: number;
+  end: number;
+  allowed: { app: string; label: string; icon: boolean }[];
   byName: string;
   at: string;
 }

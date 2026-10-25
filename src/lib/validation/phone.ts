@@ -15,6 +15,16 @@ export const phoneStatusSchema = z.object({
 });
 export type PhoneStatusInput = z.infer<typeof phoneStatusSchema>;
 
+/**
+ * The daily limits the phone covered an app for today (its own date), so its
+ * supervisors are told: package names, "*" for all apps together.
+ */
+export const limitsReachedSchema = z.object({
+  day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'A day is YYYY-MM-DD.'),
+  apps: z.array(z.string().trim().min(1).max(200)).max(60),
+});
+export type LimitsReachedInput = z.infer<typeof limitsReachedSchema>;
+
 /** The Android app checking in (hourly): which install, and what it may do. */
 export const phoneCheckInSchema = z.object({
   installId: z.string().trim().min(8).max(100),
@@ -53,6 +63,8 @@ export const phoneCheckInSchema = z.object({
    * OurHome itself); sent only while an adult looks after the member.
    */
   alwaysAllowed: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
+  /** The daily limits it covered an app for today; sent only while an adult looks after the member. */
+  limitsReached: limitsReachedSchema.optional(),
   /** Android is switching the phone off: this is its last word until it's back. */
   shuttingDown: z.boolean().optional(),
 });

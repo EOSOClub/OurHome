@@ -251,6 +251,9 @@ export const NOTIFICATION_TYPES = [
   // Sent to a child's supervisors when their phone has a new app, while their
   // app usage is shared (appUsageService.reportNewApps).
   'new_app',
+  // Sent to a child's supervisors when their phone used up a daily limit, once
+  // per limit and day (appLimitService.reportLimitsReached).
+  'limit_reached',
   // Sent to a requester when someone else approves, declines, accepts or
   // finishes their request (requestNoticeService).
   'request_update',
@@ -267,6 +270,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   task_ready: 'Your turn',
   phone_alert: 'Phone',
   new_app: 'New app',
+  limit_reached: 'Limit reached',
   request_update: 'Request',
 };
 

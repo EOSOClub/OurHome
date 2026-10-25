@@ -2,6 +2,8 @@ import { prisma } from '@/server/db/prisma';
 import { pingInstall, pushSync } from '@/server/services/pushService';
 import { saveBattery } from '@/server/services/batteryService';
 import { phoneBlocks, type PhoneBlock } from '@/server/services/appBlockService';
+import { phoneLimits, reportLimitsReached, type PhoneLimit } from '@/server/services/appLimitService';
+import { phoneSchedules, type PhoneSchedule } from '@/server/services/appScheduleService';
 import { connectedInstalls } from '@/server/push/streamHub';
 import { isFeatureEnabled } from '@/server/services/serverAdminService';
 import { canBeSupervised, canSupervise } from '@/lib/permissions';
@@ -48,14 +50,21 @@ const alertKey = (problem: PhoneProblem, kidId: string, supervisorId: string) =>
  * once. Answers whether the phone must Stay connected: while an adult looks
  * after its member, so they can always be reached (the switch is locked on,
  * and the app starts it again after Android's Stop). Then also the apps their
- * supervisors blocked, which the phone covers with its "blocked" screen.
+ * supervisors blocked, which the phone covers with its "blocked" screen, and
+ * their daily limits and schedules. The limits it used up today go to their
+ * supervisors.
  */
 export async function checkIn(
   householdId: string,
   userId: string,
   input: PhoneCheckInInput,
   now: Date = new Date(),
-): Promise<{ stayConnectedRequired: boolean; blockedApps: PhoneBlock[] }> {
+): Promise<{
+  stayConnectedRequired: boolean;
+  blockedApps: PhoneBlock[];
+  appLimits: PhoneLimit[];
+  schedules: PhoneSchedule[];
+}> {
   const data = {
     householdId,
     userId,
@@ -95,10 +104,13 @@ export async function checkIn(
   }
   await refreshPhoneAlerts(householdId, now, [userId]);
   const supervised = await isSupervised(householdId, userId);
+  if (supervised && input.limitsReached) await reportLimitsReached(householdId, userId, input.limitsReached, now);
   return {
     stayConnectedRequired: supervised,
-    // Blocks only count while someone looks after them (they're deleted when nobody does).
+    // Blocks, limits and schedules only count while someone looks after them (they're deleted when nobody does).
     blockedApps: supervised ? await phoneBlocks(householdId, userId) : [],
+    appLimits: supervised ? await phoneLimits(householdId, userId) : [],
+    schedules: supervised ? await phoneSchedules(householdId, userId) : [],
   };
 }
 

@@ -33,7 +33,8 @@ export function AppUsageNotice() {
       <p>
         The OurHome app on your phone sends how long you spend in each app, about every 15 minutes. You and the
         adults who look after you can see it, and only the last {USAGE_KEEP_DAYS} days are kept. They&apos;re also
-        told when you install a new app. Nothing is blocked or limited.
+        told when you install a new app. They can also block apps, give apps a daily limit, and set times when
+        apps close, like bedtime; your phone tells you when that happens.
       </p>
       <p>
         For it to work, the app needs <strong>Usage access</strong>: the app shows you how to allow it, under

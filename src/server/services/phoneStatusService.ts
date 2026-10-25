@@ -4,6 +4,7 @@ import { saveBattery } from '@/server/services/batteryService';
 import { phoneBlocks, type PhoneBlock } from '@/server/services/appBlockService';
 import { phoneLimits, reportLimitsReached, type PhoneLimit } from '@/server/services/appLimitService';
 import { phoneSchedules, type PhoneSchedule } from '@/server/services/appScheduleService';
+import { phoneExtraTime, phonePointsRule, type PhonePointsRule } from '@/server/services/pointsTimeService';
 import { connectedInstalls } from '@/server/push/streamHub';
 import { isFeatureEnabled } from '@/server/services/serverAdminService';
 import { canBeSupervised, canSupervise } from '@/lib/permissions';
@@ -51,8 +52,9 @@ const alertKey = (problem: PhoneProblem, kidId: string, supervisorId: string) =>
  * after its member, so they can always be reached (the switch is locked on,
  * and the app starts it again after Android's Stop). Then also the apps their
  * supervisors blocked, which the phone covers with its "blocked" screen, and
- * their daily limits and schedules. The limits it used up today go to their
- * supervisors.
+ * their daily limits and schedules, the extra minutes on those limits around
+ * today, and what a point buys (null: they can't buy time). The limits it used
+ * up today go to their supervisors.
  */
 export async function checkIn(
   householdId: string,
@@ -64,6 +66,8 @@ export async function checkIn(
   blockedApps: PhoneBlock[];
   appLimits: PhoneLimit[];
   schedules: PhoneSchedule[];
+  extraTime: { day: string; minutes: number }[];
+  pointsForTime: PhonePointsRule | null;
 }> {
   const data = {
     householdId,
@@ -111,6 +115,8 @@ export async function checkIn(
     blockedApps: supervised ? await phoneBlocks(householdId, userId) : [],
     appLimits: supervised ? await phoneLimits(householdId, userId) : [],
     schedules: supervised ? await phoneSchedules(householdId, userId) : [],
+    extraTime: supervised ? await phoneExtraTime(householdId, userId, now) : [],
+    pointsForTime: supervised ? await phonePointsRule(householdId, userId) : null,
   };
 }
 

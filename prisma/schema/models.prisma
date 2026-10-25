@@ -87,6 +87,8 @@ model Household {
   blockedApps    BlockedApp[]
   appLimits      AppLimit[]
   appSchedules   AppSchedule[]
+  pointsForTime  PointsForTime[]
+  extraTime      ExtraTime[]
   integrations   HomeAssistantIntegration[]
   requests       Request[]
   bugReports     BugReport[]
@@ -180,6 +182,8 @@ model User {
   blockedApps       BlockedApp[]
   appLimits         AppLimit[]
   appSchedules      AppSchedule[]
+  pointsForTime     PointsForTime?
+  extraTime         ExtraTime[]
   supervising      Supervision[]   @relation("SupervisionSupervisor")
   supervisedBy      Supervision[]   @relation("SupervisionSupervised")
 
@@ -377,6 +381,51 @@ model AppSchedule {
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([householdId])
+}
+
+// Parental controls: a child may spend their task points on more screen time
+// (People you look after). minutesPerPoint: what one point buys; dailyCap:
+// the most minutes they can buy a day. Set by a supervising adult; gone when
+// nobody supervises them any more. Not exported, like the phone rules. See
+// supervisionService.setPointsForTime and pointsTimeService.
+model PointsForTime {
+  id              String   @id @default(cuid()) @map("_id")
+  householdId     String
+  userId          String   @unique
+  minutesPerPoint Int
+  dailyCap        Int
+  // Who set it last (plain id, no relation).
+  setById         String
+  updatedAt       DateTime @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([householdId])
+}
+
+// Parental controls: extra minutes on a child's daily limits for one day (the
+// phone's date, "YYYY-MM-DD"). Bought by the child with points (pointsCenti,
+// which comes off their points balance: earned awards minus these; the
+// earned totals and stats don't change), or given by a supervising adult
+// (pointsCenti 0). byId: who (the child, or the adult). Spent points are
+// exported with the points ledger, so a restore keeps the balance; given
+// minutes aren't.
+model ExtraTime {
+  id          String   @id @default(cuid()) @map("_id")
+  householdId String
+  userId      String
+  day         String
+  minutes     Int
+  pointsCenti Int      @default(0)
+  byId        String
+  createdAt   DateTime @default(now())
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, day])
   @@index([householdId])
 }
 

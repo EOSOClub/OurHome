@@ -182,6 +182,25 @@ describe('planRestore', () => {
     expect(plan.rows.Supervision).toEqual([]);
   });
 
+  it('keeps the points spent on screen time, so the balance stays right', () => {
+    const spent = { id: id(18), householdId: H, userId: KID, day: '2026-10-10', minutes: 15, pointsCenti: 300, byId: KID };
+    const withSpent = (model: string) =>
+      model === 'ExtraTime'
+        ? new Set(['id', 'householdId', 'userId', 'day', 'minutes', 'pointsCenti', 'byId'])
+        : fields(model);
+    const sample = sampleExport() as ReturnType<typeof sampleExport> & { points?: Record<string, unknown> };
+    const restored = planRestore(
+      { ...sample, points: { ...(sample.points ?? {}), spent: [spent] } },
+      { newId: newIds(), fields: withSpent },
+    );
+    const kid = restored.rows.User[1];
+    expect(restored.rows.ExtraTime).toEqual([
+      { ...spent, id: expect.not.stringMatching(spent.id), householdId: restored.householdId, userId: kid.id, byId: kid.id },
+    ]);
+    // Exports from before it have none.
+    expect(plan.rows.ExtraTime).toEqual([]);
+  });
+
   it('can restore under a new name', () => {
     expect(planRestore(sampleExport(), { name: 'Smiths (restored)', newId: newIds(), fields }).rows.Household[0].name).toBe(
       'Smiths (restored)',

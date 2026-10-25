@@ -281,7 +281,8 @@ export function awardToDTO(a: AwardRow, names: Map<string, string>): PointAwardD
   };
 }
 
-const NOT_VOIDED = { OR: [{ voidedAt: null }, { voidedAt: { isSet: false } }] } satisfies Prisma.PointAwardWhereInput;
+/** Not voided: voidedAt is null, or (on rows written before it existed) not set at all. */
+export const NOT_VOIDED = { OR: [{ voidedAt: null }, { voidedAt: { isSet: false } }] } satisfies Prisma.PointAwardWhereInput;
 
 /** Queued (not yet paid) points per user, from their pending credits. */
 async function pendingByUser(householdId: string, minutesPerPoint: number): Promise<Map<string, number>> {

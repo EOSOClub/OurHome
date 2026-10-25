@@ -34,6 +34,14 @@ const tx = {
     update: vi.fn(),
     delete: vi.fn(),
   },
+  pointsForTime: {
+    findMany: vi.fn(async (): Promise<unknown[]> => []),
+    deleteMany: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+    delete: vi.fn(),
+  },
+  extraTime: { create: vi.fn() },
 };
 const prisma = {
   user: {
@@ -45,8 +53,12 @@ const prisma = {
     findUnique: vi.fn(async (): Promise<unknown> => null),
   },
   blockedApp: { findUnique: vi.fn(async (): Promise<unknown> => null) },
-  appLimit: { findUnique: vi.fn(async (): Promise<unknown> => null) },
   appSchedule: { findFirst: vi.fn(async (): Promise<unknown> => null), count: vi.fn(async () => 0) },
+  pointsForTime: {
+    findMany: vi.fn(async (): Promise<unknown[]> => []),
+    findUnique: vi.fn(async (): Promise<unknown> => null),
+  },
+  appLimit: { findUnique: vi.fn(async (): Promise<unknown> => null), count: vi.fn(async () => 1) },
   phoneStatus: { findMany: vi.fn(async (): Promise<unknown[]> => []) },
   $transaction: vi.fn(async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx)),
 };
@@ -80,6 +92,7 @@ vi.mock('@/server/services/appUsageService', () => usage);
 const blocks = {
   blockedAppsByKid: vi.fn(async (): Promise<Map<string, unknown[]>> => new Map()),
   isBlockedFor: vi.fn(async () => false),
+  namesOf: vi.fn(async (): Promise<Map<string, string>> => new Map([['alex', 'Alex']])),
 };
 vi.mock('@/server/services/appBlockService', () => blocks);
 const limits = {
@@ -93,6 +106,16 @@ const schedules = {
   allowedApps: (raw: string) => JSON.parse(raw) as { app: string; label: string }[],
 };
 vi.mock('@/server/services/appScheduleService', () => schedules);
+const pointsTime = {
+  pointsBalances: vi.fn(async (_db: unknown, _h: string, ids: string[]) => new Map(ids.map((id) => [id, 0]))),
+  minutesOn: vi.fn<(db: unknown, id: string) => Promise<{ bought: number; given: number }>>(async () => ({ bought: 0, given: 0 })),
+};
+vi.mock('@/server/services/pointsTimeService', () => pointsTime);
+const points = {
+  getPointsSettings: vi.fn(async () => ({ minutesPerPoint: 10, timezone: 'America/Chicago', weekStartsOn: 0 })),
+  todayIn: vi.fn(() => '2026-10-12'),
+};
+vi.mock('@/server/services/pointsService', () => points);
 const admin = { isFeatureEnabled: vi.fn(async () => true) };
 vi.mock('@/server/services/serverAdminService', () => admin);
 
@@ -112,6 +135,8 @@ const {
   saveSchedule,
   removeSchedule,
   setPhoneRule,
+  setPointsForTime,
+  giveExtraTime,
   setRequiredSharing,
   setSupervisors,
   setUsageSharing,
@@ -130,6 +155,7 @@ const guest: Person = { id: 'guest', name: 'Guest', role: 'guest' };
 const ALL_RULES = { keepRunning: true, preventUninstall: true, batteryUnrestricted: true };
 const NO_BLOCKS = { apps: [], alwaysAllowed: [], works: null };
 const NO_LIMITS = { total: null, apps: [], counts: null };
+const NO_POINTS_TIME = { available: true, rule: null, balanceCenti: 0, day: '2026-10-12', bought: 0, given: 0 };
 
 describe('getSupervision', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -428,6 +454,14 @@ describe('releaseIfUnsupervised', () => {
     expect(tx.appSchedule.deleteMany).not.toHaveBeenCalled();
   });
 
+  it('stops points for time when nobody is left to supervise them', async () => {
+    tx.pointsForTime.findMany.mockResolvedValueOnce([{ userId: 'sam' }]);
+    tx.user.findMany.mockResolvedValueOnce([{ id: 'sam', role: 'child', householdId: H, locationSharing: 'on' }]);
+    tx.supervision.findMany.mockResolvedValueOnce([]);
+    await releaseIfUnsupervised(tx as never, ['sam']);
+    expect(tx.pointsForTime.deleteMany).toHaveBeenCalledWith({ where: { userId: 'sam' } });
+  });
+
   it('keeps the limits while another adult still supervises them', async () => {
     tx.appLimit.findMany.mockResolvedValueOnce([{ userId: 'sam' }]);
     tx.user.findMany.mockResolvedValueOnce([{ id: 'sam', role: 'child', locationSharing: 'on' }]);
@@ -478,6 +512,7 @@ describe('required sharing', () => {
           usageApps: [],
           limits: NO_LIMITS,
           schedules: [],
+          pointsTime: NO_POINTS_TIME,
           setup: waiting('notifications', 'batteryUnrestricted', 'preventUninstall', 'keepRunning'),
           ring: null,
         },
@@ -492,6 +527,7 @@ describe('required sharing', () => {
           usageApps: [],
           limits: NO_LIMITS,
           schedules: [],
+          pointsTime: NO_POINTS_TIME,
           setup: waiting('notifications', 'location', 'batteryUnrestricted', 'preventUninstall', 'keepRunning'),
           ring: null,
         },
@@ -546,6 +582,13 @@ describe('required sharing', () => {
     limits.appLimitsByKid.mockResolvedValueOnce(new Map([['sam', [allApps, youtube]]]));
     const bedtime = { id: 's1', name: 'Bedtime', days: [0, 6], start: 1260, end: 420, allowed: [], byName: 'Alex', at: '2026-10-12T13:00:00.000Z' };
     schedules.schedulesByKid.mockResolvedValueOnce(new Map([['sam', [bedtime]]]));
+    prisma.pointsForTime.findMany.mockResolvedValueOnce([
+      { userId: 'sam', minutesPerPoint: 5, dailyCap: 30, setById: 'alex', updatedAt: new Date('2026-10-12T12:00:00Z') },
+    ]);
+    pointsTime.pointsBalances.mockResolvedValueOnce(new Map([['jo', 0], ['sam', 1250]]));
+    pointsTime.minutesOn.mockImplementation(async (_db: unknown, id: string) =>
+      id === 'sam' ? { bought: 15, given: 10 } : { bought: 0, given: 0 },
+    );
     usage.usageApps.mockResolvedValueOnce(
       new Map([
         [
@@ -577,6 +620,7 @@ describe('required sharing', () => {
         usageApps: [],
         limits: NO_LIMITS,
         schedules: [],
+        pointsTime: NO_POINTS_TIME,
         setup: {
           passwordChosen: true,
           steps: ['notifications', 'batteryUnrestricted', 'preventUninstall', 'keepRunning'].map((step) => ({
@@ -603,6 +647,14 @@ describe('required sharing', () => {
         ],
         limits: { total: allApps, apps: [youtube], counts: true },
         schedules: [bedtime],
+        pointsTime: {
+          available: true,
+          rule: { minutesPerPoint: 5, dailyCap: 30, byName: 'Alex', at: '2026-10-12T12:00:00.000Z' },
+          balanceCenti: 1250,
+          day: '2026-10-12',
+          bought: 15,
+          given: 10,
+        },
         // Location isn't required and Prevent uninstall isn't either, so neither is a step.
         setup: {
           passwordChosen: false,
@@ -970,6 +1022,77 @@ describe('required sharing', () => {
     await expect(removeSchedule(H, { id: 'jordan' }, { supervisedId: 'sam', id: 's1' })).rejects.toThrow(
       /Only an adult who supervises them/,
     );
+  });
+
+  it('lets a child spend points on time, changes the rate, and stops it, logging each', async () => {
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    await setPointsForTime(H, { id: 'alex' }, { supervisedId: 'sam', minutesPerPoint: 5, dailyCap: 30 });
+    expect(tx.pointsForTime.create).toHaveBeenCalledWith({
+      data: { householdId: H, userId: 'sam', minutesPerPoint: 5, dailyCap: 30, setById: 'alex' },
+    });
+    expect(logActivity).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'let Sam spend points on screen time (1 point = 5 min, up to 30 min a day)' }),
+      tx,
+    );
+    expect(push.pushSync).toHaveBeenCalledWith(H, { userIds: ['sam'] }, 'supervision');
+
+    vi.clearAllMocks();
+    const stored = { id: 'p1', minutesPerPoint: 5, dailyCap: 30 };
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    prisma.pointsForTime.findUnique.mockResolvedValueOnce(stored);
+    await setPointsForTime(H, { id: 'gran' }, { supervisedId: 'sam', minutesPerPoint: 10, dailyCap: 60 });
+    expect(tx.pointsForTime.update).toHaveBeenCalledWith({
+      where: { id: 'p1' },
+      data: { minutesPerPoint: 10, dailyCap: 60, setById: 'gran' },
+    });
+
+    vi.clearAllMocks();
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    prisma.pointsForTime.findUnique.mockResolvedValueOnce(stored);
+    await setPointsForTime(H, { id: 'alex' }, { supervisedId: 'sam', minutesPerPoint: 5, dailyCap: 30 });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    prisma.pointsForTime.findUnique.mockResolvedValueOnce(stored);
+    await setPointsForTime(H, { id: 'alex' }, { supervisedId: 'sam', minutesPerPoint: null, dailyCap: 30 });
+    expect(tx.pointsForTime.delete).toHaveBeenCalledWith({ where: { id: 'p1' } });
+    expect(logActivity).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'stopped Sam spending points on screen time' }),
+      tx,
+    );
+  });
+
+  it('refuses points for time without the Points feature, or from someone who doesn’t supervise them', async () => {
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    admin.isFeatureEnabled.mockResolvedValueOnce(false);
+    await expect(
+      setPointsForTime(H, { id: 'alex' }, { supervisedId: 'sam', minutesPerPoint: 5, dailyCap: 30 }),
+    ).rejects.toThrow(/doesn’t use Points/);
+    findLinks.mockResolvedValueOnce([]);
+    await expect(
+      setPointsForTime(H, { id: 'jordan' }, { supervisedId: 'sam', minutesPerPoint: 5, dailyCap: 30 }),
+    ).rejects.toThrow(/Only an adult who supervises them/);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('gives extra minutes for today in the household’s time zone, only when there’s a limit', async () => {
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    await giveExtraTime(H, { id: 'alex' }, { supervisedId: 'sam', minutes: 30 });
+    expect(tx.extraTime.create).toHaveBeenCalledWith({
+      data: { householdId: H, userId: 'sam', day: '2026-10-12', minutes: 30, pointsCenti: 0, byId: 'alex' },
+    });
+    expect(logActivity).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'gave Sam 30 min more screen time today' }),
+      tx,
+    );
+    expect(push.pushSync).toHaveBeenCalledWith(H, { userIds: ['sam'] }, 'supervision');
+
+    vi.clearAllMocks();
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    prisma.appLimit.count.mockResolvedValueOnce(0);
+    await expect(giveExtraTime(H, { id: 'alex' }, { supervisedId: 'sam', minutes: 30 })).rejects.toThrow(
+      /Sam has no daily limits/,
+    );
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it('knows a supervisor only while both roles fit', async () => {

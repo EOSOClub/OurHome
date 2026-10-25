@@ -254,6 +254,9 @@ export const NOTIFICATION_TYPES = [
   // Sent to a child's supervisors when their phone used up a daily limit, once
   // per limit and day (appLimitService.reportLimitsReached).
   'limit_reached',
+  // Sent to a child's supervisors when they spend points on more screen time
+  // (pointsTimeService.buyExtraTime).
+  'extra_time',
   // Sent to a requester when someone else approves, declines, accepts or
   // finishes their request (requestNoticeService).
   'request_update',
@@ -271,6 +274,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   phone_alert: 'Phone',
   new_app: 'New app',
   limit_reached: 'Limit reached',
+  extra_time: 'Extra time',
   request_update: 'Request',
 };
 

@@ -32,6 +32,8 @@ import {
 } from '@/lib/phoneHealth';
 import { formatMinutes, usageDayLabel } from '@/lib/appUsage';
 import { ALL_APPS, ALL_APPS_LABEL, limitLabel, limitOptions, limitsSummary } from '@/lib/appLimits';
+import { CAP_CHOICES, GIVE_STEPS, RATE_CHOICES } from '@/lib/pointsTime';
+import { formatPoints } from '@/lib/taskPoints';
 import {
   EVERY_DAY,
   MAX_ALLOWED,
@@ -54,7 +56,8 @@ import { AppIcon, AppList, UsageHistory, type AppAction } from '@/components/loo
 // (with Ring); a card opens that person's page (?person=<id>), where the
 // viewer can ring their phone, make their
 // location sharing required, share their app usage, block apps from it, give
-// apps a daily limit and set schedules, choose which protections their phone must have on (PHONE_RULES). Only
+// apps a daily limit, set schedules and let them buy time with points,
+// choose which protections their phone must have on (PHONE_RULES). Only
 // linked for adults who supervise someone; the server checks it again.
 
 export const LOOK_AFTER_KEY = ['look-after'];
@@ -159,6 +162,10 @@ export function LookAfterView({ initial }: { initial: LookAfterDTO }) {
               <strong>Schedules</strong> close all their apps at set times, like bedtime or school, apart from calls,
               messages and any apps you leave open. Their phone warns them 5 minutes before. Schedules need Keep Our
               Home running on their phone.{' '}
+              <strong>Points for screen time</strong> lets them spend task points on more time on today&apos;s
+              limits, at the rate you set and up to a daily most; you&apos;re told each time. Their earned points
+              in the stats don&apos;t change. <strong>Give extra time</strong> adds minutes to today&apos;s limits
+              without points.{' '}
               <strong>Require Keep Our Home running</strong> stops OurHome being closed on their phone.{' '}
               <strong>Require Prevent uninstall</strong> stops it being removed without your PIN.{' '}
               <strong>Require Unrestricted battery</strong> stops battery saving from holding back rings and alerts.
@@ -999,6 +1006,132 @@ function ScheduleForm({
   );
 }
 
+/**
+ * Points for screen time: whether they may spend points on more time, what a
+ * point buys and the most a day; their points to spend and today's extra
+ * minutes; and Give extra time. Only while the household uses Points.
+ */
+function PointsForTime({ person }: { person: Person }) {
+  const queryClient = useQueryClient();
+  const { available, rule, balanceCenti, bought, given } = person.pointsTime;
+  const save = useMutation({
+    onMutate: () => queryClient.cancelQueries({ queryKey: LOOK_AFTER_KEY }),
+    mutationFn: (body: { minutesPerPoint: number | null; dailyCap: number }) =>
+      apiFetch<LookAfterDTO>('/api/supervision/points-time', {
+        method: 'POST',
+        body: JSON.stringify({ supervisedId: person.id, ...body }),
+      }),
+    onSuccess: (next, body) => {
+      queryClient.setQueryData(LOOK_AFTER_KEY, next);
+      toast.success(
+        body.minutesPerPoint === null
+          ? `${person.name} can no longer spend points on screen time`
+          : `${person.name} can spend points on screen time`,
+      );
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not change it.'),
+  });
+  const give = useMutation({
+    onMutate: () => queryClient.cancelQueries({ queryKey: LOOK_AFTER_KEY }),
+    mutationFn: (minutes: number) =>
+      apiFetch<LookAfterDTO>('/api/supervision/extra-time', {
+        method: 'POST',
+        body: JSON.stringify({ supervisedId: person.id, minutes }),
+      }),
+    onSuccess: (next, minutes) => {
+      queryClient.setQueryData(LOOK_AFTER_KEY, next);
+      toast.success(`${person.name} has ${formatMinutes(minutes)} more today`);
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not give it.'),
+  });
+  if (!available) return null;
+  const pending = save.isPending ? save.variables : null;
+  const rate = pending ? pending.minutesPerPoint : (rule?.minutesPerPoint ?? null);
+  const cap = pending ? pending.dailyCap : (rule?.dailyCap ?? 30);
+  const hasLimits = !!person.limits.total || person.limits.apps.length > 0;
+  return (
+    <div className="space-y-1.5">
+      <p className="text-sm font-medium">Points for screen time</p>
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          className="size-4 rounded border-input"
+          checked={rate !== null}
+          disabled={save.isPending}
+          onChange={(e) => save.mutate({ minutesPerPoint: e.target.checked ? 5 : null, dailyCap: cap })}
+        />
+        Let them spend points on more time
+        {save.isPending ? <Loader2 className="size-3.5 animate-spin text-muted-foreground" /> : null}
+      </label>
+      {rate !== null ? (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span>1 point buys</span>
+          <Select
+            aria-label="What one point buys"
+            className="h-8 w-auto px-2 py-0 text-xs"
+            value={String(rate)}
+            disabled={save.isPending}
+            onChange={(e) => save.mutate({ minutesPerPoint: Number(e.target.value), dailyCap: cap })}
+          >
+            {[...new Set([...RATE_CHOICES, rate])].sort((a, b) => a - b).map((m) => (
+              <option key={m} value={m}>
+                {formatMinutes(m)}
+              </option>
+            ))}
+          </Select>
+          <span>up to</span>
+          <Select
+            aria-label="The most they can buy a day"
+            className="h-8 w-auto px-2 py-0 text-xs"
+            value={String(cap)}
+            disabled={save.isPending}
+            onChange={(e) => save.mutate({ minutesPerPoint: rate, dailyCap: Number(e.target.value) })}
+          >
+            {[...new Set([...CAP_CHOICES, cap])].sort((a, b) => a - b).map((m) => (
+              <option key={m} value={m}>
+                {formatMinutes(m)}
+              </option>
+            ))}
+          </Select>
+          <span>a day</span>
+        </div>
+      ) : null}
+      <p className="text-xs text-muted-foreground">
+        {formatPoints(Math.max(0, balanceCenti))} points to spend
+        {bought > 0 ? ` · bought ${formatMinutes(bought)} today` : ''}
+        {given > 0 ? ` · given ${formatMinutes(given)} today` : ''}
+        {rule ? (
+          <>
+            {' · '}set by {rule.byName} <RelativeTime date={rule.at} />
+          </>
+        ) : null}
+      </p>
+      {hasLimits ? (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span>Give extra time today:</span>
+          {GIVE_STEPS.map((m) => (
+            <Button
+              key={m}
+              size="sm"
+              variant="outline"
+              className="h-7 px-2 text-xs"
+              disabled={give.isPending}
+              onClick={() => give.mutate(m)}
+            >
+              {give.isPending && give.variables === m ? <Loader2 className="animate-spin" /> : null}+
+              {formatMinutes(m)}
+            </Button>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          Extra time goes on top of their daily limits, and they have none yet.
+        </p>
+      )}
+    </div>
+  );
+}
+
 interface RingButtonProps {
   person: Person;
   /** When the viewer's last ring from this page stops resting the button (0: none). */
@@ -1135,6 +1268,7 @@ function PersonDetail({ person, canRing, until, onRang }: RingButtonProps & { ca
       <BlockedApps person={person} />
       <DailyLimits person={person} />
       <Schedules person={person} />
+      <PointsForTime person={person} />
       {PHONE_RULES.map((rule) => (
         <RuleBox key={rule} person={person} rule={rule} />
       ))}

@@ -52,6 +52,8 @@ export const HOUSEHOLD_MODELS = [
   'BlockedApp',
   'AppLimit',
   'AppSchedule',
+  'PointsForTime',
+  'ExtraTime',
   'HomeAssistantIntegration',
 ] as const;
 
@@ -75,8 +77,11 @@ export const EXPORT_VERSION = 1;
  * records, and come back with the next check-in. App usage (AppUsageDay) and
  * its app icons (AppIcon) stay out as well: it's a child's screen time, kept
  * two weeks, and sharing it starts again off after a restore. Apps blocked on
- * a child's phone (BlockedApp), their daily limits (AppLimit) and schedules
- * (AppSchedule) stay out like the other phone rules.
+ * a child's phone (BlockedApp), their daily limits (AppLimit), schedules
+ * (AppSchedule) and points-for-time rate (PointsForTime) stay out like the
+ * other phone rules, and so do minutes an adult gave (ExtraTime without
+ * points). Minutes bought with points go with the points ledger
+ * (points.spent), so a restored balance stays right.
  */
 export async function exportHousehold(householdId: string) {
   const where = { householdId };
@@ -91,6 +96,7 @@ export async function exportHousehold(householdId: string) {
     tasks,
     pendingCredits,
     pointAwards,
+    pointsSpent,
     activity,
     events,
     bills,
@@ -130,6 +136,7 @@ export async function exportHousehold(householdId: string) {
     prisma.task.findMany({ where, include: { subtasks: true, completions: true, recurrence: true } }),
     prisma.pendingCredit.findMany({ where }),
     prisma.pointAward.findMany({ where }),
+    prisma.extraTime.findMany({ where: { ...where, pointsCenti: { gt: 0 } } }),
     prisma.activityEntry.findMany({ where, orderBy: { createdAt: 'asc' } }),
     prisma.event.findMany({ where, include: { attendees: true, recurrence: true } }),
     prisma.bill.findMany({ where, include: { recurrence: true } }),
@@ -170,7 +177,7 @@ export async function exportHousehold(householdId: string) {
     categories,
     places: { floors, rooms },
     tasks,
-    points: { awards: pointAwards, pending: pendingCredits },
+    points: { awards: pointAwards, pending: pendingCredits, spent: pointsSpent },
     activity,
     calendar: events,
     bills,
@@ -267,6 +274,8 @@ export async function deleteHousehold(adminId: string, householdId: string, conf
       count('BlockedApp', await tx.blockedApp.deleteMany({ where }));
       count('AppLimit', await tx.appLimit.deleteMany({ where }));
       count('AppSchedule', await tx.appSchedule.deleteMany({ where }));
+      count('PointsForTime', await tx.pointsForTime.deleteMany({ where }));
+      count('ExtraTime', await tx.extraTime.deleteMany({ where }));
       count('HomeAssistantIntegration', await tx.homeAssistantIntegration.deleteMany({ where }));
       count('PaperlessSync', await tx.paperlessSync.deleteMany({ where }));
       count('PaperlessConnection', await tx.paperlessConnection.deleteMany({ where }));

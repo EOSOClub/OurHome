@@ -22,6 +22,7 @@ import { AndroidAppCard } from '@/components/profile/android-app-card';
 import { LIVE_CHECKS_KEY, LocationCard } from '@/components/profile/location-card';
 import type { LiveChecksOverviewDTO } from '@/lib/types';
 import { AppUsageNotice } from '@/components/profile/app-usage-notice';
+import { ExtraTimeCard } from '@/components/profile/extra-time-card';
 import { useHouseholdFeatures } from '@/components/household-features';
 import type { LocationConsent } from '@/lib/location';
 import { changePassword, updateUser } from '@/lib/auth-client';
@@ -118,6 +119,8 @@ export function ProfileView({
           <OverviewCard overview={overview} />
         </div>
         <div className="space-y-6">
+          {/* Its own card, open: the blocked screen's Get more time leads here. */}
+          <ExtraTimeCard />
           <PhoneAndSharing location={features.includes('location') ? location : null} />
           {appRelease && <AndroidAppCard release={appRelease} />}
           <EditProfileCard overview={overview} />

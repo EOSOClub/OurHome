@@ -47,6 +47,7 @@ export const RESTORE_ORDER = [
   'TaskCompletion',
   'PointAward',
   'PendingCredit',
+  'ExtraTime',
   'Event',
   'EventAttendee',
   'Bill',
@@ -151,6 +152,8 @@ export function planRestore(
     TaskCompletion: tasks.flatMap((t) => asArray(t.completions)),
     PointAward: asArray(points.awards),
     PendingCredit: asArray(points.pending),
+    // Minutes bought with points (exports from before have none).
+    ExtraTime: asArray(points.spent),
     Event: events,
     EventAttendee: events.flatMap((e) => asArray(e.attendees)),
     Bill: bills,

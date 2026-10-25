@@ -17,6 +17,7 @@ import {
   Clock,
   ListChecks,
   Smartphone,
+  Timer,
   type LucideIcon,
 } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -49,6 +50,7 @@ const TYPE_ICON: Record<NotificationType, LucideIcon> = {
   phone_alert: Smartphone,
   new_app: PackagePlus,
   limit_reached: Hourglass,
+  extra_time: Timer,
   request_update: Inbox,
 };
 
@@ -66,6 +68,7 @@ const TYPE_VARIANT: Record<
   phone_alert: 'warning',
   new_app: 'default',
   limit_reached: 'default',
+  extra_time: 'default',
   request_update: 'default',
 };
 

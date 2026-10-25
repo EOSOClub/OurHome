@@ -32,9 +32,14 @@ import {
 import { blockedAppsByKid, isBlockedFor } from '@/server/services/appBlockService';
 import { appLimitsByKid, isLimitedFor } from '@/server/services/appLimitService';
 import { allowedApps, isScheduledFor, schedulesByKid } from '@/server/services/appScheduleService';
+import { minutesOn, pointsBalances } from '@/server/services/pointsTimeService';
+import { getPointsSettings, todayIn } from '@/server/services/pointsService';
+import { namesOf } from '@/server/services/appBlockService';
 import { USAGE_REFRESH_COOLDOWN_MS } from '@/lib/appUsage';
 import { ALL_APPS, ALL_APPS_LABEL, limitLabel } from '@/lib/appLimits';
 import { MAX_SCHEDULES, daysLabel, formatClock } from '@/lib/appSchedules';
+import { rateLabel } from '@/lib/pointsTime';
+import { formatMinutes } from '@/lib/appUsage';
 import {
   RING_MS,
   RING_SHOWN_MS,
@@ -50,8 +55,10 @@ import type { LookAfterDTO, RingDTO, SupervisionDTO, UsageHistoryDTO } from '@/l
 import type { ReportRingInput } from '@/lib/validation/phone';
 import type {
   SetAppBlockedInput,
+  GiveExtraTimeInput,
   RemoveScheduleInput,
   SaveScheduleInput,
+  SetPointsForTimeInput,
   SetAppLimitInput,
   SetPhoneRuleInput,
   SetRequiredSharingInput,
@@ -252,6 +259,8 @@ export async function linkNewSupervisors(
 //    apps, or all apps together, a daily limit (setAppLimit), and set
 //    schedules when apps are closed (saveSchedule). All go when nobody
 //    supervises them.
+//  - Let them spend task points on more time on those limits
+//    (setPointsForTime), and give them extra minutes (giveExtraTime).
 //  - Be told when their phone goes quiet (phoneStatusService).
 
 /** One ring per child at a time: the phone rings for about this long. */
@@ -329,7 +338,8 @@ export async function lookAfterOverview(
 ): Promise<LookAfterDTO> {
   const kids = await supervisedBy(householdId, actorId);
   const shared = kids.filter((k) => k.shareAppUsage === true).map((k) => k.id);
-  const [phones, usage, blocked, limits, schedules, usedApps, locationOn] = await Promise.all([
+  const ids = kids.map((k) => k.id);
+  const [phones, usage, blocked, limits, schedules, usedApps, locationOn, pointsOn, settings, balances, rules] = await Promise.all([
     phoneSummaries(householdId, kids),
     usageSummaries(householdId, shared),
     blockedAppsByKid(householdId, kids.map((k) => k.id)),
@@ -337,7 +347,34 @@ export async function lookAfterOverview(
     schedulesByKid(householdId, kids.map((k) => k.id)),
     usageApps(householdId, shared),
     isFeatureEnabled(householdId, 'location').catch(() => true),
+    isFeatureEnabled(householdId, 'points').catch(() => true),
+    getPointsSettings(householdId),
+    pointsBalances(prisma, householdId, ids),
+    prisma.pointsForTime.findMany({ where: { householdId, userId: { in: ids } } }),
   ]);
+  const today = todayIn(settings, new Date(now));
+  const [ruleNames, todays] = await Promise.all([
+    namesOf(prisma, rules.map((r) => r.setById)),
+    Promise.all(kids.map(async (k) => [k.id, await minutesOn(prisma, k.id, today)] as const)),
+  ]);
+  const minutesToday = new Map(todays);
+  const pointsTimeOf = (kidId: string) => {
+    const rule = rules.find((r) => r.userId === kidId);
+    return {
+      available: pointsOn,
+      rule: rule
+        ? {
+            minutesPerPoint: rule.minutesPerPoint,
+            dailyCap: rule.dailyCap,
+            byName: ruleNames.get(rule.setById) ?? 'Someone who has left',
+            at: rule.updatedAt.toISOString(),
+          }
+        : null,
+      balanceCenti: balances.get(kidId) ?? 0,
+      day: today,
+      ...(minutesToday.get(kidId) ?? { bought: 0, given: 0 }),
+    };
+  };
   return {
     canRing: canPush(householdId),
     people: kids.map((k) => {
@@ -365,6 +402,7 @@ export async function lookAfterOverview(
           counts: checks?.usageAccess ?? null,
         },
         schedules: schedules.get(k.id) ?? [],
+        pointsTime: pointsTimeOf(k.id),
         setup: {
           passwordChosen: !k.mustChangePassword,
           steps: setupProgress(
@@ -720,6 +758,100 @@ export async function removeSchedule(
 }
 
 /**
+ * Let a supervised child spend task points on more time on their daily
+ * limits, at [minutesPerPoint] a point and up to [dailyCap] minutes a day, or
+ * stop it (minutesPerPoint null). Needs the household's Points feature.
+ * Wakes their phone, which offers it from then on.
+ */
+export async function setPointsForTime(
+  householdId: string,
+  actor: { id: string },
+  input: SetPointsForTimeInput,
+): Promise<LookAfterDTO> {
+  const kid = (await supervisedBy(householdId, actor.id)).find((k) => k.id === input.supervisedId);
+  if (!kid) {
+    throw new ForbiddenError(
+      'Only an adult who supervises them can change this. The Head of House chooses that on the Members page.',
+    );
+  }
+  const existing = await prisma.pointsForTime.findUnique({ where: { userId: kid.id } });
+  let message: string | null = null;
+  let write: ((tx: Prisma.TransactionClient) => Promise<unknown>) | null = null;
+  if (input.minutesPerPoint === null) {
+    if (existing) {
+      write = (tx) => tx.pointsForTime.delete({ where: { id: existing.id } });
+      message = `stopped ${kid.name} spending points on screen time`;
+    }
+  } else {
+    if (!(await isFeatureEnabled(householdId, 'points').catch(() => true))) {
+      throw new ConflictError('This household doesn’t use Points. The Head of House can turn it on in Settings.');
+    }
+    const data = { minutesPerPoint: input.minutesPerPoint, dailyCap: input.dailyCap, setById: actor.id };
+    const what = `${rateLabel(data.minutesPerPoint)}, up to ${formatMinutes(data.dailyCap)} a day`;
+    if (!existing) {
+      write = (tx) => tx.pointsForTime.create({ data: { householdId, userId: kid.id, ...data } });
+      message = `let ${kid.name} spend points on screen time (${what})`;
+    } else if (existing.minutesPerPoint !== data.minutesPerPoint || existing.dailyCap !== data.dailyCap) {
+      write = (tx) => tx.pointsForTime.update({ where: { id: existing.id }, data });
+      message = `changed ${kid.name}’s points for screen time (${what})`;
+    }
+  }
+  if (write && message) {
+    const save = write;
+    const line = message;
+    await prisma.$transaction(async (tx) => {
+      await save(tx);
+      await logActivity(
+        { householdId, actorId: actor.id, verb: 'updated', subjectType: 'member', subjectId: kid.id, message: line },
+        tx,
+      );
+    });
+    pushSync(householdId, { userIds: [kid.id] }, 'supervision');
+  }
+  return lookAfterOverview(householdId, actor.id);
+}
+
+/**
+ * Give a supervised child [minutes] more on today's daily limits (today in the
+ * household's time zone), without spending their points. Only while they have
+ * a limit to add to. Wakes their phone, which adds the minutes.
+ */
+export async function giveExtraTime(
+  householdId: string,
+  actor: { id: string },
+  input: GiveExtraTimeInput,
+): Promise<LookAfterDTO> {
+  const kid = (await supervisedBy(householdId, actor.id)).find((k) => k.id === input.supervisedId);
+  if (!kid) {
+    throw new ForbiddenError(
+      'Only an adult who supervises them can change this. The Head of House chooses that on the Members page.',
+    );
+  }
+  if ((await prisma.appLimit.count({ where: { householdId, userId: kid.id } })) === 0) {
+    throw new ConflictError(`${kid.name} has no daily limits, so there’s nothing to add time to.`);
+  }
+  const day = todayIn(await getPointsSettings(householdId));
+  await prisma.$transaction(async (tx) => {
+    await tx.extraTime.create({
+      data: { householdId, userId: kid.id, day, minutes: input.minutes, pointsCenti: 0, byId: actor.id },
+    });
+    await logActivity(
+      {
+        householdId,
+        actorId: actor.id,
+        verb: 'updated',
+        subjectType: 'member',
+        subjectId: kid.id,
+        message: `gave ${kid.name} ${formatMinutes(input.minutes)} more screen time today`,
+      },
+      tx,
+    );
+  });
+  pushSync(householdId, { userIds: [kid.id] }, 'supervision');
+  return lookAfterOverview(householdId, actor.id);
+}
+
+/**
  * Make a supervised child's location sharing required, or stop requiring it
  * (back to "on": they can turn it off themselves again). Wakes their phone so
  * it starts watching the map places at once.
@@ -945,7 +1077,8 @@ export async function dropBrokenSupervision(db: Db, userId: string, role: string
  * [userIds] with no supervisor left (or no longer a child or teen) gets
  * required sharing back as "on" (they may turn it off again), app usage
  * sharing off with what was stored deleted (nobody is left to see it), and
- * every app unblocked and every limit and schedule removed.
+ * every app unblocked, every limit and schedule removed, and buying screen
+ * time with points stopped (what they spent stays spent).
  */
 export async function releaseIfUnsupervised(db: Db, userIds: string[]): Promise<void> {
   const ids = [...new Set(userIds)];
@@ -955,13 +1088,15 @@ export async function releaseIfUnsupervised(db: Db, userIds: string[]): Promise<
   const withLimits = new Set(limited.map((l) => l.userId));
   const scheduled = await db.appSchedule.findMany({ where: { userId: { in: ids } }, select: { userId: true } });
   const withSchedules = new Set(scheduled.map((s) => s.userId));
+  const buying = await db.pointsForTime.findMany({ where: { userId: { in: ids } }, select: { userId: true } });
+  const withBuying = new Set(buying.map((b) => b.userId));
   const controlled = await db.user.findMany({
     where: {
       id: { in: ids },
       OR: [
         { locationSharing: 'required' },
         { shareAppUsage: true },
-        { id: { in: [...new Set([...withBlocks, ...withLimits, ...withSchedules])] } },
+        { id: { in: [...new Set([...withBlocks, ...withLimits, ...withSchedules, ...withBuying])] } },
       ],
     },
     select: { id: true, role: true, householdId: true, locationSharing: true, shareAppUsage: true },
@@ -981,6 +1116,7 @@ export async function releaseIfUnsupervised(db: Db, userIds: string[]): Promise<
     if (withBlocks.has(user.id)) await db.blockedApp.deleteMany({ where: { userId: user.id } });
     if (withLimits.has(user.id)) await db.appLimit.deleteMany({ where: { userId: user.id } });
     if (withSchedules.has(user.id)) await db.appSchedule.deleteMany({ where: { userId: user.id } });
+    if (withBuying.has(user.id)) await db.pointsForTime.deleteMany({ where: { userId: user.id } });
     if (user.shareAppUsage) {
       await db.user.update({ where: { id: user.id }, data: { shareAppUsage: null } });
       if (user.householdId) await forgetUsage(db, user.householdId, [user.id]);

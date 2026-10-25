@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { PHONE_RULES } from '@/lib/phoneHealth';
 import { LIMIT_MAX, LIMIT_MIN } from '@/lib/appLimits';
 import { MAX_ALLOWED } from '@/lib/appSchedules';
+import { CAP_MAX, CAP_MIN, RATE_MAX } from '@/lib/pointsTime';
 
 /** Replace who supervises one child or teen. An empty list means nobody does. */
 export const setSupervisorsSchema = z.object({
@@ -75,6 +76,21 @@ export type SaveScheduleInput = z.infer<typeof saveScheduleSchema>;
 /** Remove a schedule from a supervised child's phone. */
 export const removeScheduleSchema = z.object({ supervisedId: z.string().min(1), id: z.string().min(1).max(64) });
 export type RemoveScheduleInput = z.infer<typeof removeScheduleSchema>;
+
+/** Let a supervised child spend points on screen time (minutesPerPoint null: stop). */
+export const setPointsForTimeSchema = z.object({
+  supervisedId: z.string().min(1),
+  minutesPerPoint: z.number().int().min(1).max(RATE_MAX).nullable(),
+  dailyCap: z.number().int().min(CAP_MIN).max(CAP_MAX),
+});
+export type SetPointsForTimeInput = z.infer<typeof setPointsForTimeSchema>;
+
+/** Give a supervised child extra minutes on today's limits. */
+export const giveExtraTimeSchema = z.object({
+  supervisedId: z.string().min(1),
+  minutes: z.number().int().min(5).max(CAP_MAX),
+});
+export type GiveExtraTimeInput = z.infer<typeof giveExtraTimeSchema>;
 
 /** Ask a supervised child's phone to send its app usage now. */
 export const refreshUsageSchema = z.object({ supervisedId: z.string().min(1) });

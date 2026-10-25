@@ -134,6 +134,15 @@ export const reportNewAppsSchema = z.object({
 });
 export type ReportNewAppsInput = z.infer<typeof reportNewAppsSchema>;
 
+const phoneDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'A day is YYYY-MM-DD.');
+
+/** The member's own points for screen time, for their phone's date (GET query). */
+export const extraTimeQuerySchema = z.object({ day: phoneDay });
+
+/** The member buying minutes for their phone's date with points. */
+export const buyExtraTimeSchema = z.object({ minutes: z.number().int().min(5).max(240), day: phoneDay });
+export type BuyExtraTimeInput = z.infer<typeof buyExtraTimeSchema>;
+
 /** What the phone did with a ring (ringId: from the ring push). */
 export const reportRingSchema = z.object({
   ringId: z.string().trim().min(1).max(100),

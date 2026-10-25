@@ -31,6 +31,11 @@ const limits = {
 vi.mock('@/server/services/appLimitService', () => limits);
 const schedules = { phoneSchedules: vi.fn(async (): Promise<unknown[]> => []) };
 vi.mock('@/server/services/appScheduleService', () => schedules);
+const pointsTime = {
+  phoneExtraTime: vi.fn(async (): Promise<unknown[]> => []),
+  phonePointsRule: vi.fn(async (): Promise<unknown> => null),
+};
+vi.mock('@/server/services/pointsTimeService', () => pointsTime);
 
 const { checkIn, clearPhoneWatches, phoneSetup, phoneSummaries, PING_AFTER_MS, recordStream, refreshPhoneAlerts } =
   await import('./phoneStatusService');
@@ -128,12 +133,12 @@ describe('phone alerts', () => {
   it('tells the phone to Stay connected while an adult looks after its member, and only then', async () => {
     const base = { installId: 'install-123', locationAlways: true, notifications: true };
     prisma.supervision.findMany.mockResolvedValue([link('alex')]);
-    expect(await checkIn(H, 'mia', base, now)).toEqual({ stayConnectedRequired: true, blockedApps: [], appLimits: [], schedules: [] });
+    expect(await checkIn(H, 'mia', base, now)).toEqual({ stayConnectedRequired: true, blockedApps: [], appLimits: [], schedules: [], extraTime: [], pointsForTime: null });
     // A link whose supervisor became a guest no longer counts.
     prisma.supervision.findMany.mockResolvedValue([link('alex', 'guest')]);
-    expect(await checkIn(H, 'mia', base, now)).toEqual({ stayConnectedRequired: false, blockedApps: [], appLimits: [], schedules: [] });
+    expect(await checkIn(H, 'mia', base, now)).toEqual({ stayConnectedRequired: false, blockedApps: [], appLimits: [], schedules: [], extraTime: [], pointsForTime: null });
     prisma.supervision.findMany.mockResolvedValue([]);
-    expect(await checkIn(H, 'alex', base, now)).toEqual({ stayConnectedRequired: false, blockedApps: [], appLimits: [], schedules: [] });
+    expect(await checkIn(H, 'alex', base, now)).toEqual({ stayConnectedRequired: false, blockedApps: [], appLimits: [], schedules: [], extraTime: [], pointsForTime: null });
   });
 
   it('answers a looked-after phone with its blocked apps, and keeps what it always leaves open', async () => {
@@ -147,6 +152,8 @@ describe('phone alerts', () => {
       blockedApps: [roblox],
       appLimits: [],
       schedules: [],
+      extraTime: [],
+      pointsForTime: null,
     });
     expect(blocks.phoneBlocks).toHaveBeenCalledWith(H, 'mia');
     expect(prisma.phoneStatus.upsert.mock.calls[0][0].update.alwaysAllowed).toEqual([
@@ -194,6 +201,26 @@ describe('phone alerts', () => {
     expect((await checkIn(H, 'mia', base, now)).schedules).toEqual([]);
     expect(schedules.phoneSchedules).not.toHaveBeenCalled();
     schedules.phoneSchedules.mockResolvedValue([]);
+  });
+
+  it('answers a looked-after phone with its extra minutes and what a point buys', async () => {
+    const extra = [{ day: '2026-10-12', minutes: 30 }];
+    pointsTime.phoneExtraTime.mockResolvedValue(extra);
+    pointsTime.phonePointsRule.mockResolvedValue({ minutesPerPoint: 5, dailyCap: 30 });
+    const base = { installId: 'install-123', locationAlways: true, notifications: true };
+    prisma.supervision.findMany.mockResolvedValue([link('alex')]);
+    const answer = await checkIn(H, 'mia', base, now);
+    expect(answer.extraTime).toEqual(extra);
+    expect(answer.pointsForTime).toEqual({ minutesPerPoint: 5, dailyCap: 30 });
+    expect(pointsTime.phoneExtraTime).toHaveBeenCalledWith(H, 'mia', now);
+    vi.clearAllMocks();
+    prisma.supervision.findMany.mockResolvedValue([]);
+    const unsupervised = await checkIn(H, 'mia', base, now);
+    expect(unsupervised.extraTime).toEqual([]);
+    expect(unsupervised.pointsForTime).toBeNull();
+    expect(pointsTime.phoneExtraTime).not.toHaveBeenCalled();
+    pointsTime.phoneExtraTime.mockResolvedValue([]);
+    pointsTime.phonePointsRule.mockResolvedValue(null);
   });
 
   it('records how alerts reach the phone, never trusting a phone clock ahead of the server', async () => {

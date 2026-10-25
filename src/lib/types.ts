@@ -706,6 +706,19 @@ export interface LookAfterDTO {
     /** Schedules on their phone (POST /api/supervision/schedules), earliest start
      *  first. They need Keep Our Home running there (blocking.works). */
     schedules: ScheduleDTO[];
+    /** Points for screen time (POST /api/supervision/points-time, /extra-time).
+     *  available: the household uses Points. rule: what a point buys and the
+     *  most minutes a day (null: they can't buy time). balanceCenti: points they
+     *  can spend (earned minus spent), in hundredths. day: today in the
+     *  household's time zone; bought and given: its extra minutes. */
+    pointsTime: {
+      available: boolean;
+      rule: { minutesPerPoint: number; dailyCap: number; byName: string; at: string } | null;
+      balanceCenti: number;
+      day: string;
+      bought: number;
+      given: number;
+    };
     /** How far Set up this phone has got. passwordChosen: they replaced their
      *  temporary password. steps: what their phone must do, in the app's
      *  order; done is null until a phone of theirs that can say checks in. */
@@ -752,6 +765,24 @@ export interface AppLimitDTO {
   minutes: number;
   byName: string;
   at: string;
+}
+
+/**
+ * GET/POST /api/phone/extra-time: the member's own points for screen time.
+ * available: they can buy minutes now (someone looks after them, set a rate,
+ * the household uses Points, and they have a daily limit). minutesPerPoint and
+ * dailyCap: null when off. balanceCenti: points they can spend, in hundredths.
+ * day: their phone's date; bought and given: that day's extra minutes.
+ */
+export interface MyExtraTimeDTO {
+  available: boolean;
+  hasLimits: boolean;
+  minutesPerPoint: number | null;
+  dailyCap: number | null;
+  balanceCenti: number;
+  day: string;
+  bought: number;
+  given: number;
 }
 
 /**

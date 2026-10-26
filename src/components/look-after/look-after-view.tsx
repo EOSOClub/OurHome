@@ -1,10 +1,23 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { BellRing, ChevronLeft, ChevronRight, HeartHandshake, Loader2 } from 'lucide-react';
+import {
+  BellRing,
+  CalendarClock,
+  ChartColumn,
+  ChevronLeft,
+  ChevronRight,
+  Coins,
+  HeartHandshake,
+  Hourglass,
+  Loader2,
+  MapPin,
+  ShieldCheck,
+  Smartphone,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
   AppLimitDTO,
@@ -18,6 +31,7 @@ import type {
 import { apiFetch, ApiError, fieldErrors } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { toast } from '@/components/ui/toast';
@@ -48,13 +62,14 @@ import {
   schedulesSummary,
 } from '@/lib/appSchedules';
 import { RING_MS, ringActive, ringOutcome } from '@/lib/ring';
-import { SetupProgress, setupSummary } from '@/components/look-after/setup-progress';
+import { SetupSteps, setupSummary } from '@/components/look-after/setup-progress';
 import { AppIcon, AppList, UsageHistory, type AppAction } from '@/components/look-after/usage-history';
 
 // The "People you look after" page: the children and teens the viewer
 // supervises (the Head's supervision list). First a summary card for each
-// (with Ring); a card opens that person's page (?person=<id>), where the
-// viewer can ring their phone, make their
+// (with Ring); a card opens that person's page (?person=<id>): their phone
+// with Ring, then a folded card per subject, each saying in its title row
+// how it stands and explaining itself inside. There the viewer can make their
 // location sharing required, share their app usage, block apps from it, give
 // apps a daily limit, set schedules and let them buy time with points,
 // choose which protections their phone must have on (PHONE_RULES). Only
@@ -142,42 +157,7 @@ export function LookAfterView({ initial }: { initial: LookAfterDTO }) {
             <HeartHandshake className="size-6" /> {selected.name}
           </h1>
         </div>
-        <Card className="max-w-2xl">
-          <CardContent className="space-y-3 pt-5">
-            <PersonDetail {...ringProps(selected)} canRing={data.canRing} />
-            <p className="text-xs text-muted-foreground">
-              <strong>Ring</strong> rings their phone loudly for up to 30 seconds, even on silent. You see when it
-              starts ringing, and whether someone tapped Stop.{' '}
-              <strong>Location required</strong> keeps their location sharing on, and lets you check where they are
-              on the Map without them allowing it. They always see when you check. <strong>Share app usage</strong>{' '}
-              shows you how long they spend in each app; their phone needs Usage access for it. Their phone sends it
-              every 15 minutes, and opening this page asks it for the latest numbers. They see the same numbers on their
-              Profile. While it&apos;s shared, you&apos;re also told when a new app turns up on their phone.{' '}
-              <strong>Block</strong> next to an app stops it opening on their phone: they see a screen saying you
-              blocked it. Blocking needs Keep Our Home running on their phone. Phone calls, messages and OurHome
-              always stay open.{' '}
-              <strong>Daily limits</strong> give all their apps together, or one app, so much time a day. Their phone
-              warns them 5 minutes before, then closes the app until midnight, and you&apos;re told. Limits need Usage
-              access and Keep Our Home running on their phone.{' '}
-              <strong>Schedules</strong> close all their apps at set times, like bedtime or school, apart from calls,
-              messages and any apps you leave open. Their phone warns them 5 minutes before. Schedules need Keep Our
-              Home running on their phone.{' '}
-              <strong>Points for screen time</strong> lets them spend task points on more time on today&apos;s
-              limits, at the rate you set and up to a daily most; you&apos;re told each time. Their earned points
-              in the stats don&apos;t change. <strong>Give extra time</strong> adds minutes to today&apos;s limits
-              without points.{' '}
-              <strong>Require Keep Our Home running</strong> stops OurHome being closed on their phone.{' '}
-              <strong>Require Prevent uninstall</strong> stops it being removed without your PIN.{' '}
-              <strong>Require Unrestricted battery</strong> stops battery saving from holding back rings and alerts.
-              Each one you require is a step in Set up this phone in the app on their phone, and you&apos;re told if
-              it gets turned off. Not requiring one only stops the step and the alert: whatever is already on stays
-              on.
-              {data.canRing
-                ? null
-                : ' Ringing needs instant phone alerts: Firebase on this server, or Stay connected turned on in the app on their phone.'}
-            </p>
-          </CardContent>
-        </Card>
+        <PersonDetail {...ringProps(selected)} canRing={data.canRing} />
       </div>
     );
   }
@@ -226,6 +206,22 @@ const SHARING_SUMMARY: Record<Person['sharing'], string> = {
   on: 'Shares their location',
   off: 'Not sharing their location',
 };
+
+/** A card's explanation, under the switch or list it's about. */
+function Help({ children, className }: { children: ReactNode; className?: string }) {
+  return <p className={cn('text-xs text-muted-foreground', className)}>{children}</p>;
+}
+
+/** The App usage card's title line: their latest day, and what's blocked. */
+function usageSummary(person: Person): string {
+  const latest = person.appUsage.latest;
+  const usage = !person.appUsage.shared
+    ? 'Not shared'
+    : latest
+      ? `${usageDayLabel(latest.day, new Date().toLocaleDateString('en-CA'))}: ${formatMinutes(latest.totalMinutes)} in apps`
+      : 'No app usage from their phone yet';
+  return person.blocking.apps.length > 0 ? `${usage} · ${blockedSummary(person.blocking.apps)}` : usage;
+}
 
 /**
  * One person on the first page: what needs seeing at a glance (their phone,
@@ -591,15 +587,27 @@ function DailyLimits({ person }: { person: Person }) {
   const pendingFor = (app: string) => save.isPending && save.variables.app === app;
   const totalValue = save.isPending && save.variables.app === ALL_APPS ? save.variables.minutes : (total?.minutes ?? null);
   const pick = choices.find((c) => c.app === adding);
+  const hasLimits = !!total || apps.length > 0;
   return (
-    <div className="space-y-1.5">
-      <p className="text-sm font-medium">Daily limits</p>
+    <CollapsibleCard
+      icon={<Hourglass className="size-4" />}
+      title="Daily limits"
+      description={limitsLine(person) ?? 'No limits yet'}
+      // Opens by itself while something stops their limits working.
+      openWhen={hasLimits && (counts === false || person.blocking.works === false)}
+      contentClassName="space-y-1.5"
+    >
+      <Help className="pb-1.5">
+        Give all their apps together, or one app, so much time a day. Their phone warns them 5 minutes before, then
+        closes the app until midnight, and you&apos;re told. Limits need Usage access and Keep Our Home running on their
+        phone.
+      </Help>
       {counts === false ? (
         <p className="text-xs text-destructive">
           Usage access is off on their phone, so it can&apos;t count their time until it&apos;s back on.
         </p>
       ) : null}
-      {person.blocking.works === false && (total || apps.length > 0) ? (
+      {person.blocking.works === false && hasLimits ? (
         <p className="text-xs text-destructive">
           Keep Our Home running is off on their phone, so nothing closes when time runs out until it&apos;s back on.
         </p>
@@ -673,7 +681,7 @@ function DailyLimits({ person }: { person: Person }) {
           </span>
         </div>
       ) : null}
-    </div>
+    </CollapsibleCard>
   );
 }
 
@@ -737,16 +745,21 @@ function Schedules({ person }: { person: Person }) {
   });
   const list = person.schedules;
   return (
-    <div className="space-y-1.5">
-      <p className="text-sm font-medium">Schedules</p>
+    <CollapsibleCard
+      icon={<CalendarClock className="size-4" />}
+      title="Schedules"
+      description={schedulesSummary(list) ?? 'No schedules yet'}
+      // Opens by itself while their apps stay open during these.
+      openWhen={person.blocking.works === false && list.length > 0}
+      contentClassName="space-y-1.5"
+    >
+      <Help className="pb-1.5">
+        Close all their apps at set times, like bedtime or school, apart from calls, messages and any apps you leave
+        open. Their phone warns them 5 minutes before. Schedules need Keep Our Home running on their phone.
+      </Help>
       {person.blocking.works === false && list.length > 0 ? (
         <p className="text-xs text-destructive">
           Keep Our Home running is off on their phone, so their apps stay open during these until it&apos;s back on.
-        </p>
-      ) : null}
-      {list.length === 0 && editing !== 'new' ? (
-        <p className="text-xs text-muted-foreground">
-          Times when their apps close, like bedtime or school. Calls and messages always work.
         </p>
       ) : null}
       {list.length > 0 ? (
@@ -811,7 +824,7 @@ function Schedules({ person }: { person: Person }) {
           Add a schedule
         </Button>
       ) : null}
-    </div>
+    </CollapsibleCard>
   );
 }
 
@@ -1050,8 +1063,18 @@ function PointsForTime({ person }: { person: Person }) {
   const cap = pending ? pending.dailyCap : (rule?.dailyCap ?? 30);
   const hasLimits = !!person.limits.total || person.limits.apps.length > 0;
   return (
-    <div className="space-y-1.5">
-      <p className="text-sm font-medium">Points for screen time</p>
+    <CollapsibleCard
+      icon={<Coins className="size-4" />}
+      title="Points for screen time"
+      description={
+        rate === null ? 'Off' : `1 point buys ${formatMinutes(rate)}, up to ${formatMinutes(cap)} a day`
+      }
+      contentClassName="space-y-1.5"
+    >
+      <Help className="pb-1.5">
+        Lets them spend task points on more time on today&apos;s limits, at the rate you set and up to a daily most;
+        you&apos;re told each time. Their earned points in the stats don&apos;t change.
+      </Help>
       <label className="flex items-center gap-2 text-sm">
         <input
           type="checkbox"
@@ -1107,28 +1130,31 @@ function PointsForTime({ person }: { person: Person }) {
         ) : null}
       </p>
       {hasLimits ? (
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span>Give extra time today:</span>
-          {GIVE_STEPS.map((m) => (
-            <Button
-              key={m}
-              size="sm"
-              variant="outline"
-              className="h-7 px-2 text-xs"
-              disabled={give.isPending}
-              onClick={() => give.mutate(m)}
-            >
-              {give.isPending && give.variables === m ? <Loader2 className="animate-spin" /> : null}+
-              {formatMinutes(m)}
-            </Button>
-          ))}
+        <div className="space-y-1 pt-1.5">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span>Give extra time today:</span>
+            {GIVE_STEPS.map((m) => (
+              <Button
+                key={m}
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-xs"
+                disabled={give.isPending}
+                onClick={() => give.mutate(m)}
+              >
+                {give.isPending && give.variables === m ? <Loader2 className="animate-spin" /> : null}+
+                {formatMinutes(m)}
+              </Button>
+            ))}
+          </div>
+          <Help>Adds minutes to today&apos;s limits without points.</Help>
         </div>
       ) : (
         <p className="text-xs text-muted-foreground">
           Extra time goes on top of their daily limits, and they have none yet.
         </p>
       )}
-    </div>
+    </CollapsibleCard>
   );
 }
 
@@ -1184,9 +1210,13 @@ function RingButton({ person, until, onRang }: RingButtonProps) {
 }
 
 /**
- * Everything about one person: their phone, Ring, the Location required and
- * Share app usage boxes, their app usage, a box per protection their phone
- * must have on, and how far Set up this phone has got.
+ * Everything about one person, as Profile is laid out (two stacks on wide
+ * screens, one list in the same order on a phone): their phone with Ring,
+ * then a folded card each for Location, App usage (with what's blocked),
+ * Daily limits, Schedules, Points for screen time and Phone protections (a
+ * box per protection their phone must have on, and how far Set up this phone
+ * has got). Each title row says how it stands; a card opens by itself while
+ * something in it isn't working.
  */
 function PersonDetail({ person, canRing, until, onRang }: RingButtonProps & { canRing: boolean }) {
   const queryClient = useQueryClient();
@@ -1229,51 +1259,141 @@ function PersonDetail({ person, canRing, until, onRang }: RingButtonProps & { ca
 
   const required = require.isPending ? require.variables : person.sharing === 'required';
   const sharesUsage = usage.isPending ? usage.variables : person.appUsage.shared;
-  const sharingNote =
-    person.sharing === 'required' ? null : person.sharing === 'on' ? 'Shares their location' : 'Not sharing their location';
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <span className="min-w-0">
-          {sharingNote ? <span className="block text-xs text-muted-foreground">{sharingNote}</span> : null}
-          <PhoneLine phone={person.phone} />
-          {person.ring ? <RingLine ring={person.ring} /> : null}
-        </span>
-        {canRing ? <RingButton person={person} until={until} onRang={onRang} /> : null}
+    <div className="grid items-start gap-6 sm:landscape:grid-cols-2 lg:grid-cols-2">
+      <div className="space-y-6">
+        <PhoneCard person={person} canRing={canRing} until={until} onRang={onRang} />
+        <CollapsibleCard
+          icon={<MapPin className="size-4" />}
+          title="Location"
+          description={SHARING_SUMMARY[person.sharing]}
+        >
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="size-4 rounded border-input"
+              checked={required}
+              disabled={require.isPending}
+              onChange={(e) => require.mutate(e.target.checked)}
+            />
+            Location required
+            {require.isPending ? <Loader2 className="size-3.5 animate-spin text-muted-foreground" /> : null}
+          </label>
+          <Help className="pl-6 pt-1">
+            Keeps their location sharing on, and lets you check where they are on the Map without them allowing it.
+            They always see when you check.
+          </Help>
+        </CollapsibleCard>
+        <CollapsibleCard
+          icon={<ChartColumn className="size-4" />}
+          title="App usage"
+          description={usageSummary(person)}
+          // Opens by itself while their blocked apps open anyway.
+          openWhen={person.blocking.works === false && person.blocking.apps.length > 0}
+          contentClassName="space-y-4"
+        >
+          <div className="space-y-1">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="size-4 rounded border-input"
+                checked={sharesUsage}
+                disabled={usage.isPending}
+                onChange={(e) => usage.mutate(e.target.checked)}
+              />
+              Share app usage
+              {usage.isPending ? <Loader2 className="size-3.5 animate-spin text-muted-foreground" /> : null}
+            </label>
+            <Help className="pl-6">
+              Shows you how long they spend in each app; their phone needs Usage access for it. Their phone sends it
+              every 15 minutes, and opening this page asks it for the latest numbers. They see the same numbers on
+              their Profile. While it&apos;s shared, you&apos;re also told when a new app turns up on their phone.
+            </Help>
+          </div>
+          {person.appUsage.shared ? (
+            <div className="space-y-1">
+              <UsageLine person={person} />
+              <Help>
+                Block next to an app stops it opening on their phone: they see a screen saying you blocked it.
+                Blocking needs Keep Our Home running on their phone. Phone calls, messages and OurHome always stay
+                open.
+              </Help>
+            </div>
+          ) : null}
+          <BlockedApps person={person} />
+        </CollapsibleCard>
       </div>
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          className="size-4 rounded border-input"
-          checked={required}
-          disabled={require.isPending}
-          onChange={(e) => require.mutate(e.target.checked)}
-        />
-        Location required
-        {require.isPending ? <Loader2 className="size-3.5 animate-spin text-muted-foreground" /> : null}
-      </label>
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          className="size-4 rounded border-input"
-          checked={sharesUsage}
-          disabled={usage.isPending}
-          onChange={(e) => usage.mutate(e.target.checked)}
-        />
-        Share app usage
-        {usage.isPending ? <Loader2 className="size-3.5 animate-spin text-muted-foreground" /> : null}
-      </label>
-      {person.appUsage.shared ? <UsageLine person={person} /> : null}
-      <BlockedApps person={person} />
-      <DailyLimits person={person} />
-      <Schedules person={person} />
-      <PointsForTime person={person} />
-      {PHONE_RULES.map((rule) => (
-        <RuleBox key={rule} person={person} rule={rule} />
-      ))}
-      <SetupProgress person={person} />
+      <div className="space-y-6">
+        <DailyLimits person={person} />
+        <Schedules person={person} />
+        <PointsForTime person={person} />
+        <PhoneProtections person={person} />
+      </div>
     </div>
+  );
+}
+
+/**
+ * Their phone, open at the top of their page: what's wrong with it or when it
+ * last checked in, how instant alerts reach it, the viewer's last ring, and
+ * Ring. A red edge while their phone has a problem, as on their summary card.
+ */
+function PhoneCard({ person, canRing, until, onRang }: RingButtonProps & { canRing: boolean }) {
+  return (
+    <Card className={person.phone?.problems.length ? 'border-destructive/60' : undefined}>
+      <CardContent className="space-y-3 pt-5">
+        <div className="flex items-start justify-between gap-3">
+          <span className="min-w-0 space-y-0.5">
+            <span className="flex items-center gap-2 pb-1 text-base font-semibold leading-none tracking-tight">
+              <Smartphone className="size-4" /> Their phone
+            </span>
+            <PhoneLine phone={person.phone} />
+            {person.ring ? <RingLine ring={person.ring} /> : null}
+          </span>
+          {canRing ? <RingButton person={person} until={until} onRang={onRang} /> : null}
+        </div>
+        <Help>
+          {canRing
+            ? 'Ring rings their phone loudly for up to 30 seconds, even on silent. You see when it starts ringing, and whether someone tapped Stop.'
+            : 'Ringing needs instant phone alerts: Firebase on this server, or Stay connected turned on in the app on their phone.'}
+        </Help>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** What each protection does, under its box. */
+const RULE_HELP: Record<PhoneRule, string> = {
+  keepRunning: 'Stops OurHome being closed on their phone.',
+  preventUninstall: 'Stops it being removed without your PIN.',
+  batteryUnrestricted: 'Stops battery saving from holding back rings and alerts.',
+};
+
+/** The protections their phone must have on, then how far Set up this phone has got. */
+function PhoneProtections({ person }: { person: Person }) {
+  const count = PHONE_RULES.filter((rule) => person.rules[rule]).length;
+  return (
+    <CollapsibleCard
+      icon={<ShieldCheck className="size-4" />}
+      title="Phone protections"
+      description={`${count === 0 ? 'None' : `${count} of ${PHONE_RULES.length}`} required · ${setupSummary(person)}`}
+      contentClassName="space-y-4"
+    >
+      <div className="space-y-3">
+        {PHONE_RULES.map((rule) => (
+          <RuleBox key={rule} person={person} rule={rule} />
+        ))}
+        <Help>
+          Each one you require is a step in Set up this phone in the app on their phone, and you&apos;re told if it gets
+          turned off. Not requiring one only stops the step and the alert: whatever is already on stays on.
+        </Help>
+      </div>
+      <div className="space-y-2 border-t border-border pt-4">
+        <p className="text-sm font-medium">Set up this phone</p>
+        <SetupSteps person={person} />
+      </div>
+    </CollapsibleCard>
   );
 }
 
@@ -1300,16 +1420,19 @@ function RuleBox({ person, rule }: { person: LookAfterDTO['people'][number]; rul
   });
   const checked = save.isPending ? save.variables : person.rules[rule];
   return (
-    <label className="flex items-center gap-2 text-sm">
-      <input
-        type="checkbox"
-        className="size-4 rounded border-input"
-        checked={checked}
-        disabled={save.isPending}
-        onChange={(e) => save.mutate(e.target.checked)}
-      />
-      Require {PHONE_RULE_LABELS[rule]}
-      {save.isPending ? <Loader2 className="size-3.5 animate-spin text-muted-foreground" /> : null}
-    </label>
+    <div className="space-y-0.5">
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          className="size-4 rounded border-input"
+          checked={checked}
+          disabled={save.isPending}
+          onChange={(e) => save.mutate(e.target.checked)}
+        />
+        Require {PHONE_RULE_LABELS[rule]}
+        {save.isPending ? <Loader2 className="size-3.5 animate-spin text-muted-foreground" /> : null}
+      </label>
+      <Help className="pl-6">{RULE_HELP[rule]}</Help>
+    </div>
   );
 }

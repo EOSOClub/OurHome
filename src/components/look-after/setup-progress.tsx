@@ -7,9 +7,9 @@ import { RelativeTime } from '@/components/household-zone';
 // How far a supervised child's phone has got with Set up this phone, from its
 // check-ins: their own password, the app signed in, then each step their
 // supervisors require, in the app's order. Their phone checks in after each
-// step, so this fills in as they go. Shown open on Set up a child's last step,
-// folded on a person's page in People you look after, and as one line on
-// their summary card there.
+// step, so this fills in as they go. Shown on Set up a child's last step, in
+// the Phone protections card on a person's page in People you look after, and
+// as one line on their summary card there.
 
 type Person = LookAfterDTO['people'][number];
 
@@ -75,7 +75,7 @@ export function SetupSteps({ person }: { person: Person }) {
   );
 }
 
-/** "Set up this phone: 3 of 6 done": the folded line, and the line on their summary card. */
+/** "Set up this phone: 3 of 6 done": in the Phone protections title row, and the line on their summary card. */
 export function setupSummary(person: Person): string {
   const { steps } = person.setup;
   const done = steps.filter((s) => s.done === true).length;
@@ -84,17 +84,4 @@ export function setupSummary(person: Person): string {
     : person.phone
       ? `Set up this phone: ${done} of ${steps.length} done`
       : 'Set up this phone: not started';
-}
-
-/** Folded: "Set up this phone: 3 of 6 done", opening to the list. */
-export function SetupProgress({ person }: { person: Person }) {
-  const summary = setupSummary(person);
-  return (
-    <details className="group text-sm">
-      <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">{summary}</summary>
-      <div className="mt-2 pl-1">
-        <SetupSteps person={person} />
-      </div>
-    </details>
-  );
 }

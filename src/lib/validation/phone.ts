@@ -34,6 +34,12 @@ export const phoneCheckInSchema = z.object({
   notifications: z.boolean(),
   /** Android's Usage access granted; left out by apps from before usage reporting. */
   usageAccess: z.boolean().optional(),
+  /**
+   * Android's Private DNS: the provider hostname, or "off" (off or Automatic),
+   * for the web filter (lib/webFilter.ts). Left out by apps from before web
+   * filtering, and when the phone can't read it (no network at that moment).
+   */
+  privateDns: z.string().trim().toLowerCase().min(1).max(253).optional(),
   // Left out by apps from before the delivery check:
   /** When the last instant alert reached the phone (its clock, epoch ms), and which way. */
   lastPushAtMs: z.number().int().positive().optional(),

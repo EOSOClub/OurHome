@@ -8,7 +8,10 @@ const prisma = {
     findMany: vi.fn(async (): Promise<unknown[]> => []),
   },
   supervision: { findMany: vi.fn(async (): Promise<unknown[]> => []) },
-  user: { findFirst: vi.fn(async (): Promise<unknown> => null) },
+  user: {
+    findFirst: vi.fn(async (): Promise<unknown> => null),
+    findUnique: vi.fn(async (): Promise<unknown> => null),
+  },
   notification: {
     findMany: vi.fn(async (): Promise<{ id: string; dedupeKey: string | null }[]> => []),
     deleteMany: vi.fn(),
@@ -133,12 +136,12 @@ describe('phone alerts', () => {
   it('tells the phone to Stay connected while an adult looks after its member, and only then', async () => {
     const base = { installId: 'install-123', locationAlways: true, notifications: true };
     prisma.supervision.findMany.mockResolvedValue([link('alex')]);
-    expect(await checkIn(H, 'mia', base, now)).toEqual({ stayConnectedRequired: true, blockedApps: [], appLimits: [], schedules: [], extraTime: [], pointsForTime: null });
+    expect(await checkIn(H, 'mia', base, now)).toEqual({ stayConnectedRequired: true, blockedApps: [], appLimits: [], schedules: [], extraTime: [], pointsForTime: null, webFilter: null });
     // A link whose supervisor became a guest no longer counts.
     prisma.supervision.findMany.mockResolvedValue([link('alex', 'guest')]);
-    expect(await checkIn(H, 'mia', base, now)).toEqual({ stayConnectedRequired: false, blockedApps: [], appLimits: [], schedules: [], extraTime: [], pointsForTime: null });
+    expect(await checkIn(H, 'mia', base, now)).toEqual({ stayConnectedRequired: false, blockedApps: [], appLimits: [], schedules: [], extraTime: [], pointsForTime: null, webFilter: null });
     prisma.supervision.findMany.mockResolvedValue([]);
-    expect(await checkIn(H, 'alex', base, now)).toEqual({ stayConnectedRequired: false, blockedApps: [], appLimits: [], schedules: [], extraTime: [], pointsForTime: null });
+    expect(await checkIn(H, 'alex', base, now)).toEqual({ stayConnectedRequired: false, blockedApps: [], appLimits: [], schedules: [], extraTime: [], pointsForTime: null, webFilter: null });
   });
 
   it('answers a looked-after phone with its blocked apps, and keeps what it always leaves open', async () => {
@@ -154,6 +157,7 @@ describe('phone alerts', () => {
       schedules: [],
       extraTime: [],
       pointsForTime: null,
+      webFilter: null,
     });
     expect(blocks.phoneBlocks).toHaveBeenCalledWith(H, 'mia');
     expect(prisma.phoneStatus.upsert.mock.calls[0][0].update.alwaysAllowed).toEqual([
@@ -522,12 +526,22 @@ describe('what a phone must set up', () => {
         notifications: true,
         location: true,
         usageAccess: true,
+        webFilter: false,
         keepRunning: true,
         preventUninstall: false,
         batteryUnrestricted: true,
       },
+      webFilter: null,
     });
     expect(prisma.user.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'mia', householdId: H } }));
+  });
+
+  it('asks for the chosen web filter, with the hostname their Private DNS needs', async () => {
+    prisma.supervision.findMany.mockResolvedValueOnce([link('alex')]);
+    prisma.user.findFirst.mockResolvedValueOnce({ locationSharing: 'on', webFilter: 'adult' });
+    const setup = await phoneSetup(H, 'mia');
+    expect(setup.required.webFilter).toBe(true);
+    expect(setup.webFilter).toEqual({ filter: 'adult', label: 'Adult sites only', hostname: 'family.cloudflare-dns.com' });
   });
 
   it('leaves location out when it isn’t required, or the household doesn’t use Location', async () => {
@@ -545,6 +559,42 @@ describe('what a phone must set up', () => {
     prisma.supervision.findMany.mockResolvedValueOnce([link('jo', 'teen')]);
     prisma.user.findFirst.mockResolvedValueOnce({ locationSharing: 'required' });
     expect((await phoneSetup(H, 'mia')).supervised).toBe(false);
+  });
+});
+
+describe('web filter on check-in', () => {
+  const base = { installId: 'install-123', locationAlways: true, notifications: true };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    prisma.supervision.findMany.mockResolvedValue([link('alex')]);
+    prisma.notification.findMany.mockResolvedValue([]);
+    prisma.phoneStatus.findMany.mockResolvedValue([]);
+  });
+
+  it('stores what Private DNS is set to, and keeps it when the phone couldn’t read it', async () => {
+    await checkIn(H, 'mia', { ...base, privateDns: 'family-filter-dns.cleanbrowsing.org' }, now);
+    expect(prisma.phoneStatus.upsert.mock.calls[0][0].update.privateDns).toBe('family-filter-dns.cleanbrowsing.org');
+    await checkIn(H, 'mia', base, now);
+    expect(prisma.phoneStatus.upsert.mock.calls[1][0].update).not.toHaveProperty('privateDns');
+  });
+
+  it('answers a looked-after phone with its filter’s hostname, and nobody else’s', async () => {
+    prisma.user.findUnique.mockResolvedValueOnce({ webFilter: 'family' });
+    expect((await checkIn(H, 'mia', base, now)).webFilter).toBe('family-filter-dns.cleanbrowsing.org');
+    prisma.supervision.findMany.mockResolvedValue([]);
+    expect((await checkIn(H, 'mia', base, now)).webFilter).toBeNull();
+  });
+
+  it('alerts supervisors while the phone isn’t using the chosen filter', async () => {
+    prisma.phoneStatus.findMany.mockResolvedValue([
+      { userId: 'mia', lastSeenAt: hoursAgo(1), locationAlways: true, privateDns: 'off', deviceName: null },
+    ]);
+    prisma.supervision.findMany.mockResolvedValue([link('alex', 'adult', { ...mia, webFilter: 'family' } as typeof mia)]);
+    await refreshPhoneAlerts(H, now);
+    expect(prisma.notification.createMany.mock.calls[0][0].data.map((r: { dedupeKey: string }) => r.dedupeKey)).toEqual([
+      'phone:web_filter_off:mia:alex',
+    ]);
   });
 });
 

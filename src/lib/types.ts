@@ -6,6 +6,7 @@ import type { Feature } from '@/lib/features';
 import type { BatteryReading, LocationSharing } from '@/lib/location';
 import type { PhoneProblem, PhoneRules, PhoneSetupStep } from '@/lib/phoneHealth';
 import type { RingPhase } from '@/lib/ring';
+import type { WebFilter } from '@/lib/webFilter';
 
 export interface CategoryDTO {
   id: string;
@@ -680,6 +681,10 @@ export interface LookAfterDTO {
     };
     /** The protections their phone must have on (POST /api/supervision/phone-rules). */
     rules: PhoneRules;
+    /** The web filter on their phone (POST /api/supervision/web-filter). filter:
+     *  the one chosen (null: none). on: whether their phone's Private DNS is set
+     *  to it (null: none chosen, no phone checked in yet, or an app too old to say). */
+    webFilter: { filter: WebFilter | null; on: boolean | null };
     /** Apps blocked on their phone (POST /api/supervision/blocked-apps), newest
      *  first. alwaysAllowed: package names their phone never blocks (its phone,
      *  messages, home screen and OurHome), so they get no Block. works: whether
@@ -811,11 +816,16 @@ export interface UsageHistoryDTO {
   days: { day: string; totalMinutes: number; apps: UsageAppDTO[]; updatedAt: string }[];
 }
 
-/** GET /api/phone/setup: what the signed-in member's phone must have on. */
+/**
+ * GET /api/phone/setup: what the signed-in member's phone must have on.
+ * webFilter: the web filter chosen for them and the hostname their phone's
+ * Private DNS needs (lib/webFilter.ts); null: none.
+ */
 export interface PhoneSetupDTO {
   /** An adult looks after them; while not, nothing is required. */
   supervised: boolean;
-  required: { notifications: boolean; location: boolean; usageAccess: boolean } & PhoneRules;
+  required: { notifications: boolean; location: boolean; usageAccess: boolean; webFilter: boolean } & PhoneRules;
+  webFilter: { filter: WebFilter; label: string; hostname: string } | null;
 }
 
 /** The signed-in user's own page access (GET /api/permissions/me). */

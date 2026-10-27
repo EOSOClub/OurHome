@@ -51,6 +51,7 @@ import {
 import { ROLE_RANK, isUserRole } from '@/lib/enums';
 import { can, canBeSupervised, canSupervise } from '@/lib/permissions';
 import { sharingMode } from '@/lib/location';
+import { WEB_FILTER_INFO, webFilterOf } from '@/lib/webFilter';
 import type { LookAfterDTO, RingDTO, SupervisionDTO, UsageHistoryDTO } from '@/lib/types';
 import type { ReportRingInput } from '@/lib/validation/phone';
 import type {
@@ -64,6 +65,7 @@ import type {
   SetRequiredSharingInput,
   SetSupervisorsInput,
   SetUsageSharingInput,
+  SetWebFilterInput,
 } from '@/lib/validation/supervision';
 
 // Parental controls, step 1: the Head of House's list of which adults
@@ -298,6 +300,7 @@ async function supervisedBy(
   (Person & {
     locationSharing: string | null;
     shareAppUsage: boolean | null;
+    webFilter: string | null;
     mustChangePassword: boolean;
   } & PhoneRuleColumns)[]
 > {
@@ -380,6 +383,7 @@ export async function lookAfterOverview(
     people: kids.map((k) => {
       const sharing = sharingMode(k.locationSharing);
       const rules = phoneRules(k);
+      const webFilter = webFilterOf(k.webFilter);
       // Its checks only feed setup, blocking and limits below.
       const { checks = null, alwaysAllowed = [], ...phone } = phones.get(k.id) ?? {};
       const kidLimits = limits.get(k.id) ?? [];
@@ -390,6 +394,7 @@ export async function lookAfterOverview(
         phone: phones.has(k.id) ? (phone as Omit<PhoneSummary, 'checks' | 'alwaysAllowed'>) : null,
         appUsage: { shared: k.shareAppUsage === true, latest: usage.get(k.id) ?? null },
         rules,
+        webFilter: { filter: webFilter, on: webFilter ? (checks?.webFilter ?? null) : null },
         blocking: {
           apps: blocked.get(k.id) ?? [],
           alwaysAllowed,
@@ -406,7 +411,7 @@ export async function lookAfterOverview(
         setup: {
           passwordChosen: !k.mustChangePassword,
           steps: setupProgress(
-            setupRequired({ sharing, usageShared: k.shareAppUsage === true, locationOn, rules }),
+            setupRequired({ sharing, usageShared: k.shareAppUsage === true, locationOn, rules, webFilter }),
             checks,
           ),
         },
@@ -457,6 +462,50 @@ export async function setPhoneRule(
     });
     pushSync(householdId, { userIds: [kid.id] }, 'supervision');
     // Its alert only holds while it's required.
+    await refreshPhoneAlerts(householdId, new Date(), [kid.id]);
+  }
+  return lookAfterOverview(householdId, actor.id);
+}
+
+/**
+ * Choose the web filter on a supervised child's phone, or turn it off
+ * (lib/webFilter.ts). Their phone's Set up this phone then asks for it, and
+ * their supervisors are told while their phone isn't using it. Off only ends
+ * that: whatever their phone's Private DNS is set to stays, and they may
+ * change it again. Wakes their phone so it learns at once.
+ */
+export async function setWebFilter(
+  householdId: string,
+  actor: { id: string },
+  input: SetWebFilterInput,
+): Promise<LookAfterDTO> {
+  const kid = (await supervisedBy(householdId, actor.id)).find((k) => k.id === input.supervisedId);
+  if (!kid) {
+    throw new ForbiddenError(
+      'Only an adult who supervises them can change this. The Head of House chooses that on the Members page.',
+    );
+  }
+  const current = webFilterOf(kid.webFilter);
+  const next = input.filter === 'off' ? null : input.filter;
+  if (next !== current) {
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({ where: { id: kid.id }, data: { webFilter: next } });
+      await logActivity(
+        {
+          householdId,
+          actorId: actor.id,
+          verb: 'updated',
+          subjectType: 'member',
+          subjectId: kid.id,
+          message: next
+            ? `set ${kid.name}’s web filter to ${WEB_FILTER_INFO[next].label}`
+            : `turned off the web filter on ${kid.name}’s phone`,
+        },
+        tx,
+      );
+    });
+    pushSync(householdId, { userIds: [kid.id] }, 'supervision');
+    // A "web filter off" alert only holds while a filter is chosen.
     await refreshPhoneAlerts(householdId, new Date(), [kid.id]);
   }
   return lookAfterOverview(householdId, actor.id);
@@ -1076,9 +1125,10 @@ export async function dropBrokenSupervision(db: Db, userId: string, role: string
  * Supervisors' controls only last while someone supervises them: anyone in
  * [userIds] with no supervisor left (or no longer a child or teen) gets
  * required sharing back as "on" (they may turn it off again), app usage
- * sharing off with what was stored deleted (nobody is left to see it), and
- * every app unblocked, every limit and schedule removed, and buying screen
- * time with points stopped (what they spent stays spent).
+ * sharing off with what was stored deleted (nobody is left to see it), the
+ * web filter off (their phone's Private DNS stays as it is, theirs to
+ * change), and every app unblocked, every limit and schedule removed, and
+ * buying screen time with points stopped (what they spent stays spent).
  */
 export async function releaseIfUnsupervised(db: Db, userIds: string[]): Promise<void> {
   const ids = [...new Set(userIds)];
@@ -1096,10 +1146,11 @@ export async function releaseIfUnsupervised(db: Db, userIds: string[]): Promise<
       OR: [
         { locationSharing: 'required' },
         { shareAppUsage: true },
+        { webFilter: { not: null } },
         { id: { in: [...new Set([...withBlocks, ...withLimits, ...withSchedules, ...withBuying])] } },
       ],
     },
-    select: { id: true, role: true, householdId: true, locationSharing: true, shareAppUsage: true },
+    select: { id: true, role: true, householdId: true, locationSharing: true, shareAppUsage: true, webFilter: true },
   });
   for (const user of controlled) {
     const links = canBeSupervised(user.role)
@@ -1112,6 +1163,7 @@ export async function releaseIfUnsupervised(db: Db, userIds: string[]): Promise<
     if (user.locationSharing === 'required') {
       await db.user.update({ where: { id: user.id }, data: { locationSharing: 'on' } });
     }
+    if (user.webFilter != null) await db.user.update({ where: { id: user.id }, data: { webFilter: null } });
     // Before forgetting their usage, so pruning icons no longer keeps these apps'.
     if (withBlocks.has(user.id)) await db.blockedApp.deleteMany({ where: { userId: user.id } });
     if (withLimits.has(user.id)) await db.appLimit.deleteMany({ where: { userId: user.id } });

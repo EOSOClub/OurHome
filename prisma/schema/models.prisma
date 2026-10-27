@@ -144,6 +144,10 @@ model User {
   requireKeepRunning         Boolean?
   requirePreventUninstall    Boolean?
   requireBatteryUnrestricted Boolean?
+  // Parental controls: the web filter a supervising adult chose for their
+  // phone's Private DNS (src/lib/webFilter.ts WEB_FILTERS: "family" |
+  // "adult"). null = none. Cleared when nobody supervises them any more.
+  webFilter                  String?
   // Guided child setup: the link (QR code) the Head of House made for putting
   // the app on this child's phone without signing in first. Only its SHA-256
   // is kept. It ends at setupLinkExpiresAt, when a new one is made, or when
@@ -212,6 +216,10 @@ model PhoneStatus {
   // Android's Usage access granted (needed while app usage is shared). null =
   // an app from before usage reporting.
   usageAccess    Boolean?
+  // What Android's Private DNS is set to there: the provider hostname, or
+  // "off" (off or Automatic), for the web filter (src/lib/webFilter.ts).
+  // null = an app from before web filtering. Kept when a check-in can't read it.
+  privateDns     String?
   // The last instant alert that reached the phone, and which way ("firebase"
   // or "connection"). null = none yet, or an app from before the delivery check.
   lastPushAt     DateTime?

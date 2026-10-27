@@ -76,6 +76,7 @@ const phones = {
     requireKeepRunning: true,
     requirePreventUninstall: true,
     requireBatteryUnrestricted: true,
+    webFilter: true,
   },
 };
 vi.mock('@/server/services/phoneStatusService', () => phones);
@@ -140,6 +141,7 @@ const {
   setRequiredSharing,
   setSupervisors,
   setUsageSharing,
+  setWebFilter,
   supervisedUsageHistory,
   usageIcon,
 } = await import('./supervisionService');
@@ -354,7 +356,7 @@ describe('dropBrokenSupervision', () => {
       expect.objectContaining({
         where: {
           id: { in: ['sam', 'jo'] },
-          OR: [{ locationSharing: 'required' }, { shareAppUsage: true }, { id: { in: [] } }],
+          OR: [{ locationSharing: 'required' }, { shareAppUsage: true }, { webFilter: { not: null } }, { id: { in: [] } }],
         },
       }),
     );
@@ -403,7 +405,7 @@ describe('releaseIfUnsupervised', () => {
       expect.objectContaining({
         where: {
           id: { in: ['sam'] },
-          OR: [{ locationSharing: 'required' }, { shareAppUsage: true }, { id: { in: ['sam'] } }],
+          OR: [{ locationSharing: 'required' }, { shareAppUsage: true }, { webFilter: { not: null } }, { id: { in: ['sam'] } }],
         },
       }),
     );
@@ -423,7 +425,7 @@ describe('releaseIfUnsupervised', () => {
       expect.objectContaining({
         where: {
           id: { in: ['sam'] },
-          OR: [{ locationSharing: 'required' }, { shareAppUsage: true }, { id: { in: ['sam'] } }],
+          OR: [{ locationSharing: 'required' }, { shareAppUsage: true }, { webFilter: { not: null } }, { id: { in: ['sam'] } }],
         },
       }),
     );
@@ -440,7 +442,7 @@ describe('releaseIfUnsupervised', () => {
       expect.objectContaining({
         where: {
           id: { in: ['sam'] },
-          OR: [{ locationSharing: 'required' }, { shareAppUsage: true }, { id: { in: ['sam'] } }],
+          OR: [{ locationSharing: 'required' }, { shareAppUsage: true }, { webFilter: { not: null } }, { id: { in: ['sam'] } }],
         },
       }),
     );
@@ -468,6 +470,19 @@ describe('releaseIfUnsupervised', () => {
     tx.supervision.findMany.mockResolvedValueOnce([{ supervisor: { role: 'adult' } }]);
     await releaseIfUnsupervised(tx as never, ['sam']);
     expect(tx.appLimit.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('turns the web filter off when nobody is left to supervise them, and keeps it otherwise', async () => {
+    tx.user.findMany.mockResolvedValueOnce([{ id: 'sam', role: 'child', locationSharing: 'on', webFilter: 'family' }]);
+    tx.supervision.findMany.mockResolvedValueOnce([]);
+    await releaseIfUnsupervised(tx as never, ['sam']);
+    expect(tx.user.update).toHaveBeenCalledWith({ where: { id: 'sam' }, data: { webFilter: null } });
+
+    vi.clearAllMocks();
+    tx.user.findMany.mockResolvedValueOnce([{ id: 'sam', role: 'child', locationSharing: 'on', webFilter: 'family' }]);
+    tx.supervision.findMany.mockResolvedValueOnce([{ supervisor: { role: 'adult' } }]);
+    await releaseIfUnsupervised(tx as never, ['sam']);
+    expect(tx.user.update).not.toHaveBeenCalled();
   });
 
   it('keeps the blocks while another adult still supervises them', async () => {
@@ -508,6 +523,7 @@ describe('required sharing', () => {
           phone: null,
           appUsage: { shared: false, latest: null },
           rules: ALL_RULES,
+          webFilter: { filter: null, on: null },
           blocking: NO_BLOCKS,
           usageApps: [],
           limits: NO_LIMITS,
@@ -523,6 +539,7 @@ describe('required sharing', () => {
           phone: null,
           appUsage: { shared: false, latest: null },
           rules: ALL_RULES,
+          webFilter: { filter: null, on: null },
           blocking: NO_BLOCKS,
           usageApps: [],
           limits: NO_LIMITS,
@@ -545,6 +562,27 @@ describe('required sharing', () => {
       'preventUninstall',
       'keepRunning',
     ]);
+  });
+
+  it('shows the web filter chosen, whether their phone uses it, and asks for it in setup', async () => {
+    findLinks.mockResolvedValueOnce([
+      { supervisor: { role: 'adult' }, supervised: { ...sam, locationSharing: 'on', webFilter: 'family' } },
+    ]);
+    const checks = {
+      notifications: true,
+      location: true,
+      batteryUnrestricted: true,
+      usageAccess: true,
+      webFilter: false,
+      preventUninstall: true,
+      keepRunning: true,
+    };
+    phones.phoneSummaries.mockResolvedValueOnce(
+      new Map([['sam', { lastSeenAt: '2026-10-12T17:00:00.000Z', problems: ['web_filter_off'], checks, alwaysAllowed: [] }]]),
+    );
+    const [person] = (await lookAfterOverview(H, 'alex')).people;
+    expect(person.webFilter).toEqual({ filter: 'family', on: false });
+    expect(person.setup.steps).toContainEqual({ step: 'webFilter', done: false });
   });
 
   it('shows each one’s phone, their app usage only where it is shared, and their phone rules', async () => {
@@ -616,6 +654,7 @@ describe('required sharing', () => {
         phone: null,
         appUsage: { shared: false, latest: null },
         rules: ALL_RULES,
+        webFilter: { filter: null, on: null },
         blocking: NO_BLOCKS,
         usageApps: [],
         limits: NO_LIMITS,
@@ -638,6 +677,7 @@ describe('required sharing', () => {
         phone,
         appUsage: { shared: true, latest },
         rules: { ...ALL_RULES, preventUninstall: false },
+        webFilter: { filter: null, on: null },
         // Keep Our Home running is on, which does the blocking.
         blocking: { apps: [roblox], alwaysAllowed: ['com.google.android.dialer'], works: true },
         // Every app from their usage except the ones their phone keeps open; Usage access counts.
@@ -698,6 +738,46 @@ describe('required sharing', () => {
     await setPhoneRule(H, { id: 'alex' }, { supervisedId: 'sam', rule: 'batteryUnrestricted', required: true });
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(push.pushSync).not.toHaveBeenCalled();
+  });
+
+  it('a supervisor chooses a web filter: stored, logged, phone woken, alerts refreshed', async () => {
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    await setWebFilter(H, { id: 'alex' }, { supervisedId: 'sam', filter: 'family' });
+    expect(tx.user.update).toHaveBeenCalledWith({ where: { id: 'sam' }, data: { webFilter: 'family' } });
+    expect(logActivity).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'set Sam’s web filter to Family filter' }),
+      tx,
+    );
+    expect(push.pushSync).toHaveBeenCalledWith(H, { userIds: ['sam'] }, 'supervision');
+    expect(phones.refreshPhoneAlerts).toHaveBeenCalledWith(H, expect.any(Date), ['sam']);
+  });
+
+  it('turning the web filter off stores null, and an unchanged filter writes nothing', async () => {
+    findLinks.mockResolvedValueOnce([
+      { supervisor: { role: 'adult' }, supervised: { ...sam, locationSharing: 'on', webFilter: 'adult' } },
+    ]);
+    await setWebFilter(H, { id: 'alex' }, { supervisedId: 'sam', filter: 'off' });
+    expect(tx.user.update).toHaveBeenCalledWith({ where: { id: 'sam' }, data: { webFilter: null } });
+    expect(logActivity).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'turned off the web filter on Sam’s phone' }),
+      tx,
+    );
+
+    vi.clearAllMocks();
+    findLinks.mockResolvedValueOnce([
+      { supervisor: { role: 'adult' }, supervised: { ...sam, locationSharing: 'on', webFilter: 'adult' } },
+    ]);
+    await setWebFilter(H, { id: 'alex' }, { supervisedId: 'sam', filter: 'adult' });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(push.pushSync).not.toHaveBeenCalled();
+  });
+
+  it('refuses a web filter from someone who doesn’t supervise them', async () => {
+    findLinks.mockResolvedValueOnce([]);
+    await expect(setWebFilter(H, { id: 'gran' }, { supervisedId: 'sam', filter: 'family' })).rejects.toThrow(
+      /Only an adult who supervises them/,
+    );
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it('refuses a phone rule from someone who doesn’t supervise them', async () => {

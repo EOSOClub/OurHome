@@ -11,6 +11,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Coins,
+  Globe,
   HeartHandshake,
   Hourglass,
   Loader2,
@@ -62,6 +63,7 @@ import {
   schedulesSummary,
 } from '@/lib/appSchedules';
 import { RING_MS, ringActive, ringOutcome } from '@/lib/ring';
+import { WEB_FILTERS, WEB_FILTER_INFO, type WebFilter } from '@/lib/webFilter';
 import { SetupSteps, setupSummary } from '@/components/look-after/setup-progress';
 import { AppIcon, AppList, UsageHistory, type AppAction } from '@/components/look-after/usage-history';
 
@@ -72,7 +74,8 @@ import { AppIcon, AppList, UsageHistory, type AppAction } from '@/components/loo
 // how it stands and explaining itself inside. There the viewer can make their
 // location sharing required, share their app usage, block apps from it, give
 // apps a daily limit, set schedules and let them buy time with points,
-// choose which protections their phone must have on (PHONE_RULES). Only
+// choose a web filter for their phone (lib/webFilter.ts), and choose which
+// protections their phone must have on (PHONE_RULES). Only
 // linked for adults who supervise someone; the server checks it again.
 
 export const LOOK_AFTER_KEY = ['look-after'];
@@ -1323,6 +1326,7 @@ function PersonDetail({ person, canRing, until, onRang }: RingButtonProps & { ca
           ) : null}
           <BlockedApps person={person} />
         </CollapsibleCard>
+        <WebFilterCard person={person} />
       </div>
       <div className="space-y-6">
         <DailyLimits person={person} />
@@ -1331,6 +1335,100 @@ function PersonDetail({ person, canRing, until, onRang }: RingButtonProps & { ca
         <PhoneProtections person={person} />
       </div>
     </div>
+  );
+}
+
+/** One line for the folded card: the filter, and whether their phone uses it. */
+function webFilterSummary({ filter, on }: Person['webFilter']): string {
+  if (!filter) return 'Off';
+  const label = WEB_FILTER_INFO[filter].label;
+  if (on === true) return `${label} · on`;
+  if (on === false) return `${label} · not on their phone`;
+  return `${label} · waiting for their phone`;
+}
+
+const WEB_FILTER_CHOICES: { value: WebFilter | 'off'; label: string; blurb: string }[] = [
+  { value: 'off', label: 'Off', blurb: 'Websites aren’t filtered.' },
+  ...WEB_FILTERS.map((f) => ({ value: f, label: WEB_FILTER_INFO[f].label, blurb: WEB_FILTER_INFO[f].blurb })),
+];
+
+/**
+ * The web filter on their phone: Off or one of [WEB_FILTERS]. Opens by itself
+ * while their phone isn't using the one chosen.
+ */
+function WebFilterCard({ person }: { person: Person }) {
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    onMutate: () => queryClient.cancelQueries({ queryKey: LOOK_AFTER_KEY }),
+    mutationFn: (filter: WebFilter | 'off') =>
+      apiFetch<LookAfterDTO>('/api/supervision/web-filter', {
+        method: 'POST',
+        body: JSON.stringify({ supervisedId: person.id, filter }),
+      }),
+    onSuccess: (next, filter) => {
+      queryClient.setQueryData(LOOK_AFTER_KEY, next);
+      toast.success(
+        filter === 'off'
+          ? `${person.name}’s web filter is off`
+          : `${person.name}’s web filter is now ${WEB_FILTER_INFO[filter].label}`,
+      );
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not change it.'),
+  });
+  const { filter, on } = person.webFilter;
+  const chosen = save.isPending ? save.variables : (filter ?? 'off');
+  return (
+    <CollapsibleCard
+      icon={<Globe className="size-4" />}
+      title="Web filter"
+      description={webFilterSummary(person.webFilter)}
+      openWhen={filter !== null && on === false}
+      contentClassName="space-y-3"
+    >
+      <Help>
+        Filters websites in every browser and app on their phone, through Android&apos;s Private DNS. Set up this
+        phone shows them how to turn it on, and you&apos;re told if it&apos;s turned off.
+      </Help>
+      {filter && on === false ? (
+        <p className="text-xs text-destructive">
+          Their phone isn&apos;t using it. On their phone, open OurHome and follow Set up this phone.
+        </p>
+      ) : null}
+      {filter && on === null ? (
+        <Help>Waiting for their phone to say it&apos;s on. It needs the latest OurHome app.</Help>
+      ) : null}
+      <div className="space-y-2">
+        {WEB_FILTER_CHOICES.map((c) => (
+          <label
+            key={c.value}
+            className={cn(
+              'flex cursor-pointer gap-3 rounded-md border p-3 text-sm transition-colors',
+              chosen === c.value ? 'border-primary bg-primary/5' : 'border-border',
+              save.isPending && 'cursor-wait opacity-70',
+            )}
+          >
+            <input
+              type="radio"
+              name={`web-filter-${person.id}`}
+              className="mt-1"
+              checked={chosen === c.value}
+              disabled={save.isPending}
+              onChange={() => save.mutate(c.value)}
+            />
+            <span>
+              <span className="flex items-center gap-2 font-medium">
+                {c.label}
+                {save.isPending && save.variables === c.value ? (
+                  <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
+                ) : null}
+              </span>
+              <span className="text-xs text-muted-foreground">{c.blurb}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+      {filter ? <Help>While Keep Our Home running is on, they can&apos;t change it on their phone.</Help> : null}
+    </CollapsibleCard>
   );
 }
 

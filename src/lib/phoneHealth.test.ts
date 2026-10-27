@@ -272,6 +272,7 @@ describe('Set up this phone progress', () => {
       notifications: true,
       location: false,
       usageAccess: false,
+      webFilter: false,
       ...allRules,
     });
     expect(setupRequired({ sharing: 'required', usageShared: true, rules: allRules })).toMatchObject({
@@ -320,5 +321,50 @@ describe('Set up this phone progress', () => {
       { step: 'preventUninstall', done: null },
       { step: 'keepRunning', done: false },
     ]);
+  });
+
+  it('asks for the web filter while one is chosen, before the protections', () => {
+    const required = setupRequired({ sharing: 'off', rules: allRules, webFilter: 'family' });
+    expect(setupProgress(required, null).map((s) => s.step)).toEqual([
+      'notifications',
+      'batteryUnrestricted',
+      'webFilter',
+      'preventUninstall',
+      'keepRunning',
+    ]);
+  });
+
+  it('counts the web filter done while Private DNS is its hostname, null from an app that can’t say', () => {
+    const phone = { lastSeenAt: now, locationAlways: true };
+    expect(setupChecks({ ...phone, privateDns: 'family-filter-dns.cleanbrowsing.org' }, 'family').webFilter).toBe(true);
+    expect(setupChecks({ ...phone, privateDns: 'family.cloudflare-dns.com' }, 'family').webFilter).toBe(false);
+    expect(setupChecks({ ...phone, privateDns: 'off' }, 'adult').webFilter).toBe(false);
+    expect(setupChecks({ ...phone, privateDns: null }, 'adult').webFilter).toBeNull();
+    expect(setupChecks({ ...phone, privateDns: 'off' }).webFilter).toBeNull();
+  });
+});
+
+describe('web filter', () => {
+  const phone = { lastSeenAt: hoursAgo(1), locationAlways: true };
+
+  it('alerts while a chosen filter isn’t the phone’s Private DNS', () => {
+    expect(phoneProblems({ ...phone, privateDns: 'off' }, { sharing: 'on', webFilter: 'family' }, now)).toEqual([
+      'web_filter_off',
+    ]);
+    expect(phoneProblems({ ...phone, privateDns: 'dns.google' }, { sharing: 'on', webFilter: 'adult' }, now)).toEqual([
+      'web_filter_off',
+    ]);
+  });
+
+  it('is quiet while the phone uses it, with none chosen, or from an app that can’t say', () => {
+    expect(
+      phoneProblems({ ...phone, privateDns: 'Family.Cloudflare-DNS.com.' }, { sharing: 'on', webFilter: 'adult' }, now),
+    ).toEqual([]);
+    expect(phoneProblems({ ...phone, privateDns: 'off' }, { sharing: 'on', webFilter: null }, now)).toEqual([]);
+    expect(phoneProblems({ ...phone, privateDns: null }, { sharing: 'on', webFilter: 'family' }, now)).toEqual([]);
+  });
+
+  it('says so in the alert', () => {
+    expect(phoneAlertText('web_filter_off', 'Riley').title).toBe('Riley’s phone isn’t filtering websites');
   });
 });

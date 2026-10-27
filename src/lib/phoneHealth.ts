@@ -3,6 +3,7 @@
 // the client (the Map's "People you look after" card). See phoneStatusService.
 
 import type { LocationSharing } from '@/lib/location';
+import { webFilterOn, type WebFilter } from '@/lib/webFilter';
 
 /**
  * A phone that hasn't checked in for this long counts as quiet: off, flat,
@@ -45,7 +46,9 @@ const SHUTDOWN_NEAR_MS = 5 * 60_000;
  * the household's alerts. location_off: their sharing is required, but
  * the phone no longer lets OurHome use location all the time. usage_off: their
  * app usage is shared, but the phone no longer allows Usage access (so nothing
- * can be measured). battery_low: its battery was at [PHONE_LOW_PCT] or below
+ * can be measured). web_filter_off: a supervising adult chose a web filter,
+ * but the phone's Private DNS isn't set to it (lib/webFilter.ts), so websites
+ * aren't filtered there. battery_low: its battery was at [PHONE_LOW_PCT] or below
  * and not charging at its last word, so it may soon go flat; gone once it
  * charges or climbs back over. battery_restricted: Android's battery optimization still
  * applies to OurHome there, which can delay rings, live checks and alerts, or
@@ -69,6 +72,7 @@ export const PHONE_PROBLEMS = [
   'notifications_off',
   'location_off',
   'usage_off',
+  'web_filter_off',
   'battery_low',
   'battery_restricted',
   'close_guard_off',
@@ -174,6 +178,7 @@ export const PHONE_SETUP_STEPS = [
   'location',
   'batteryUnrestricted',
   'usageAccess',
+  'webFilter',
   'preventUninstall',
   'keepRunning',
 ] as const;
@@ -186,6 +191,7 @@ export const PHONE_SETUP_STEP_LABELS: Record<PhoneSetupStep, string> = {
   location: 'Allow location all the time',
   batteryUnrestricted: 'Allow unrestricted battery',
   usageAccess: 'Allow usage access',
+  webFilter: 'Turn on the web filter',
   preventUninstall: 'Prevent uninstall',
   keepRunning: 'Keep Our Home running',
 };
@@ -194,14 +200,15 @@ export const PHONE_SETUP_STEP_LABELS: Record<PhoneSetupStep, string> = {
  * Which steps a supervised child's phone must do: notifications always (the
  * household's alerts and the ring's Stop need them), location all the time
  * while their sharing is required and the household uses Location, Usage
- * access while their app usage is shared, and the protections their
- * supervisors require.
+ * access while their app usage is shared, the web filter while one is chosen,
+ * and the protections their supervisors require.
  */
 export function setupRequired(expect: PhoneExpectations): PhoneSetupRequired {
   return {
     notifications: true,
     location: expect.locationOn !== false && expect.sharing === 'required',
     usageAccess: expect.usageShared === true,
+    webFilter: expect.webFilter != null,
     ...(expect.rules ?? phoneRules({})),
   };
 }
@@ -209,13 +216,17 @@ export function setupRequired(expect: PhoneExpectations): PhoneSetupRequired {
 /** What a phone last said about each step; null: an app too old to say. */
 export type PhoneSetupChecks = Record<PhoneSetupStep, boolean | null>;
 
-/** The phone's own word on each step, from its last check-in. */
-export function setupChecks(phone: PhoneSnapshot): PhoneSetupChecks {
+/**
+ * The phone's own word on each step, from its last check-in. The web filter
+ * is done while its Private DNS is [webFilter]'s hostname (null: none chosen).
+ */
+export function setupChecks(phone: PhoneSnapshot, webFilter: WebFilter | null = null): PhoneSetupChecks {
   return {
     notifications: phone.notifications ?? null,
     location: phone.locationAlways,
     batteryUnrestricted: phone.batteryUnrestricted ?? null,
     usageAccess: phone.usageAccess ?? null,
+    webFilter: webFilter ? webFilterOn(webFilter, phone.privateDns) : null,
     preventUninstall: phone.uninstallGuard ?? null,
     keepRunning: phone.closeGuard ?? null,
   };
@@ -242,6 +253,8 @@ export interface PhoneSnapshot {
   notifications?: boolean;
   /** null: an app from before usage reporting, which can't say. */
   usageAccess?: boolean | null;
+  /** Its Private DNS: a hostname, or "off" (lib/webFilter.ts); null: an app from before web filtering. */
+  privateDns?: string | null;
   /** null: an app from before the delivery check, which can't say. */
   batteryUnrestricted?: boolean | null;
   /** null: an app from before the close guard, which can't say. */
@@ -275,6 +288,8 @@ export interface PhoneExpectations {
   locationOn?: boolean;
   /** The protections their supervisors require; omitted: all of them. */
   rules?: PhoneRules;
+  /** The web filter a supervising adult chose; null or omitted: none. */
+  webFilter?: WebFilter | null;
 }
 
 /** The phone that checked in most recently, or null if none ever did. */
@@ -331,7 +346,8 @@ function isLow(phone: PhoneSnapshot): boolean {
  * stale, so only why it's quiet is said then. Location matters only while
  * their sharing is required and the household uses Location; Usage access
  * only while their app usage is shared, and only from apps that report it.
- * A low battery always, from its latest reading. Battery saving, the close
+ * The web filter while one is chosen, once the phone has said what its
+ * Private DNS is. A low battery always, from its latest reading. Battery saving, the close
  * guard and the uninstall guard only while their
  * supervisors require them ([PHONE_RULES]). The emergency unlock's milestones
  * always: the guard is there, and the child is taking it off.
@@ -345,6 +361,7 @@ export function phoneProblems(phone: PhoneSnapshot | null, expect: PhoneExpectat
   if (phone.notifications === false) out.push('notifications_off');
   if (expect.locationOn !== false && expect.sharing === 'required' && !phone.locationAlways) out.push('location_off');
   if (expect.usageShared && phone.usageAccess === false) out.push('usage_off');
+  if (expect.webFilter && webFilterOn(expect.webFilter, phone.privateDns) === false) out.push('web_filter_off');
   if (isLow(phone)) out.push('battery_low');
   if (rules.batteryUnrestricted && phone.batteryUnrestricted === false) out.push('battery_restricted');
   const emergency = EMERGENCY_PROBLEMS[phone.emergencyUnlockStage as EmergencyUnlockStage] ?? null;
@@ -399,6 +416,12 @@ export function phoneAlertText(problem: PhoneProblem, name: string): { title: st
     return {
       title: `${name}’s app usage can’t be measured`,
       body: `${name}’s app usage is shared, but their phone no longer gives OurHome Usage access, so their screen time can’t be seen.`,
+    };
+  }
+  if (problem === 'web_filter_off') {
+    return {
+      title: `${name}’s phone isn’t filtering websites`,
+      body: `The web filter you chose for ${name} is off on their phone (its Private DNS was changed), so websites aren’t filtered there. On their phone, open OurHome and follow Set up this phone.`,
     };
   }
   if (problem === 'battery_low') {
@@ -460,6 +483,7 @@ export const PHONE_PROBLEM_LABELS: Record<PhoneProblem, string> = {
   notifications_off: 'Notifications turned off on their phone',
   location_off: 'Location turned off on their phone',
   usage_off: 'Usage access turned off on their phone',
+  web_filter_off: 'Web filter turned off on their phone',
   battery_low: 'Their phone battery is low',
   battery_restricted: 'Battery saving can delay OurHome on their phone',
   close_guard_off: 'OurHome can be closed on their phone',

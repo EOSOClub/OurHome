@@ -9,6 +9,7 @@ import { connectedInstalls } from '@/server/push/streamHub';
 import { isFeatureEnabled } from '@/server/services/serverAdminService';
 import { canBeSupervised, canSupervise } from '@/lib/permissions';
 import { sharingMode } from '@/lib/location';
+import { WEB_FILTER_INFO, webFilterOf } from '@/lib/webFilter';
 import {
   PHONE_QUICK_QUIET_MS,
   freshestPhone,
@@ -32,6 +33,7 @@ export const SUPERVISED_SELECT = {
   requireKeepRunning: true,
   requirePreventUninstall: true,
   requireBatteryUnrestricted: true,
+  webFilter: true,
 } as const;
 
 // Phone check-ins and the alerts they feed (parental controls). Every phone
@@ -53,8 +55,9 @@ const alertKey = (problem: PhoneProblem, kidId: string, supervisorId: string) =>
  * and the app starts it again after Android's Stop). Then also the apps their
  * supervisors blocked, which the phone covers with its "blocked" screen, and
  * their daily limits and schedules, the extra minutes on those limits around
- * today, and what a point buys (null: they can't buy time). The limits it used
- * up today go to their supervisors.
+ * today, what a point buys (null: they can't buy time), and the web filter's
+ * hostname (null: none), whose Private DNS setting the phone then keeps them
+ * out of. The limits it used up today go to their supervisors.
  */
 export async function checkIn(
   householdId: string,
@@ -68,6 +71,7 @@ export async function checkIn(
   schedules: PhoneSchedule[];
   extraTime: { day: string; minutes: number }[];
   pointsForTime: PhonePointsRule | null;
+  webFilter: string | null;
 }> {
   const data = {
     householdId,
@@ -78,6 +82,8 @@ export async function checkIn(
     locationAlways: input.locationAlways,
     notifications: input.notifications,
     usageAccess: input.usageAccess ?? null,
+    // Left out when it couldn't read it: what it said last still holds.
+    ...(input.privateDns ? { privateDns: input.privateDns } : {}),
     // The phone's clock: never later than now, so a fast clock can't look fresh.
     lastPushAt: input.lastPushAtMs ? new Date(Math.min(input.lastPushAtMs, now.getTime())) : null,
     lastPushVia: input.lastPushAtMs ? (input.lastPushVia ?? null) : null,
@@ -109,6 +115,9 @@ export async function checkIn(
   await refreshPhoneAlerts(householdId, now, [userId]);
   const supervised = await isSupervised(householdId, userId);
   if (supervised && input.limitsReached) await reportLimitsReached(householdId, userId, input.limitsReached, now);
+  const filter = supervised
+    ? webFilterOf((await prisma.user.findUnique({ where: { id: userId }, select: { webFilter: true } }))?.webFilter)
+    : null;
   return {
     stayConnectedRequired: supervised,
     // Blocks, limits and schedules only count while someone looks after them (they're deleted when nobody does).
@@ -117,6 +126,7 @@ export async function checkIn(
     schedules: supervised ? await phoneSchedules(householdId, userId) : [],
     extraTime: supervised ? await phoneExtraTime(householdId, userId, now) : [],
     pointsForTime: supervised ? await phonePointsRule(householdId, userId) : null,
+    webFilter: filter ? WEB_FILTER_INFO[filter].hostname : null,
   };
 }
 
@@ -222,8 +232,8 @@ export function clearPhoneWatches(): void {
  * nothing while nobody looks after them. Otherwise notifications always (the
  * household's alerts and the ring's Stop need them), location all the time
  * while their sharing is required and the household uses Location, Usage
- * access while their app usage is shared, and the protections their
- * supervisors require.
+ * access while their app usage is shared, the web filter while one is chosen
+ * (with what to enter for it), and the protections their supervisors require.
  */
 export async function phoneSetup(householdId: string, userId: string): Promise<PhoneSetupDTO> {
   const [supervised, user, locationOn] = await Promise.all([
@@ -238,12 +248,15 @@ export async function phoneSetup(householdId: string, userId: string): Promise<P
         notifications: false,
         location: false,
         usageAccess: false,
+        webFilter: false,
         keepRunning: false,
         preventUninstall: false,
         batteryUnrestricted: false,
       },
+      webFilter: null,
     };
   }
+  const filter = webFilterOf(user.webFilter);
   return {
     supervised: true,
     required: setupRequired({
@@ -251,7 +264,11 @@ export async function phoneSetup(householdId: string, userId: string): Promise<P
       usageShared: user.shareAppUsage === true,
       locationOn,
       rules: phoneRules(user),
+      webFilter: filter,
     }),
+    webFilter: filter
+      ? { filter, label: WEB_FILTER_INFO[filter].label, hostname: WEB_FILTER_INFO[filter].hostname }
+      : null,
   };
 }
 
@@ -285,7 +302,12 @@ export interface PhoneSummary {
 /** Each child's freshest phone and what's wrong with it, for the Map card. */
 export async function phoneSummaries(
   householdId: string,
-  kids: ({ id: string; locationSharing: string | null; shareAppUsage?: boolean | null } & Partial<PhoneRuleColumns>)[],
+  kids: ({
+    id: string;
+    locationSharing: string | null;
+    shareAppUsage?: boolean | null;
+    webFilter?: string | null;
+  } & Partial<PhoneRuleColumns>)[],
   now: Date = new Date(),
 ): Promise<Map<string, PhoneSummary>> {
   const out = new Map<string, PhoneSummary>();
@@ -300,6 +322,7 @@ export async function phoneSummaries(
         locationAlways: true,
         notifications: true,
         usageAccess: true,
+        privateDns: true,
         batteryUnrestricted: true,
         deviceName: true,
         lastPushAt: true,
@@ -324,6 +347,7 @@ export async function phoneSummaries(
   for (const kid of kids) {
     const phone = freshestPhone(phones.filter((p) => p.userId === kid.id));
     if (!phone) continue;
+    const webFilter = webFilterOf(kid.webFilter);
     out.set(kid.id, {
       // Its stream counts too, so "last seen" matches when the quiet alert counts from.
       lastSeenAt: lastWordAt(phone).toISOString(),
@@ -331,7 +355,7 @@ export async function phoneSummaries(
       lastPushAt: phone.lastPushAt?.toISOString() ?? null,
       stayConnected: phone.stayConnected === true,
       connected: connected.has(phone.installId),
-      checks: setupChecks(phone),
+      checks: setupChecks(phone, webFilter),
       alwaysAllowed: phone.alwaysAllowed,
       problems: phoneProblems(
         { ...phone, connected: connected.has(phone.installId) },
@@ -340,6 +364,7 @@ export async function phoneSummaries(
           usageShared: kid.shareAppUsage === true,
           locationOn,
           rules: phoneRules(kid),
+          webFilter,
         },
         now,
       ),

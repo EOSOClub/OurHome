@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { PHONE_RULES } from '@/lib/phoneHealth';
+import { WEB_FILTERS } from '@/lib/webFilter';
 import { LIMIT_MAX, LIMIT_MIN } from '@/lib/appLimits';
 import { MAX_ALLOWED } from '@/lib/appSchedules';
 import { CAP_MAX, CAP_MIN, RATE_MAX } from '@/lib/pointsTime';
@@ -35,6 +36,13 @@ export const setPhoneRuleSchema = z.object({
   required: z.boolean(),
 });
 export type SetPhoneRuleInput = z.infer<typeof setPhoneRuleSchema>;
+
+/** Choose the web filter on a supervised child's phone, or turn it off. */
+export const setWebFilterSchema = z.object({
+  supervisedId: z.string().min(1),
+  filter: z.enum(['off', ...WEB_FILTERS]),
+});
+export type SetWebFilterInput = z.infer<typeof setWebFilterSchema>;
 
 /** Block an app on a supervised child's phone (app: its package name), or unblock it. */
 export const setAppBlockedSchema = z.object({

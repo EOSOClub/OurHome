@@ -257,6 +257,10 @@ export const NOTIFICATION_TYPES = [
   // Sent to a child's supervisors when they spend points on more screen time
   // (pointsTimeService.buyExtraTime).
   'extra_time',
+  // Sent to a child's supervisors when the parent PIN was entered wrong too
+  // often on their phone, opened a protected screen there, or unlocked
+  // OurHome there (parentPinService.reportPinEvents).
+  'parent_pin',
   // Sent to a requester when someone else approves, declines, accepts or
   // finishes their request (requestNoticeService).
   'request_update',
@@ -275,6 +279,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   new_app: 'New app',
   limit_reached: 'Limit reached',
   extra_time: 'Extra time',
+  parent_pin: 'Parent PIN',
   request_update: 'Request',
 };
 

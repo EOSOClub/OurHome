@@ -4,6 +4,7 @@ import { saveBattery } from '@/server/services/batteryService';
 import { phoneBlocks, type PhoneBlock } from '@/server/services/appBlockService';
 import { phoneLimits, reportLimitsReached, type PhoneLimit } from '@/server/services/appLimitService';
 import { phoneSchedules, type PhoneSchedule } from '@/server/services/appScheduleService';
+import { reportPinEvents } from '@/server/services/parentPinService';
 import { phoneExtraTime, phonePointsRule, type PhonePointsRule } from '@/server/services/pointsTimeService';
 import { connectedInstalls } from '@/server/push/streamHub';
 import { isFeatureEnabled } from '@/server/services/serverAdminService';
@@ -57,7 +58,8 @@ const alertKey = (problem: PhoneProblem, kidId: string, supervisorId: string) =>
  * their daily limits and schedules, the extra minutes on those limits around
  * today, what a point buys (null: they can't buy time), and the web filter's
  * hostname (null: none), whose Private DNS setting the phone then keeps them
- * out of. The limits it used up today go to their supervisors.
+ * out of. The limits it used up today, and what the parent PIN did there,
+ * go to their supervisors.
  */
 export async function checkIn(
   householdId: string,
@@ -115,6 +117,7 @@ export async function checkIn(
   await refreshPhoneAlerts(householdId, now, [userId]);
   const supervised = await isSupervised(householdId, userId);
   if (supervised && input.limitsReached) await reportLimitsReached(householdId, userId, input.limitsReached, now);
+  if (supervised && input.pinEvents?.length) await reportPinEvents(householdId, userId, input.pinEvents, now);
   const filter = supervised
     ? webFilterOf((await prisma.user.findUnique({ where: { id: userId }, select: { webFilter: true } }))?.webFilter)
     : null;

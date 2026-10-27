@@ -39,6 +39,8 @@ const pointsTime = {
   phonePointsRule: vi.fn(async (): Promise<unknown> => null),
 };
 vi.mock('@/server/services/pointsTimeService', () => pointsTime);
+const parentPin = { reportPinEvents: vi.fn(async () => ({ told: 0 })) };
+vi.mock('@/server/services/parentPinService', () => parentPin);
 
 const { checkIn, clearPhoneWatches, phoneSetup, phoneSummaries, PING_AFTER_MS, recordStream, refreshPhoneAlerts } =
   await import('./phoneStatusService');
@@ -191,6 +193,20 @@ describe('phone alerts', () => {
     expect(limits.phoneLimits).not.toHaveBeenCalled();
     expect(limits.reportLimitsReached).not.toHaveBeenCalled();
     limits.phoneLimits.mockResolvedValue([]);
+  });
+
+  it('passes on what the parent PIN did, only while someone looks after them', async () => {
+    const base = { installId: 'install-123', locationAlways: true, notifications: true };
+    const pinEvents = [{ id: 'event-0001', kind: 'opened', atMs: now.getTime(), screen: 'app_info' }];
+    prisma.supervision.findMany.mockResolvedValue([link('alex')]);
+    await checkIn(H, 'mia', { ...base, pinEvents }, now);
+    expect(parentPin.reportPinEvents).toHaveBeenCalledWith(H, 'mia', pinEvents, now);
+    vi.clearAllMocks();
+    await checkIn(H, 'mia', { ...base, pinEvents: [] }, now);
+    expect(parentPin.reportPinEvents).not.toHaveBeenCalled();
+    prisma.supervision.findMany.mockResolvedValue([]);
+    await checkIn(H, 'mia', { ...base, pinEvents }, now);
+    expect(parentPin.reportPinEvents).not.toHaveBeenCalled();
   });
 
   it('answers a looked-after phone with its schedules, and nobody else’s phone', async () => {
@@ -621,5 +637,14 @@ describe('check-in fields', () => {
     const reached = { day: '2026-10-12', apps: ['com.google.android.youtube', '*'] };
     expect(phoneCheckInSchema.parse({ ...base, limitsReached: reached }).limitsReached).toEqual(reached);
     expect(() => phoneCheckInSchema.parse({ ...base, limitsReached: { day: 'today', apps: [] } })).toThrow();
+  });
+
+  it('takes up to 20 parent PIN events, of any kind (the service drops the ones it does not know)', async () => {
+    const { phoneCheckInSchema } = await import('@/lib/validation/phone');
+    const event = (i: number) => ({ id: `event-${1000 + i}`, kind: i % 2 ? 'wrong_pin' : 'newer_kind', atMs: 5 });
+    const events = Array.from({ length: 20 }, (_, i) => event(i));
+    expect(phoneCheckInSchema.parse({ ...base, pinEvents: events }).pinEvents).toEqual(events);
+    expect(() => phoneCheckInSchema.parse({ ...base, pinEvents: [...events, event(21)] })).toThrow();
+    expect(() => phoneCheckInSchema.parse({ ...base, pinEvents: [{ ...event(1), id: 'short' }] })).toThrow();
   });
 });

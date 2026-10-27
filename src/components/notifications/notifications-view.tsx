@@ -12,6 +12,7 @@ import {
   Loader2,
   Package,
   Hourglass,
+  KeyRound,
   PackagePlus,
   Receipt,
   Clock,
@@ -51,6 +52,7 @@ const TYPE_ICON: Record<NotificationType, LucideIcon> = {
   new_app: PackagePlus,
   limit_reached: Hourglass,
   extra_time: Timer,
+  parent_pin: KeyRound,
   request_update: Inbox,
 };
 
@@ -69,6 +71,7 @@ const TYPE_VARIANT: Record<
   new_app: 'default',
   limit_reached: 'default',
   extra_time: 'default',
+  parent_pin: 'warning',
   request_update: 'default',
 };
 

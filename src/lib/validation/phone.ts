@@ -25,6 +25,20 @@ export const limitsReachedSchema = z.object({
 });
 export type LimitsReachedInput = z.infer<typeof limitsReachedSchema>;
 
+/**
+ * Something the parent PIN did on the phone (lib/parentPin.ts): id: the
+ * phone's own, the same every time it sends it; kind: wrong_pin, opened or
+ * unlocked (one this server doesn't know is dropped by the service, not
+ * refused); atMs: when (the phone's clock); screen: what it opened.
+ */
+export const pinEventSchema = z.object({
+  id: z.string().trim().min(8).max(100),
+  kind: z.string().trim().min(1).max(40),
+  atMs: z.number().int().positive(),
+  screen: z.string().trim().max(40).optional(),
+});
+export type PinEventInput = z.infer<typeof pinEventSchema>;
+
 /** The Android app checking in (hourly): which install, and what it may do. */
 export const phoneCheckInSchema = z.object({
   installId: z.string().trim().min(8).max(100),
@@ -71,6 +85,8 @@ export const phoneCheckInSchema = z.object({
   alwaysAllowed: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
   /** The daily limits it covered an app for today; sent only while an adult looks after the member. */
   limitsReached: limitsReachedSchema.optional(),
+  /** What the parent PIN did there since its last check-in got through (left out by older apps). */
+  pinEvents: z.array(pinEventSchema).max(20).optional(),
   /** Android is switching the phone off: this is its last word until it's back. */
   shuttingDown: z.boolean().optional(),
 });

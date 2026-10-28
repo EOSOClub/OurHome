@@ -26,9 +26,11 @@ someone from outside the household.
 ¹ Managers may only manage and assign the ranks below them - adult, teen,
   child, guest (`canManageMember`, `canAssignRole`).
 ² Guests only on tasks assigned to them (enforced in `taskService`).
-³ Ownership is enforced in `requestService` - nobody, including the head, can
-  edit or delete another person's request. For maintenance requests, only the
-  **assignee** can accept (set the done-by date) and mark done.
+³ Ownership is enforced in `requestService` - nobody can edit or delete
+  another person's request, with one exception: the head may **reassign** or
+  **delete** anyone's maintenance request (reassigning sends it back to
+  waiting). For maintenance requests, only the **assignee** can accept (set
+  the done-by date) and mark done.
 
 ## Page access (editable by the head)
 
@@ -76,7 +78,8 @@ not who paid).
 
 - Requests has **Add** (= submit a request) and **Approve** (= mark media
   requests added, one step: waiting → added). Editing or deleting stays
-  requester-only and accepting maintenance stays assignee-only, so someone
+  requester-only (bar the head on maintenance, above) and accepting
+  maintenance stays assignee-only, so someone
   with submitting switched off can still manage what they already asked for.
   Settings → Request types narrows both per kind of request: which roles may
   ask for it (Add is still needed), and for media, chosen people who handle

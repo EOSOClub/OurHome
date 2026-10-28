@@ -27,6 +27,7 @@ export default async function RequestsPage() {
       initialRequests={requests.map(requestToDTO)}
       initialModules={modules}
       currentUserId={user.id}
+      isHead={user.role === 'head'}
       members={members}
     />
   );

@@ -5,7 +5,7 @@ import { requestIdSchema } from '@/lib/validation/request';
 export const POST = withAuth(async (ctx) => {
   requirePermission(ctx, 'requests:write');
   const { id } = await parseBody(ctx.req, requestIdSchema);
-  // Ownership (requester only) is enforced in the service.
-  await deleteRequest(ctx.user.householdId!, ctx.user.id, id);
+  // Ownership (the requester, or the head for maintenance) is enforced in the service.
+  await deleteRequest(ctx.user.householdId!, ctx.user, id);
   return ok({ id });
 });

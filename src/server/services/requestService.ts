@@ -39,6 +39,7 @@ import type {
   CompleteRequestInput,
   CreateRequestInput,
   DeclineRequestInput,
+  ReassignRequestInput,
   UpdateRequestInput,
 } from '@/lib/validation/request';
 
@@ -59,7 +60,8 @@ import type {
 //                done-by date (`dueAt`, the deadline; optional when the head
 //                says so), may move that date, and marks it done, or declines
 //                it when the head allows that. The requester may edit or delete
-//                it; reassigning sends it back to "pending".
+//                it; reassigning sends it back to "pending". The head may also
+//                reassign or delete anyone's.
 //   purchase,    yes or no. Whoever decides (the requester's supervisors where
 //   permission:  the head chose that and they have any, otherwise the people
 //                the head chose or the Approve switch) approves it, which
@@ -226,7 +228,8 @@ function assertModuleOn(modules: RequestModuleSettings, category: string): Reque
  * The household member a maintenance request is assigned to: never the
  * requester, and one of the people the head lets be asked - unless it's who
  * it's already with (`current`), so a later change to that list doesn't stop
- * the requester editing the rest.
+ * the requester editing the rest. `byHead`: the head reassigning, who made
+ * that list and may pick anyone.
  */
 async function assertAssignable(
   householdId: string,
@@ -234,6 +237,7 @@ async function assertAssignable(
   assigneeId: string,
   requesterId: string,
   current: string | null = null,
+  byHead = false,
 ) {
   if (assigneeId === requesterId) {
     throw new ConflictError('Choose someone else to do it.', 'assigneeId');
@@ -243,7 +247,7 @@ async function assertAssignable(
     select: { id: true, name: true },
   });
   if (!member) throw new NotFoundError('That member is not in this household.');
-  if (assigneeId !== current) {
+  if (assigneeId !== current && !byHead) {
     const choices = assigneeChoices(modules.maintenance, await householdMemberIds(householdId), requesterId);
     if (!choices.includes(assigneeId)) {
       throw new ConflictError(
@@ -540,6 +544,65 @@ export async function updateRequest(
 }
 
 /**
+ * Maintenance: the head gives an open request to another member, anyone but
+ * the requester (the who-may-be-asked list doesn't bind the head who set it).
+ * Like the requester reassigning, it goes back to "pending" for the new person.
+ */
+export async function reassignRequest(
+  householdId: string,
+  actor: RequestActor,
+  input: ReassignRequestInput,
+): Promise<RequestWithPeople> {
+  const modules = await getRequestModules(householdId);
+  const existing = await getRequest(householdId, input.id);
+  if (existing.category !== 'maintenance') {
+    throw new ConflictError('Only maintenance requests go to a person.');
+  }
+  assertModuleOn(modules, existing.category);
+  if (actor.role !== 'head') throw new ForbiddenError('Only the Head of House can reassign requests.');
+  assertStillOpen(existing);
+  if (input.assigneeId === existing.assigneeId) {
+    throw new ConflictError('It’s already with them.', 'assigneeId');
+  }
+  const assignee = await assertAssignable(
+    householdId,
+    modules,
+    input.assigneeId,
+    existing.requesterId,
+    existing.assigneeId,
+    true,
+  );
+
+  const request = await prisma.request.update({
+    where: { id: input.id },
+    data: {
+      assignee: { connect: { id: assignee.id } },
+      // A new assignee hasn't agreed to anything yet.
+      status: 'pending',
+      dueAt: null,
+      acceptedAt: null,
+      completedAt: null,
+    },
+    include: requestInclude,
+  });
+
+  await logActivity({
+    householdId,
+    actorId: actor.id,
+    verb: 'updated',
+    subjectType: 'request',
+    subjectId: request.id,
+    message: `gave ${describe(request)} to ${assignee.name}`,
+  });
+  // The old assignee's "Accepted" no longer holds.
+  await forgetAnswer(householdId, request.id);
+  // `existing.assigneeId`: it leaves the old assignee's list.
+  await pushRequestChange(householdId, modules, request, [existing.assigneeId]);
+
+  return request;
+}
+
+/**
  * Maintenance: the assignee accepts, committing to (or moving) a done-by date
  * - the deadline. When the head made the date optional, accepting without one
  * is fine too (and saving no date clears it). The approve workflow has no
@@ -736,24 +799,34 @@ export async function declineRequest(
   return request;
 }
 
+/** The requester removes their own request; the head may also remove anyone's maintenance request. */
 export async function deleteRequest(
   householdId: string,
-  userId: string,
+  actor: RequestActor,
   id: string,
 ): Promise<void> {
-  const existing = await getOwnRequest(householdId, id, userId);
+  const existing = await getRequest(householdId, id);
+  const own = existing.requesterId === actor.id;
+  if (!own && !(actor.role === 'head' && existing.category === 'maintenance')) {
+    throw new ForbiddenError('You can only change your own requests.');
+  }
+  const requester = own
+    ? null
+    : await prisma.user.findUnique({ where: { id: existing.requesterId }, select: { name: true } });
   await prisma.request.delete({ where: { id } });
   await forgetAnswer(householdId, id);
 
   await logActivity({
     householdId,
-    actorId: userId,
+    actorId: actor.id,
     verb: 'deleted',
     subjectType: 'request',
     subjectId: id,
-    message: `withdrew their ${existing.issue ? 'report of' : 'request'} ${
-      existing.category === 'purchase' ? `to buy ${describePurchase(existing)}` : describe(existing)
-    }`,
+    message: own
+      ? `withdrew their ${existing.issue ? 'report of' : 'request'} ${
+          existing.category === 'purchase' ? `to buy ${describePurchase(existing)}` : describe(existing)
+        }`
+      : `removed ${requester ? `${requester.name}’s` : 'a'} request ${describe(existing)}`,
   });
   await pushRequestChange(householdId, await getRequestModules(householdId), existing);
 }

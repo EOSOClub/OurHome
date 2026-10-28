@@ -14,6 +14,7 @@ import {
   Trash2,
   TriangleAlert,
   Tv,
+  UserRoundPen,
   Wrench,
   X,
 } from 'lucide-react';
@@ -156,6 +157,7 @@ export function RequestsView({
   initialRequests,
   initialModules,
   currentUserId,
+  isHead,
   members,
 }: {
   initialRequests: RequestDTO[];
@@ -166,6 +168,8 @@ export function RequestsView({
    */
   initialModules: RequestModuleView[];
   currentUserId: string;
+  /** The head may reassign or remove anyone's maintenance request. */
+  isHead: boolean;
   members: MemberDTO[];
 }) {
   const timeZone = useHouseholdZone();
@@ -175,6 +179,8 @@ export function RequestsView({
   // A purchase being approved, where the approver may put it on a shopping list.
   const [approving, setApproving] = useState<RequestDTO | null>(null);
   const [declining, setDeclining] = useState<RequestDTO | null>(null);
+  // A maintenance request the head is giving to someone else.
+  const [reassigning, setReassigning] = useState<RequestDTO | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<RequestDTO | null>(null);
   // Bumped after a successful create so the form remounts empty.
   const [formKey, setFormKey] = useState(0);
@@ -204,6 +210,7 @@ export function RequestsView({
   const editForm = useFieldErrors('request-edit');
   const acceptForm = useFieldErrors('request-accept');
   const declineForm = useFieldErrors('request-decline');
+  const reassignForm = useFieldErrors('request-reassign');
 
   const createMutation = useMutation({
     mutationFn: (payload: RequestPayload) => post<RequestDTO>('/api/requests', payload),
@@ -287,6 +294,16 @@ export function RequestsView({
       invalidate();
     },
     onError: declineForm.fail,
+  });
+
+  const reassignMutation = useMutation({
+    mutationFn: (input: { id: string; assigneeId: string }) => post<RequestDTO>('/api/requests/reassign', input),
+    onSuccess: (r) => {
+      toast.success(`Sent to ${r.assignee?.name ?? 'them'}`);
+      setReassigning(null);
+      invalidate();
+    },
+    onError: reassignForm.fail,
   });
 
   const busyId = acceptMutation.isPending
@@ -430,9 +447,14 @@ export function RequestsView({
                       key={r.id}
                       request={r}
                       currentUserId={currentUserId}
+                      isHead={isHead}
                       requireDueDate={maintenanceModule.requireDueDate}
                       canDecline={maintenanceModule.allowDecline}
                       busy={busyId === r.id}
+                      onReassign={() => {
+                        reassignForm.clear();
+                        setReassigning(r);
+                      }}
                       onAccept={() => {
                         acceptForm.clear();
                         setAccepting(r);
@@ -535,6 +557,16 @@ export function RequestsView({
         errors={declineForm}
         onClose={() => setDeclining(null)}
         onDecline={(reply) => declining && declineMutation.mutate({ id: declining.id, reply })}
+      />
+
+      <ReassignDialog
+        key={reassigning?.id ?? 'none-reassign'}
+        request={reassigning}
+        members={members}
+        pending={reassignMutation.isPending}
+        errors={reassignForm}
+        onClose={() => setReassigning(null)}
+        onReassign={(assigneeId) => reassigning && reassignMutation.mutate({ id: reassigning.id, assigneeId })}
       />
 
       <ConfirmDialog
@@ -685,9 +717,11 @@ function MediaRow({
 function MaintenanceRow({
   request: r,
   currentUserId,
+  isHead,
   requireDueDate,
   canDecline,
   busy,
+  onReassign,
   onAccept,
   onComplete,
   onDecline,
@@ -696,11 +730,14 @@ function MaintenanceRow({
 }: {
   request: RequestDTO;
   currentUserId: string;
+  /** Reassigns or removes anyone's request. */
+  isHead: boolean;
   /** Accepting needs a done-by date (Settings → Request types). */
   requireDueDate: boolean;
   /** The head lets the person asked decline (Settings → Request types). */
   canDecline: boolean;
   busy: boolean;
+  onReassign: () => void;
   onAccept: () => void;
   onComplete: () => void;
   onDecline: () => void;
@@ -710,6 +747,8 @@ function MaintenanceRow({
   const timeZone = useHouseholdZone();
   const isRequester = r.requester.id === currentUserId;
   const isAssignee = r.assignee?.id === currentUserId;
+  // On their own request the head has the requester's edit and remove.
+  const headActions = isHead && !isRequester;
   const open = r.status === 'pending' || r.status === 'accepted';
   const overdue = r.status === 'accepted' && isOverdue(r.dueAt, timeZone);
   const who = (m: { id: string; name: string } | null) =>
@@ -779,8 +818,83 @@ function MaintenanceRow({
         ) : isRequester ? (
           <OwnerActions title={r.title} onEdit={onEdit} onDelete={onDelete} />
         ) : null}
+        {headActions && open ? (
+          <Button size="sm" variant="ghost" onClick={onReassign} disabled={busy}>
+            <UserRoundPen /> Reassign
+          </Button>
+        ) : null}
+        {headActions ? (
+          <Button variant="ghost" size="icon" onClick={onDelete} aria-label={`Remove ${r.title}`}>
+            <Trash2 className="size-4" />
+          </Button>
+        ) : null}
       </div>
     </li>
+  );
+}
+
+/** The head gives a maintenance request to someone else: anyone but the requester. */
+function ReassignDialog({
+  request,
+  members,
+  pending,
+  errors,
+  onClose,
+  onReassign,
+}: {
+  request: RequestDTO | null;
+  members: MemberDTO[];
+  pending: boolean;
+  /** The last try's field errors: a refused person is marked with why. */
+  errors: FieldErrorsState;
+  onClose: () => void;
+  onReassign: (assigneeId: string) => void;
+}) {
+  const [assigneeId, setAssigneeId] = useState(request?.assignee?.id ?? '');
+  const choices = members.filter((m) => m.id !== request?.requester.id);
+  const unchanged = !assigneeId || assigneeId === request?.assignee?.id;
+  return (
+    <Dialog
+      open={request !== null}
+      onClose={onClose}
+      title="Reassign request"
+      description={request ? `“${request.title}” from ${request.requester.name}` : undefined}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={pending}>
+            Cancel
+          </Button>
+          <Button disabled={pending || unchanged} onClick={() => onReassign(assigneeId)}>
+            {pending ? <Loader2 className="animate-spin" /> : null}
+            Reassign
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-1.5" data-field="assigneeId" {...errors.formProps}>
+        <Label htmlFor="request-reassign-to">Who should do it?</Label>
+        <Select
+          id="request-reassign-to"
+          value={assigneeId}
+          onChange={(e) => setAssigneeId(e.target.value)}
+          {...errors.invalid('assigneeId')}
+        >
+          <option value="" disabled>
+            Choose someone…
+          </option>
+          {choices.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name}
+            </option>
+          ))}
+        </Select>
+        <FieldNote
+          id={errors.noteId('assigneeId')}
+          error={errors.get('assigneeId')}
+          hint="It goes back to waiting, for them to accept with their own date."
+        />
+      </div>
+    </Dialog>
   );
 }
 

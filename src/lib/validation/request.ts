@@ -133,6 +133,10 @@ export type UpdateRequestInput = z.infer<typeof updateRequestSchema>;
 export const requestIdSchema = z.object({ id });
 export type RequestIdInput = z.infer<typeof requestIdSchema>;
 
+// The head giving a maintenance request to someone else.
+export const reassignRequestSchema = z.object({ id, assigneeId: maintenanceFields.assigneeId });
+export type ReassignRequestInput = z.infer<typeof reassignRequestSchema>;
+
 // Marking done / approving. A purchase may name a shopping list to put it on.
 export const completeRequestSchema = z.object({ id, listId: z.string().cuid().nullish() });
 export type CompleteRequestInput = z.infer<typeof completeRequestSchema>;

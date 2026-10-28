@@ -40,10 +40,12 @@ export function ConfirmDialog({
       title={title}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose} disabled={pending}>
+          {/* type="button": a dialog inside a form must not submit it. */}
+          <Button type="button" variant="ghost" onClick={onClose} disabled={pending}>
             {cancelLabel}
           </Button>
           <Button
+            type="button"
             variant={destructive ? 'destructive' : 'default'}
             onClick={onConfirm}
             disabled={pending}

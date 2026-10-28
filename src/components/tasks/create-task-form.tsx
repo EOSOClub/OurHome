@@ -10,8 +10,10 @@ import {
   PRIORITY_LABELS,
 } from '@/lib/enums';
 import { cn } from '@/lib/utils';
+import { liveTotals } from '@/lib/taskPoints';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
@@ -19,6 +21,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { FieldNote } from '@/components/ui/field-note';
 import type { FieldErrorsState } from '@/lib/use-field-errors';
 import { LocationMultiSelect, placeIdLists, placeValues } from '@/components/location-select';
+import { usePointsShown } from '@/components/household-features';
 import {
   PointsEditor,
   draftFromTask,
@@ -169,6 +172,11 @@ export function CreateTaskForm({
     rollover &&
     ((recurKind === 'weekly' && cycleWeekdays.length === 0) ||
       (recurKind === 'monthly' && cycleMonthdays.length === 0));
+  // A new task worth 0 points: the button goes red and saving asks first.
+  // Skipped when the household has points turned off.
+  const showPoints = usePointsShown();
+  const noPoints = !isEdit && showPoints && liveTotals(points).pointsCenti === 0;
+  const [confirmNoPoints, setConfirmNoPoints] = useState(false);
 
   function toggleIn(list: number[], value: number): number[] {
     return list.includes(value)
@@ -179,6 +187,14 @@ export function CreateTaskForm({
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (cycleIncomplete) return;
+    if (noPoints) {
+      setConfirmNoPoints(true);
+      return;
+    }
+    save();
+  }
+
+  function save() {
     const payload: TaskFormPayload = {
       title: title.trim(),
       type,
@@ -624,11 +640,30 @@ export function CreateTaskForm({
             <Button type="button" variant="ghost" onClick={onCancel}>
               Cancel
             </Button>
-            <Button type="submit" disabled={submitting || !title.trim() || cycleIncomplete}>
+            <Button
+              type="submit"
+              variant={noPoints ? 'destructive' : 'default'}
+              title={noPoints ? 'This task earns no points' : undefined}
+              disabled={submitting || !title.trim() || cycleIncomplete}
+            >
               {submitting ? <Loader2 className="animate-spin" /> : null}
               {isEdit ? 'Save changes' : 'Add task'}
             </Button>
           </div>
+
+          <ConfirmDialog
+            open={confirmNoPoints}
+            onClose={() => setConfirmNoPoints(false)}
+            onConfirm={() => {
+              setConfirmNoPoints(false);
+              save();
+            }}
+            title="No points for this task?"
+            description="Nobody will earn points for completing this task. Go back to set a time to complete or points, or add it anyway."
+            confirmLabel="Add anyway"
+            cancelLabel="Go back"
+            destructive
+          />
         </form>
       </CardContent>
     </Card>

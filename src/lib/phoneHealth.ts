@@ -90,7 +90,7 @@ export type PhoneProblem = (typeof PHONE_PROBLEMS)[number];
 /**
  * The emergency unlock's milestones, as the phone sends them (its
  * CloseGuard.EmergencyDuration). "2h_elapsed" is only in the 5-hour unlock,
- * "3h_elapsed" and "6h_elapsed" only in the 10-hour one.
+ * "3h_elapsed" and "6h_elapsed" are only in the 10-hour one.
  */
 export const EMERGENCY_UNLOCK_STAGES = [
   'started',
@@ -253,7 +253,7 @@ export interface PhoneSnapshot {
   notifications?: boolean;
   /** null: an app from before usage reporting, which can't say. */
   usageAccess?: boolean | null;
-  /** Its Private DNS: a hostname, or "off" (lib/webFilter.ts); null: an app from before web filtering. */
+  /** The phone's Private DNS: a hostname, or "off" (lib/webFilter.ts); null: an app from before web filtering. */
   privateDns?: string | null;
   /** null: an app from before the delivery check, which can't say. */
   batteryUnrestricted?: boolean | null;
@@ -292,7 +292,7 @@ export interface PhoneExpectations {
   webFilter?: WebFilter | null;
 }
 
-/** The phone that checked in most recently, or null if none ever did. */
+/** Whichever phone checked in last, or null if none ever did. */
 export function freshestPhone<T extends { lastSeenAt: Date }>(phones: T[]): T | null {
   return phones.reduce<T | null>((best, p) => (!best || p.lastSeenAt > best.lastSeenAt ? p : best), null);
 }
@@ -305,8 +305,8 @@ export function lastWordAt(phone: PhoneSnapshot): Date {
 
 /**
  * Whether the phone is quiet, and the likeliest reason; null while it isn't.
- * A phone holding its stream is never quiet. Firebase calling its token dead
- * since its last word says OurHome is gone, at once. Otherwise, a phone that
+ * A phone holding its stream is never quiet. If Firebase has called its token
+ * dead since its last word, OurHome is gone, and that shows at once. Otherwise, a phone that
  * keeps a stream with battery Unrestricted is missed after
  * [PHONE_QUICK_QUIET_MS], any other after [PHONE_QUIET_MS]; then its last
  * word says why: a shutdown, a nearly flat battery, or no signal.

@@ -23,7 +23,7 @@ function roleLabel(role: string): string {
 
 /** The supervision list, for the Head of House only ([enabled]). */
 export function useSupervision(membersVersion: string, enabled: boolean) {
-  // Adding, removing, renaming or changing someone's role changes who appears here.
+  // Who appears here changes when someone is added, removed, renamed or given a new role.
   const queryKey = ['supervision', membersVersion];
   const query = useQuery({
     queryKey,

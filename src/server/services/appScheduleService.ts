@@ -100,7 +100,7 @@ export async function scheduledAppNames(db: Db, householdId: string): Promise<st
   return [...new Set(rows.flatMap((r) => allowedApps(r.allowed).map((a) => a.app)))];
 }
 
-/** Whether a schedule of any of [userIds] still allows [app] (its icon may then be shown to their supervisors). */
+/** Whether any schedule of [userIds] still allows [app] (its icon may then be shown to their supervisors). */
 export async function isScheduledFor(userIds: string[], app: string): Promise<boolean> {
   if (userIds.length === 0) return false;
   const rows = await prisma.appSchedule.findMany({ where: { userId: { in: userIds } }, select: { allowed: true } });

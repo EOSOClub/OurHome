@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { recordId } from '@/lib/validation/ids';
 import { ok, parseQuery, withAuth } from '@/server/api/http';
 import { listNotifications } from '@/server/services/notificationService';
 import { generateReminders } from '@/server/services/reminderService';
@@ -7,7 +7,7 @@ import { listNotificationsQuery } from '@/lib/validation/notification';
 // `before` pages further back: pass the id of the oldest already-loaded
 // notification to get the next-older page.
 const listQuery = listNotificationsQuery.extend({
-  before: z.cuid().optional(),
+  before: recordId.optional(),
 });
 
 // Lazy-on-read generation: each fetch reconciles reminders from current state,

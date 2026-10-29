@@ -20,6 +20,8 @@ import { toast } from '@/components/ui/toast';
 // "Decide later" hides the prompt for this browser session only.
 const LATER_KEY = 'ourhome.access-prompt-later';
 
+// The text names the plain-HTTP local address on purpose.
+// noinspection HttpUrlsUsage
 const OPTIONS = [
   {
     allowHttp: true,

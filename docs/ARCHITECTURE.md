@@ -82,7 +82,7 @@ paid - again). `taskService.completeTask` records a `TaskCompletion`, advances
 `RecurrenceRule.nextRunAt` and the task's `dueDate`, and resets status to
 `pending` - all in one transaction.
 
-**Due vs overdue.** A due date picked without a time is stored at 12:00 local
+**When a task counts as overdue.** A due date picked without a time is stored at 12:00 local
 and is due all day: it counts as overdue from the next day (`lib/format.ts`
 `isOverdue`, household zone on the server). A task with an explicit due time
 is overdue once that time passes. Pages, the dashboard counts and the reminder
@@ -329,9 +329,9 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
   Lists and items are separate rows in the page-access grid ("Shopping lists"
   / "Shopping items"); the Android app can create, rename and delete lists too.
 - **Inventory.** `inventoryService` owns items, quantity adjustments (manual or
-  NFC-driven), low-stock thresholds, and a restock forecast
+  NFC-driven), low-stock thresholds, and a depletion forecast
   (`predictedDepletionAt`, derived from `reorderIntervalDays` and the last
-  restock) that feeds reorder reminders.
+  restocking) that feeds reorder reminders.
 - **Requests.** `requestService` owns household requests. Everyone sees all
   requests on `/requests`, grouped by category; only the requester can edit or
   delete their own.
@@ -357,13 +357,13 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
     page and the Android app draw the form and buttons from it.
   - *Media* (approve) - movies and TV shows (`mediaType`, name, year, optional
     TV season). One step: `pending` ("waiting") → `completed` ("added"), or
-    `declined` with an optional `reply` where the head allows declining; who
-    did it is `decidedById`. Rows created before media had a status have none -
+    `declined` with an optional `reply` where the head allows declining; the
+    member who did it is in `decidedById`. Rows created before media had a status have none -
     treat a missing status as `pending`; `accepted` rows from the older accept
     → available flow also still wait. A declined request can be removed, not
     edited.
   - *Maintenance* (assign) - the requester asks another member (`assigneeId`,
-    never themself). Lifecycle `pending` → `accepted` → `completed`: the
+    never the requester). Lifecycle `pending` → `accepted` → `completed`: the
     assignee accepts with a done-by date stored as `dueAt` (the deadline;
     optional when the head says so), may move it, and marks it done;
     reassigning resets to `pending`.

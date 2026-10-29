@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { recordId } from '@/lib/validation/ids';
 import { NFC_REPRESENTS, NFC_SCAN_ACTIONS } from '@/lib/enums';
 
 // A physical tag id. Tags written by the Home Assistant companion app carry a
@@ -15,7 +16,7 @@ export const tagIdSchema = z
 // Per-tag app behaviour; omitted fields keep whatever the tag already has.
 const scanSettings = {
   scanAction: z.enum(NFC_SCAN_ACTIONS).optional(),
-  shoppingListId: z.cuid().optional().nullable(),
+  shoppingListId: recordId.optional().nullable(),
 };
 
 // Register (or re-bind) a tag: a location tag to a room, any other kind to a
@@ -24,8 +25,8 @@ export const registerNfcTagSchema = z
   .object({
     tagId: tagIdSchema,
     label: z.string().trim().min(1).max(120),
-    itemId: z.cuid().optional().nullable(),
-    roomId: z.cuid().optional().nullable(),
+    itemId: recordId.optional().nullable(),
+    roomId: recordId.optional().nullable(),
     represents: z.enum(NFC_REPRESENTS).default('consumable'),
     ...scanSettings,
   })
@@ -35,8 +36,7 @@ export const registerNfcTagSchema = z
 
 export type RegisterNfcTagInput = z.infer<typeof registerNfcTagSchema>;
 
-export const nfcTagIdSchema = z.object({ id: z.cuid() });
-export type NfcTagIdInput = z.infer<typeof nfcTagIdSchema>;
+export const nfcTagIdSchema = z.object({ id: recordId });
 
 // --- Scanning from the Android app (session auth, not the HA webhook) -------
 
@@ -50,7 +50,6 @@ export const nfcAppScanSchema = z.object({
     .refine((n) => n !== 0, 'Scan amount must be non-zero.'),
   note: z.string().trim().max(500).optional().nullable(),
 });
-export type NfcAppScanInput = z.infer<typeof nfcAppScanSchema>;
 
 const quantity = z.number().min(0).max(1_000_000);
 
@@ -61,8 +60,8 @@ export const nfcSetupSchema = z
     tagId: tagIdSchema,
     // Defaults to the item's (or room's) name.
     label: z.string().trim().min(1).max(120).optional().nullable(),
-    itemId: z.cuid().optional().nullable(),
-    roomId: z.cuid().optional().nullable(),
+    itemId: recordId.optional().nullable(),
+    roomId: recordId.optional().nullable(),
     newItem: z
       .object({
         name: z.string().trim().min(1).max(200),
@@ -70,8 +69,8 @@ export const nfcSetupSchema = z
         quantity: quantity.default(0),
         lowThreshold: quantity.default(0),
         // Where it's kept: a room, or a whole floor.
-        roomId: z.cuid().optional().nullable(),
-        floorId: z.cuid().optional().nullable(),
+        roomId: recordId.optional().nullable(),
+        floorId: recordId.optional().nullable(),
       })
       .optional()
       .nullable(),
@@ -87,8 +86,8 @@ export type NfcSetupInput = z.infer<typeof nfcSetupSchema>;
 export const nfcTagSettingsSchema = z.object({
   tagId: tagIdSchema,
   scanAction: z.enum(NFC_SCAN_ACTIONS).optional(),
-  shoppingListId: z.cuid().optional().nullable(),
-  roomId: z.cuid().optional().nullable(),
+  shoppingListId: recordId.optional().nullable(),
+  roomId: recordId.optional().nullable(),
 });
 export type NfcTagSettingsInput = z.infer<typeof nfcTagSettingsSchema>;
 

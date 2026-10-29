@@ -679,7 +679,7 @@ export async function listTasks(
     include: taskInclude,
   });
   // Order in memory: MongoDB sorts null dates FIRST, but we want tasks with no
-  // due date last. Priority: dueDate (asc, nulls last) -> newest first.
+  // due date last. Priority: dueDate (asc, nulls last), then the newest first.
   rows.sort((a, b) => {
     const ad = a.dueDate?.getTime() ?? null;
     const bd = b.dueDate?.getTime() ?? null;

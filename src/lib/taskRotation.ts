@@ -26,7 +26,7 @@ export function formatRotation(ids: readonly string[] | null | undefined): strin
 /**
  * Whose turn it is `steps` turns after `current`. Someone outside the list
  * (assigned by hand, or nobody) counts as standing just before its start, so
- * one step lands on the first person. Null when there is no rotation.
+ * moving on once lands on the first person. Null when there is no rotation.
  */
 export function nextInRotation(
   rotation: readonly string[],

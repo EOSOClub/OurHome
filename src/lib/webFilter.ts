@@ -31,9 +31,6 @@ export const WEB_FILTER_INFO: Record<WebFilter, { label: string; hostname: strin
   },
 };
 
-/** What the phone sends while Private DNS isn't set to a hostname (off or Automatic). */
-export const PRIVATE_DNS_OFF = 'off';
-
 /** A stored value as a filter; anything else (null, an old or unknown value) is off. */
 export function webFilterOf(stored: string | null | undefined): WebFilter | null {
   return (WEB_FILTERS as readonly string[]).includes(stored ?? '') ? (stored as WebFilter) : null;
@@ -46,7 +43,7 @@ export function normalizeHost(host: string): string {
 
 /**
  * Whether the phone uses [filter]: its Private DNS ([privateDns], as it last
- * said: a hostname, or [PRIVATE_DNS_OFF]) is the filter's hostname. null when
+ * said: a hostname, or "off" while it isn't set to one) is the filter's hostname. null when
  * the phone never said (an app from before web filtering).
  */
 export function webFilterOn(filter: WebFilter, privateDns: string | null | undefined): boolean | null {

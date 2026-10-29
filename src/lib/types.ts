@@ -527,7 +527,7 @@ export interface PaperlessStatusDTO {
   canEdit: boolean;
   /** Its Paperless may be on the server's private network (else public addresses only). */
   privateNetworkAllowed: boolean;
-  /** When the import was switched on; nothing older is imported. */
+  /** When the import was switched on. Nothing older is imported. */
   since: string | null;
   lastRunAt: string | null;
   lastError: string | null;
@@ -810,7 +810,7 @@ export interface ScheduleDTO {
 /**
  * Every stored day of a member's app usage, newest first, each with all its
  * kept apps (GET /api/supervision/usage/history for a supervisor, GET
- * /api/phone/usage/history for the member themself).
+ * /api/phone/usage/history for the member).
  */
 export interface UsageHistoryDTO {
   days: { day: string; totalMinutes: number; apps: UsageAppDTO[]; updatedAt: string }[];

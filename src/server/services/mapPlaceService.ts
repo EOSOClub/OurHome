@@ -180,7 +180,12 @@ export async function searchAddress(query: string): Promise<AddressMatchDTO[]> {
       headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
       signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS),
     });
-    if (!res.ok) throw new Error(`Nominatim answered ${res.status}`);
+    if (!res.ok) {
+      // Thrown into the catch below on purpose: every failure (network, timeout,
+      // a bad status) ends in the same message for the person searching.
+      // noinspection ExceptionCaughtLocallyJS
+      throw new Error(`Nominatim answered ${res.status}`);
+    }
     return parseNominatim(await res.json());
   } catch (err) {
     console.warn('[map-places] address search failed', err);

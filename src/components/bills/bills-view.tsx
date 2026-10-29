@@ -70,7 +70,7 @@ function toggleIn(list: number[], value: number): number[] {
  * POST /api/bills payload cloning a bill's descriptive fields (shared with the
  * detail page's Duplicate action). Payments, status, and email-linkage fields
  * (reference/invoiceNo/…) intentionally aren't copied; recurring bills start at
- * their next occurrence. 'cron' rules can't round-trip through the create
+ * their next occurrence. 'cron' rules can't round-trip through the creation
  * schema, so the copy of such a bill is one-off.
  */
 export function duplicateBillPayload(bill: BillDTO) {

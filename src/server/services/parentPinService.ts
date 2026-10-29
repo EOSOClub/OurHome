@@ -5,7 +5,7 @@ import { isPinEventKind, pinEventText, type PinEventKind } from '@/lib/parentPin
 import type { PinEventInput } from '@/lib/validation/phone';
 
 // The parent PIN on a supervised child's phone (parental controls): the phone
-// keeps what happened with it (a wrong-PIN wait, a protected screen opened,
+// keeps each PIN event (a wrong-PIN wait, a protected screen opened,
 // Unlock Our Home) and sends it with its next check-in, which it makes at once
 // (phoneStatusService.checkIn). Each adult who looks after the child gets a
 // bell alert, which wakes their phone. Rules and text: src/lib/parentPin.ts.

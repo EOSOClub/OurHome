@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { recordId } from '@/lib/validation/ids';
 
 // Query-string params are strings, so coerce. `unreadOnly` accepts "true"/"1".
 export const listNotificationsQuery = z.object({
@@ -14,7 +15,7 @@ export type ListNotificationsQuery = z.infer<typeof listNotificationsQuery>;
 // Mark a single notification read by id, or every notification with `all: true`.
 export const markReadSchema = z
   .object({
-    id: z.cuid().optional(),
+    id: recordId.optional(),
     all: z.boolean().optional(),
   })
   .refine((v) => Boolean(v.id) !== Boolean(v.all), {

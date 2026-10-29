@@ -168,7 +168,7 @@ export function canPush(householdId?: string, userId?: string): boolean {
  * Sends one message straight to one member's phones and waits for Firebase's
  * answer: live checks and rings need to know at once whether a phone was
  * reached. Like the sync pushes it carries no names or places, only ids.
- * Returns how many phones were reached (0 when push is off or they have none).
+ * Returns how many phones were reached (0 when push is off, or when they have none).
  */
 export async function pushToMember(
   householdId: string,

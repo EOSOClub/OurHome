@@ -100,7 +100,7 @@ export function HouseholdMap({
     };
   }, []);
 
-  // Draw the places and people (again on every refetch and every minute).
+  // Draw the places and people (again on every fresh fetch and every minute).
   useEffect(() => {
     const L = leafletRef.current;
     const map = mapRef.current;

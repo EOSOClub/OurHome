@@ -493,6 +493,8 @@ export function TasksView({
     </div>
   );
 
+  // Spread into every TaskCard ({...cardHandlers}); the IDE doesn't follow the spread.
+  // noinspection JSUnusedGlobalSymbols
   const cardHandlers = {
     access,
     userId,

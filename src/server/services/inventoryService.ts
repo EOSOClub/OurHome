@@ -23,7 +23,7 @@ export type InventoryItemWithRelations = Prisma.InventoryItemGetPayload<{
   include: typeof itemInclude;
 }>;
 
-/** A stock level is "low" only when a threshold is set and we're at/below it. */
+/** A stock level is "low" only when it's at or below a set threshold. */
 function computeIsLow(quantity: number, lowThreshold: number): boolean {
   return lowThreshold > 0 && quantity <= lowThreshold;
 }
@@ -219,8 +219,8 @@ export async function updateInventoryItem(
   const nextThreshold = rest.lowThreshold ?? existing.lowThreshold;
 
   // A changed reorder interval invalidates the depletion forecast; recompute
-  // it from the existing restock history. (Restocks themselves refresh the
-  // forecast in adjustQuantity, the actual restock path.)
+  // it from the existing restocking history. (Restocking itself refreshes the
+  // forecast in adjustQuantity, the actual restocking path.)
   const intervalProvided = rest.reorderIntervalDays !== undefined;
   const intervalChanged =
     intervalProvided && rest.reorderIntervalDays !== existing.reorderIntervalDays;
@@ -291,7 +291,7 @@ export async function adjustQuantity(
     wasLow = existing.isLow;
     isLow = computeIsLow(newQuantity, existing.lowThreshold);
 
-    // A positive adjustment counts as a restock, which also resets the
+    // A positive adjustment counts as restocking, which also resets the
     // depletion forecast: full again, expected to last one reorder interval.
     const restockedAt = delta > 0 ? new Date() : existing.lastRestockedAt;
 

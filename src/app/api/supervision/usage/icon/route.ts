@@ -4,7 +4,7 @@ import { usageIconQuerySchema } from '@/lib/validation/supervision';
 
 // An app's icon next to a child's app usage on "People you look after", or
 // on the child's own Profile. Only for an adult who supervises a child whose
-// shared usage names the app, or the child themself (404 otherwise). Kept by
+// shared usage names the app, or for that child (404 otherwise). Kept by
 // the browser for a day: icons rarely change.
 export const GET = withAuth(async (ctx) => {
   const { app } = parseQuery(ctx.req, usageIconQuerySchema);

@@ -4,7 +4,7 @@ import { taskPlaceIds } from '@/lib/places';
 import type { TaskPlaceDTO } from '@/lib/types';
 
 // A task's places as names, for the DTO and the dashboard. A task keeps its
-// first place in roomId/floorId (with Prisma relations) and any more as plain
+// first place in roomId/floorId (with Prisma relations) and any others as plain
 // id lists, so the names come from one lookup of the household's floors and
 // rooms rather than per-task joins.
 

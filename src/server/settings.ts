@@ -19,7 +19,7 @@ import { parse } from 'yaml';
 // (npm run dev, the Prisma CLI), so one pair serves local development and the
 // server: settings.yml's `dev:` section is merged over the rest, and in .env a
 // DEV_NAME entry replaces NAME. settings.yml's `docker:` section is read by the
-// deploy scripts for Compose (port, names, network); the app ignores it.
+// deployment scripts for Compose (port, names, network); the app ignores it.
 //
 // In Docker, compose passes .env to the container as environment variables
 // (env_file) and mounts settings.yml read-only.

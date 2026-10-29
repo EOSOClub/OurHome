@@ -1,6 +1,8 @@
 @import "tailwindcss";
 
-/* Class-based dark mode for Tailwind v4. */
+/* Class-based dark mode for Tailwind v4 (a Tailwind at-rule the IDE's CSS
+   checks don't know). */
+/*noinspection CssInvalidAtRule*/
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
@@ -50,6 +52,9 @@
   --ring: hsl(217 91% 60%);
 }
 
+/* Tailwind's @theme. --font-geist-sans and --font-geist-mono are set at runtime
+   by next/font (the font variables on <html> in app/layout.tsx). */
+/*noinspection CssInvalidAtRule, CssUnresolvedCustomProperty*/
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -88,6 +93,8 @@
 body {
   background: var(--color-background);
   color: var(--color-foreground);
+  /* --font-sans already ends in sans-serif (see @theme above). */
+  /*noinspection CssNoGenericFontName*/
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }

@@ -38,7 +38,7 @@ export async function logActivity(input: LogActivityInput, db: Db = prisma) {
 export interface ActivityQuery {
   area?: ActivityArea;
   actorId?: string;
-  /** Id of the last entry already shown; the page continues after it. */
+  /** The id of the last entry already shown; the page continues after it. */
   before?: string;
   limit?: number;
 }
@@ -75,5 +75,3 @@ export async function listActivity(householdId: string, query: ActivityQuery = {
     nextBefore: rows.length > take ? items[items.length - 1].id : null,
   };
 }
-
-export type ActivityPage = Awaited<ReturnType<typeof listActivity>>;

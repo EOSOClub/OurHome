@@ -17,7 +17,7 @@
 // - A task with steps shows *live* totals: the sum of its steps.
 // - Editing a step changes only that step (and so the live totals).
 // - Editing a task total redistributes that dimension across the steps in
-//   proportion to their current values. If any step is customised this needs
+//   proportion to their current values. If any step is customised, this needs
 //   confirmation, and confirming clears the customisation it overwrites.
 // - Adding/removing a step redistributes the base totals while no step is
 //   customised; once one is, totals float (a new step gets the average).
@@ -270,7 +270,7 @@ function mapStep<S extends StepPoints>(
 
 /**
  * Add a step (its own fields come from `extra`). The first step takes the whole
- * base; while nothing is customised the base is re-split with the new step
+ * base; while nothing is customised, the base is re-split with the new step
  * weighted like an average one; otherwise totals float and the new step gets
  * the average values.
  */

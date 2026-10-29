@@ -9,7 +9,7 @@ import { useHrefEnabled } from '@/components/household-features';
 /**
  * Global keyboard shortcuts, mounted once in the app layout. `g` followed by a
  * second key (within 1.5s) jumps to a section; `?` opens a sheet listing the
- * bindings; Ctrl/⌘+K toggles the command palette (this one works even while
+ * bindings; Ctrl/⌘+K toggles the command palette (this one also works while
  * typing in a field). Other keys are ignored while typing in a form control,
  * while any dialog is open, or when a modifier is held.
  */
@@ -87,7 +87,7 @@ export function KeyboardShortcuts() {
       }
 
       // Never intercept browser/OS combos, typing, or keys meant for an open
-      // dialog (which covers the shortcuts sheet and the palette - the
+      // dialog (which covers the sheet of shortcuts and the palette - the
       // palette's overlay sets role="dialog").
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (isTypingTarget(e.target)) return;

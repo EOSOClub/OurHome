@@ -63,7 +63,7 @@ export function BillDetailView({
   canAddToCalendar: boolean;
 }) {
   const timeZone = useHouseholdZone();
-  // Paying and duplicating add records (Add); edit/delete follow own vs others'.
+  // Paying and duplicating add records (Add); edit/delete depend on whether it's their own or someone else's.
   const canEdit = canModify(access, 'edit', bill.createdById, userId);
   const canDelete = canModify(access, 'delete', bill.createdById, userId);
   const router = useRouter();

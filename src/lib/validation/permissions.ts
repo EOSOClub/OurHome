@@ -26,11 +26,9 @@ export const setRoleAccessSchema = z.object({
   role: z.enum(EDITABLE_ROLES),
   access: accessMatrixSchema,
 });
-export type SetRoleAccessInput = z.infer<typeof setRoleAccessSchema>;
 
 export const setMemberAccessSchema = z.object({
   memberId: z.string().min(1),
   /** null resets the member to their role's default. */
   access: accessMatrixSchema.nullable(),
 });
-export type SetMemberAccessInput = z.infer<typeof setMemberAccessSchema>;

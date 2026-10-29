@@ -424,7 +424,7 @@ export async function lookAfterOverview(
 /**
  * Require one protection on a supervised child's phone, or stop requiring
  * it ([PHONE_RULES]). Stopping only ends the alert and drops the step from
- * their phone's checklist: whatever is already on there stays on. Wakes
+ * their phone's checklist: whatever is already turned on stays on. Wakes
  * their phone so its checklist catches up.
  */
 export async function setPhoneRule(
@@ -1082,7 +1082,7 @@ export async function supervisedUsageHistory(
 
 /**
  * An app's icon (PNG), for a supervisor of a child whose shared usage names
- * the app or who has it blocked, limited or allowed in a schedule, or for the child themself (their Profile).
+ * the app or who has it blocked, limited or allowed in a schedule, or for the child (on their Profile).
  * Not found otherwise, so nobody else can tell which apps a child has. A
  * member's own days only exist while their usage is shared: turning it off
  * deletes them.

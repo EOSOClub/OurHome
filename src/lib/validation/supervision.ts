@@ -37,7 +37,7 @@ export const setPhoneRuleSchema = z.object({
 });
 export type SetPhoneRuleInput = z.infer<typeof setPhoneRuleSchema>;
 
-/** Choose the web filter on a supervised child's phone, or turn it off. */
+/** Choose the web filter on a supervised child's phone or turn it off. */
 export const setWebFilterSchema = z.object({
   supervisedId: z.string().min(1),
   filter: z.enum(['off', ...WEB_FILTERS]),
@@ -53,7 +53,7 @@ export const setAppBlockedSchema = z.object({
 export type SetAppBlockedInput = z.infer<typeof setAppBlockedSchema>;
 
 /**
- * Set a daily limit on a supervised child's phone, or remove it (minutes
+ * Set a daily limit on a supervised child's phone or remove it (minutes
  * null). app: its package name, or "*" for all apps together.
  */
 export const setAppLimitSchema = z.object({
@@ -64,7 +64,7 @@ export const setAppLimitSchema = z.object({
 export type SetAppLimitInput = z.infer<typeof setAppLimitSchema>;
 
 /**
- * Add a schedule to a supervised child's phone, or change one (id). days: 0
+ * Add a schedule to a supervised child's phone or change one (id). days: 0
  * (Sunday) to 6; start and end: minutes after midnight, end before start runs
  * past midnight. allowed: package names still open meanwhile.
  */

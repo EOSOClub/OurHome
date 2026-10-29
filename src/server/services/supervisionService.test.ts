@@ -101,6 +101,8 @@ const limits = {
   isLimitedFor: vi.fn(async () => false),
 };
 vi.mock('@/server/services/appLimitService', () => limits);
+// Stands in for appScheduleService (vi.mock below); supervisionService calls allowedApps.
+// noinspection JSUnusedGlobalSymbols
 const schedules = {
   schedulesByKid: vi.fn(async (): Promise<Map<string, unknown[]>> => new Map()),
   isScheduledFor: vi.fn(async () => false),
@@ -389,7 +391,7 @@ describe('releaseIfUnsupervised', () => {
     await releaseIfUnsupervised(tx as never, ['sam']);
     expect(tx.user.update).toHaveBeenCalledTimes(1);
     expect(tx.user.update).toHaveBeenCalledWith({ where: { id: 'sam' }, data: { shareAppUsage: null } });
-    // Their days, and the icons nobody else's usage names.
+    // Their days, plus the icons nobody else's usage names.
     expect(usage.forgetUsage).toHaveBeenCalledWith(tx, H, ['sam']);
   });
 

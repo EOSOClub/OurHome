@@ -42,6 +42,8 @@ export default async function RootLayout({
 }>) {
   // Nonce from the CSP set in src/proxy.ts, so this inline script is allowed.
   const nonce = (await headers()).get('x-nonce') ?? undefined;
+  // Next.js adds the <title> to this <head> from `metadata`.
+  // noinspection HtmlRequiredTitleElement
   return (
     <html
       lang="en"

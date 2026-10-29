@@ -31,7 +31,7 @@ describe('validation messages', () => {
     );
   });
 
-  it('puts zod’s built-in checks in plain words', () => {
+  it('puts the built-in zod checks in plain words', () => {
     const schema = z.object({
       title: z.string().min(1),
       notes: z.string().max(5),

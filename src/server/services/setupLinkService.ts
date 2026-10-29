@@ -11,7 +11,7 @@ import { isHouseholdDisabled } from '@/server/services/serverAdminService';
 // Guided child setup, phase 3: a setup link (shown as a QR code in Set up a
 // child) opens a page on the child's phone that downloads the app without
 // signing in, then opens it with their username filled in. One link per
-// child, kept on their User row as a SHA-256 hash, like the Home Assistant
+// child, kept on their User row hashed with SHA-256, like the Home Assistant
 // tokens. It ends after SETUP_LINK_HOURS, when a new one is made, or when
 // they choose their own password (auth.ts). The token only reaches the app
 // download and the child's name and username, never their account.

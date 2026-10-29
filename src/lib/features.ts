@@ -44,11 +44,7 @@ export const FEATURE_DESCRIPTIONS: Record<Feature, string> = {
   location: 'Map places, who is home and store reminders. Each member chooses whether to share.',
 };
 
-export function isFeature(value: string): value is Feature {
-  return (FEATURES as readonly string[]).includes(value);
-}
-
-/** The features that are on, from the stored turned-off list. */
+/** Which features are on, given the stored list of those turned off. */
 export function enabledFeatures(disabled: readonly string[] | null | undefined): Feature[] {
   const off = new Set(disabled ?? []);
   // Points are earned on tasks: without Tasks there's nothing to score.
@@ -75,8 +71,8 @@ export const ACCESS_PAGE_FEATURE: Record<AccessPage, Feature> = {
   requests: 'requests',
 };
 
-/** Pages of a turned-off feature grant nothing, so their add buttons and
- *  managers' alerts disappear along with the page. */
+/** Pages of a turned-off feature grant nothing, so their buttons for adding
+ *  and managers' alerts disappear along with the page. */
 export function maskAccess(access: AccessMatrix, features: readonly Feature[]): AccessMatrix {
   const on = new Set(features);
   const out = { ...access };
@@ -108,8 +104,8 @@ const SEGMENT_FEATURE: Record<string, Feature> = {
   location: 'location',
 };
 
-// Deeper paths inside an always-on area that still belong to a feature: the
-// Paperless connection (Settings) only feeds Bills.
+// Deeper paths that belong to a feature even though they sit inside an
+// always-on area: the Paperless connection (Settings) only feeds Bills.
 const NESTED_FEATURE: Record<string, Feature> = {
   'integrations/paperless': 'bills',
 };

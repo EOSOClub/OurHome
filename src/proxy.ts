@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { getSessionCookie } from 'better-auth/cookies';
 import { isHttpsRequest } from '@/server/security/network';
 
-// Next.js 16 renamed `middleware` -> `proxy` (nodejs runtime). This file does two
+// Next.js 16 renamed `middleware` -> `proxy` (Node.js runtime). This file does two
 // things on every page request:
 //
 //   1. An OPTIMISTIC auth gate: if there's no session cookie, protected pages
@@ -54,7 +54,7 @@ function buildCsp(nonce: string, https: boolean): string {
     `frame-ancestors 'none'`,
   ];
   // Only over HTTPS: on plain-HTTP home-network access it would rewrite every
-  // script and stylesheet to an https:// URL nothing is listening on.
+  // script and stylesheet to an `https://` URL nothing is listening on.
   if (https) directives.push(`upgrade-insecure-requests`);
   return directives.join('; ');
 }

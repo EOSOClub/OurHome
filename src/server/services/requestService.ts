@@ -274,7 +274,7 @@ function mediaPlace(
   return { season, episode };
 }
 
-/** Media: the kind must be one the head offers, unless it's the request's own kind already. */
+/** Media: the kind must be among those the head offers, unless it's the request's own kind already. */
 function assertMediaTypeOffered(modules: RequestModuleSettings, mediaType: MediaType, current: string | null = null) {
   if (mediaType !== current && !modules.media.mediaTypes.includes(mediaType)) {
     throw new ConflictError(`${MEDIA_TYPE_LABELS[mediaType]} requests aren’t offered here.`, 'mediaType');
@@ -605,7 +605,7 @@ export async function reassignRequest(
 /**
  * Maintenance: the assignee accepts, committing to (or moving) a done-by date
  * - the deadline. When the head made the date optional, accepting without one
- * is fine too (and saving no date clears it). The approve workflow has no
+ * is fine too (and saving no date clears it). The approval workflow has no
  * accept step; app builds from before the one-step media flow still call this,
  * so it marks the request done instead.
  */

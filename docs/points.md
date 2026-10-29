@@ -27,8 +27,8 @@ Sunday). Changing the rate doesn't touch existing tasks; their values are stored
 - A task with steps shows live totals, the sum of its steps.
 - Editing a step's TTC marks it customised and recalculates its points at the
   task's rate (unless its points are hand-set). Editing a step's points marks
-  them customised. Neither touches other steps or the task base, so nothing
-  recalculates in a circle.
+  them customised. Either way, other steps and the task base are left alone, so
+  nothing recalculates in a circle.
 - Editing a task total redistributes that dimension (both, when points follow
   time) across the steps in proportion to their current values. If any step is
   customised the editor warns first; confirming rescales everything and clears
@@ -84,8 +84,8 @@ last day (30 and 31 both land on Feb 28/29, once).
   read or change.
 - Tasks without cycles: completing moves them to the next occurrence and
   locks them until it opens (`Task.opensAt`, recurrenceService
-  `completeOccurrence`): local midnight after the later of the due date and
-  now. The next due date is the first occurrence from then, so done early it's
+  `completeOccurrence`): local midnight after the due date or now, whichever
+  is later. The next due date is the first occurrence from then, so done early it's
   the one after the due date, and done late it skips the rest of today. One
   completion pays once; before this lock it could be completed again at once,
   skipping ahead and paying each time. A late one simply stays overdue. Undo

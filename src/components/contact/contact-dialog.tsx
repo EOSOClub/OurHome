@@ -29,6 +29,8 @@ interface TurnstileApi {
   remove: (id?: string) => void;
 }
 
+// Adds window.turnstile to the browser's Window type (used below).
+// noinspection JSUnusedGlobalSymbols
 declare global {
   interface Window {
     turnstile?: TurnstileApi;

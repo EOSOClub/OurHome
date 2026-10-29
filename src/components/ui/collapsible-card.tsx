@@ -34,7 +34,7 @@ function useFold(defaultOpen: boolean, wanted: boolean) {
  * SectionCards inside sit under dividers in this one card.
  *
  * The title row is a button, so nothing clickable goes in `description`.
- * Header buttons (Add, New) go in `actions`, beside it: they show while closed
+ * Header buttons (Add, New) go in `actions`, next to it: they show while closed
  * and open the card when used, so what they add is in view. Dialogs go in
  * `dialogs`, outside the folding body (they render in place, so a closed body
  * would hide them).

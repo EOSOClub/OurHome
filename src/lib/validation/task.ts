@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { recordId } from '@/lib/validation/ids';
 import { MAX_ROTATION } from '@/lib/taskRotation';
 import {
   RECURRENCE_KINDS,
@@ -15,7 +16,7 @@ export const recurrenceInputSchema = z
   .object({
     kind: z.enum(RECURRENCE_KINDS),
     interval: z.number().int().positive().max(365).default(1),
-    // 0 = Sunday .. 6 = Saturday
+    // 0 = Sunday through 6 = Saturday
     byWeekday: z.array(z.number().int().min(0).max(6)).optional(),
     byMonthday: z.array(z.number().int().min(1).max(31)).optional(),
     cron: z.string().trim().min(1).max(120).optional(),
@@ -59,7 +60,7 @@ const resetIntervalDaysSchema = z.number().int().min(1).max(365);
 // filled in by the server. `id` keeps an existing item when replacing the
 // whole checklist on update.
 const subtaskInputSchema = z.object({
-  id: z.cuid().optional(),
+  id: recordId.optional(),
   title: z.string().trim().min(1).max(200),
   done: z.boolean().default(false),
   resetIntervalDays: resetIntervalDaysSchema.optional().nullable(),
@@ -82,11 +83,11 @@ const checklistSchema = z
   }, 'A checklist step appears twice.');
 
 // A task's places (src/lib/places.ts): rooms and whole floors.
-const placeIdsSchema = z.array(z.cuid()).max(50);
+const placeIdsSchema = z.array(recordId).max(50);
 
 // Rotating assignees: member ids in turn order (src/lib/taskRotation.ts).
 // Fewer than two distinct people clears the rotation.
-const rotationSchema = z.array(z.cuid()).max(MAX_ROTATION);
+const rotationSchema = z.array(recordId).max(MAX_ROTATION);
 
 export const createTaskSchema = z.object({
   title: z.string().trim().min(1).max(200),
@@ -99,15 +100,15 @@ export const createTaskSchema = z.object({
   estimatedMinutes: estimatedMinutesSchema.optional().nullable(),
   points: pointsSchema.optional().nullable(),
   pointsFollowTime: z.boolean().optional(),
-  categoryId: z.cuid().optional().nullable(),
+  categoryId: recordId.optional().nullable(),
   // Where: any rooms and whole floors (neither = the whole house). App
   // builds from before several places send one roomId or floorId instead (a
   // room wins if both are sent); the lists win when present.
   roomIds: placeIdsSchema.optional(),
   floorIds: placeIdsSchema.optional(),
-  roomId: z.cuid().optional().nullable(),
-  floorId: z.cuid().optional().nullable(),
-  assigneeId: z.cuid().optional().nullable(),
+  roomId: recordId.optional().nullable(),
+  floorId: recordId.optional().nullable(),
+  assigneeId: recordId.optional().nullable(),
   rotationUserIds: rotationSchema.optional().nullable(),
   recurrence: recurrenceInputSchema.optional(),
   subtasks: checklistSchema.optional(),
@@ -120,12 +121,12 @@ export type CreateTaskInput = z.infer<typeof createTaskSchema>;
  * the whole house); positions become the array index.
  */
 export const reorderTasksSchema = z.object({
-  taskIds: z.array(z.cuid()).min(1).max(500),
+  taskIds: z.array(recordId).min(1).max(500),
 });
 export type ReorderTasksInput = z.infer<typeof reorderTasksSchema>;
 
 export const updateTaskSchema = z.object({
-  taskId: z.cuid(),
+  taskId: recordId,
   title: z.string().trim().min(1).max(200).optional(),
   notes: z.string().trim().max(2000).optional().nullable(),
   type: z.enum(TASK_TYPES).optional(),
@@ -137,7 +138,7 @@ export const updateTaskSchema = z.object({
   estimatedMinutes: estimatedMinutesSchema.optional().nullable(),
   points: pointsSchema.optional().nullable(),
   pointsFollowTime: z.boolean().optional(),
-  categoryId: z.cuid().optional().nullable(),
+  categoryId: recordId.optional().nullable(),
   // When either list is present, all the task's places are replaced (a
   // missing list counts as []; both empty = the whole house).
   roomIds: placeIdsSchema.optional(),
@@ -145,9 +146,9 @@ export const updateTaskSchema = z.object({
   // Older app builds: when either is present, the task's FIRST place is
   // replaced (a room, else a whole floor, else none) and any further places
   // are kept. Ignored when a list is sent. Both absent = unchanged.
-  roomId: z.cuid().optional().nullable(),
-  floorId: z.cuid().optional().nullable(),
-  assigneeId: z.cuid().optional().nullable(),
+  roomId: recordId.optional().nullable(),
+  floorId: recordId.optional().nullable(),
+  assigneeId: recordId.optional().nullable(),
   // When present, replaces the rotation; `null` or [] clears it.
   rotationUserIds: rotationSchema.optional().nullable(),
   // When present, replaces the task's recurrence rule. `null` clears it.
@@ -159,37 +160,33 @@ export const updateTaskSchema = z.object({
 
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
 
-export const undoCompletionSchema = z.object({ completionId: z.cuid() });
-export type UndoCompletionInput = z.infer<typeof undoCompletionSchema>;
+export const undoCompletionSchema = z.object({ completionId: recordId });
 
 export const completeTaskSchema = z.object({
-  taskId: z.cuid(),
+  taskId: recordId,
   note: z.string().trim().max(500).optional(),
 });
 
 export type CompleteTaskInput = z.infer<typeof completeTaskSchema>;
 
-export const deleteTaskSchema = z.object({ taskId: z.cuid() });
-export type DeleteTaskInput = z.infer<typeof deleteTaskSchema>;
+export const deleteTaskSchema = z.object({ taskId: recordId });
 
 export const listTasksQuerySchema = z.object({
   status: z.enum(TASK_STATUSES).optional(),
   type: z.enum(TASK_TYPES).optional(),
-  assigneeId: z.cuid().optional(),
+  assigneeId: recordId.optional(),
 });
 
 export type ListTasksQuery = z.infer<typeof listTasksQuerySchema>;
 
 export const taskCompletionsQuerySchema = z.object({
-  taskId: z.cuid(),
+  taskId: recordId,
 });
-
-export type TaskCompletionsQuery = z.infer<typeof taskCompletionsQuerySchema>;
 
 // --- Subtasks -------------------------------------------------------------
 
 export const createSubtaskSchema = z.object({
-  taskId: z.cuid(),
+  taskId: recordId,
   title: z.string().trim().min(1).max(200),
   resetIntervalDays: resetIntervalDaysSchema.optional().nullable(),
 });
@@ -197,7 +194,7 @@ export const createSubtaskSchema = z.object({
 export type CreateSubtaskInput = z.infer<typeof createSubtaskSchema>;
 
 export const updateSubtaskSchema = z.object({
-  subtaskId: z.cuid(),
+  subtaskId: recordId,
   title: z.string().trim().min(1).max(200).optional(),
   done: z.boolean().optional(),
   position: z.number().int().min(0).max(1000).optional(),
@@ -209,11 +206,10 @@ export type UpdateSubtaskInput = z.infer<typeof updateSubtaskSchema>;
 // Full explicit order for a task's checklist; positions are set to the array
 // index in one transaction.
 export const reorderSubtasksSchema = z.object({
-  taskId: z.cuid(),
-  subtaskIds: z.array(z.cuid()).min(1).max(50),
+  taskId: recordId,
+  subtaskIds: z.array(recordId).min(1).max(50),
 });
 
 export type ReorderSubtasksInput = z.infer<typeof reorderSubtasksSchema>;
 
-export const deleteSubtaskSchema = z.object({ subtaskId: z.cuid() });
-export type DeleteSubtaskInput = z.infer<typeof deleteSubtaskSchema>;
+export const deleteSubtaskSchema = z.object({ subtaskId: recordId });

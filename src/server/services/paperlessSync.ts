@@ -38,10 +38,6 @@ const MAX_SKIPPED = 25;
 
 const names = paperlessNames;
 
-export function isPaperlessConfigured(): boolean {
-  return paperlessConfig() !== null;
-}
-
 type PaperlessSyncResult = PaperlessSyncResultDTO;
 
 interface ResolvedSetup {

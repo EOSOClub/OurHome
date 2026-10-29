@@ -139,7 +139,6 @@ export const EVENT_TYPES = [
   'task_completion',
   'automation',
 ] as const;
-export type EventType = (typeof EVENT_TYPES)[number];
 
 export const EVENT_SOURCES = [
   'home_assistant',
@@ -147,7 +146,6 @@ export const EVENT_SOURCES = [
   'system',
   'nfc',
 ] as const;
-export type EventSource = (typeof EVENT_SOURCES)[number];
 
 // Activity feed verbs / subject types (open-ended, but these cover the MVP).
 export const ACTIVITY_VERBS = [
@@ -161,7 +159,6 @@ export const ACTIVITY_VERBS = [
   'consumed',
   'marked_low',
 ] as const;
-export type ActivityVerb = (typeof ACTIVITY_VERBS)[number];
 
 // --- Requests -------------------------------------------------------------
 
@@ -190,14 +187,14 @@ export const MAINTENANCE_STATUS_LABELS: Record<MaintenanceStatus, string> = {
   declined: 'Declined',
 };
 
-// Every status a request can have. "declined" only happens to requests whose
-// module allows declining (Settings → Request types).
+// Every status a request can have. "declined" is only possible for requests
+// whose module allows declining (Settings → Request types).
 export const REQUEST_STATUSES = MAINTENANCE_STATUSES;
 export type RequestStatus = (typeof REQUEST_STATUSES)[number];
 
 // Media requests are one step: whoever approves them (Settings → Request
 // types; by default the Requests "Approve" switch in the page-access grid)
-// marks them added, which completes them, or declines them where allowed.
+// marks them added (which completes them) or declines them where allowed.
 // "accepted" only exists on rows from the older accept → available flow and
 // still counts as waiting. Requests made before statuses existed have none -
 // treat a missing status as pending.
@@ -208,8 +205,8 @@ export const MEDIA_STATUS_LABELS: Record<RequestStatus, string> = {
   declined: 'Declined',
 };
 
-// Purchase and Permission are yes-or-no: whoever decides approves them, which
-// completes them, or declines them.
+// Purchase and Permission are yes-or-no: whoever decides approves them (which
+// completes them) or declines them.
 export const DECISION_STATUS_LABELS: Record<RequestStatus, string> = {
   pending: 'Waiting',
   accepted: 'Waiting',
@@ -286,7 +283,6 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
 // --- Bug reports ----------------------------------------------------------
 
 export const BUG_REPORT_SOURCES = ['web', 'android'] as const;
-export type BugReportSource = (typeof BUG_REPORT_SOURCES)[number];
 
 // --- Bills & expenses -----------------------------------------------------
 
@@ -301,7 +297,6 @@ export const BILL_STATUS_LABELS: Record<BillStatus, string> = {
 // How a bill/payment entered the system. "email" and "paperless" are written by
 // src/server/services/billIngestService.ts ("paperless" via paperlessSync).
 export const BILL_SOURCES = ['manual', 'email', 'paperless', 'import'] as const;
-export type BillSource = (typeof BILL_SOURCES)[number];
 
 // Delivery channels. Only "in_app" is dispatched today; the rest are reserved
 // for the email/push/Home Assistant seams (see notificationService).
@@ -312,7 +307,6 @@ export const NOTIFICATION_CHANNELS = [
   'discord',
   'email',
 ] as const;
-export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
 
 export const PRIORITY_LABELS: Record<TaskPriority, string> = {
   low: 'Low',

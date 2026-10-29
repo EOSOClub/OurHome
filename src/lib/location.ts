@@ -157,8 +157,8 @@ export function batteryLabel(
 
 // --- Live checks ------------------------------------------------------------------------
 // An adult asks to see where someone is for a few minutes. Their phone shows
-// that it's happening for the whole time and sends a fix every interval; only
-// the latest fix is kept. The head limits how long a check may run and how
+// that it's happening for the whole time and sends its position every interval;
+// only the latest one is kept. The head limits how long a check may run and how
 // often it may ask (Settings → Live location checks).
 
 /** Choices offered when starting a check, before the household's limits. */

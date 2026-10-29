@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { recordId } from '@/lib/validation/ids';
 import { LIVE_CHECK_LIMITS, MAP_PLACE_KINDS, MAP_PLACE_RADIUS, SELF_SHARING } from '@/lib/location';
 
 // Map places (Settings → Map places: Head of House and managers) and each
@@ -6,18 +7,18 @@ import { LIVE_CHECK_LIMITS, MAP_PLACE_KINDS, MAP_PLACE_RADIUS, SELF_SHARING } fr
 
 /** Create (no id) or change a map place. */
 export const saveMapPlaceSchema = z.object({
-  id: z.cuid().optional(),
+  id: recordId.optional(),
   name: z.string().trim().min(1, 'Give it a name.').max(60),
   kind: z.enum(MAP_PLACE_KINDS),
   lat: z.number().min(-90).max(90),
   lng: z.number().min(-180).max(180),
   radiusM: z.number().int().min(MAP_PLACE_RADIUS.min).max(MAP_PLACE_RADIUS.max),
   // Stores only; ignored (stored empty) for other kinds.
-  shoppingListIds: z.array(z.cuid()).max(20).default([]),
+  shoppingListIds: z.array(recordId).max(20).default([]),
 });
 export type SaveMapPlaceInput = z.infer<typeof saveMapPlaceSchema>;
 
-export const deleteMapPlaceSchema = z.object({ id: z.cuid() });
+export const deleteMapPlaceSchema = z.object({ id: recordId });
 export type DeleteMapPlaceInput = z.infer<typeof deleteMapPlaceSchema>;
 
 /** Address search for the pin picker. */
@@ -34,7 +35,7 @@ export const batterySchema = z.object({
  * left a map place. The position and battery are the phone's at that moment.
  */
 export const reportPresenceSchema = z.object({
-  placeId: z.cuid(),
+  placeId: recordId,
   transition: z.enum(['enter', 'exit']),
   at: z.coerce.date(),
   lat: z.number().min(-90).max(90).optional(),
@@ -57,18 +58,17 @@ export type UpdateLocationConsentInput = z.infer<typeof updateLocationConsentSch
 
 /** Start one. Out-of-limit lengths and intervals are brought inside the limits. */
 export const startLiveCheckSchema = z.object({
-  targetId: z.cuid(),
+  targetId: recordId,
   minutes: z.number().int().min(1).max(LIVE_CHECK_LIMITS.maxMinutes.max),
   intervalSec: z.number().int().min(1).max(600),
 });
 export type StartLiveCheckInput = z.infer<typeof startLiveCheckSchema>;
 
-export const liveCheckIdSchema = z.object({ id: z.cuid() });
-export type LiveCheckIdInput = z.infer<typeof liveCheckIdSchema>;
+export const liveCheckIdSchema = z.object({ id: recordId });
 
 /** The checked person's phone sending where it is. */
 export const liveCheckFixSchema = z.object({
-  id: z.cuid(),
+  id: recordId,
   lat: z.number().min(-90).max(90),
   lng: z.number().min(-180).max(180),
   accuracyM: z.number().min(0).max(100_000).optional(),

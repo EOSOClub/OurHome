@@ -21,6 +21,7 @@
 // Pure: shared by the server (services, routes) and the client (forms, card).
 
 import { z } from 'zod';
+import { recordId } from '@/lib/validation/ids';
 import {
   MEDIA_TYPES,
   REQUEST_CATEGORIES,
@@ -67,7 +68,7 @@ export interface CommonModuleSettings {
   askRoles: UserRole[];
 }
 
-/** Modules on the approve workflow. */
+/** Modules on the approval workflow. */
 export interface ApproveModuleSettings {
   /** The people who handle it; empty = everyone with the Requests "Approve" switch. */
   handlerIds: string[];
@@ -152,7 +153,7 @@ const optionalText = (max: number) =>
     .nullable()
     .transform((s) => (s ? s : null));
 
-const ids = z.array(z.cuid()).max(100).transform((list) => [...new Set(list)]);
+const ids = z.array(recordId).max(100).transform((list) => [...new Set(list)]);
 
 const commonSchema = z.object({
   enabled: z.boolean(),
@@ -182,7 +183,7 @@ export const mediaModuleSchema = commonSchema.extend(approveSchema.shape).extend
 export const maintenanceModuleSchema = commonSchema
   .extend({
     assigneeIds: ids,
-    defaultAssigneeId: z.cuid().nullable(),
+    defaultAssigneeId: recordId.nullable(),
     requireDueDate: z.boolean(),
     allowDecline: z.boolean(),
   })

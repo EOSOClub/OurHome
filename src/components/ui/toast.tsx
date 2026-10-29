@@ -59,7 +59,6 @@ export const toast = {
     push('error', message, action),
   info: (message: string, action?: ToastData['action']) =>
     push('info', message, action),
-  dismiss: (id: number) => useToastStore.getState().dismiss(id),
 };
 
 const ICONS: Record<ToastVariant, React.ComponentType<{ className?: string }>> = {

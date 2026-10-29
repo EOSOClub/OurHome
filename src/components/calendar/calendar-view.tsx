@@ -166,7 +166,7 @@ export function CalendarView({
     23, 59, 59, 999,
   );
 
-  // Week view fetches its own range so a week spanning two months stays complete.
+  // Week view fetches its own range, so a week spanning two months stays complete.
   const { data: weekOccurrences = [], isFetching: isFetchingWeek } = useQuery({
     queryKey: ['calendar', 'week', weekStartKey],
     queryFn: () =>

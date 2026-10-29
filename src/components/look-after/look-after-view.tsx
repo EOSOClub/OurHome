@@ -107,8 +107,8 @@ export function LookAfterView({ initial }: { initial: LookAfterDTO }) {
   // Opening the page asks each child's phone whose usage is shared to send it
   // now (a push; the server skips it when it can't or just did). Best effort:
   // the page shows what's stored either way. Once per visit: the ref survives
-  // React running the effect twice in development, and the later refetches
-  // are harmless after leaving (the query is only marked stale).
+  // React running the effect twice in development, and fetching again later
+  // is harmless after leaving (the query is only marked stale).
   const asked = useRef(false);
   useEffect(() => {
     if (asked.current) return;
@@ -136,6 +136,8 @@ export function LookAfterView({ initial }: { initial: LookAfterDTO }) {
   // Ring buttons rest while a ring of the viewer's goes (see RingButton), kept
   // here so moving between the cards and a person's page doesn't free them.
   const [ringingUntil, setRingingUntil] = useState<Record<string, number>>({});
+  // Spread into PersonCard and PersonDetail; the IDE doesn't follow the spread.
+  // noinspection JSUnusedGlobalSymbols
   const ringProps = (person: Person) => ({
     person,
     until: ringingUntil[person.id] ?? 0,

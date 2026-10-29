@@ -79,7 +79,7 @@ export const EXPORT_VERSION = 1;
  * two weeks, and sharing it starts again off after a restore. Apps blocked on
  * a child's phone (BlockedApp), their daily limits (AppLimit), schedules
  * (AppSchedule) and points-for-time rate (PointsForTime) stay out like the
- * other phone rules, and so do minutes an adult gave (ExtraTime without
+ * other phone rules, and so does extra time an adult gave (ExtraTime without
  * points). Minutes bought with points go with the points ledger
  * (points.spent), so a restored balance stays right.
  */

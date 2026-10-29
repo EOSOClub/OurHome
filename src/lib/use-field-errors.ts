@@ -51,6 +51,8 @@ export function useFieldErrors(prefix = 'field') {
     [clear],
   );
 
+  // Spread onto each <form> ({...fe.formProps}); the IDE doesn't follow the spread.
+  // noinspection JSUnusedGlobalSymbols
   const formProps = useMemo(
     () => ({
       onChangeCapture: (e: SyntheticEvent) => clearFrom(e.target),

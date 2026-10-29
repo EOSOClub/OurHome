@@ -39,7 +39,7 @@ export default async function LoginPage({
   // not that it's valid. A stale cookie there caused an infinite redirect loop
   // (proxy bounced /login -> /dashboard, then requireUser() bounced it back).
   // Validating the real session here breaks that cycle.
-  // A fresh installation has no one to sign in as: send the first visitor to setup.
+  // A fresh installation has no one to sign in as: send the first visitor to the setup page.
   // Per request: setup state lives in the database, which the build can't
   // (and shouldn't) reach while prerendering.
   await connection();

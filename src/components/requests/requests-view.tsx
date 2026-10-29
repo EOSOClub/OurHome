@@ -315,7 +315,7 @@ export function RequestsView({
   // The server only sends requests of kinds that are on.
   const media = mediaModule ? requests.filter((r) => r.category === 'media') : [];
   const maintenance = maintenanceModule ? requests.filter((r) => r.category === 'maintenance') : [];
-  // Problems with what the household already has get their own list, above the requests to add.
+  // Problems with things the household already has are listed separately, above the requests to add.
   const mediaIssues = media.filter((r) => r.issue);
 
   const mediaRow = (r: RequestDTO, mod: RequestModuleView) => (
@@ -641,7 +641,7 @@ function MediaRow({
 }: {
   request: RequestDTO;
   isOwn: boolean;
-  /** Handles media: marks it added. */
+  /** Handles media requests, so may mark it added. */
   canManage: boolean;
   /** Handles media and the head allows declining. */
   canDecline: boolean;
@@ -992,7 +992,7 @@ function DecisionRow({
             </Button>
           </>
         ) : null}
-        {/* Once decided it can't be edited, only removed. */}
+        {/* Once decided, it can't be edited, only removed. */}
         {isOwn && open ? (
           <OwnerActions title={r.title} onEdit={onEdit} onDelete={onDelete} />
         ) : isOwn ? (
@@ -1060,7 +1060,7 @@ function ApproveDialog({
 
 /**
  * Assignee picks the date they'll have it done by - the request's deadline.
- * Without `requireDueDate` (the head's choice) the date may be left empty.
+ * Without `requireDueDate` (the head's choice), the date may be left empty.
  */
 function AcceptDialog({
   request,
@@ -1269,7 +1269,7 @@ export function RequestForm({
   const [startsAt, setStartsAt] = useState(localInput(initial?.startsAt ?? null));
   const [endsAt, setEndsAt] = useState(localInput(initial?.endsAt ?? null));
   const categoryModule = modules.find((m) => m.id === category);
-  // Editing: the request's own kind, whether or not this member could ask for it now.
+  // Editing: the request's own kind, even if this member couldn't ask for it now.
   const categoryOptions = initial
     ? [{ id: initial.category as RequestCategory, label: categoryModule?.label ?? REQUEST_CATEGORY_LABELS[initial.category as RequestCategory] ?? initial.category }]
     : askable;

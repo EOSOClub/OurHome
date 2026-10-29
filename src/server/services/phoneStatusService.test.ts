@@ -526,7 +526,7 @@ describe('what a phone must set up', () => {
     prisma.user.findFirst.mockResolvedValueOnce({ locationSharing: 'required', shareAppUsage: true });
     const setup = await phoneSetup(H, 'mia');
     expect(setup.supervised).toBe(false);
-    expect(Object.values(setup.required).every((v) => v === false)).toBe(true);
+    expect(Object.values(setup.required)).not.toContain(true);
   });
 
   it('asks a supervised child for notifications, what their settings need, and the chosen protections', async () => {

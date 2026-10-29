@@ -1,5 +1,8 @@
 import path from 'node:path';
 import { defineConfig } from 'prisma/config';
+// A relative path, not '@/server/settings': Prisma loads this file itself,
+// without the app's path aliases.
+// noinspection ES6PreferShortImport
 import { loadSettings } from './src/server/settings';
 
 // The Prisma CLI reads DATABASE_URL from the environment, so fill it from

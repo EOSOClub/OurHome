@@ -56,7 +56,7 @@ export async function isRefusedPlainHttp(headers: Headers, url?: string): Promis
   return !(await httpAllowed());
 }
 
-/** The configured public address, when it is an https:// one. */
+/** The configured public address, when it is an `https://` one. */
 function publicUrl(): string | null {
   const url = process.env.BETTER_AUTH_URL?.trim();
   return url?.startsWith('https://') ? url.replace(/\/+$/, '') : null;

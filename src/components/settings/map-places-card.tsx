@@ -369,7 +369,7 @@ function MapPlaceDialog({
               Use my location
             </Button>
           </div>
-          {/* The map has no input of its own: a ring marks a refused pin. */}
+          {/* The map isn't a form input, so a ring around it marks a refused pin. */}
           <div className={cn('rounded-md', fe.first('lat', 'lng') && 'ring-2 ring-destructive')}>
             <PinPicker value={point} radiusM={radiusM} onPick={pick} />
           </div>

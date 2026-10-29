@@ -1,15 +1,15 @@
 import { z } from 'zod';
+import { recordId } from '@/lib/validation/ids';
 
 export const createIntegrationSchema = z.object({
   name: z.string().trim().min(1).max(80),
 });
 
-export type CreateIntegrationInput = z.infer<typeof createIntegrationSchema>;
+export const integrationIdSchema = z.object({ id: recordId });
 
-export const integrationIdSchema = z.object({ id: z.cuid() });
-export type IntegrationIdInput = z.infer<typeof integrationIdSchema>;
-
-// A household's own Paperless-ngx (Settings → Paperless, Head of House).
+// A household's own Paperless-ngx (Settings → Paperless, Head of House). Plain
+// http:// is allowed on purpose: Paperless often runs on the home network.
+// noinspection HttpUrlsUsage
 const httpUrl = z
   .string()
   .trim()
@@ -24,4 +24,3 @@ export const paperlessConnectionSchema = z.object({
   /** API token of a read-only Paperless user; blank keeps the saved one. */
   token: z.string().trim().max(200).optional().nullable(),
 });
-export type PaperlessConnectionInput = z.infer<typeof paperlessConnectionSchema>;

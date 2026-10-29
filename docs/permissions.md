@@ -37,7 +37,7 @@ someone from outside the household.
 Add / edit / delete on **Tasks, Calendar, Shopping items, Shopping lists,
 Inventory and Bills**, and submitting / approving **Requests**, is a per-page
 grid the Head of House edits on **Members → Permissions**. Record pages have
-five switches; Requests has Add and Approve (`PAGE_ACTIONS`):
+five switches; Requests has two, Add and Approve (`PAGE_ACTIONS`):
 
 | Switch                        | Allows                                                                                                                                                                                                          |
 |-------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -76,7 +76,7 @@ not who paid).
 
 **How each action maps:**
 
-- Requests has **Add** (= submit a request) and **Approve** (= mark media
+- Requests has the **Add** switch (= submit a request) and the **Approve** switch (= mark media
   requests added, one step: waiting → added). Editing or deleting stays
   requester-only (bar the head on maintenance, above) and accepting
   maintenance stays assignee-only, so someone

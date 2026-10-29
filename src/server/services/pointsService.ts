@@ -22,7 +22,7 @@ import { ForbiddenError, NotFoundError } from '@/server/services/errors';
 //   completer (who "finishes the rest"). A task without steps pays its points
 //   to the completer.
 // - Re-checking a step after its own auto-reset pays that step at once
-//   ("step_repeat"), and so does checking a step on an already-finished task.
+//   ("step_repeat"); checking a step on an already-finished task does the same.
 // - Unchecking by hand drops the step's queued points; a cycle that runs out
 //   unfinished drops all of them.
 // - The completer can undo for UNDO_WINDOW_MS; after that only the head.

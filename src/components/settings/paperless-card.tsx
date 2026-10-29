@@ -263,6 +263,8 @@ function ConnectionForm({
 
   const urlLooksRight = /^https?:\/\/\S+$/i.test(url.trim());
   const canSave = urlLooksRight && (token.trim().length > 0 || !!own) && !save.isPending;
+  // Paperless is often reached over plain HTTP on the home network.
+  // noinspection HttpUrlsUsage
   const urlError =
     fe.get('url') ?? (url.trim() && !urlLooksRight ? 'Start with http:// or https://, with no spaces.' : null);
 

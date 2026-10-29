@@ -17,7 +17,6 @@ export const RING_SHOWN_MS = 10 * 60_000;
 
 /** What the phone reports: it started ringing, Stop was tapped, or it rang for RING_MS. */
 export const RING_REPORTS = ['ringing', 'stopped', 'rang_out'] as const;
-export type RingReport = (typeof RING_REPORTS)[number];
 
 /**
  * sending: no word from their phone yet. ringing: it says it's ringing.

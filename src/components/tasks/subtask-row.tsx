@@ -191,7 +191,7 @@ export function SubtaskRow({
       >
         {subtask.title}
       </span>
-      {/* Who did it, and whether its points are waiting for the task. */}
+      {/* Shows who did it, and whether its points are waiting for the task. */}
       {subtask.queuedFor || subtask.doneBy ? (
         <span
           className="shrink-0 text-xs text-muted-foreground"

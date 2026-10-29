@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { recordId } from '@/lib/validation/ids';
 import { FEATURES } from '@/lib/features';
 import { nameSchema, passwordSchema, usernameSchema } from '@/lib/validation/user';
 
@@ -6,7 +7,7 @@ import { nameSchema, passwordSchema, usernameSchema } from '@/lib/validation/use
 // admin may call these (serverAdminService.assertServerAdmin).
 
 // A new household and its Head of House. The head gets the temporary password
-// below and must choose their own at first sign-in.
+// below and must choose their own at their first sign-in.
 export const createHouseholdSchema = z.object({
   householdName: nameSchema,
   head: z.object({
@@ -19,34 +20,32 @@ export const createHouseholdSchema = z.object({
 export type CreateHouseholdInput = z.infer<typeof createHouseholdSchema>;
 
 export const setHouseholdDisabledSchema = z.object({
-  id: z.cuid(),
+  id: recordId,
   disabled: z.boolean(),
 });
-export type SetHouseholdDisabledInput = z.infer<typeof setHouseholdDisabledSchema>;
 
 // A new temporary password for the household's Head of House (locked out).
 export const resetHeadPasswordSchema = z.object({
-  id: z.cuid(),
+  id: recordId,
   password: passwordSchema,
 });
 export type ResetHeadPasswordInput = z.infer<typeof resetHeadPasswordSchema>;
 
 // Whether a household's Paperless may be on the server's private network.
 export const setPaperlessNetworkSchema = z.object({
-  id: z.cuid(),
+  id: recordId,
   allowed: z.boolean(),
 });
 
 // The features a household has on (the rest are turned off).
 export const setHouseholdFeaturesSchema = z.object({
-  id: z.cuid(),
+  id: recordId,
   enabled: z.array(z.enum(FEATURES)),
 });
-export type SetHouseholdFeaturesInput = z.infer<typeof setHouseholdFeaturesSchema>;
 
 // Delete a household for good: its exact name, typed, confirms it.
 export const deleteHouseholdSchema = z.object({
-  id: z.cuid(),
+  id: recordId,
   confirmName: z.string().max(200),
 });
 

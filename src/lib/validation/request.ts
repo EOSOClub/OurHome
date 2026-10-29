@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { recordId } from '@/lib/validation/ids';
 import { MEDIA_TYPES } from '@/lib/enums';
 import { httpLink } from '@/lib/validation/shopping';
 
@@ -33,8 +34,8 @@ const maintenanceFields = {
   category: z.literal('maintenance'),
   title,
   details,
-  // The member asked to do it; the service rejects the requester themself.
-  assigneeId: z.cuid(),
+  // The member asked to do it; the service rejects the requester as the assignee.
+  assigneeId: recordId,
 };
 
 const purchaseFields = {
@@ -118,7 +119,7 @@ export type CreateRequestInput = z.infer<typeof createRequestSchema>;
 // Updates replace every field (the edit form always sends the full request).
 // Whether a media request is a problem report is fixed when it's made; the
 // service keeps the stored one.
-const id = z.cuid();
+const id = recordId;
 export const updateRequestSchema = z
   .discriminatedUnion('category', [
     z.object({ id, ...mediaFields }),
@@ -131,14 +132,13 @@ export const updateRequestSchema = z
 export type UpdateRequestInput = z.infer<typeof updateRequestSchema>;
 
 export const requestIdSchema = z.object({ id });
-export type RequestIdInput = z.infer<typeof requestIdSchema>;
 
 // The head giving a maintenance request to someone else.
 export const reassignRequestSchema = z.object({ id, assigneeId: maintenanceFields.assigneeId });
 export type ReassignRequestInput = z.infer<typeof reassignRequestSchema>;
 
 // Marking done / approving. A purchase may name a shopping list to put it on.
-export const completeRequestSchema = z.object({ id, listId: z.cuid().nullish() });
+export const completeRequestSchema = z.object({ id, listId: recordId.nullish() });
 export type CompleteRequestInput = z.infer<typeof completeRequestSchema>;
 
 // Accepting: a maintenance request's assignee gives a done-by date (the

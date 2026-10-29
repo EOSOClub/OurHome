@@ -30,6 +30,8 @@ function sameOriginOnHomeNetwork(request?: Request): string[] {
   }
 }
 
+// Better Auth calls the callbacks in here (sendResetPassword) itself.
+// noinspection JSUnusedGlobalSymbols
 export const auth = betterAuth({
   appName: APP_NAME,
   // No baseURL: Better Auth uses BETTER_AUTH_URL when set (the public URL, for

@@ -50,7 +50,11 @@ export async function apiFetch<T>(
     | { ok: false; error: ApiErrorShape }
     | null;
 
+  // `body.ok === false`, not `!body.ok`, on purpose: a reply without an `ok`
+  // field isn't an error envelope, and reading `body.error` from it would throw.
+  // noinspection PointlessBooleanExpressionJS
   if (!res.ok || !body || body.ok === false) {
+    // noinspection PointlessBooleanExpressionJS
     const err =
       body && body.ok === false ? body.error : { message: res.statusText };
     throw new ApiError(err.message, res.status, err.details);

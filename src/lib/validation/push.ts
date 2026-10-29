@@ -7,5 +7,3 @@ export const pushDeviceSchema = z.object({
   /** The app's install id (the check-in's); left out by older apps and on sign-out. */
   installId: z.string().trim().min(8).max(100).optional(),
 });
-
-export type PushDeviceInput = z.infer<typeof pushDeviceSchema>;

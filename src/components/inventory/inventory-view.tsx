@@ -190,8 +190,8 @@ export function InventoryView({
     // Optimistically apply the delta (clamped at 0, matching the service) and
     // recompute the low flag so +/- taps respond instantly - no busy spinner,
     // so rapid taps aren't blocked. Restock timestamps and the depletion
-    // forecast are server-derived; the refetch after the last tap refreshes
-    // those.
+    // forecast are server-derived; the fresh fetch after the last tap brings
+    // those up to date.
     onMutate: async ({ itemId, delta }) => {
       await queryClient.cancelQueries({ queryKey: ITEMS_KEY });
       queryClient.setQueryData<InventoryItemDTO[]>(ITEMS_KEY, (old) =>
@@ -208,13 +208,13 @@ export function InventoryView({
     },
     onError: (error) => {
       // No snapshot rollback: it would also wipe later taps still in flight.
-      // The refetch below (once the last tap settles) restores the truth.
+      // The fresh fetch below (once the last tap settles) restores the truth.
       // A local onError suppresses the global MutationCache toast; re-surface.
       toast.error(
         error instanceof Error ? error.message : 'Something went wrong.',
       );
     },
-    // Refetch only after the last in-flight tap: an earlier refetch could
+    // Fetch again only after the last in-flight tap: an earlier fetch could
     // land before a later tap is saved and briefly show the old count.
     onSettled: () => {
       if (queryClient.isMutating({ mutationKey: ADJUST_KEY }) <= 1) void invalidate();
@@ -399,7 +399,7 @@ export function InventoryView({
         />
       ) : null}
 
-      {/* Categories: adding needs Add; removing one (no creator) needs Delete others'. */}
+      {/* Categories: adding needs the Add switch; removing one (no creator) needs the Delete others' switch. */}
       {access.create || access.deleteOthers ? (
         <CategoryManager
           categories={categories}
@@ -626,7 +626,7 @@ function CategoryManager({
   canDelete: boolean;
   submitting: boolean;
   deletingId: string | null;
-  /** The last add's field errors: those fields are marked with why. */
+  /** The field errors from the last addition: those fields are marked with why. */
   errors: FieldErrorsState;
   /** [onSuccess] runs once it's saved, so a refused name stays to fix. */
   onAdd: (payload: AddCategoryPayload, onSuccess: () => void) => void;
@@ -751,7 +751,7 @@ function QuickAddItem({
   categories: CategoryDTO[];
   places: PlacesDTO;
   submitting: boolean;
-  /** The last add's field errors: those fields are marked with why (options open to show them). */
+  /** The field errors from the last addition: those fields are marked with why (options open to show them). */
   errors: FieldErrorsState;
   onAdd: (payload: AddItemPayload, onSuccess: () => void) => void;
 }) {

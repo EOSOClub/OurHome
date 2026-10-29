@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { recordId } from '@/lib/validation/ids';
 import { USER_ROLES } from '@/lib/enums';
 import {
   BIO_MAX,
@@ -39,7 +40,6 @@ export const emailSchema = z
 
 // A setup link for one child's or teen's phone (Set up a child, Install step).
 export const setupLinkSchema = z.object({ memberId: z.string().min(1).max(64) });
-export type SetupLinkInput = z.infer<typeof setupLinkSchema>;
 
 // Members may be created with a username only; email is optional and used for
 // password recovery. When omitted the service synthesizes a local placeholder.
@@ -68,7 +68,7 @@ export const createMemberSchema = z.object({
 export type CreateMemberInput = z.infer<typeof createMemberSchema>;
 
 export const updateMemberSchema = z.object({
-  id: z.cuid(),
+  id: recordId,
   name: nameSchema.optional(),
   username: usernameSchema.optional(),
   email: emailSchema.optional(),
@@ -76,29 +76,26 @@ export const updateMemberSchema = z.object({
 export type UpdateMemberInput = z.infer<typeof updateMemberSchema>;
 
 export const setMemberRoleSchema = z.object({
-  id: z.cuid(),
+  id: recordId,
   role: z.enum(USER_ROLES),
 });
 export type SetMemberRoleInput = z.infer<typeof setMemberRoleSchema>;
 
 export const resetMemberPasswordSchema = z.object({
-  id: z.cuid(),
+  id: recordId,
   password: passwordSchema,
 });
 export type ResetMemberPasswordInput = z.infer<
   typeof resetMemberPasswordSchema
 >;
 
-export const memberIdSchema = z.object({ id: z.cuid() });
-export type MemberIdInput = z.infer<typeof memberIdSchema>;
+export const memberIdSchema = z.object({ id: recordId });
 
 // Rename the household (requires household:manage).
 export const renameHouseholdSchema = z.object({ name: nameSchema });
-export type RenameHouseholdInput = z.infer<typeof renameHouseholdSchema>;
 
 // Allow or refuse sign-in over plain HTTP (requires household:manage).
 export const accessSettingsSchema = z.object({ allowHttp: z.boolean() });
-export type AccessSettingsInput = z.infer<typeof accessSettingsSchema>;
 
 /** Exactly one emoji (one grapheme with a pictograph or a flag in it). */
 function isSingleEmoji(v: string): boolean {

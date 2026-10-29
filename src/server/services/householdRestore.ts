@@ -17,7 +17,7 @@ import { assertServerAdmin } from '@/server/services/serverAdminService';
 //   or newer versions load (missing fields take their defaults).
 // - The export has no passwords: the head gets the temporary password the
 //   admin chose (changed at first sign-in); everyone else comes back without
-//   one and the head sets theirs from Members → Reset password.
+//   one, and the head sets theirs from Members → Reset password.
 // - Not restored, because their tokens were never exported: the Home
 //   Assistant and Paperless connections.
 
@@ -33,7 +33,7 @@ function scalarFields(model: string): Set<string> {
   return new Set(m.fields.filter((f) => f.kind === 'scalar' || f.kind === 'enum').map((f) => f.name));
 }
 
-/** The models a restore writes, in insert order (parents before children). */
+/** The models written when restoring, in insert order (parents before children). */
 export const RESTORE_ORDER = [
   'Household',
   'User',
@@ -83,7 +83,9 @@ const LEGACY_ADULT_ROLE = 'member';
 /**
  * Household.roleAccess (JSON text) from an older export: its "member" key
  * becomes "adult". Anything that isn't a JSON object is left as it was.
+ * Used by planRestore below; the IDE's unused check misses that call.
  */
+// noinspection JSUnusedLocalSymbols
 function renameLegacyRoleKey(value: string): string {
   try {
     const parsed: unknown = JSON.parse(value);
@@ -232,7 +234,7 @@ export function planRestore(
 
 /**
  * An id shaped like Prisma's cuid() ("c" + 24 lowercase letters/digits): a
- * time part (sortable, like cuid's) then random. Collision odds are
+ * time part (sortable, as in a real cuid) then random. Collision odds are
  * negligible at household scale, and the unique _id would refuse one anyway.
  */
 let lastStamp = '';
@@ -254,9 +256,9 @@ export interface RestoreReport {
 }
 
 /**
- * Restore an export as a new household (server admin). Refused, with the
- * clashes listed, when a member's username or email is already used on the
- * server. One transaction: all of it, or nothing.
+ * Restore an export as a new household (server admin). Refused when a
+ * member's username or email is already used on the server, and the clashes
+ * are listed. One transaction: all of it, or nothing.
  */
 export async function restoreHousehold(
   adminId: string,

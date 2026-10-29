@@ -121,7 +121,7 @@ export function nextAfterOccurrence(rule: NormalizedRule, current: Date | null, 
 /**
  * Completing a recurring task that has no cycles: one completion covers one
  * occurrence, and at most one a day. The task can be completed again from
- * local midnight after the later of its due date and now (`opensAt`), and
+ * local midnight after its due date or now, whichever is later (`opensAt`), and
  * its next due date is the first occurrence from then on. Done ahead of time,
  * that is the occurrence after the due date, as nextAfterOccurrence counts
  * it. Done late, it is the first one after today: done at 9:00 for

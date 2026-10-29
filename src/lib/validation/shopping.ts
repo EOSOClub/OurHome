@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { recordId } from '@/lib/validation/ids';
 import { SHOPPING_LIST_KINDS, SHOPPING_PRIORITIES } from '@/lib/enums';
 
 /**
@@ -25,14 +26,14 @@ export const createShoppingListSchema = z.object({
 export type CreateShoppingListInput = z.infer<typeof createShoppingListSchema>;
 
 export const renameShoppingListSchema = z.object({
-  listId: z.cuid(),
+  listId: recordId,
   name: z.string().trim().min(1).max(100),
 });
 
 export type RenameShoppingListInput = z.infer<typeof renameShoppingListSchema>;
 
 export const addShoppingItemSchema = z.object({
-  listId: z.cuid(),
+  listId: recordId,
   name: z.string().trim().min(1).max(200),
   quantity: z.number().int().min(1).max(999).default(1),
   priority: z.enum(SHOPPING_PRIORITIES).default('medium'),
@@ -41,13 +42,13 @@ export const addShoppingItemSchema = z.object({
   imageUrl: httpLink.optional().nullable(),
   estimatedPrice: z.number().nonnegative().max(1_000_000).optional().nullable(),
   recurring: z.boolean().default(false),
-  categoryId: z.cuid().optional().nullable(),
+  categoryId: recordId.optional().nullable(),
 });
 
 export type AddShoppingItemInput = z.infer<typeof addShoppingItemSchema>;
 
 export const updateShoppingItemSchema = z.object({
-  itemId: z.cuid(),
+  itemId: recordId,
   name: z.string().trim().min(1).max(200).optional(),
   quantity: z.number().int().min(1).max(999).optional(),
   priority: z.enum(SHOPPING_PRIORITIES).optional(),
@@ -56,7 +57,7 @@ export const updateShoppingItemSchema = z.object({
   imageUrl: httpLink.optional().nullable(),
   estimatedPrice: z.number().nonnegative().max(1_000_000).optional().nullable(),
   recurring: z.boolean().optional(),
-  categoryId: z.cuid().optional().nullable(),
+  categoryId: recordId.optional().nullable(),
 });
 
 export type UpdateShoppingItemInput = z.infer<typeof updateShoppingItemSchema>;
@@ -65,17 +66,13 @@ export const linkPreviewSchema = z.object({
   url: httpLink,
 });
 
-export type LinkPreviewInput = z.infer<typeof linkPreviewSchema>;
-
 export const setItemPurchasedSchema = z.object({
-  itemId: z.cuid(),
+  itemId: recordId,
   purchased: z.boolean(),
 });
 
 export type SetItemPurchasedInput = z.infer<typeof setItemPurchasedSchema>;
 
-export const itemIdSchema = z.object({ itemId: z.cuid() });
-export type ItemIdInput = z.infer<typeof itemIdSchema>;
+export const itemIdSchema = z.object({ itemId: recordId });
 
-export const listIdSchema = z.object({ listId: z.cuid() });
-export type ListIdInput = z.infer<typeof listIdSchema>;
+export const listIdSchema = z.object({ listId: recordId });

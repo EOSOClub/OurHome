@@ -11,7 +11,6 @@ import {
   type Permission,
 } from '@/lib/permissions';
 import { getUserAccess } from '@/server/services/permissionService';
-import { isUserRole, type UserRole } from '@/lib/enums';
 import {
   ConflictError,
   ForbiddenError,
@@ -179,13 +178,6 @@ export async function requireAnyAccess(
   const access = await getAccess(ctx);
   if (!hasAnyAccess(access[page])) {
     throw new ForbiddenError(`You don't have access to ${ACCESS_PAGE_LABELS[page]}.`);
-  }
-}
-
-/** Require the caller to hold one of `roles`; throws ForbiddenError otherwise. */
-export function requireRole(ctx: AuthedContext, ...roles: UserRole[]): void {
-  if (!isUserRole(ctx.user.role) || !roles.includes(ctx.user.role)) {
-    throw new ForbiddenError(`Requires role: ${roles.join(' or ')}`);
   }
 }
 

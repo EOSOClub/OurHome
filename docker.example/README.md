@@ -68,7 +68,7 @@ The first run always goes through every section.
 The app is built **from GitHub**: `docker.repo` and `docker.branch` in
 `settings.yml` (default: this repo, `main`). Docker fetches the branch itself on
 every build and only rebuilds when it has new commits, so a deployment always runs
-the pushed code and the server doesn't need to `git pull` for it. `-l` builds
+the pushed code, and the server doesn't need to `git pull` for it. `-l` builds
 from the local checkout instead (e.g. to try unpushed changes).
 
 > [!WARNING]
@@ -98,16 +98,16 @@ Paperless's admin password is in `<services.path>/paperless/.env`.
 
 ### The Android app
 
-Answer yes to **"Build the Android app here?"** and every deploy builds the app
-(only when its code or your settings changed), with this server's address and
-your Firebase app id built in, and offers it under **Profile → Android app** to
-signed-in members. Phones install updates over the old version.
+Answer yes to **"Build the Android app here?"** and every deployment builds the
+app (only when its code or your settings changed), with this server's address
+and your Firebase app id built in. Signed-in members find it under
+**Profile → Android app**. Phones install updates over the old version.
 
 When a new version is built, everyone is told: a bell notification on the
 site and in the app (linking to Profile), and a phone notification, "Our Home
 update ready". In the app, **Profile → Android app → Download and install**
-fetches it and opens Android's installer (Android asks once to allow installs
-from Our Home). The download is checked against its published size and SHA-256,
+fetches it and opens Android's installer (Android asks once to allow installing
+apps from Our Home). The download is checked against its published size and SHA-256,
 and Android only installs it over the old app when it's signed with the same key.
 
 - The build runs in Docker ([`android/Dockerfile`](android/Dockerfile)); the
@@ -195,7 +195,7 @@ ignored on the server. The `docker:` section of `settings.yml` (project and
 container name, network, port, bind address) is what the deployment scripts give
 compose. They read it with a small pinned `yq` container, so nothing needs
 installing on the server. The container runs as uid 1000, so keep
-`settings.yml` readable by it (e.g. `644`); `.env` is read by compose itself,
+`settings.yml` readable by it (e.g. `644`); `.env` is read by Docker Compose itself,
 so it can stay `600`.
 
 ## 2. Start it
@@ -215,7 +215,7 @@ default names and port (and the network must already exist).
 
 ## 3. First-run setup
 
-On an empty database every page leads to **setup**. Open the site from the
+On an empty database, every page leads to the **setup** page. Open the site from the
 server itself (`http://localhost:3000`) or any device on the same network
 (`http://<server-ip>:3000`), then:
 
@@ -227,8 +227,8 @@ server itself (`http://localhost:3000`) or any device on the same network
    sign-in. You can skip this step and use **Members** later.
 
 After you click **Finish**, the app asks once how the site may be reached:
-**Home network and HTTPS**, or **HTTPS only**. "Decide later" asks again next
-time. You can change it any time under **Settings → Security** (Head of House
+**Home network and HTTPS**, or **HTTPS only**. With "Decide later", it asks again
+next time. You can change it any time under **Settings → Security** (Head of House
 only). HTTPS only refuses sign-in over plain HTTP from every other device, and
 signs everyone else out once. Home Assistant and other token-based connections
 keep working over HTTP.
@@ -274,21 +274,21 @@ afterward (`./deploy.sh -s`), as long as the tunnel runs on the same machine.
 
 ## Optional
 
-- **Email** - fill in `smtp:` in `settings.yml` and `SMTP_PASS` in `.env` (any
+- **Email**: fill in `smtp:` in `settings.yml` and `SMTP_PASS` in `.env` (any
   SMTP provider). `contact.forward_to` receives contact-form messages;
   `bug_report.email` receives bug reports. Unset = stored in the app but not
   emailed.
-- **Contact-form CAPTCHA** - `turnstile.site_key` in `settings.yml` and
+- **Contact-form CAPTCHA**: `turnstile.site_key` in `settings.yml` and
   `TURNSTILE_SECRET_KEY` in `.env` (Cloudflare Turnstile).
-- **Paperless-ngx bill import** - the walkthrough can set Paperless up for you
+- **Paperless-ngx bill import**: the walkthrough can set Paperless up for you
   (tags, fields, a read-only user and token, starter workflows and dashboard
   views) with an admin login used once. See [bill import](../docs/paperless-import.md).
-- **Instant phone alerts** - a free Firebase project of your own; the
+- **Instant phone alerts**: a free Firebase project of your own; the
   walkthrough (`./deploy.sh -s`) asks for your app id, links each Firebase page
   and takes the server key. See [push notifications](../docs/push-notifications.md).
-- **Home Assistant display** - create a token on the site (Settings → Home
+- **Home Assistant display**: create a token on the site (Settings → Home
   Assistant connection), then see `../HomeAssistant/display.yaml`.
-- **Trigger a reminder sweep now** - with `CRON_SECRET` from `.env`:
+- **Trigger a reminder sweep now**: with `CRON_SECRET` from `.env`, run
   `curl -X POST -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/reminders`
 
 ## Backups

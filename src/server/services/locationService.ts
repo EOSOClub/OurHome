@@ -119,7 +119,7 @@ export async function reportPresence(
 /**
  * "You're home: 3 chores due": their own tasks due today or overdue, while
  * the household uses Tasks, at most every few hours (HOME_REMINDER_GAP_MS).
- * Null when there's nothing due or it's too soon.
+ * Null when nothing is due, or when it's too soon.
  */
 async function homeReminder(
   householdId: string,

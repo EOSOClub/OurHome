@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { recordId } from '@/lib/validation/ids';
 import { isValidTimeZone } from '@/lib/taskCycles';
 
 export const POINTS_PERIODS = ['day', 'week', 'month', 'year'] as const;
@@ -12,14 +13,14 @@ export const pointsSummaryQuerySchema = z.object({
 });
 
 export const pointsAwardsQuerySchema = z.object({
-  userId: z.cuid().optional(),
+  userId: recordId.optional(),
   period: z.enum(POINTS_PERIODS).optional(),
   date: localDateSchema.optional(),
   limit: z.coerce.number().int().min(1).max(500).optional(),
 });
 
 export const voidAwardSchema = z.object({
-  awardId: z.cuid(),
+  awardId: recordId,
   reason: z.string().trim().min(1).max(200),
 });
 
@@ -34,5 +35,3 @@ export const pointsSettingsSchema = z.object({
   weekStartsOn: z.number().int().min(0).max(6).optional(),
   minutesPerPoint: z.number().min(0.1).max(1440).optional(),
 });
-
-export type PointsSettingsInput = z.infer<typeof pointsSettingsSchema>;

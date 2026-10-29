@@ -69,6 +69,9 @@ export default async function AppLayout({
       )
     : 0;
 
+  // The skip link's #main-content is the <main> further down; the IDE doesn't
+  // find ids in JSX.
+  // noinspection HtmlUnknownAnchorTarget
   return (
     <HouseholdZoneProvider timeZone={timezone}>
     <HouseholdFeaturesProvider features={features}>

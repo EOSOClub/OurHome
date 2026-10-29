@@ -353,7 +353,7 @@ describe('local time zone rules', () => {
 
 describe('weekday / month-day rules respect start and interval', () => {
   it('does not occur before the start date', () => {
-    // Weekly on Tuesdays, starting Tue Dec 1 2026.
+    // Weekly on Tuesdays, starting Tue Dec 1, 2026.
     const r = rule({ kind: 'weekly', byWeekday: [2], anchorDate: iso('2026-12-01T12:00:00.000Z') });
     expect(computeNextRunAt(r, iso('2026-11-01T00:00:00.000Z'))).toEqual(iso('2026-12-01T12:00:00.000Z'));
   });

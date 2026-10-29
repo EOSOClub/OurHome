@@ -82,12 +82,12 @@ async function assertUnique(
 
 /**
  * Provision a household member with a temporary password. We create the user
- * row and credential account directly (rather than auth.api.signUpEmail) so the
+ * row and credential account directly (rather than auth.api.signUpEmail), so the
  * call has no session/cookie side effects on the admin making the request.
  */
 /**
- * A new child's phone choices as stored, the way People you look after stores
- * them (supervisionService): only a change from the default is written, so a
+ * A new child's phone choices as stored, the way People you look after store
+ * them (supervisionService): only a change from the default is written, so
  * protection left on stays null (required). [said]: each change, for Activity.
  */
 function setupChoices(setup: NonNullable<CreateMemberInput['setup']>) {
@@ -417,7 +417,7 @@ export async function renameHousehold(
 
 /**
  * Hand the Head of House role to another member. Only the current head may do
- * this; they become a Manager so the single-head invariant holds.
+ * this; they become a Manager, so the single-head invariant holds.
  */
 export async function transferHeadship(
   householdId: string,
@@ -442,7 +442,7 @@ export async function transferHeadship(
       where: { id: target.id },
       data: { role: 'head' },
     });
-    // A teen or child made head is no longer supervised (the old head, now a
+    // A teen or child-made head is no longer supervised (the old head, now a
     // Manager, keeps supervising).
     await dropBrokenSupervision(tx, u.id, u.role);
     await logActivity(

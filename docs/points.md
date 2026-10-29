@@ -25,15 +25,15 @@ Sunday). Changing the rate doesn't touch existing tasks; their values are stored
   change recalculates points. Typing points by hand turns it off. Changing
   points never changes time.
 - A task with steps shows live totals, the sum of its steps.
-- Editing a step's TTC marks it customised and recalculates its points at the
+- Editing a step's TTC marks it customized and recalculates its points at the
   task's rate (unless its points are hand-set). Editing a step's points marks
-  them customised. Either way, other steps and the task base are left alone, so
+  them customized. Either way, other steps and the task base are left alone, so
   nothing recalculates in a circle.
 - Editing a task total redistributes that dimension (both, when points follow
   time) across the steps in proportion to their current values. If any step is
-  customised, the editor warns first; confirming rescales everything and clears
-  the customisation; cancelling changes nothing.
-- Adding/removing a step re-splits the base while no step is customised; once
+  customized, the editor warns first; confirming rescales everything and clears
+  the customization; cancelling changes nothing.
+- Adding/removing a step re-splits the base while no step is customized; once
   one is, totals float (a new step gets the average values).
 - Points are stored as integer hundredths; splits use largest-remainder
   rounding, so parts always add up exactly (10 over 3 steps = 3.33 / 3.33 / 3.34).

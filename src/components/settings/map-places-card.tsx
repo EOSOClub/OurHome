@@ -39,7 +39,7 @@ function radiusLabel(m: number): string {
 const KIND_ICONS = { home: Home, store: Store, other: MapPin } as const;
 
 /**
- * Settings → Map places: home, stores and other spots. The Android app turns
+ * Settings → Map places: home, stores, and other spots. The Android app turns
  * them into geofences, for who is home and for shopping-list reminders at a
  * store. Shown while the Location feature is on.
  */

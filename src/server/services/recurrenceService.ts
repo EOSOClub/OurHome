@@ -266,7 +266,7 @@ function nextByWeekday(anchor: Date, fromIn: Date, weekdays: number[], interval 
 /**
  * The next listed day of the month after `from`, in months that are a
  * multiple of `interval` from the anchor's month, never before the anchor.
- * Days a month doesn't have are skipped in that month.
+ * Days a month don't have are skipped in that month.
  */
 function nextByMonthday(anchor: Date, fromIn: Date, monthdays: number[], interval = 1): Date {
   const sorted = Array.from(new Set(monthdays)).sort((a, b) => a - b);

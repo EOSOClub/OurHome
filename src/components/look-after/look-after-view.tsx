@@ -126,8 +126,8 @@ export function LookAfterView({ initial }: { initial: LookAfterDTO }) {
       if (!answers.some((a) => a.asked)) return;
       for (const ms of AFTER_REFRESH_MS) {
         setTimeout(() => {
-          queryClient.invalidateQueries({ queryKey: LOOK_AFTER_KEY });
-          queryClient.invalidateQueries({ queryKey: USAGE_HISTORY_KEY });
+          void queryClient.invalidateQueries({ queryKey: LOOK_AFTER_KEY });
+          void queryClient.invalidateQueries({ queryKey: USAGE_HISTORY_KEY });
         }, ms);
       }
     });
@@ -657,7 +657,7 @@ function DailyLimits({ person }: { person: Person }) {
               </option>
             ))}
           </Select>
-          {/* Together, so on a narrow screen they move under the app as one. */}
+          {/* Together, so on a narrow screen, they move under the app as one. */}
           <span className="ml-auto flex shrink-0 items-center gap-2">
             <LimitSelect
               label="Daily limit for the app"
@@ -1238,7 +1238,7 @@ function PersonDetail({ person, canRing, until, onRang }: RingButtonProps & { ca
       // Set before the pending state ends, so the box never flicks back.
       queryClient.setQueryData(LOOK_AFTER_KEY, next);
       // Who may be checked changes with it.
-      queryClient.invalidateQueries({ queryKey: LIVE_CHECKS_KEY });
+      void queryClient.invalidateQueries({ queryKey: LIVE_CHECKS_KEY });
       toast.success(
         required ? `${person.name}’s location sharing is now required` : `${person.name} can turn sharing off again`,
       );

@@ -103,14 +103,14 @@ the app still builds and works, just without instant alerts.
    [push] sync (request): 1/1 device(s) reached
    ```
 
-| Log line | Meaning |
-| --- | --- |
-| No `[push]` lines at all | `FIREBASE_SERVICE_ACCOUNT` isn't reaching the container, or the person has no registered phone. |
-| `FIREBASE_SERVICE_ACCOUNT is not valid JSON…` | The value is cut off or wrongly encoded. Re-encode the whole file. |
-| `token exchange failed (400/401)` | The key was deleted or revoked in Firebase. Generate a new one. |
-| `0/1 device(s) reached` + `FCM send failed (403)` | The key is from a different Firebase project than the app's `google-services.json`. |
-| App build fails: `No matching client found for package name` | The app's `app.id` isn't the package name registered in that `google-services.json`. |
-| `dead token(s) removed` | Normal: an install was uninstalled or its data cleared. |
+| Log line                                                     | Meaning                                                                                         |
+|--------------------------------------------------------------|-------------------------------------------------------------------------------------------------|
+| No `[push]` lines at all                                     | `FIREBASE_SERVICE_ACCOUNT` isn't reaching the container, or the person has no registered phone. |
+| `FIREBASE_SERVICE_ACCOUNT is not valid JSON…`                | The value is cut off or wrongly encoded. Re-encode the whole file.                              |
+| `token exchange failed (400/401)`                            | The key was deleted or revoked in Firebase. Generate a new one.                                 |
+| `0/1 device(s) reached` + `FCM send failed (403)`            | The key is from a different Firebase project than the app's `google-services.json`.             |
+| App build fails: `No matching client found for package name` | The app's `app.id` isn't the package name registered in that `google-services.json`.            |
+| `dead token(s) removed`                                      | Normal: an install was uninstalled or its data cleared.                                         |
 
 ## Behaviour notes
 

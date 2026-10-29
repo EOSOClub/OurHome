@@ -68,7 +68,7 @@ export function HouseholdsCard({ initial }: { initial: HouseholdSummaryDTO[] }) 
     onSuccess: (_d, vars) => {
       toast.success(vars.disabled ? 'Household turned off' : 'Household turned on');
       setTurningOff(null);
-      invalidate();
+      void invalidate();
     },
   });
 
@@ -81,7 +81,7 @@ export function HouseholdsCard({ initial }: { initial: HouseholdSummaryDTO[] }) 
           ? 'Its Paperless may now be on this server’s network'
           : 'Its Paperless must now be a public address',
       );
-      invalidate();
+      void invalidate();
     },
   });
 
@@ -197,7 +197,7 @@ export function HouseholdsCard({ initial }: { initial: HouseholdSummaryDTO[] }) 
           onClose={() => setCreating(false)}
           onCreated={() => {
             setCreating(false);
-            invalidate();
+            void invalidate();
           }}
         />
       ) : null}
@@ -208,7 +208,7 @@ export function HouseholdsCard({ initial }: { initial: HouseholdSummaryDTO[] }) 
           onClose={() => setEditingFeatures(null)}
           onSaved={() => {
             setEditingFeatures(null);
-            invalidate();
+            void invalidate();
           }}
         />
       ) : null}
@@ -224,7 +224,7 @@ export function HouseholdsCard({ initial }: { initial: HouseholdSummaryDTO[] }) 
           onClose={() => setDeleting(null)}
           onDeleted={() => {
             setDeleting(null);
-            invalidate();
+            void invalidate();
           }}
         />
       ) : null}

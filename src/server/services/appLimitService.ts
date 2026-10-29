@@ -13,8 +13,8 @@ import type { LimitsReachedInput } from '@/lib/validation/phone';
 // (phoneStatusService.checkIn), counts today's minutes itself, warns the child
 // 5 minutes before and then covers the app. When it covers one, it says so in
 // its next check-in, and each supervisor gets one bell alert per limit and
-// day (reportLimitsReached). They go when nobody supervises the child any
-// more (supervisionService.releaseIfUnsupervised). Rules: src/lib/appLimits.ts.
+// day (reportLimitsReached). They go when nobody supervises the child
+// anymore (supervisionService.releaseIfUnsupervised). Rules: src/lib/appLimits.ts.
 
 type Db = Prisma.TransactionClient | typeof prisma;
 

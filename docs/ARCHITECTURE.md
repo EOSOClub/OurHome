@@ -20,7 +20,7 @@ Request
   -> Prisma (src/server/db/prisma.ts)       single client instance
 ```
 
-**Rule:** business logic never lives in a route handler. Handlers parse + delegate.
+**Rule:** business logic never lives in a route handler. Handlers parse and delegate.
 Services own the rules and are the only code that touches the database. Every
 state-changing service writes an `ActivityEntry`, so the activity feed is an
 authoritative, append-only log of household events. It is read on its own
@@ -32,7 +32,7 @@ their points this week, then a household glance.
 
 UI follows the same separation: Server Components fetch via services for the
 initial render; interactive mutations go through the typed API (`/api/*`) with
-TanStack Query for cache + optimistic-ish updates.
+TanStack Query for cache and optimistic-ish updates.
 
 ## Database (MongoDB via Prisma)
 
@@ -49,10 +49,10 @@ service in [`docker.example/docker-compose.yml`](../docker.example/docker-compos
 
 The schema sticks to portable, document-friendly types:
 
-| Avoided | Used instead |
-| --- | --- |
-| Prisma `enum` | `String` column + Zod enum (`src/lib/enums.ts`) |
-| `Json` column | `String` of JSON text, parsed with Zod |
+| Avoided                   | Used instead                                              |
+|---------------------------|-----------------------------------------------------------|
+| Prisma `enum`             | `String` column + Zod enum (`src/lib/enums.ts`)           |
+| `Json` column             | `String` of JSON text, parsed with Zod                    |
 | Scalar lists (`String[]`) | Relations or delimited strings (e.g. `byWeekday="1,3,5"`) |
 
 **Transactions need a replica set.** Several services use
@@ -265,14 +265,14 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
     off until `PAPERLESS_URL` + `PAPERLESS_TOKEN` are set. Status + recently
     skipped documents are on the Settings card. Dry run:
     `npm run paperless:preview`. One-time setup with an admin login
-    (`npm run paperless:setup`, `server/paperless/setup.ts`, run by the deploy
+    (`npm run paperless:setup`, `server/paperless/setup.ts`, run by the deployment
     walkthrough inside the web container): tags, fields, read-only user +
     token, starter workflows/views, biller correspondents, optional content
     matching and bill mailbox (mail account + rules); idempotent by name, and
     the only code that writes to Paperless. Shared tag/field names:
     `server/paperless/names.ts`. Runbook: `docs/paperless-import.md`.
   - *Android app download* (`appDownloadService`, `GET /api/app/download`,
-    Profile card): serves the APK the deploy builds
+    Profile card): serves the APK the deployment builds
     (`docker.example/android/Dockerfile`) from `APP_DOWNLOAD_DIR` (android/out,
     mounted read-only), described by its `ourhome.json`; signed-in members only,
     nothing shown when no build exists. The one exception is a setup link
@@ -283,7 +283,7 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
     after 24 hours, at the next link, or when they choose their own password
     (the change-password hook in `auth.ts`). `GET /api/app/info` gives the app its
     "update available" check. `appReleaseService.announceAppRelease` (every
-    reminder sweep; the deploy triggers one after a build) posts one
+    reminder sweep; the deployment triggers one after a build) posts one
     household-wide `system` notification per version (dedupeKey
     `app_release:<versionCode>`, older ones removed, links to /profile) and an
     `app_update` push to every registered phone.
@@ -392,7 +392,7 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
   then emails `BUG_REPORT_EMAIL` (unset = no email) via the SMTP
   mailer. Email outcome is recorded in `BugReport.emailStatus`
   (`emailed` / `email_failed` / `not_configured`) and logged; it never fails
-  the submit. The Android app alerts the head once per new report (instant
+  the submission. The Android app alerts the head once per new report (instant
   push, with the hourly poll as fallback).
   Notifications with a `userId` are visible only to that user; generated
   reminders only to their audience; other rows without one are household-wide

@@ -1,5 +1,6 @@
 'use client';
 
+import type * as React from 'react';
 import { useState, type CSSProperties } from 'react';
 import { Check, ExternalLink, Loader2, Pencil, Repeat, Trash2 } from 'lucide-react';
 import type { CategoryDTO, ShoppingItemDTO } from '@/lib/types';
@@ -259,9 +260,9 @@ function cell(phone: string, wide: string): CSSProperties {
 }
 
 /** Where the row's text and buttons go. On a phone the buttons would leave the name
- * and the link a sliver, so the name gets the whole width and the buttons share the
+ * and the link a sliver, so the name gets the whole width, and the buttons share the
  * bottom line with the price and notes (the link above them, also full width). From
- * `sm` up the text stacks on the left and the buttons stand beside all of it. */
+ * `sm` up the text stacks on the left, and the buttons stand beside all of it. */
 function rowCells(item: ShoppingItemDTO) {
   const link = item.url ? 1 : 0;
   // A phone shows the price under the name; wider screens show it with the buttons.

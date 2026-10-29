@@ -21,12 +21,12 @@ import type { UsageHistoryDTO } from '@/lib/types';
 
 // App usage (parental controls): a child's phone reports its screen time per
 // app while a supervising adult has turned sharing it on (User.shareAppUsage,
-// set in supervisionService). Their supervisors block apps from its lists
+// set in supervisionService). Their supervisors block apps from the usage lists
 // (appBlockService), give apps a daily limit (appLimitService) and still
 // allow apps in a schedule (appScheduleService).
 // Only the last USAGE_KEEP_DAYS days are kept; turning sharing off deletes it.
 // The phone also sends each app's icon once (AppIcon), when the server says
-// it has none; an icon goes when no stored day names its app any more.
+// it has none; an icon goes when no stored day names its app anymore.
 // The child sees their own numbers too, on their Profile (myUsageHistory).
 // While it's shared, their supervisors are also told about new apps on their
 // phone (reportNewApps).
@@ -136,7 +136,7 @@ export async function usageNamesApp(userIds: string[], app: string): Promise<boo
   return rows.some((r) => parseApps(r.apps).some((a) => a.app === app));
 }
 
-/** Deletes [userIds]' stored usage, and the icons nobody's usage names any more. */
+/** Deletes [userIds]' stored usage, and the icons nobody's usage names anymore. */
 export async function forgetUsage(db: Db, householdId: string, userIds: string[]): Promise<void> {
   await db.appUsageDay.deleteMany({ where: { userId: { in: userIds } } });
   await pruneIcons(db, householdId);

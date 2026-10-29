@@ -54,7 +54,7 @@ export function isStreamConnected(householdId: string, userId: string): boolean 
   return false;
 }
 
-/** The installs connected right now, for the phone lines ("connected"). */
+/** The installations connected right now, for the phone lines ("connected"). */
 export function connectedInstalls(householdId: string): Set<string> {
   const out = new Set<string>();
   for (const conn of connections) if (conn.householdId === householdId) out.add(conn.installId);

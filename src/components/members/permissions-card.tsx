@@ -51,7 +51,7 @@ export function PermissionsCard({ membersVersion }: { membersVersion: string }) 
   // switching who you're editing (or a save landing) drops them automatically.
   const [edit, setEdit] = useState<{ key: string; access: AccessMatrix } | null>(null);
 
-  // Adding, removing or re-roling someone changes this list and their grids,
+  // Adding, removing or changing someone's role changes this list and their grids,
   // so the member roster is part of the key.
   const queryKey = ['permissions', membersVersion];
   const { data, isLoading } = useQuery({

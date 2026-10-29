@@ -1,5 +1,6 @@
 'use client';
 
+import type * as React from 'react';
 import { useState } from 'react';
 import { ChevronDown, ChevronUp, Plus, Repeat, X } from 'lucide-react';
 import type { TaskDTO } from '@/lib/types';

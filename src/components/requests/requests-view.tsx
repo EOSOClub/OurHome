@@ -182,7 +182,7 @@ export function RequestsView({
   // A maintenance request the head is giving to someone else.
   const [reassigning, setReassigning] = useState<RequestDTO | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<RequestDTO | null>(null);
-  // Bumped after a successful create so the form remounts empty.
+  // Bumped after a request is created so the form remounts empty.
   const [formKey, setFormKey] = useState(0);
 
   const { data: requests = [] } = useQuery({
@@ -225,7 +225,7 @@ export function RequestsView({
               : `Requested “${r.title}”`,
       );
       setFormKey((k) => k + 1);
-      invalidate();
+      void invalidate();
     },
     onError: createForm.fail,
   });
@@ -236,7 +236,7 @@ export function RequestsView({
     onSuccess: () => {
       toast.success('Request updated');
       setEditing(null);
-      invalidate();
+      void invalidate();
     },
     onError: editForm.fail,
   });
@@ -246,7 +246,7 @@ export function RequestsView({
     onSuccess: () => {
       toast.success('Request removed');
       setConfirmDelete(null);
-      invalidate();
+      void invalidate();
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -258,7 +258,7 @@ export function RequestsView({
     onSuccess: (r) => {
       toast.success(r.dueAt ? `Done by ${shortDate(r.dueAt, timeZone)} - got it` : `Accepted “${r.title}”`);
       setAccepting(null);
-      invalidate();
+      void invalidate();
     },
     onError: acceptForm.fail,
   });
@@ -277,9 +277,9 @@ export function RequestsView({
               : `Marked “${r.title}” done`,
       );
       setApproving(null);
-      invalidate();
+      void invalidate();
       // It may be on a shopping list now.
-      if (r.addedToList) queryClient.invalidateQueries({ queryKey: ['shopping-lists'] });
+      if (r.addedToList) void queryClient.invalidateQueries({ queryKey: ['shopping-lists'] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -291,7 +291,7 @@ export function RequestsView({
     onSuccess: (r) => {
       toast.success(`Declined “${r.title}”`);
       setDeclining(null);
-      invalidate();
+      void invalidate();
     },
     onError: declineForm.fail,
   });
@@ -301,7 +301,7 @@ export function RequestsView({
     onSuccess: (r) => {
       toast.success(`Sent to ${r.assignee?.name ?? 'them'}`);
       setReassigning(null);
-      invalidate();
+      void invalidate();
     },
     onError: reassignForm.fail,
   });
@@ -348,7 +348,7 @@ export function RequestsView({
       decides={viewDecides(mod, r.requester.id)}
       busy={busyId === r.id}
       onApprove={() =>
-        // A purchase can go on a shopping list: ask which. Otherwise approve at once.
+        // A purchase can go on a shopping list: ask which. Otherwise, approve at once.
         r.category === 'purchase' && mod.shoppingLists.length > 0
           ? setApproving(r)
           : completeMutation.mutate({ id: r.id })

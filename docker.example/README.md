@@ -43,18 +43,18 @@ Each later run asks once **"Change settings before deploying?"** Answer no (the
 default) and it deploys straight away; yes walks through the settings again,
 with your current values as the defaults (Enter keeps each one).
 
-| Option | PowerShell | What it does |
-| --- | --- | --- |
-| `-n`, `--no-cache` | `-NoCache` | Rebuild every layer and re-pull the base image. |
-| `-l`, `--local` | `-Local` | Build from this checkout instead of GitHub. |
-| `-b`, `--branch NAME` | `-Branch NAME` | Build another branch this time. |
-| `-s`, `--setup` | `-Setup` | Go straight to the settings walkthrough. |
-| `-o`, `--only SECTION` | `-Only SECTION` | Only that section of the walkthrough, then save. |
-| `--from SECTION` | `-From SECTION` | The walkthrough from that section to the end. |
-| `-y`, `--yes` | `-Yes` | Skip the settings question and check for updates: the web app's code (and `settings.yml`/`.env`) against the last deploy, the Android app's code and settings against the APK on offer. Nothing new: says so and stops. Otherwise lists what's new and asks before updating each part (only the app → like `-a`). Without a keyboard (cron) it updates whatever changed. `-n` skips the check. |
-| `-a`, `--app` | `-App` | Only update the Android app: rebuild it if its code or settings changed, else say there's nothing new. With `-n`, rebuild anyway. |
-| `--no-build` | `-NoBuild` | Just restart (enough after a settings change). |
-| `--timeout S` | `-Timeout S` | Seconds to wait for the app to respond (default 180). |
+| Option                 | PowerShell      | What it does                                                                                                                                                                                                                                                                                                                                                                                   |
+|------------------------|-----------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `-n`, `--no-cache`     | `-NoCache`      | Rebuild every layer and re-pull the base image.                                                                                                                                                                                                                                                                                                                                                |
+| `-l`, `--local`        | `-Local`        | Build from this checkout instead of GitHub.                                                                                                                                                                                                                                                                                                                                                    |
+| `-b`, `--branch NAME`  | `-Branch NAME`  | Build another branch this time.                                                                                                                                                                                                                                                                                                                                                                |
+| `-s`, `--setup`        | `-Setup`        | Go straight to the settings walkthrough.                                                                                                                                                                                                                                                                                                                                                       |
+| `-o`, `--only SECTION` | `-Only SECTION` | Only that section of the walkthrough, then save.                                                                                                                                                                                                                                                                                                                                               |
+| `--from SECTION`       | `-From SECTION` | The walkthrough from that section to the end.                                                                                                                                                                                                                                                                                                                                                  |
+| `-y`, `--yes`          | `-Yes`          | Skip the settings question and check for updates: the web app's code (and `settings.yml`/`.env`) against the last deploy, the Android app's code and settings against the APK on offer. Nothing new: says so and stops. Otherwise lists what's new and asks before updating each part (only the app → like `-a`). Without a keyboard (cron) it updates whatever changed. `-n` skips the check. |
+| `-a`, `--app`          | `-App`          | Only update the Android app: rebuild it if its code or settings changed, else say there's nothing new. With `-n`, rebuild anyway.                                                                                                                                                                                                                                                              |
+| `--no-build`           | `-NoBuild`      | Just restart (enough after a settings change).                                                                                                                                                                                                                                                                                                                                                 |
+| `--timeout S`          | `-Timeout S`    | Seconds to wait for the app to respond (default 180).                                                                                                                                                                                                                                                                                                                                          |
 
 Walkthrough sections, by name or number: `1 name`, `2 database`, `3 keys`,
 `4 web`, `5 email`, `6 captcha`, `7 alerts` (Firebase), `8 android`,
@@ -67,7 +67,7 @@ The first run always goes through every section.
 
 The app is built **from GitHub**: `docker.repo` and `docker.branch` in
 `settings.yml` (default: this repo, `main`). Docker fetches the branch itself on
-every build and only rebuilds when it has new commits, so a deploy always runs
+every build and only rebuilds when it has new commits, so a deployment always runs
 the pushed code and the server doesn't need to `git pull` for it. `-l` builds
 from the local checkout instead (e.g. to try unpushed changes).
 
@@ -80,19 +80,19 @@ from the local checkout instead (e.g. to try unpushed changes).
 
 ### What the walkthrough can run for you
 
-Answer **no** to "Already have …?" and the deploy runs that piece too, from the
+Answer **no** to "Already have …?" and the deployment runs that piece too, from the
 [OurHomeServices](https://github.com/EOSOClub/OurHomeServices) stacks (fetched
 into `services.path`, default `../OurHomeServices`). Each stack gets its own
 `.env` of generated passwords and joins the same Docker network, so everything
 reaches everything else by name:
 
-| Piece | What you do | What the deploy does |
-| --- | --- | --- |
-| **MongoDB** | Nothing | Starts a single-node replica set, creates the app user, writes `DATABASE_URL` |
-| **Paperless-ngx** | Pick its port and address | Starts it (with OCR and email-to-PDF), then the [Paperless setup](../docs/paperless-import.md) with its admin login |
-| **Proton Mail Bridge** | Log in once (Proton password + 2FA) in the Bridge's own prompt; paid Proton plan | Builds and starts it, reads its mail login, and gives Paperless a mail account on your bills folder |
-| **Other mail (IMAP)** | Server, username, app password | Gives Paperless a mail account on your bills folder |
-| **Billers** | Their names | A Paperless correspondent each, plus bill / payment tagging by content |
+| Piece                  | What you do                                                                      | What the deployment does                                                                                            |
+|------------------------|----------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------|
+| **MongoDB**            | Nothing                                                                          | Starts a single-node replica set, creates the app user, writes `DATABASE_URL`                                       |
+| **Paperless-ngx**      | Pick its port and address                                                        | Starts it (with OCR and email-to-PDF), then the [Paperless setup](../docs/paperless-import.md) with its admin login |
+| **Proton Mail Bridge** | Log in once (Proton password + 2FA) in the Bridge's own prompt; paid Proton plan | Builds and starts it, reads its mail login, and gives Paperless a mail account on your bills folder                 |
+| **Other mail (IMAP)**  | Server, username, app password                                                   | Gives Paperless a mail account on your bills folder                                                                 |
+| **Billers**            | Their names                                                                      | A Paperless correspondent each, plus bill / payment tagging by content                                              |
 
 Paperless's admin password is in `<services.path>/paperless/.env`.
 
@@ -112,7 +112,7 @@ and Android only installs it over the old app when it's signed with the same key
 
 - The build runs in Docker ([`android/Dockerfile`](android/Dockerfile)); the
   first one downloads the Android tools (about 3 GB) and takes ~10 minutes.
-- It's signed with this install's own key, made on the first build:
+- It's signed with this installation's own key, made on the first build:
   **`android/release.jks` and `android/keystore.env` (repo root). Back both up.**
   Android only installs an update over an APK signed with the same key; without
   them, everyone has to uninstall, reinstall and sign in again.
@@ -130,7 +130,7 @@ options in PowerShell form (`-Setup`, `-NoCache`, `-Branch dev`, …).
 ### Updating
 
 `./deploy.sh` already builds the latest commit. `git pull` is only needed for
-changes to the deploy scripts and templates themselves; since nothing in
+changes to the deployment scripts and templates themselves; since nothing in
 `docker/` is hand-edited, refresh it from the template after a pull:
 
 ```bash
@@ -155,7 +155,7 @@ refresh `docker/` as above.
 
 ## What runs
 
-Just the web app (`web`). On start it applies the database schema
+Just the web app (`web`). On start, it applies the database schema
 (`prisma db push`) and serves plain HTTP on port 3000 to your home network. It
 also runs the reminder sweep every 15 minutes, so overdue / low-stock /
 bill-due notifications stay current without anything else running.
@@ -168,14 +168,14 @@ database `household`). Or run it however you like (a managed service, …) and
 point `DATABASE_URL` in `.env` at it.
 
 The web container joins the Docker network named by `docker.network` (default
-`ourhome_net`; the deploy scripts create it if missing). If MongoDB runs as a
+`ourhome_net`; the deployment scripts create it if missing). If MongoDB runs as a
 container, attach it to the same network and use its container name or alias as
 the host in `DATABASE_URL`, e.g. `mongodb://…@mongo:27017/household?replicaSet=rs0&authSource=admin`.
 Any other service the app should reach by name goes on that network too.
 
 ## 1. Fill in `.env` and `settings.yml`
 
-The deploy script's walkthrough does this for you. By hand: secrets go in
+The deployment script's walkthrough does this for you. By hand: secrets go in
 `.env` ([`.env.example`](../.env.example)); everything else in
 `settings.yml` ([`settings.example.yml`](../settings.example.yml)). At minimum:
 
@@ -192,7 +192,7 @@ environment variables and hands it `settings.yml` read-only; neither is baked
 into the image. The app reads them when it starts, so a change only needs a
 restart (`./deploy.sh --no-build`). The `dev:` section and `DEV_` entries are
 ignored on the server. The `docker:` section of `settings.yml` (project and
-container name, network, port, bind address) is what the deploy scripts give
+container name, network, port, bind address) is what the deployment scripts give
 compose. They read it with a small pinned `yq` container, so nothing needs
 installing on the server. The container runs as uid 1000, so keep
 `settings.yml` readable by it (e.g. `644`); `.env` is read by compose itself,
@@ -270,7 +270,7 @@ first-run setup (`docker.bind: 0.0.0.0`, the walkthrough's default): setup only
 works from the home network. When setup finishes, the site asks how it may be
 reached; **HTTPS only** then refuses plain-HTTP sign-in from every other device.
 To also stop serving the home network directly, set `docker.bind: 127.0.0.1`
-afterwards (`./deploy.sh -s`), as long as the tunnel runs on the same machine.
+afterward (`./deploy.sh -s`), as long as the tunnel runs on the same machine.
 
 ## Optional
 
@@ -296,6 +296,6 @@ afterwards (`./deploy.sh -s`), as long as the tunnel runs on the same machine.
 All data is in your MongoDB (the `household` database), so back that up, e.g.
 with `mongodump`. The web container keeps no state. Keep copies of
 `settings.yml` and `.env` somewhere safe too (`.env` holds your secrets), and,
-if the deploy builds the Android app, `android/release.jks` + `keystore.env`.
+if the deployment builds the Android app, `android/release.jks` + `keystore.env`.
 Stacks run for you keep their data and `.env` in their own folders under
 `services.path`; see each stack's README in OurHomeServices for its backups.

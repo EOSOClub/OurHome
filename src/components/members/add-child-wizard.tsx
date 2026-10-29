@@ -194,8 +194,8 @@ export function AddChildWizard({
       setStep('install');
       // A reload from here comes back to Install for them, not a blank form.
       window.history.replaceState(null, '', `?member=${member.id}`);
-      queryClient.invalidateQueries({ queryKey: ['members'] });
-      queryClient.invalidateQueries({ queryKey: LOOK_AFTER_KEY });
+      void queryClient.invalidateQueries({ queryKey: ['members'] });
+      void queryClient.invalidateQueries({ queryKey: LOOK_AFTER_KEY });
     },
     onError: (err) => {
       const fields = fieldErrors(err);

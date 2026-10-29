@@ -1,5 +1,6 @@
 'use client';
 
+import type * as React from 'react';
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -157,7 +158,7 @@ export function BillsView({
   const shownPaid = paid.filter(matchesFilters);
 
   const onSaved = () => {
-    queryClient.invalidateQueries({ queryKey: KEY });
+    void queryClient.invalidateQueries({ queryKey: KEY });
     setEditing(null);
   };
 
@@ -363,7 +364,7 @@ function BillRow({
   // Also re-render the server component - the "Paid this month" stat is a
   // server prop and would go stale on invalidation alone.
   const refresh = () => {
-    queryClient.invalidateQueries({ queryKey: KEY });
+    void queryClient.invalidateQueries({ queryKey: KEY });
     router.refresh();
   };
 

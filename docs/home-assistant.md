@@ -24,7 +24,7 @@ clamped at `0`. Each tag is bound to exactly one inventory item in the app
 (Settings → NFC tags); the amount is supplied per scan.
 
 > This page covers the **one-time** setup. To put a **new tag** into service
-> afterwards, follow [`adding-nfc-tags.md`](./adding-nfc-tags.md).
+> afterward, follow [`adding-nfc-tags.md`](./adding-nfc-tags.md).
 
 ## 1. Create a token
 
@@ -131,9 +131,9 @@ scan also appears in the household activity feed and is recorded in `EventLog`.
 
 ### Responses
 
-| Status | Meaning |
-| ------ | ------- |
-| 200    | Applied; body has the updated item |
-| 401    | Missing or invalid token |
+| Status | Meaning                                                                                                                |
+|--------|------------------------------------------------------------------------------------------------------------------------|
+| 200    | Applied; body has the updated item                                                                                     |
+| 401    | Missing or invalid token                                                                                               |
 | 404    | Tag id isn't registered (and no friendly `name` was sent to auto-register it), or it exists but isn't bound to an item |
-| 422    | Body failed validation (e.g. `amount` is `0` or missing) |
+| 422    | Body failed validation (e.g. `amount` is `0` or missing)                                                               |

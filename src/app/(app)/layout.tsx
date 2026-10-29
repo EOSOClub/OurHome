@@ -1,3 +1,4 @@
+import type * as React from 'react';
 import Link from 'next/link';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';

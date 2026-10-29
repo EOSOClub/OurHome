@@ -1,5 +1,6 @@
 'use client';
 
+import type * as React from 'react';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Boxes, Loader2, Plus, Search, Tag, X } from 'lucide-react';
@@ -173,9 +174,9 @@ export function InventoryView({
       }),
     onSuccess: (_data, category) => {
       toast.success(`Deleted category “${category.name}”`);
-      queryClient.invalidateQueries({ queryKey: CATEGORIES_KEY });
+      void queryClient.invalidateQueries({ queryKey: CATEGORIES_KEY });
       // Items in the deleted category lose their categoryId; refresh them too.
-      invalidate();
+      void invalidate();
     },
   });
 
@@ -216,7 +217,7 @@ export function InventoryView({
     // Refetch only after the last in-flight tap: an earlier refetch could
     // land before a later tap is saved and briefly show the old count.
     onSettled: () => {
-      if (queryClient.isMutating({ mutationKey: ADJUST_KEY }) <= 1) invalidate();
+      if (queryClient.isMutating({ mutationKey: ADJUST_KEY }) <= 1) void invalidate();
     },
   });
 
@@ -241,7 +242,7 @@ export function InventoryView({
     onSettled: () => setBusyItemId(null),
     onSuccess: (_data, item) => {
       toast.success(`Removed “${item.name}” from inventory`);
-      invalidate();
+      void invalidate();
     },
   });
 
@@ -270,7 +271,7 @@ export function InventoryView({
       setAddedToShopping((prev) => new Set(prev).add(item.id));
       toast.success(`Added “${item.name}” to ${list.name}`);
       // The chosen list's open count changed; refresh the cached lists.
-      queryClient.invalidateQueries({ queryKey: SHOPPING_LISTS_KEY });
+      void queryClient.invalidateQueries({ queryKey: SHOPPING_LISTS_KEY });
     },
   });
 

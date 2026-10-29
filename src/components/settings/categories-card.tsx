@@ -53,7 +53,7 @@ export function CategoriesCard({
       }),
     onSuccess: () => {
       setError(null);
-      invalidate();
+      void invalidate();
     },
     onError: (err) =>
       setError(err instanceof ApiError ? err.message : 'Failed to delete'),
@@ -83,7 +83,7 @@ export function CategoriesCard({
               category={editing === 'new' ? null : editing}
               onClose={() => setEditing(null)}
               onSaved={() => {
-                invalidate();
+                void invalidate();
                 setEditing(null);
               }}
             />

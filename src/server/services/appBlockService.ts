@@ -6,7 +6,7 @@ import type { BlockedAppDTO } from '@/lib/types';
 // child's phone. supervisionService.setAppBlocked adds and removes them; the
 // phone learns them from its check-in answer (phoneStatusService.checkIn) and
 // covers a blocked app with its "blocked" screen. They go when nobody
-// supervises the child any more (supervisionService.releaseIfUnsupervised).
+// supervises the child anymore (supervisionService.releaseIfUnsupervised).
 
 type Db = Prisma.TransactionClient | typeof prisma;
 

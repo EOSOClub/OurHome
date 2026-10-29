@@ -44,12 +44,12 @@ import {
 //     the bills folder and its two rules (attachments, HTML-only emails)
 //
 // Progress goes to stderr; the token is the only thing on stdout, so the
-// deploy scripts can capture it into .env:
+// deployment scripts can capture it into .env:
 //
 //   PAPERLESS_ADMIN_USER=admin PAPERLESS_ADMIN_PASSWORD=… \
 //   PAPERLESS_SETUP_BILLERS="City Water, Electric Co" npm run -s paperless:setup
 //
-// On the server the deploy walkthrough runs it inside the web container, where
+// On the server, the deployment walkthrough runs it inside the web container, where
 // Paperless is reachable by its container name.
 
 loadSettings();

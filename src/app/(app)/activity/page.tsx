@@ -1,3 +1,4 @@
+import type * as React from 'react';
 import Link from 'next/link';
 import { History } from 'lucide-react';
 import { requireUser } from '@/server/auth/session';

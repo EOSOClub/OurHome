@@ -91,7 +91,7 @@ export function MapView({
     }
     const ids = started.map((c) => c.id);
     if (runningRef.current.some((id) => !ids.includes(id))) {
-      queryClient.invalidateQueries({ queryKey: PRESENCE_KEY });
+      void queryClient.invalidateQueries({ queryKey: PRESENCE_KEY });
     }
     runningRef.current = ids;
     // eslint-disable-next-line react-hooks/exhaustive-deps

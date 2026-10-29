@@ -310,7 +310,7 @@ function AddMemberCard({
       setCreated({ name: member.name, username: member.username ?? '' });
       reset();
       // The supervision list follows: its key has the roster in it.
-      queryClient.invalidateQueries({ queryKey: MEMBERS_KEY });
+      void queryClient.invalidateQueries({ queryKey: MEMBERS_KEY });
     },
     onError: (err) => {
       // Mark the fields the server named, and say why (this replaces the global toast).
@@ -582,7 +582,7 @@ function MemberRow({
       }),
     onSuccess: () => {
       toast.success(`Saved ${member.name}'s profile`);
-      invalidate();
+      void invalidate();
     },
     onError: (err) => {
       // Mark the fields the server named, and say why (this replaces the global toast).
@@ -621,7 +621,7 @@ function MemberRow({
     onSuccess: () => {
       setNewPassword('');
       toast.success(`Password reset for ${member.name}`);
-      invalidate();
+      void invalidate();
     },
     onError: (err) => {
       setServerErrors((errs) => ({ ...errs, ...fieldErrors(err) }));
@@ -637,7 +637,7 @@ function MemberRow({
       }),
     onSuccess: () => {
       toast.success(`${member.name} is now the Head of House`);
-      invalidate();
+      void invalidate();
     },
   });
 
@@ -649,7 +649,7 @@ function MemberRow({
       }),
     onSuccess: () => {
       toast.success(`Removed ${member.name} from the household`);
-      invalidate();
+      void invalidate();
     },
   });
 

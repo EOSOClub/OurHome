@@ -62,11 +62,11 @@ Role-based access for every member, plus built-in bug reports.
 
 ## 🧩 Requirements
 
-| Needs | For | Where |
-| --- | --- | --- |
-| **MongoDB replica set** | Everything (required) | [OurHomeServices → mongo](https://github.com/EOSOClub/OurHomeServices/tree/main/mongo) |
-| **Paperless-ngx** | Bills: collecting and archiving bill emails and photos | [OurHomeServices → paperless](https://github.com/EOSOClub/OurHomeServices/tree/main/paperless) |
-| **Proton Mail Bridge** | Bills by email, if your mail is Proton | [OurHomeServices → proton-bridge](https://github.com/EOSOClub/OurHomeServices/tree/main/proton-bridge) |
+| Needs                   | For                                                    | Where                                                                                                  |
+|-------------------------|--------------------------------------------------------|--------------------------------------------------------------------------------------------------------|
+| **MongoDB replica set** | Everything (required)                                  | [OurHomeServices → mongo](https://github.com/EOSOClub/OurHomeServices/tree/main/mongo)                 |
+| **Paperless-ngx**       | Bills: collecting and archiving bill emails and photos | [OurHomeServices → paperless](https://github.com/EOSOClub/OurHomeServices/tree/main/paperless)         |
+| **Proton Mail Bridge**  | Bills by email, if your mail is Proton                 | [OurHomeServices → proton-bridge](https://github.com/EOSOClub/OurHomeServices/tree/main/proton-bridge) |
 
 > [!NOTE]
 > Documents tagged `bill` / `bill-payment` in Paperless become bills and payments automatically. Setup: [docs/paperless-import.md](./docs/paperless-import.md).
@@ -76,15 +76,15 @@ Role-based access for every member, plus built-in bug reports.
 
 ## 🧱 Stack
 
-| Layer | Tech |
-| --- | --- |
-| **Framework** | Next.js 16 (App Router), React 19, TypeScript |
-| **UI** | Tailwind CSS v4, shadcn-style components |
-| **Data** | Prisma 6 on MongoDB (single-node replica set) |
-| **Auth** | Better Auth: username/password, HTTP-only cookies, roles |
-| **Client & validation** | TanStack Query, Zod |
-| **Testing** | Vitest |
-| **Deploy** | Docker Compose ([`docker.example/`](./docker.example)) |
+| Layer                   | Tech                                                     |
+|-------------------------|----------------------------------------------------------|
+| **Framework**           | Next.js 16 (App Router), React 19, TypeScript            |
+| **UI**                  | Tailwind CSS v4, shadcn-style components                 |
+| **Data**                | Prisma 6 on MongoDB (single-node replica set)            |
+| **Auth**                | Better Auth: username/password, HTTP-only cookies, roles |
+| **Client & validation** | TanStack Query, Zod                                      |
+| **Testing**             | Vitest                                                   |
+| **Deploy**              | Docker Compose ([`docker.example/`](./docker.example))   |
 
 ```mermaid
 flowchart LR
@@ -135,18 +135,18 @@ The app reads both at startup; in Docker, compose passes `.env` in as environmen
 <summary><b>The essentials</b> (click to expand)</summary>
 <br>
 
-| Setting | Where | What it's for |
-| --- | --- | --- |
-| `DATABASE_URL`, `DEV_DATABASE_URL` | `.env` | Your MongoDB replica set: as the container reaches it, and from your PC |
-| `BETTER_AUTH_SECRET` | `.env` | Session signing secret |
-| `CRON_SECRET` | `.env` | Optional: trigger a reminder sweep via `/api/cron/reminders` |
-| `app.name` | `settings.yml` | Name shown in the browser, sign-in page and emails (default "Our Home") |
-| `better_auth.url` | `settings.yml` | Optional `https://` address from outside, for email links |
-| `docker.port`, `docker.bind`, `docker.network`, `docker.project`, `docker.container` | `settings.yml` | Port, who can reach it, and the Docker names |
-| `smtp.*`, `contact.forward_to`, `bug_report.email` + `SMTP_PASS` | both | Optional email |
-| `turnstile.site_key` + `TURNSTILE_SECRET_KEY` | both | Optional contact-form CAPTCHA |
-| `paperless.*` + `PAPERLESS_TOKEN` | both | Optional bill import from Paperless-ngx ([setup](./docs/paperless-import.md)) |
-| `FIREBASE_SERVICE_ACCOUNT` | `.env` | Optional instant alerts for the Android app ([setup](./docs/push-notifications.md)) |
+| Setting                                                                              | Where          | What it's for                                                                       |
+|--------------------------------------------------------------------------------------|----------------|-------------------------------------------------------------------------------------|
+| `DATABASE_URL`, `DEV_DATABASE_URL`                                                   | `.env`         | Your MongoDB replica set: as the container reaches it, and from your PC             |
+| `BETTER_AUTH_SECRET`                                                                 | `.env`         | Session signing secret                                                              |
+| `CRON_SECRET`                                                                        | `.env`         | Optional: trigger a reminder sweep via `/api/cron/reminders`                        |
+| `app.name`                                                                           | `settings.yml` | Name shown in the browser, sign-in page and emails (default "Our Home")             |
+| `better_auth.url`                                                                    | `settings.yml` | Optional `https://` address from outside, for email links                           |
+| `docker.port`, `docker.bind`, `docker.network`, `docker.project`, `docker.container` | `settings.yml` | Port, who can reach it, and the Docker names                                        |
+| `smtp.*`, `contact.forward_to`, `bug_report.email` + `SMTP_PASS`                     | both           | Optional email                                                                      |
+| `turnstile.site_key` + `TURNSTILE_SECRET_KEY`                                        | both           | Optional contact-form CAPTCHA                                                       |
+| `paperless.*` + `PAPERLESS_TOKEN`                                                    | both           | Optional bill import from Paperless-ngx ([setup](./docs/paperless-import.md))       |
+| `FIREBASE_SERVICE_ACCOUNT`                                                           | `.env`         | Optional instant alerts for the Android app ([setup](./docs/push-notifications.md)) |
 
 </details>
 
@@ -161,15 +161,15 @@ npm run db:push
 npm run dev                       # http://localhost:3000, setup on first visit
 ```
 
-| Script | Purpose |
-| --- | --- |
-| `npm run dev` / `build` / `start` | Next.js dev / production build / serve |
-| `npm run db:generate` | Generate the Prisma client |
-| `npm run db:push` | Apply the schema to Mongo (no SQL migrations on Mongo) |
-| `npm run db:reset` | Wipe the database (setup runs again on next visit) |
-| `npm run settings:migrate` | Split an old all-in-one `.env` into `settings.yml` + a secrets-only `.env` (once) |
-| `npm run test` | Vitest |
-| `npm run typecheck` | `tsc --noEmit` |
+| Script                            | Purpose                                                                           |
+|-----------------------------------|-----------------------------------------------------------------------------------|
+| `npm run dev` / `build` / `start` | Next.js dev / production build / serve                                            |
+| `npm run db:generate`             | Generate the Prisma client                                                        |
+| `npm run db:push`                 | Apply the schema to Mongo (no SQL migrations on Mongo)                            |
+| `npm run db:reset`                | Wipe the database (setup runs again on next visit)                                |
+| `npm run settings:migrate`        | Split an old all-in-one `.env` into `settings.yml` + a secrets-only `.env` (once) |
+| `npm run test`                    | Vitest                                                                            |
+| `npm run typecheck`               | `tsc --noEmit`                                                                    |
 
 ## 🏠 Home Assistant
 
@@ -180,14 +180,14 @@ Home Assistant can show inventory on a dashboard from a read-only feed (`/api/in
 
 ## 📚 Docs
 
-| Doc | What's in it |
-| --- | --- |
-| [Architecture](./docs/ARCHITECTURE.md) | How the app is designed |
-| [Permissions](./docs/permissions.md) | Roles and what each can do |
-| [Adding NFC tags](./docs/adding-nfc-tags.md) | Setting up tags for inventory items |
-| [Home Assistant](./docs/home-assistant.md) | Dashboard integration |
-| [Instant phone alerts](./docs/push-notifications.md) | Firebase setup for the Android app |
-| [Paperless bill import](./docs/paperless-import.md) | Bills and payments from Paperless-ngx |
+| Doc                                                  | What's in it                          |
+|------------------------------------------------------|---------------------------------------|
+| [Architecture](./docs/ARCHITECTURE.md)               | How the app is designed               |
+| [Permissions](./docs/permissions.md)                 | Roles and what each can do            |
+| [Adding NFC tags](./docs/adding-nfc-tags.md)         | Setting up tags for inventory items   |
+| [Home Assistant](./docs/home-assistant.md)           | Dashboard integration                 |
+| [Instant phone alerts](./docs/push-notifications.md) | Firebase setup for the Android app    |
+| [Paperless bill import](./docs/paperless-import.md)  | Bills and payments from Paperless-ngx |
 
 ## 🗂️ Project layout
 

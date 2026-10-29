@@ -21,7 +21,7 @@ Helpful things to include:
 - Steps to show it happening, or a small example.
 - Which version you are running (the release, or the date or commit you installed).
 
-Please do not test against someone else's OurHome server or real household data. Use your own install.
+Please do not test against someone else's OurHome server or real household data. Use your own installation.
 
 ## What happens next
 

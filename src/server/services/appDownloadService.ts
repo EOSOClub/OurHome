@@ -2,7 +2,7 @@ import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 
-// The Android app the deploy builds (docker.example/android) lands in
+// The Android app the deployment builds (docker.example/android) lands in
 // APP_DOWNLOAD_DIR (android/out, mounted read-only): ourhome.apk plus
 // ourhome.json describing it. Read on each request, so a new build shows up
 // without restarting the app. No directory, no file, or a broken description

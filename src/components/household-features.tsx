@@ -1,5 +1,6 @@
 'use client';
 
+import type * as React from 'react';
 import { createContext, useContext } from 'react';
 import { FEATURES, featureForPath, type Feature } from '@/lib/features';
 

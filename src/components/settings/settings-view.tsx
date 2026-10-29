@@ -206,7 +206,7 @@ function HomeAssistantCard({
     onSuccess: (result) => {
       setName('');
       setNewToken(result.token);
-      invalidate();
+      void invalidate();
     },
     onError: fe.fail,
   });
@@ -219,7 +219,7 @@ function HomeAssistantCard({
       }),
     onSuccess: () => {
       toast.success('Token revoked');
-      invalidate();
+      void invalidate();
     },
   });
 
@@ -393,7 +393,7 @@ function NfcTagsCard({
     onSuccess: () => {
       setTagId('');
       setLabel('');
-      invalidate();
+      void invalidate();
     },
     onError: tagForm.fail,
   });
@@ -406,7 +406,7 @@ function NfcTagsCard({
       }),
     onSuccess: () => {
       toast.success('Tag removed');
-      invalidate();
+      void invalidate();
     },
   });
 

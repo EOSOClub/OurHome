@@ -39,7 +39,7 @@ export function LocationCard({ initial }: { initial: LocationConsent }) {
       apiFetch<LocationConsent>('/api/location/consent', { method: 'PATCH', body: JSON.stringify(change) }),
     onSuccess: (next, change) => {
       queryClient.setQueryData(CONSENT_KEY, next);
-      queryClient.invalidateQueries({ queryKey: LIVE_CHECKS_KEY });
+      void queryClient.invalidateQueries({ queryKey: LIVE_CHECKS_KEY });
       if ('sharing' in change) toast.success(isSharing(next.sharing) ? 'Location sharing on' : 'Location sharing off');
       else toast.success(next.liveChecks ? 'Live checks allowed' : 'Live checks off');
     },
@@ -50,7 +50,7 @@ export function LocationCard({ initial }: { initial: LocationConsent }) {
       apiFetch<LiveCheckDTO>('/api/location/checks/stop', { method: 'POST', body: JSON.stringify({ id }) }),
     onSuccess: () => {
       toast.success('Live check stopped');
-      queryClient.invalidateQueries({ queryKey: LIVE_CHECKS_KEY });
+      void queryClient.invalidateQueries({ queryKey: LIVE_CHECKS_KEY });
     },
   });
 

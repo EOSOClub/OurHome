@@ -53,7 +53,7 @@ export function LiveChecksCard({
     onSuccess: (check) => {
       setStarting(null);
       toast.success(`Checking on ${check.targetName} until ${clock(check.endsAt)}`);
-      queryClient.invalidateQueries({ queryKey: LIVE_CHECKS_KEY });
+      void queryClient.invalidateQueries({ queryKey: LIVE_CHECKS_KEY });
     },
   });
   const stop = useMutation({

@@ -306,7 +306,7 @@ export function lastWordAt(phone: PhoneSnapshot): Date {
 /**
  * Whether the phone is quiet, and the likeliest reason; null while it isn't.
  * A phone holding its stream is never quiet. Firebase calling its token dead
- * since its last word says OurHome is gone, at once. Otherwise a phone that
+ * since its last word says OurHome is gone, at once. Otherwise, a phone that
  * keeps a stream with battery Unrestricted is missed after
  * [PHONE_QUICK_QUIET_MS], any other after [PHONE_QUIET_MS]; then its last
  * word says why: a shutdown, a nearly flat battery, or no signal.

@@ -384,7 +384,7 @@ export async function lookAfterOverview(
       const sharing = sharingMode(k.locationSharing);
       const rules = phoneRules(k);
       const webFilter = webFilterOf(k.webFilter);
-      // Its checks only feed setup, blocking and limits below.
+      // The phone's checks only feed setup, blocking and limits below.
       const { checks = null, alwaysAllowed = [], ...phone } = phones.get(k.id) ?? {};
       const kidLimits = limits.get(k.id) ?? [];
       return {

@@ -24,7 +24,7 @@ Connecting a different Paperless starts the import fresh from that moment.
   page ("Paperless: allow local").
 - **The `settings.yml` / `.env` connection below** still works: it serves the
   household in `PAPERLESS_HOUSEHOLD_ID`, or else the server admin's, until that
-  household saves its own. Existing installs keep importing with no changes.
+  household saves its own. Existing installations keep importing with no changes.
 - One household's Paperless being down never stops the others' imports.
 
 ## How it works
@@ -33,22 +33,22 @@ Every 15 minutes (with the reminder sweep), and on **Settings → Paperless bill
 import → Check now**, the server asks Paperless for documents tagged **`bill`** or
 **`bill-payment`** that changed since the last check:
 
-| Tag | Becomes |
-| --- | --- |
-| `bill` | An unpaid bill: name from the title, amount from **Amount**, due date from **Due date**, with a calendar event on the due date |
-| `bill-payment` | A payment on the matching unpaid bill. If no bill matches, it's listed as skipped, not turned into a bill. |
+| Tag            | Becomes                                                                                                                        |
+|----------------|--------------------------------------------------------------------------------------------------------------------------------|
+| `bill`         | An unpaid bill: name from the title, amount from **Amount**, due date from **Due date**, with a calendar event on the due date |
+| `bill-payment` | A payment on the matching unpaid bill. If no bill matches, it's listed as skipped, not turned into a bill.                     |
 
 **Paperless does the reading.** The amount, due date and account number come
 from Paperless **custom fields**, filled by you, a workflow, or a helper like
 paperless-gpt. Our Home only maps them, so a wrong value is fixed once, in
 Paperless.
 
-| Custom field | Type | Used for |
-| --- | --- | --- |
+| Custom field          | Type     | Used for                            |
+|-----------------------|----------|-------------------------------------|
 | **Amount** (required) | Monetary | Amount due (bill) or paid (payment) |
-| **Due date** | Date | The bill's due date |
-| **Account number** | Text | Matching a payment to its bill |
-| **Invoice number** | Text | Matching, and shown on the bill |
+| **Due date**          | Date     | The bill's due date                 |
+| **Account number**    | Text     | Matching a payment to its bill      |
+| **Invoice number**    | Text     | Matching, and shown on the bill     |
 
 **How a payment finds its bill**, strongest match first:
 1. The same invoice number.
@@ -62,7 +62,7 @@ Paperless.
   already in Paperless is imported.
 - **Waits until a document is finished.** A document is imported once it has
   been unchanged for 10 minutes, has an **Amount**, and isn't tagged
-  `paperless-gpt` (waiting for review). Until then it's listed under *Skipped
+  `paperless-gpt` (waiting for review). Until then, it's listed under *Skipped
   recently* with the reason. When you fix it, Paperless marks it changed and the
   next check picks it up.
 - **Bills follow Paperless.** Editing a bill's document in Paperless updates
@@ -90,22 +90,22 @@ Paperless.
 > It prints progress, then the token (put it in `.env` as `PAPERLESS_TOKEN`).
 > For the mailbox, add `PAPERLESS_SETUP_IMAP_HOST`, `_PORT`, `_SECURITY`
 > (`ssl`, `starttls` or `none`), `_USER`, `_PASSWORD` and
-> `PAPERLESS_SETUP_MAIL_FOLDER`. With no Paperless yet, the deploy can run one
+> `PAPERLESS_SETUP_MAIL_FOLDER`. With no Paperless yet, the deployment can run one
 > for you (answer no to "Already have Paperless-ngx running?").
 
 What setup creates (all named so you can find, change or delete them):
 
-| In Paperless | What for |
-| --- | --- |
-| Tags `bill`, `bill-payment` (no owner) | What the import looks for |
-| Custom fields Amount, Due date, Account number, Invoice number | What the import reads |
-| Group **Our Home (read-only)**, user **ourhome** + its API token | View-only access for the import; the user only signs in with its token |
-| Workflow **Our Home: share new documents** | Gives the group view on every new document (needed when documents have owners) |
-| Workflows **Our Home: bill fields** / **payment fields** | When a document gets the tag, its empty fields appear, ready to fill |
-| Workflow **Our Home: payments are not bills** | Takes `bill` off anything tagged `bill-payment` (the mail rules tag the whole folder `bill`; the import skips documents with both) |
-| Saved views **Our Home: bills & payments** / **waiting for an Amount** | On the dashboard: everything tagged, and what the import is still waiting on |
-| A correspondent per biller (only if you list billers) | Files each biller's documents under it (exact-name match), which also lets Our Home match a payment to its bill |
-| Content matching on both tags (only if you list billers) | The patterns below, built from your billers; skipped if a tag already uses another matching rule |
+| In Paperless                                                                                                 | What for                                                                                                                                    |
+|--------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
+| Tags `bill`, `bill-payment` (no owner)                                                                       | What the import looks for                                                                                                                   |
+| Custom fields Amount, Due date, Account number, Invoice number                                               | What the import reads                                                                                                                       |
+| Group **Our Home (read-only)**, user **ourhome** + its API token                                             | View-only access for the import; the user only signs in with its token                                                                      |
+| Workflow **Our Home: share new documents**                                                                   | Gives the group view on every new document (needed when documents have owners)                                                              |
+| Workflows **Our Home: bill fields** / **payment fields**                                                     | When a document gets the tag, its empty fields appear, ready to fill                                                                        |
+| Workflow **Our Home: payments are not bills**                                                                | Takes `bill` off anything tagged `bill-payment` (the mail rules tag the whole folder `bill`; the import skips documents with both)          |
+| Saved views **Our Home: bills & payments** / **waiting for an Amount**                                       | On the dashboard: everything tagged, and what the import is still waiting on                                                                |
+| A correspondent per biller (only if you list billers)                                                        | Files each biller's documents under it (exact-name match), which also lets Our Home match a payment to its bill                             |
+| Content matching on both tags (only if you list billers)                                                     | The patterns below, built from your billers; skipped if a tag already uses another matching rule                                            |
 | Mail account **Our Home: bills** + rules **bill attachments** / **bill emails** (only if you give a mailbox) | Reads your bills folder every 10 minutes: PDF attachments, and HTML-only emails saved as PDF, tagged `bill`. The connection is tested first |
 
 Documents already tagged before setup are shared with the group too.
@@ -139,10 +139,10 @@ looks for payment wording. Keep the two patterns mutually exclusive: a document
 tagged both is skipped ("tagged as both bill and bill payment"). For example,
 with your billers in place of `biller one|biller two`:
 
-| Tag | Pattern |
-| --- | --- |
-| `bill-payment` | `(?s)\A(?=.*\b(biller one\|biller two)\b).*(payment (was \|has been )?(\w+ )?(processed\|posted\|confirm\|received)\|thank you for your payment)` |
-| `bill` | `(?s)\A(?=.*\b(biller one\|biller two)\b)(?!.*(payment (was \|has been )?(\w+ )?(processed\|posted\|confirm\|received)\|thank you for your payment)).*(due\|statement\|invoice\|bill)` |
+| Tag            | Pattern                                                                                                                                                                                |
+|----------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `bill-payment` | `(?s)\A(?=.*\b(biller one\|biller two)\b).*(payment (was \|has been )?(\w+ )?(processed\|posted\|confirm\|received)\|thank you for your payment)`                                      |
+| `bill`         | `(?s)\A(?=.*\b(biller one\|biller two)\b)(?!.*(payment (was \|has been )?(\w+ )?(processed\|posted\|confirm\|received)\|thank you for your payment)).*(due\|statement\|invoice\|bill)` |
 
 (`\|` is only the Markdown table escape; the patterns use a plain `|`.)
 
@@ -211,11 +211,11 @@ are imported.
 
 ## Troubleshooting
 
-| Settings shows | Fix |
-| --- | --- |
-| *Not set up* | `paperless.url` (settings.yml) or `PAPERLESS_TOKEN` (.env) is empty, or the app wasn't restarted since. The container log shows a `[settings] …` line on start. |
-| *Can't reach Paperless at …* | Wrong URL, or the containers aren't on the same network. Test from the web container: `docker compose exec web node -e "fetch('http://paperless:8000/api/').then(r=>console.log(r.status))"` should print a status (401 is fine), not an error. |
-| *Paperless rejected the API token* | Regenerate the token, or the user lacks the view permissions above. |
-| *Neither tag … exists* / *Custom field "Amount" doesn't exist* | Create it, or it has an owner and is hidden from the import user. Set its owner to none. |
-| Skipped: *no Amount yet* | Fill in Amount in Paperless. |
-| Skipped: *no matching unpaid bill* | The bill isn't in Our Home (or is already paid). Add the bill, then edit the payment document in Paperless (any change) to retry it. |
+| Settings shows                                                 | Fix                                                                                                                                                                                                                                             |
+|----------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| *Not set up*                                                   | `paperless.url` (settings.yml) or `PAPERLESS_TOKEN` (.env) is empty, or the app wasn't restarted since. The container log shows a `[settings] …` line on start.                                                                                 |
+| *Can't reach Paperless at …*                                   | Wrong URL, or the containers aren't on the same network. Test from the web container: `docker compose exec web node -e "fetch('http://paperless:8000/api/').then(r=>console.log(r.status))"` should print a status (401 is fine), not an error. |
+| *Paperless rejected the API token*                             | Regenerate the token, or the user lacks the view permissions above.                                                                                                                                                                             |
+| *Neither tag … exists* / *Custom field "Amount" doesn't exist* | Create it, or it has an owner and is hidden from the import user. Set its owner to none.                                                                                                                                                        |
+| Skipped: *no Amount yet*                                       | Fill in Amount in Paperless.                                                                                                                                                                                                                    |
+| Skipped: *no matching unpaid bill*                             | The bill isn't in Our Home (or is already paid). Add the bill, then edit the payment document in Paperless (any change) to retry it.                                                                                                            |

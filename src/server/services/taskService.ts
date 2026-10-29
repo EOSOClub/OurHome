@@ -362,8 +362,8 @@ const MAX_MISSED_PER_ROLL = 60;
 
 /**
  * Roll every task whose cycle has ended into its current cycle: a cycle that
- * ended unfinished is recorded as missed (one row per missed cycle) and its
- * queued points are dropped; steps uncheck and the due date moves into the
+ * ended unfinished is recorded as missed (one row per missed cycle), and its
+ * queued points are dropped; steps uncheck, and the due date moves into the
  * new window. Runs from the reminder sweep and before task reads/changes.
  */
 export async function rollTaskCycles(householdId: string, now = new Date(), taskId?: string): Promise<number> {
@@ -1494,7 +1494,7 @@ async function setStepDone(
 
     if (!step.done) return;
     // Set when the points this check paid are taken back: the step is then
-    // as it was after its own reset, so ticking it again pays again (once).
+    // as it was after its own reset, so re-ticking it pays again (once).
     let autoResetAt: Date | null = null;
     if (step.checkAwardId) {
       // This check paid at once: unchecking it within the undo window (by the

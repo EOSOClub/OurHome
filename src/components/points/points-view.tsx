@@ -95,7 +95,7 @@ export function PointsView({
       setVoiding(null);
       setReason('');
       toast.success('Points voided');
-      queryClient.invalidateQueries({ queryKey: ['points'] });
+      void queryClient.invalidateQueries({ queryKey: ['points'] });
     },
     onError: voidForm.fail,
   });

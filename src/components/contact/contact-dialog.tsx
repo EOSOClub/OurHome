@@ -1,5 +1,6 @@
 'use client';
 
+import type * as React from 'react';
 import { useEffect, useRef, useState } from 'react';
 import Script from 'next/script';
 import { Loader2, CheckCircle2 } from 'lucide-react';

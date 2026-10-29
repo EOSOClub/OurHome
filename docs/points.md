@@ -4,12 +4,12 @@ Tasks carry a time to complete (TTC) and points. People earn points by doing
 the work; the stats show day / week / month / year totals and points per day
 per person. The rules live in pure, tested modules:
 
-| What | Where |
-| --- | --- |
-| Time/points maths for the editor and the server | `src/lib/taskPoints.ts` (mirrored in the app's `data/TaskPoints.kt`) |
-| Cycle boundaries and stats periods (household time zone) | `src/lib/taskCycles.ts` |
-| Payout, undo rights, ledger, stats | `src/server/services/pointsService.ts` |
-| Wiring into tasks (check, complete, roll over, undo) | `src/server/services/taskService.ts` |
+| What                                                     | Where                                                                |
+|----------------------------------------------------------|----------------------------------------------------------------------|
+| Time/points maths for the editor and the server          | `src/lib/taskPoints.ts` (mirrored in the app's `data/TaskPoints.kt`) |
+| Cycle boundaries and stats periods (household time zone) | `src/lib/taskCycles.ts`                                              |
+| Payout, undo rights, ledger, stats                       | `src/server/services/pointsService.ts`                               |
+| Wiring into tasks (check, complete, roll over, undo)     | `src/server/services/taskService.ts`                                 |
 
 ## Settings (head)
 
@@ -61,7 +61,7 @@ Sunday). Changing the rate doesn't touch existing tasks; their values are stored
   to its next occurrence.
 - Undo: the completer may undo a completion within 10 minutes; the head any
   time. It restores the task as it was and voids the points, but only for the
-  task's latest completion with nothing done on the task since. Otherwise the
+  task's latest completion with nothing done on the task since. Otherwise, the
   head voids individual entries in the ledger, with a reason. Unchecking a step
   that paid at once voids that payment within the same 10 minutes.
 - The ledger (`PointAward`) is never edited except to void, and keeps task and

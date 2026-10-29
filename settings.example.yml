@@ -4,7 +4,7 @@
 # No secrets in here: passwords, keys, tokens and the database URL live in .env
 # (template: .env.example). Everything else you might change is below.
 #
-#   - The app reads both files when it starts. In Docker they're handed to the
+#   - The app reads both files when it starts. In Docker, they're handed to the
 #     container; nothing in docker/ ever needs editing.
 #   - The `dev:` section at the bottom overrides values for `npm run dev`.
 #
@@ -79,8 +79,8 @@ csp:
   # true = Content-Security-Policy in report-only mode (debugging only).
   report_only: false
 
-# --- Service stacks the deploy runs for you (docker/deploy.sh) ----------------
-# Set by the deploy walkthrough (./deploy.sh -s); the app itself ignores these.
+# --- Service stacks the deployment runs for you (docker/deploy.sh) ------------
+# Set by the deployment walkthrough (./deploy.sh -s); the app itself ignores these.
 # The stacks come from github.com/EOSOClub/OurHomeServices, each with its own
 # .env of generated secrets, all on the docker.network network.
 services:
@@ -95,9 +95,9 @@ services:
   mail: off
   mail_folder:
 
-# --- Android app built by the deploy (docker/deploy.sh) ----------------------
-# true = each deploy builds the app (when it or these settings changed), signs
-# it with this install's key (android/, back it up) and offers it to
+# --- Android app built by the deployment (docker/deploy.sh) ------------------
+# true = each deployment builds the app (when it or these settings changed), signs
+# it with this installation's key (android/, back it up) and offers it to
 # signed-in members on the Profile page.
 android:
   build: false
@@ -107,10 +107,10 @@ android:
 
 # --- Docker (read by docker/deploy.sh and deploy.ps1) ------------------------
 docker:
-  # Compose project and container name, e.g. if you run more than one install.
+  # Compose project and container name, e.g. if you run more than one installation.
   project: ourhome
   container: ourhome_web
-  # Docker network the web container joins (created by the deploy scripts if
+  # Docker network the web container joins (created by the deployment scripts if
   # missing). Put your MongoDB container on it to reach it by name.
   network: ourhome_net
   # Port the site is served on.
@@ -118,7 +118,7 @@ docker:
   # 0.0.0.0 = every device on your network can open the site; 127.0.0.1 = only
   # this machine (and a tunnel/proxy running on it).
   bind: 0.0.0.0
-  # Where the image is built from: a GitHub repo and branch (a deploy always
+  # Where the image is built from: a GitHub repo and branch (a deployment always
   # runs the pushed code). Change only to run your own fork. `deploy.sh -b X`
   # builds another branch once; `-l` builds from this checkout instead.
   repo: https://github.com/EOSOClub/OurHome.git

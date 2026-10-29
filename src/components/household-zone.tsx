@@ -1,5 +1,6 @@
 'use client';
 
+import type * as React from 'react';
 import { createContext, useContext, useEffect, useState } from 'react';
 import { formatRelativeTime } from '@/lib/format';
 

@@ -286,7 +286,7 @@ export function CalendarView({
     setCreatingDate(null);
   };
   const onSaved = () => {
-    queryClient.invalidateQueries({ queryKey: ['calendar'] });
+    void queryClient.invalidateQueries({ queryKey: ['calendar'] });
     closeDialogs();
   };
 
@@ -683,7 +683,7 @@ function EventDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  // A new event needs Add; an existing one is edited/deleted by own vs others'.
+  // A new event needs Add; an existing one is edited/deleted by own vs. others'.
   const canWrite = occurrence
     ? canModify(access, 'edit', occurrence.createdById, userId)
     : access.create;
@@ -808,7 +808,7 @@ function EventDialog({
       }),
     onSuccess: () => {
       toast.success('Event deleted');
-      invalidate();
+      void invalidate();
       onSaved();
     },
     onError: (err) =>

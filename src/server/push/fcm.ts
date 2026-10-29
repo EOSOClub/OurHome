@@ -106,7 +106,7 @@ export function isDeadTokenResponse(status: number, body: string): boolean {
 
 /**
  * How urgently Firebase delivers. `high` reaches a dozing phone at once, but
- * Firebase quietly demotes an install's high-priority messages when they
+ * Firebase quietly demotes an installation's high-priority messages when they
  * keep ending without a visible notification, and that would slow a ring or a
  * live check too. So anything the phone handles silently is `normal`: it still
  * arrives at once on a phone in use, and at Doze's next window otherwise.

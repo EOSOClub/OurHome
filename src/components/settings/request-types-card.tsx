@@ -293,7 +293,7 @@ export function RequestTypesCard({
       setMaintenanceChosen(s.maintenance.assigneeIds.length > 0);
       setPurchaseChosen(s.purchase.handlerIds.length > 0);
       setPermissionChosen(s.permission.handlerIds.length > 0);
-      queryClient.invalidateQueries({ queryKey: ['request-modules'] });
+      void queryClient.invalidateQueries({ queryKey: ['request-modules'] });
       toast.success('Request types saved');
     },
     onError: fe.fail,

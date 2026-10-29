@@ -18,7 +18,7 @@ export async function runReminderSweep(): Promise<{ households: number }> {
     console.warn('[paperless] import failed; retrying next sweep:', err instanceof Error ? err.message : err);
   });
 
-  // A new Android app build (from the deploy) → tell everyone, once per version.
+  // A new Android app build (from the deployment) → tell everyone, once per version.
   await announceAppRelease().catch((err) => {
     console.warn('[app] announcing the new app failed; retrying next sweep:', err instanceof Error ? err.message : err);
   });

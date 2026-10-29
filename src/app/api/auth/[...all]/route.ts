@@ -24,7 +24,7 @@ function refuse(req: Request, code: string, message: string, status: number): Re
  */
 function withSecureCookies(handler: (req: Request) => Promise<Response>) {
   return async (req: Request): Promise<Response> => {
-    // A fresh install has no accounts yet: say so, instead of "invalid
+    // A fresh installation has no accounts yet: say so, instead of "invalid
     // username or password", and point at setup.
     if (await needsSetup()) {
       return refuse(req, 'SETUP_REQUIRED', setupRequiredMessage(req.headers, req.url), 503);

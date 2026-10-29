@@ -1,5 +1,6 @@
 'use client';
 
+import type * as React from 'react';
 import { Fragment, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -126,7 +127,7 @@ export function ShoppingView({
     select: hidePendingRemovals,
   });
 
-  // Derive the active list during render: honour the explicit selection when it
+  // Derive the active list during render: honor the explicit selection when it
   // still exists, otherwise fall back to the first list (handles a stale or
   // null selection without syncing state in an effect).
   const selected =
@@ -154,7 +155,7 @@ export function ShoppingView({
     onSuccess: (list) => {
       setShowNewList(false);
       selectList(list.id);
-      invalidate();
+      void invalidate();
     },
     onError: newListForm.fail,
   });
@@ -167,7 +168,7 @@ export function ShoppingView({
       }),
     onSuccess: () => {
       setRenamingList(false);
-      invalidate();
+      void invalidate();
     },
     onError: renameForm.fail,
   });
@@ -183,7 +184,7 @@ export function ShoppingView({
       toast.success(`Deleted “${payload.name}”`);
       // Move the selection to whichever list remains.
       selectList(lists.find((l) => l.id !== payload.listId)?.id ?? null);
-      invalidate();
+      void invalidate();
     },
   });
 
@@ -244,7 +245,7 @@ export function ShoppingView({
     onSettled: () => invalidate(),
   });
 
-  // Deleting a single item is low-stakes, so skip the confirm dialog: hide it
+  // Deleting a single item is low-stakes, so skip the confirmation dialog: hide it
   // at once and only send the delete once the Undo window has passed.
   function removeItem(item: ShoppingItemDTO) {
     if (pendingRemovals.has(item.id)) return;
@@ -280,7 +281,7 @@ export function ShoppingView({
     onSuccess: (_data, payload) => {
       setConfirmClear(false);
       toast.success(`Cleared ${payload.count} bought item${plural(payload.count)}`);
-      invalidate();
+      void invalidate();
     },
   });
 
@@ -305,7 +306,7 @@ export function ShoppingView({
   // Est. price is per item (a fetched product page gives a unit price).
   const estTotal = openItems.reduce((sum, i) => sum + (i.estimatedPrice ?? 0) * i.quantity, 0);
   const unpricedCount = openItems.filter((i) => i.estimatedPrice == null).length;
-  // What Clear bought will actually clear: recurring items (un-checked) plus the
+  // What Clear bought will actually clear: recurring items (unchecked) plus the
   // one-off items the viewer may delete, as the clear route decides.
   const clearable =
     selected?.items.filter(

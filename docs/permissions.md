@@ -13,15 +13,15 @@ Roles, highest first: head > manager > adult > teen > child > guest. Teen and
 child are household members with narrower page-access defaults; a guest is
 someone from outside the household.
 
-| Permission | head | manager | adult | teen | child | guest |
-| --- | :-: | :-: | :-: | :-: | :-: | :-: |
-| `household:manage` (rename household, transfer headship, **edit page permissions**) | ✓ | | | | | |
-| `members:manage` | ✓ | ✓¹ | | | | |
-| `settings:manage` (HA tokens, NFC tags, categories) | ✓ | ✓ | | | | |
-| `tasks:complete` (complete tasks, tick checklist items) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓² |
-| `requests:write` (edit/delete **own** requests³, accept/finish assigned ones; *submitting* and *approving media* are Requests grid switches) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `bugs:report` (file a bug report) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `bugs:manage` (receive bug reports: bell + phone alert) | ✓ | | | | | |
+| Permission                                                                                                                                   | head | manager | adult | teen | child | guest |
+|----------------------------------------------------------------------------------------------------------------------------------------------|:----:|:-------:|:-----:|:----:|:-----:|:-----:|
+| `household:manage` (rename household, transfer headship, **edit page permissions**)                                                          |  ✓   |         |       |      |       |       |
+| `members:manage`                                                                                                                             |  ✓   |   ✓¹    |       |      |       |       |
+| `settings:manage` (HA tokens, NFC tags, categories)                                                                                          |  ✓   |    ✓    |       |      |       |       |
+| `tasks:complete` (complete tasks, tick checklist items)                                                                                      |  ✓   |    ✓    |   ✓   |  ✓   |   ✓   |  ✓²   |
+| `requests:write` (edit/delete **own** requests³, accept/finish assigned ones; *submitting* and *approving media* are Requests grid switches) |  ✓   |    ✓    |   ✓   |  ✓   |   ✓   |   ✓   |
+| `bugs:report` (file a bug report)                                                                                                            |  ✓   |    ✓    |   ✓   |  ✓   |   ✓   |   ✓   |
+| `bugs:manage` (receive bug reports: bell + phone alert)                                                                                      |  ✓   |         |       |      |       |       |
 
 ¹ Managers may only manage and assign the ranks below them - adult, teen,
   child, guest (`canManageMember`, `canAssignRole`).
@@ -39,28 +39,28 @@ Inventory and Bills**, and submitting / approving **Requests**, is a per-page
 grid the Head of House edits on **Members → Permissions**. Record pages have
 five switches; Requests has Add and Approve (`PAGE_ACTIONS`):
 
-| Switch | Allows |
-| --- | --- |
-| Add | create records on the page |
-| Edit own / Delete own | change / remove records **you created** |
-| Edit others' / Delete others' | change / remove records **someone else created**, or that have no creator (imported bills, email calendar events, inventory categories) |
-| Approve | Requests only: mark media (movie/TV) requests **added** (or decline them, where allowed); approvers get the app's media reminders. The head can hand media to chosen people instead in Settings → Request types |
+| Switch                        | Allows                                                                                                                                                                                                          |
+|-------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Add                           | create records on the page                                                                                                                                                                                      |
+| Edit own / Delete own         | change / remove records **you created**                                                                                                                                                                         |
+| Edit others' / Delete others' | change / remove records **someone else created**, or that have no creator (imported bills, email calendar events, inventory categories)                                                                         |
+| Approve                       | Requests only: mark media (movie/TV) requests **added** (or decline them, where allowed); approvers get the app's media reminders. The head can hand media to chosen people instead in Settings → Request types |
 
 **Resolution** (`resolveAccess` in `src/lib/permissions.ts`):
 
 1. The head always has everything.
-2. Otherwise start from the built-in default for the role
+2. Otherwise, start from the built-in default for the role
    (`BUILTIN_ROLE_ACCESS`):
 
-   | Page | manager | adult | teen | child | guest |
-   | --- | :-: | :-: | :-: | :-: | :-: |
-   | Tasks | - | - | - | - | - |
-   | Calendar | all | all | own | - | - |
-   | Shopping items | all | all | own | add | - |
-   | Shopping lists | all | all | - | - | - |
-   | Inventory | all | all | own | - | - |
-   | Bills | all | all | - | - | - |
-   | Requests | add + approve | add | add | add | add |
+   | Page           |    manager    | adult | teen | child | guest |
+   |----------------|:-------------:|:-----:|:----:|:-----:|:-----:|
+   | Tasks          |       -       |   -   |  -   |   -   |   -   |
+   | Calendar       |      all      |  all  | own  |   -   |   -   |
+   | Shopping items |      all      |  all  | own  |  add  |   -   |
+   | Shopping lists |      all      |  all  |  -   |   -   |   -   |
+   | Inventory      |      all      |  all  | own  |   -   |   -   |
+   | Bills          |      all      |  all  |  -   |   -   |   -   |
+   | Requests       | add + approve |  add  | add  |  add  |  add  |
 
    "own" = Add + Edit own + Delete own; "add" = Add only.
 3. Apply the household's edits to that role (`Household.roleAccess`).
@@ -123,11 +123,11 @@ coming due, in the bell, by email and on the phone. Each reminder goes to the
 people tied to the subject plus that page's managers, meaning everyone whose
 grid allows **Edit others'** on the page:
 
-| Reminder | Tied to | Managers (defaults) |
-| --- | --- | --- |
-| Overdue task | assignee, creator | Tasks → Edit others' (head) |
-| Bill due / overdue | assigned person, creator | Bills → Edit others' (head, manager, adult) |
-| Low / running-out stock | creator | Inventory → Edit others' (head, manager, adult) |
+| Reminder                | Tied to                  | Managers (defaults)                             |
+|-------------------------|--------------------------|-------------------------------------------------|
+| Overdue task            | assignee, creator        | Tasks → Edit others' (head)                     |
+| Bill due / overdue      | assigned person, creator | Bills → Edit others' (head, manager, adult)     |
+| Low / running-out stock | creator                  | Inventory → Edit others' (head, manager, adult) |
 
 So a child or teen hears only about their own tasks and bills unless the head
 grants them more. Read state is per person: reading a notification never marks
@@ -142,12 +142,12 @@ Anyone who may check steps or complete a task (`tasks:complete`; guests only
 on tasks assigned to them) earns its points; editing a task's time/points
 follows the Tasks grid like any other edit. Everyone sees the `/points` stats.
 
-| Action | Who |
-| --- | --- |
+| Action                                                  | Who                                                |
+|---------------------------------------------------------|----------------------------------------------------|
 | Undo a completion (restores the task, voids its points) | the completer within 10 minutes; the head any time |
-| Void a points entry in the ledger (with a reason) | head |
-| Change the rate | head (Settings → Task points) |
-| Change the time zone, week start | head (Settings → Time zone and week) |
+| Void a points entry in the ledger (with a reason)       | head                                               |
+| Change the rate                                         | head (Settings → Task points)                      |
+| Change the time zone, week start                        | head (Settings → Time zone and week)               |
 
 Rules: `docs/points.md`.
 

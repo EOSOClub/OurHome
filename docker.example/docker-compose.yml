@@ -9,7 +9,7 @@
 #
 # Nothing here is edited by hand. Settings live in ../settings.yml (read by the
 # app inside the container) and secrets in ../.env (passed in as environment
-# variables). The deploy scripts pass settings.yml's `docker:` section
+# variables). The deployment scripts pass settings.yml's `docker:` section
 # (project, container, network, port, bind) to this file as DOCKER_*, and the
 # source to build as BUILD_CONTEXT.
 # Plain `docker compose up -d --build` also works and uses the defaults below.
@@ -24,7 +24,7 @@ services:
   web:
     build:
       # GitHub repo#branch (BuildKit fetches it and checks for new commits on
-      # every build), or `..` for this checkout (deploy -l). The deploy scripts
+      # every build), or `..` for this checkout (deploy -l). The deployment scripts
       # set it from settings.yml docker.repo / docker.branch.
       context: ${BUILD_CONTEXT:-https://github.com/EOSOClub/OurHome.git#main}
       # Relative to the source being built, so the image recipe always matches
@@ -49,7 +49,7 @@ services:
         bind:
           # Fail clearly if it's missing, rather than mounting an empty folder.
           create_host_path: false
-      # The Android app the deploy builds (android/out: ourhome.apk +
+      # The Android app the deployment builds (android/out: ourhome.apk +
       # ourhome.json), offered to signed-in members on the Profile page.
       # Empty when the app isn't built here; then the page shows nothing.
       - type: bind

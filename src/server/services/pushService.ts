@@ -32,7 +32,7 @@ export type PushReason =
 /**
  * Reasons the phone handles without posting anything: its geofences, its
  * sharing state, its usage report, whether it must Stay connected. Sent at
- * normal priority, because Firebase demotes an install's high-priority
+ * normal priority, because Firebase demotes an installation's high-priority
  * messages when they keep ending without a visible notification (fcm.ts), and
  * that would slow its rings and live checks. The rest usually end in a
  * notification and stay high.
@@ -47,7 +47,7 @@ export function syncPriority(reason: PushReason): PushPriority {
 export const PUSH_DEVICE_STALE_MS = 60 * 24 * 60 * 60_000;
 
 /**
- * Saves (or moves) this install's FCM token to the signed-in user. [installId]
+ * Saves (or moves) this installation's FCM token to the signed-in user. [installId]
  * (newer apps) ties it to the phone, so a token Firebase later calls dead
  * marks that phone ([forgetDeadTokens]); registering clears that mark.
  */
@@ -89,7 +89,7 @@ async function forgetDeadTokens(devices: { token: string; installId: string | nu
  * A quiet supervised phone (its Stay connected stream closed and didn't come
  * back): a silent `ping` through Firebase. A phone that's on and online
  * checks in; Firebase's answer can say the app is gone ('gone'). 'none':
- * Firebase is off, or this install has no token tied to it.
+ * Firebase is off, or this installation has no token tied to it.
  */
 export async function pingInstall(
   householdId: string,

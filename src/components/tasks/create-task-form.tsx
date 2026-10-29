@@ -1,5 +1,6 @@
 'use client';
 
+import type * as React from 'react';
 import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import type { CategoryDTO, MemberDTO, PlacesDTO, TaskDTO } from '@/lib/types';

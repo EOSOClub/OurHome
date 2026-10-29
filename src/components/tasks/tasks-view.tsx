@@ -193,7 +193,7 @@ export function TasksView({
   });
 
   function invalidate() {
-    queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    void queryClient.invalidateQueries({ queryKey: ['tasks'] });
   }
 
   // The open task form's field errors (one form is open at a time).
@@ -241,7 +241,7 @@ export function TasksView({
     onSettled: () => setCompletingId(null),
     onSuccess: (task) => {
       invalidate();
-      queryClient.invalidateQueries({ queryKey: ['points'] });
+      void queryClient.invalidateQueries({ queryKey: ['points'] });
       // The completer can take it back for 10 minutes (then only the head).
       toast.success(`Completed “${task.title}”`, {
         label: 'Undo',
@@ -259,8 +259,8 @@ export function TasksView({
     onSuccess: () => {
       toast.success(showPoints ? 'Completion undone; its points were taken back' : 'Completion undone');
       invalidate();
-      queryClient.invalidateQueries({ queryKey: ['points'] });
-      queryClient.invalidateQueries({ queryKey: ['task-completions'] });
+      void queryClient.invalidateQueries({ queryKey: ['points'] });
+      void queryClient.invalidateQueries({ queryKey: ['task-completions'] });
     },
   });
 

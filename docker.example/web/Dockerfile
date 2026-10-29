@@ -1,10 +1,12 @@
 # Next.js household platform - build + run, with the Prisma CLI kept in the
 # runtime image so the entrypoint can `prisma db push` against a fresh Mongo.
 # Debian-slim (not alpine) to match the Prisma engine binaryTarget
-# debian-openssl-3.0.x declared in prisma/schema/models.prisma.
+# debian-openssl-3.0.x declared in prisma/schema/models.prisma. Pinned to
+# bookworm so a Node upgrade never moves the OS under that engine. Node 24:
+# Better Auth 1.7 needs Node 22.12 or newer.
 
 # ---- deps: install all dependencies (incl. devDeps: prisma CLI, tsx) ----
-FROM node:20-slim AS deps
+FROM node:24-bookworm-slim AS deps
 WORKDIR /app
 RUN apt-get update \
  && apt-get install -y --no-install-recommends openssl ca-certificates \
@@ -16,7 +18,7 @@ COPY package.json package-lock.json ./
 RUN npm install --no-audit --no-fund
 
 # ---- build: generate Prisma client + build Next ----
-FROM node:20-slim AS build
+FROM node:24-bookworm-slim AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -24,7 +26,7 @@ COPY . .
 RUN npm run build
 
 # ---- runner: full app + node_modules (so prisma CLI / tsx are available) ----
-FROM node:20-slim AS runner
+FROM node:24-bookworm-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 RUN apt-get update \

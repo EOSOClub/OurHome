@@ -16,7 +16,7 @@ import { hiddenSubjectTypes } from '@/lib/features';
  * clear it for anyone else.
  *
  * `readAt` is the old household-wide flag: rows marked read before the switch
- * stay read for everyone, and nothing sets it any more. On MongoDB a
+ * stay read for everyone, and nothing sets it anymore. On MongoDB a
  * `readAt: null` filter only matches an explicit null, not a document where
  * the field was never written, hence the `isSet: false` branch (the "keeps
  * coming back unread" bug).

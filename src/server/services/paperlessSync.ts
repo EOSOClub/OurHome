@@ -139,7 +139,7 @@ function parseResult(text: string | null): PaperlessSyncResult | null {
 // (PaperlessConnection, Settings → Paperless) comes first. The server-wide one
 // from settings.yml/.env (paperlessConfig) is kept for the household it was
 // set up for - PAPERLESS_HOUSEHOLD_ID, else the server admin's - so existing
-// installs keep importing without re-entering anything.
+// installations keep importing without re-entering anything.
 
 /** The household the server-wide settings.yml/.env connection belongs to. */
 async function legacyHousehold(): Promise<string | null> {
@@ -380,7 +380,7 @@ export async function savePaperlessConnection(
   const data = { url, publicUrl, tokenEnc: encryptSecret(token) };
   await prisma.$transaction(async (tx) => {
     await tx.paperlessConnection.upsert({ where: { householdId }, create: { householdId, ...data }, update: data });
-    // A different Paperless (or the first own one) starts from now, like a new install.
+    // A different Paperless (or the first own one) starts from now, like a new installation.
     if (!existing || existing.url !== url) await tx.paperlessSync.deleteMany({ where: { householdId } });
   });
   return getPaperlessStatus(householdId, true);

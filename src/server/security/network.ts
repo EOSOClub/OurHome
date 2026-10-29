@@ -73,7 +73,7 @@ export function isHttpsRequest(headers: Headers, url?: string): boolean {
  * records the real client in at least one of the other headers, but may pass a
  * client-supplied value through in another, so every address in every header
  * must be private. With no proxy headers at all the request reached the port
- * directly, which the deploy docs keep to the home network.
+ * directly, which the deployment docs keep to the home network.
  */
 export function isFromLocalNetwork(headers: Headers): boolean {
   if (headers.get('cf-connecting-ip')) return false;

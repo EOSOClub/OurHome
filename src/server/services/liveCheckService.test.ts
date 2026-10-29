@@ -209,7 +209,7 @@ describe('closing a check', () => {
     // A bare `lt` would also match a missing pointAt and skip the "newer" test.
     expect(moved.where.OR).toContainEqual({ pointAt: { gte: new Date(0), lt: fixAt } });
     expect(moved.data).toEqual({ lat: 45.1, lng: -93.2, accuracyM: 12, pointAt: fixAt });
-    // The check itself keeps no position afterwards.
+    // The check itself keeps no position afterward.
     expect(prisma.locationCheck.update.mock.calls[0][0].data).toMatchObject({ lat: null, lng: null, fixAt: null });
   });
 });

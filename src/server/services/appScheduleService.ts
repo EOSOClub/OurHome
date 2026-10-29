@@ -9,7 +9,7 @@ import type { ScheduleDTO } from '@/lib/types';
 // supervisionService.saveSchedule and removeSchedule change them; the phone
 // learns them from its check-in answer (phoneStatusService.checkIn), warns
 // the child 5 minutes before the start and covers apps meanwhile. They go when
-// nobody supervises the child any more (supervisionService.releaseIfUnsupervised).
+// nobody supervises the child anymore (supervisionService.releaseIfUnsupervised).
 // Rules: src/lib/appSchedules.ts.
 
 type Db = Prisma.TransactionClient | typeof prisma;

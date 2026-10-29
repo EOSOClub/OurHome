@@ -45,9 +45,9 @@ export function PlacesCard({ initial }: { initial: PlacesDTO }) {
   // Every call answers with the whole new list.
   const apply = (next: PlacesDTO) => {
     queryClient.setQueryData(PLACES_KEY, next);
-    queryClient.invalidateQueries({ queryKey: ['tasks'] });
-    queryClient.invalidateQueries({ queryKey: ['inventory-items'] });
-    queryClient.invalidateQueries({ queryKey: ['nfc-tags'] });
+    void queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    void queryClient.invalidateQueries({ queryKey: ['inventory-items'] });
+    void queryClient.invalidateQueries({ queryKey: ['nfc-tags'] });
   };
 
   const reorder = useMutation({

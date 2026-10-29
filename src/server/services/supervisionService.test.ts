@@ -834,7 +834,7 @@ describe('required sharing', () => {
     await setUsageSharing(H, { id: 'alex' }, { supervisedId: 'sam', share: false });
     expect(tx.user.update).toHaveBeenCalledWith({ where: { id: 'sam' }, data: { shareAppUsage: null } });
     expect(usage.forgetUsage).toHaveBeenCalledWith(tx, H, ['sam']);
-    // Its "Usage access off" alert can't stand any more: refreshed now, not at the next sweep.
+    // Its "Usage access off" alert can't stand anymore: refreshed now, not at the next sweep.
     expect(phones.refreshPhoneAlerts).toHaveBeenCalledWith(H, expect.any(Date), ['sam']);
   });
 

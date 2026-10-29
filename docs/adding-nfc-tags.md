@@ -12,7 +12,7 @@ and scan). Then:
 
 **Existing Home Assistant tag:** open Our Home first (otherwise HA grabs it),
 scan it, tap **Write tag for Our Home**, hold it again. It keeps the same id,
-so the item link carries over; afterwards it always opens Our Home and HA no
+so the item link carries over; afterward, it always opens Our Home and HA no
 longer sees it.
 
 **Quick notification** tags don't open the app: you get a notification with
@@ -76,14 +76,14 @@ tag. Re-scan any time to adjust the amount.
 
 Gather these before you start. Most come from two HA screens and one app screen.
 
-| What | Where to get it | Example |
-| ---- | --------------- | ------- |
-| **Inventory item** | App → Inventory (create it if new) | `Coffee beans` |
-| **Tag id** | HA → Developer Tools → Events, listen to `tag_scanned`, scan the tag | `cb1a7141-4cac-4b26-aa1d-4262bd962b87` |
-| **Scanner `device_id`** *(only for per-phone notifications)* | same `tag_scanned` event | `<PHONE_DEVICE_ID>` |
-| **Phone notify service** *(per-phone notifications)* | HA → Developer Tools → Actions, search `notify.mobile_app` | `notify.mobile_app_pixel_7` |
-| **Webhook token** | App → Settings → Home Assistant connection | `kq3V…` (43 characters) |
-| **App webhook URL** | The app host's LAN IP + `:3000/api/webhooks/nfc` | `http://APP_HOST:3000/api/webhooks/nfc` |
+| What                                                         | Where to get it                                                      | Example                                 |
+|--------------------------------------------------------------|----------------------------------------------------------------------|-----------------------------------------|
+| **Inventory item**                                           | App → Inventory (create it if new)                                   | `Coffee beans`                          |
+| **Tag id**                                                   | HA → Developer Tools → Events, listen to `tag_scanned`, scan the tag | `cb1a7141-4cac-4b26-aa1d-4262bd962b87`  |
+| **Scanner `device_id`** *(only for per-phone notifications)* | same `tag_scanned` event                                             | `<PHONE_DEVICE_ID>`                     |
+| **Phone notify service** *(per-phone notifications)*         | HA → Developer Tools → Actions, search `notify.mobile_app`           | `notify.mobile_app_pixel_7`             |
+| **Webhook token**                                            | App → Settings → Home Assistant connection                           | `kq3V…` (43 characters)                 |
+| **App webhook URL**                                          | The app host's LAN IP + `:3000/api/webhooks/nfc`                     | `http://APP_HOST:3000/api/webhooks/nfc` |
 
 > The token and webhook URL are **shared across all tags** - they come from the
 > one-time setup and don't change when you add a tag. You only need them when
@@ -227,14 +227,14 @@ unit/low threshold set up front):
 
 ## Troubleshooting
 
-| Symptom | Likely cause |
-| ------- | ------------ |
-| Notification never arrives | Wrong `notify.mobile_app_*` name, or companion app notifications disabled. Verify in Developer Tools → Actions. |
-| Reply does nothing | Automation timed out (>2 min), or the `action` id in the notification doesn't match the `wait_for_trigger` (`INV_REPLY`). Check the automation **Trace**. |
-| App returns **404** | The scanned `tag_id` isn't mapped, or isn't bound to an item - re-check Settings → NFC tags. |
-| App returns **401** | Wrong/expired webhook token in `rest_command`. |
-| App returns **422** | `amount` was `0`, missing, or non-numeric (a bad reply text). |
-| HA can't reach the app at all | Firewall rule missing, app not running, or VPN blocking LAN - see [`home-assistant.md`](./home-assistant.md). |
+| Symptom                       | Likely cause                                                                                                                                              |
+|-------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Notification never arrives    | Wrong `notify.mobile_app_*` name, or companion app notifications disabled. Verify in Developer Tools → Actions.                                           |
+| Reply does nothing            | Automation timed out (>2 min), or the `action` id in the notification doesn't match the `wait_for_trigger` (`INV_REPLY`). Check the automation **Trace**. |
+| App returns **404**           | The scanned `tag_id` isn't mapped, or isn't bound to an item - re-check Settings → NFC tags.                                                              |
+| App returns **401**           | Wrong/expired webhook token in `rest_command`.                                                                                                            |
+| App returns **422**           | `amount` was `0`, missing, or non-numeric (a bad reply text).                                                                                             |
+| HA can't reach the app at all | Firewall rule missing, app not running, or VPN blocking LAN - see [`home-assistant.md`](./home-assistant.md).                                             |
 
 Diagnostics live in HA at **Settings → Automations → (this automation) → Traces**
 and **Settings → System → Logs**.

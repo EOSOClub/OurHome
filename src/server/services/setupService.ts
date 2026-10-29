@@ -4,7 +4,7 @@ import { createHouseholdWithHead } from '@/server/services/serverAdminService';
 import { isHttpsRequest } from '@/server/security/network';
 import type { SetupInput } from '@/lib/validation/setup';
 
-// First-run setup: the first visitor to a fresh install creates the household
+// First-run setup: the first visitor to a fresh installation creates the household
 // and its Head of House (also the server admin), then adds members from
 // the second setup step (which reuses the regular Members API).
 
@@ -19,7 +19,7 @@ export async function needsSetup(): Promise<boolean> {
 }
 
 /**
- * What a client trying to sign in to a fresh install is told: where to finish
+ * What a client trying to sign in to a fresh installation is told: where to finish
  * setup, using the address it reached us at, and to try again after.
  */
 export function setupRequiredMessage(headers: Headers, url?: string): string {

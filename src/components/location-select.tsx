@@ -1,5 +1,6 @@
 'use client';
 
+import type * as React from 'react';
 import type { PlacesDTO, TaskPlaceDTO } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Select } from '@/components/ui/select';

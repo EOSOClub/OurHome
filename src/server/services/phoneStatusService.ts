@@ -135,7 +135,7 @@ export async function checkIn(
 
 /**
  * The emergency unlock's milestone as stored. The phone sends each milestone
- * once; between them it sends only when the unlock ends, so the last one is
+ * once; between them, it sends only when the unlock ends, so the last one is
  * kept while that's sent. "unlocked" is kept while the uninstall guard is
  * still off, so the alert stays until a parent has put it back.
  */
@@ -203,10 +203,10 @@ export async function recordStream(
   for (const timer of watches.get(installId) ?? []) timer.unref?.();
 }
 
-/** How long after a stream closes the phone is pinged through Firebase, unless it's back. */
+/** How long after a stream closes, the phone is pinged through Firebase, unless it's back. */
 export const PING_AFTER_MS = 8 * 60_000;
 
-/** Follow-ups waiting per install, dropped when its stream opens again. In memory: one server process. */
+/** Follow-ups waiting per installation, dropped when its stream opens again. In memory: one server process. */
 const globalWatch = globalThis as unknown as { __ourhomePhoneWatch?: Map<string, ReturnType<typeof setTimeout>[]> };
 const watches = (globalWatch.__ourhomePhoneWatch ??= new Map());
 
@@ -232,7 +232,7 @@ export function clearPhoneWatches(): void {
 
 /**
  * What [userId]'s phone must have on, for its Set up this phone checklist:
- * nothing while nobody looks after them. Otherwise notifications always (the
+ * nothing while nobody looks after them. Otherwise, notifications always (the
  * household's alerts and the ring's Stop need them), location all the time
  * while their sharing is required and the household uses Location, Usage
  * access while their app usage is shared, the web filter while one is chosen

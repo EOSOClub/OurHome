@@ -2,11 +2,12 @@ import { prisma } from '@/server/db/prisma';
 import { getAppRelease, type AppRelease } from '@/server/services/appDownloadService';
 import { pushSync } from '@/server/services/pushService';
 
-// Tells everyone when the deploy has built a new Android app: one household-
-// wide bell notification per version (it links to Profile, where the download
-// is, on the site and in the app), plus a content-free push so phones check
-// and post their own "update ready" alert. Runs with every reminder sweep, and
-// the deploy script triggers a sweep right after a build, so it's prompt.
+// Tells everyone when the deployment has built a new Android app: one
+// household-wide bell notification per version (it links to Profile, where
+// the download is, on the site and in the app), plus a content-free push so
+// phones check and post their own "update ready" alert. Runs with every
+// reminder sweep, and the deploy script triggers a sweep right after a build,
+// so it's prompt.
 
 const KEY_PREFIX = 'app_release:';
 

@@ -75,7 +75,7 @@ export function BillDetailView({
 
   // Re-render the server component and drop the stale list cache.
   const refresh = () => {
-    queryClient.invalidateQueries({ queryKey: KEY });
+    void queryClient.invalidateQueries({ queryKey: KEY });
     router.refresh();
   };
 
@@ -87,7 +87,7 @@ export function BillDetailView({
       }),
     onSuccess: () => {
       toast.success('Bill deleted');
-      queryClient.invalidateQueries({ queryKey: KEY });
+      void queryClient.invalidateQueries({ queryKey: KEY });
       router.push('/bills');
     },
   });
@@ -100,7 +100,7 @@ export function BillDetailView({
       }),
     onSuccess: (created) => {
       toast.success('Bill duplicated');
-      queryClient.invalidateQueries({ queryKey: KEY });
+      void queryClient.invalidateQueries({ queryKey: KEY });
       router.push(`/bills/${created.id}`);
     },
   });
@@ -122,7 +122,7 @@ export function BillDetailView({
     },
     onSuccess: () => {
       setAddedToCalendar(true);
-      queryClient.invalidateQueries({ queryKey: ['calendar'] });
+      void queryClient.invalidateQueries({ queryKey: ['calendar'] });
       toast.success('Added to calendar');
     },
   });

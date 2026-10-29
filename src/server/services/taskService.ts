@@ -652,7 +652,7 @@ export async function resetDueSubtasks(householdId: string): Promise<number> {
   let count = 0;
   for (const s of due) {
     // Only if it's still the same check: someone may have unticked and
-    // re-ticked it since the read (that fresh tick must survive, and its
+    // re-ticked it from the read (that fresh tick must survive, and its
     // paid-at-once award must not be detached).
     const res = await prisma.subtask.updateMany({
       where: { id: s.id, done: true, doneAt: s.doneAt },
@@ -712,7 +712,7 @@ export async function updateTask(
     if (!existing) throw new TaskNotFoundError(taskId);
     await assertMemberRef(tx, householdId, rest.assigneeId);
     await assertCategoryRef(tx, householdId, rest.categoryId);
-    // New places when any place key is sent; a task whose places change
+    // New places when any place key is sent; a task whose place change
     // starts at the end of their order.
     const current = taskPlaceIds(existing);
     const nextPlaces = inputPlaces({ roomId, floorId, roomIds, floorIds }, current);
@@ -951,8 +951,8 @@ async function replaceChecklist(
  * - without, it rolls forward to its next occurrence (due date advances,
  *   status returns to pending) as before.
  * One-time tasks - and recurring tasks whose `until` end date has been
- * reached - are marked completed. Steps left unchecked are checked by the
- * completer (they "finish the rest").
+ * reached - are marked completed. The
+ * completer checks steps left unchecked * (they "finish the rest").
  *
  * Guests hold `tasks:complete` but only for tasks assigned to them (see
  * src/lib/permissions.ts) - that narrower scope is enforced here.
@@ -1133,7 +1133,7 @@ export async function completeTask(
   return result;
 }
 
-/** Prisma's "transaction failed due to a write conflict" (Mongo). */
+/** Prisma's "transaction failed due to a writing conflict" (Mongo). */
 function isWriteConflict(err: unknown): boolean {
   return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2034';
 }
@@ -1142,7 +1142,7 @@ function isWriteConflict(err: unknown): boolean {
  * Undo a completion: restore the task as it was just before and void the
  * points it paid. The completer can undo within UNDO_WINDOW_MS, the head any time
  * - but only for the task's latest completion, and only while nothing has
- * happened on the task since (otherwise the head voids points in the ledger).
+ * happened on the task since (otherwise the head voids point in the ledger).
  */
 export async function undoCompletion(
   householdId: string,
@@ -1383,7 +1383,7 @@ export async function addSubtask(
 
 /**
  * Edit a step's title/order/reset, or check/uncheck it - which is where step
- * points are queued or paid (checkOutcome) and dropped on a hand uncheck.
+ * points are queued or paid (checkOutcome) and dropped, on a hand, unchecked.
  */
 export async function updateSubtask(
   householdId: string,

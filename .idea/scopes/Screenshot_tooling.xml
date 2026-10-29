@@ -1,0 +1,3 @@
+<component name="DependencyValidationManager">
+  <scope name="Screenshot tooling" pattern="file:tools/wiki-screenshots//*" />
+</component>

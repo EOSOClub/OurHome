@@ -8,8 +8,8 @@ import { USAGE_KEEP_DAYS } from '@/lib/appUsage';
 import { SectionCard } from '@/components/ui/collapsible-card';
 import { UsageHistory } from '@/components/look-after/usage-history';
 
-// Tells a child or teen, on their own Profile, that an adult who looks after
-// them shares their app usage (appUsageService), and shows them the same
+// Tells a child or teen, on their own Profile that an adult who looks after
+// them shares their app usage (appUsageService) and shows them the same
 // numbers the adult sees. Nothing shows otherwise.
 export function AppUsageNotice() {
   const { data } = useQuery({

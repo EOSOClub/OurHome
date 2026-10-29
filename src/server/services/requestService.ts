@@ -70,7 +70,7 @@ import type {
 //                head chose or the Approve switch) approves it, which
 //                completes it, or declines it. Approving a purchase may put it
 //                on a shopping list. The requester may edit it until it's
-//                decided, and delete it any time.
+//                 decided and delete it any time.
 
 const requestInclude = {
   requester: { select: { id: true, name: true } },

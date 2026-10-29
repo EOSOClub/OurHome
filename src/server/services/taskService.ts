@@ -1263,7 +1263,7 @@ export async function undoCompletion(
   return result;
 }
 
-/** After a completion, how long the task row may still be written by it. */
+/** After completion, how long it may still write the task row. */
 const EDIT_MARGIN_MS = 10_000;
 
 /** When a done task opens again, e.g. "Thu, Oct 22", in the household's zone. */

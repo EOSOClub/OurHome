@@ -72,7 +72,7 @@ export function HouseholdMap({
     return () => clearInterval(id);
   }, []);
 
-  // Create the map once.
+  // Create the map at once.
   useEffect(() => {
     let cancelled = false;
     let observer: ResizeObserver | null = null;

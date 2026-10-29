@@ -262,7 +262,7 @@ export async function linkNewSupervisors(
 //    schedules when apps are closed (saveSchedule). All go when nobody
 //    supervises them.
 //  - Let them spend task points on more time on those limits
-//    (setPointsForTime), and give them extra minutes (giveExtraTime).
+//    (setPointsForTime) and give them extra minutes (giveExtraTime).
 //  - Be told when their phone goes quiet (phoneStatusService).
 
 /** One ring per child at a time: the phone rings for about this long. */
@@ -281,7 +281,7 @@ type Ring = RingState & { ringId: string; householdId: string; ringerId: string 
 const ringStore = globalThis as unknown as { __ourhomeRings?: Map<string, Ring> };
 const rings = (ringStore.__ourhomeRings ??= new Map<string, Ring>());
 
-/** [kidId]'s last ring, for the adult who rang it, while it's worth showing. */
+/** [kidId]'s the last ring, for the adult who rang it, while it's worth showing. */
 function ringFor(kidId: string, viewerId: string, now: number): RingDTO | null {
   const ring = rings.get(kidId);
   if (!ring || ring.ringerId !== viewerId || now - ring.sentAt >= RING_SHOWN_MS) return null;
@@ -468,7 +468,7 @@ export async function setPhoneRule(
 }
 
 /**
- * Choose the web filter on a supervised child's phone, or turn it off
+ * Choose the web filter on a supervised child's phone or turn it off
  * (lib/webFilter.ts). Their phone's Set up this phone then asks for it, and
  * their supervisors are told while their phone isn't using it. Off only ends
  * that: whatever their phone's Private DNS is set to stays, and they may
@@ -553,7 +553,7 @@ export async function setUsageSharing(
 }
 
 /**
- * Block an app on a supervised child's phone, or unblock it. Only an app
+ * Block an app on a supervised child's phone or unblock it. Only an app
  * their stored usage names (its name comes from there), and never one their
  * phone always keeps open (its phone, messages, home screen, OurHome). Wakes
  * their phone, which checks in and learns the new list at once.
@@ -945,7 +945,7 @@ export async function setRequiredSharing(
 /**
  * Ring a supervised child's phone. Refused unless the actor supervises them,
  * while it's still ringing from the last time (until their phone says it
- * stopped), or when no phone answered. Returns the ring, to show how it goes.
+ * stopped), or when no phone answered. Returns the ring to show how it goes.
  */
 export async function ringPhone(
   householdId: string,
@@ -999,7 +999,7 @@ export async function ringPhone(
  * A rung phone saying what it did: started ringing, Stop was tapped, or it
  * rang out. Only the child's own phone, for their latest ring; anything else
  * (an older ring, a restarted server) is ignored, since the phone can't do
- * anything about it. The first phone to say how it ended decides, and ends
+ * anything about it. The first phone to say how it ended decides and ends
  * the wait for ringing again. Not logged: the ring itself is.
  */
 export function reportRing(

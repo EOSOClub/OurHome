@@ -294,7 +294,7 @@ export function ShoppingView({
     onSuccess: () => invalidate(),
   });
 
-  // Per-row pending derived from each mutation's variables so only the row the
+  // Per-row pending derived from each mutation's variables, so only the row the
   // user actually tapped shows a spinner (a shared "busy id" state would mark
   // whichever row was tapped last during concurrent mutations). Purchase
   // toggles and deletes patch the cache optimistically, so they don't mark
@@ -672,7 +672,7 @@ function QuickAddItem({
     }
     try {
       await onAdd(payload);
-      // Only clear the form once the item is saved so a failed add keeps the
+      // Only clear the form once the item is saved, so a failed adding keeps the
       // user's input for a retry.
       reset();
       fe.clear();

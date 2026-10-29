@@ -2,6 +2,8 @@ import { requireFeature } from '@/server/auth/session';
 import { prisma } from '@/server/db/prisma';
 import { getUserAccess } from '@/server/services/permissionService';
 import { listOccurrences } from '@/server/services/calendarService';
+import { listChoreItems } from '@/server/services/calendarItemsService';
+import { getHouseholdFeatures } from '@/server/services/serverAdminService';
 import { CalendarView } from '@/components/calendar/calendar-view';
 import { getPointsSettings } from '@/server/services/pointsService';
 import { fromWall } from '@/server/services/recurrenceService';
@@ -39,19 +41,24 @@ export default async function CalendarPage({
   const start = fromWall(new Date(Date.UTC(year, month, 1)), timezone);
   const end = new Date(fromWall(new Date(Date.UTC(year, month + 1, 1)), timezone).getTime() - 1);
 
-  const [occurrences, members] = await Promise.all([
+  const [occurrences, members, chores, features] = await Promise.all([
     listOccurrences(householdId, start, end),
     prisma.user.findMany({
       where: { householdId },
       select: { id: true, name: true },
       orderBy: { name: 'asc' },
     }),
+    // In the first render too, so they don't pop in a moment after the events.
+    listChoreItems(householdId, start, end),
+    getHouseholdFeatures(householdId),
   ]);
 
   return (
     <CalendarView
       initialMonth={{ year, month }}
       initialOccurrences={occurrences}
+      initialChores={chores}
+      choresOn={features.includes('tasks')}
       members={members}
       access={access.calendar}
       userId={user.id}

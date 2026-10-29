@@ -1,9 +1,28 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { dateKey, formatDueDate, isDateOnly, isOverdue } from '@/lib/format';
+import { dateKey, formatDueDate, isDateOnly, isOverdue, timeKey, zonedInstant } from '@/lib/format';
 
 // Chicago is UTC-5 in March 2026 (after the DST change on Mar 8).
 const tz = 'America/Chicago';
 const at = (s: string) => new Date(s);
+
+describe('zonedInstant / timeKey', () => {
+  it('reads date and time inputs in the given zone', () => {
+    expect(zonedInstant('2026-03-10', '09:30', tz).toISOString()).toBe('2026-03-10T14:30:00.000Z');
+    // January is CST (UTC-6).
+    expect(zonedInstant('2026-01-10', '00:00', tz).toISOString()).toBe('2026-01-10T06:00:00.000Z');
+    expect(zonedInstant('2026-03-10', '09:30', 'Asia/Tokyo').toISOString()).toBe('2026-03-10T00:30:00.000Z');
+  });
+
+  it('round-trips through dateKey and timeKey', () => {
+    const d = zonedInstant('2026-11-01', '23:45', tz);
+    expect(dateKey(d, tz)).toBe('2026-11-01');
+    expect(timeKey(d, tz)).toBe('23:45');
+  });
+
+  it('formats midnight as 00:00', () => {
+    expect(timeKey(at('2026-03-10T05:00:00Z'), tz)).toBe('00:00');
+  });
+});
 
 describe('isOverdue', () => {
   const dueNoon = at('2026-03-10T17:00:00Z'); // Mar 10, 12:00 Chicago: a date-only pick

@@ -201,6 +201,50 @@ describe('planRestore', () => {
     expect(plan.rows.ExtraTime).toEqual([]);
   });
 
+  it('keeps a repeating event’s skipped dates and its dates changed on their own', () => {
+    const SERIES = id(20);
+    const OVERRIDE = id(21);
+    const EV_RULE = id(22);
+    const skipped = ['2026-11-09T15:00:00.000Z', '2026-11-16T15:00:00.000Z'];
+    const calendar = [
+      {
+        id: SERIES,
+        householdId: H,
+        title: 'Piano',
+        startAt: '2026-11-02T15:00:00.000Z',
+        recurrenceId: EV_RULE,
+        excludedStarts: skipped,
+        reminderMinutes: 15,
+        createdById: KID,
+        recurrence: { id: EV_RULE, kind: 'yearly', interval: 1 },
+        attendees: [{ id: id(23), eventId: SERIES, userId: KID }],
+      },
+      {
+        id: OVERRIDE,
+        householdId: H,
+        title: 'Recital',
+        startAt: '2026-11-09T18:00:00.000Z',
+        seriesId: SERIES,
+        originalStart: skipped[0],
+        createdById: KID,
+        attendees: [],
+      },
+      // An event from an export made before these fields existed.
+      { id: id(24), householdId: H, title: 'Dentist', startAt: '2026-11-03T15:00:00.000Z', attendees: [] },
+    ];
+    // The real schema's fields: proves Event has the new ones.
+    const restored = planRestore({ ...sampleExport(), calendar }, { newId: newIds() });
+    const [series, override, old] = restored.rows.Event;
+    expect(series.excludedStarts).toEqual(skipped);
+    expect(series.reminderMinutes).toBe(15);
+    expect(series.recurrenceId).toBe(restored.rows.RecurrenceRule.find((r) => r.kind === 'yearly')!.id);
+    expect(override.seriesId).toBe(series.id);
+    expect(override.originalStart).toBe(skipped[0]);
+    expect(restored.rows.EventAttendee[0].eventId).toBe(series.id);
+    expect(old).not.toHaveProperty('excludedStarts');
+    expect(old).not.toHaveProperty('seriesId');
+  });
+
   it('can restore under a new name', () => {
     expect(planRestore(sampleExport(), { name: 'Smiths (restored)', newId: newIds(), fields }).rows.Household[0].name).toBe(
       'Smiths (restored)',

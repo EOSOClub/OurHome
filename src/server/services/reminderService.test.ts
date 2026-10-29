@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildBillReminders,
+  buildEventReminders,
   buildInventoryReminders,
+  eventReminderWindow,
+  type EventReminderLike,
   buildOverdueReminders,
   buildReminders,
   reminderRecipients,
@@ -16,6 +19,89 @@ import { buildReminderEmail } from '@/server/email/notificationEmail';
 
 const NOW = new Date('2026-06-24T12:00:00.000Z');
 const iso = (s: string) => new Date(s);
+
+describe('buildEventReminders', () => {
+  // Chicago is UTC-5 in June.
+  const tz = 'America/Chicago';
+  const event = (over: Partial<EventReminderLike> = {}): EventReminderLike => ({
+    eventId: 'ev1',
+    title: 'Dentist',
+    start: iso('2026-06-24T20:00:00.000Z'), // 3:00 PM Chicago
+    end: iso('2026-06-24T21:00:00.000Z'),
+    allDay: false,
+    reminderMinutes: 15,
+    attendeeIds: ['kid'],
+    createdById: 'mom',
+    ...over,
+  });
+
+  it('shows from the reminder time, not before', () => {
+    expect(buildEventReminders([event()], iso('2026-06-24T19:44:00.000Z'), tz)).toEqual([]);
+    const [c] = buildEventReminders([event()], iso('2026-06-24T19:45:00.000Z'), tz);
+    expect(c).toMatchObject({
+      dedupeKey: 'event_reminder:event:ev1:2026-06-24T20:00:00.000Z',
+      type: 'event_reminder',
+      title: 'Dentist',
+      subjectType: 'event',
+      subjectId: 'ev1',
+    });
+    expect(c.body).toMatch(/^Today at 3:00\s?PM\.$/);
+  });
+
+  it('goes to the attendees and the creator only', () => {
+    const [c] = buildEventReminders([event({ attendeeIds: ['kid', 'mom'] })], iso('2026-06-24T19:50:00.000Z'), tz);
+    expect(c.audienceUserIds).toEqual(['kid', 'mom']);
+  });
+
+  it('is gone once the event is over (an hour on without an end)', () => {
+    expect(buildEventReminders([event()], iso('2026-06-24T20:59:00.000Z'), tz)).toHaveLength(1);
+    expect(buildEventReminders([event()], iso('2026-06-24T21:00:00.000Z'), tz)).toEqual([]);
+    const noEnd = event({ end: null });
+    expect(buildEventReminders([noEnd], iso('2026-06-24T20:59:00.000Z'), tz)).toHaveLength(1);
+    expect(buildEventReminders([noEnd], iso('2026-06-24T21:00:00.000Z'), tz)).toEqual([]);
+  });
+
+  it('skips events without a reminder', () => {
+    expect(buildEventReminders([event({ reminderMinutes: null })], iso('2026-06-24T20:00:00.000Z'), tz)).toEqual([]);
+  });
+
+  it('counts an all-day event back from 9:00 on its day, household time', () => {
+    // All day Thursday Jun 25 (midnight Chicago), reminder 1 day before.
+    const allDay = event({
+      allDay: true,
+      start: iso('2026-06-25T05:00:00.000Z'),
+      end: null,
+      reminderMinutes: 1440,
+    });
+    expect(eventReminderWindow(allDay, tz)).toEqual({
+      fireAt: iso('2026-06-24T14:00:00.000Z'), // Wed 9:00 Chicago
+      until: iso('2026-06-26T05:00:00.000Z'), // end of Thursday
+    });
+    expect(buildEventReminders([allDay], iso('2026-06-24T13:59:00.000Z'), tz)).toEqual([]);
+    const [c] = buildEventReminders([allDay], iso('2026-06-24T14:00:00.000Z'), tz);
+    expect(c.body).toBe('Tomorrow, all day.');
+    // The next morning the same row reads "Today".
+    expect(buildEventReminders([allDay], iso('2026-06-25T13:00:00.000Z'), tz)[0].body).toBe('Today, all day.');
+  });
+
+  it('gives each date of a repeating event its own reminder, with the place', () => {
+    const a = event({ location: 'Main St' });
+    const b = event({ start: iso('2026-06-24T20:30:00.000Z'), end: null });
+    const out = buildEventReminders([a, b], iso('2026-06-24T20:20:00.000Z'), tz);
+    expect(out.map((c) => c.dedupeKey)).toEqual([
+      'event_reminder:event:ev1:2026-06-24T20:00:00.000Z',
+      'event_reminder:event:ev1:2026-06-24T20:30:00.000Z',
+    ]);
+    expect(out[0].body).toMatch(/\(Main St\)\.$/);
+  });
+
+  it('emails it as "Coming up" with a calendar link', () => {
+    const [c] = buildEventReminders([event()], iso('2026-06-24T19:50:00.000Z'), tz);
+    const mail = buildReminderEmail(c, 'https://home.example');
+    expect(mail.subject).toBe('Coming up: Dentist');
+    expect(mail.text).toContain('https://home.example/calendar');
+  });
+});
 
 function task(partial: Partial<TaskLike>): TaskLike {
   return { id: 't1', title: 'Task', status: 'pending', dueDate: null, ...partial };

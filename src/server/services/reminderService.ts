@@ -9,9 +9,12 @@ import type { NotificationType } from '@/lib/enums';
 import { isOverdue } from '@/lib/format';
 import { getPointsSettings } from '@/server/services/pointsService';
 import { getHouseholdFeatures } from '@/server/services/serverAdminService';
+import { listOccurrences } from '@/server/services/calendarService';
+import { addDays, daysBetween, localDateOf, localTimeAt, startOfLocalDate } from '@/lib/taskCycles';
 
 // Turns current household state (overdue tasks, low / soon-depleted inventory,
-// upcoming/overdue unpaid bills) into notifications. The *selection* logic is
+// upcoming/overdue unpaid bills, calendar events whose reminder time came) into
+// notifications. The *selection* logic is
 // kept as pure functions so it can be unit-tested without a database (see
 // reminderService.test.ts); only `generateReminders` touches Prisma.
 
@@ -20,6 +23,10 @@ export const REORDER_WINDOW_DAYS = 3;
 
 const ACTIVE_STATUSES = ['pending', 'in_progress'];
 
+/** How far back and ahead the sweep looks for event dates with a reminder. */
+const EVENT_LOOKBACK_MS = 26 * 60 * 60 * 1000;
+const EVENT_LOOKAHEAD_MS = 8 * 24 * 60 * 60 * 1000;
+
 /** Notification types this generator owns. Used to scope stale cleanup so it
  *  never deletes manually created "system" notifications. */
 export const MANAGED_TYPES: NotificationType[] = [
@@ -27,6 +34,7 @@ export const MANAGED_TYPES: NotificationType[] = [
   'low_inventory',
   'reminder',
   'bill_due',
+  'event_reminder',
 ];
 
 export interface ReminderCandidate {
@@ -182,6 +190,93 @@ export function buildBillReminders(
     }));
 }
 
+export interface EventReminderLike {
+  eventId: string;
+  title: string;
+  location?: string | null;
+  start: Date;
+  end: Date | null;
+  allDay: boolean;
+  /** Minutes before the start (all-day: before 9:00 on the day); null = none. */
+  reminderMinutes: number | null;
+  attendeeIds: string[];
+  createdById: string | null;
+}
+
+/** All-day events remind counting back from this local time on their day. */
+export const ALL_DAY_REMINDER_HOUR = 9;
+/** A timed event without an end keeps its reminder this long after it starts. */
+const NO_END_MS = 60 * 60 * 1000;
+
+/**
+ * When one date's reminder shows (`fireAt`) and when it's gone (`until`, once
+ * that date's event is over): a timed event counts back from its start and
+ * lasts until its end (or an hour); an all-day one counts back from 9:00 on
+ * its day, household time, and lasts until its last day is over.
+ */
+export function eventReminderWindow(
+  o: EventReminderLike,
+  timeZone: string,
+): { fireAt: Date; until: Date } | null {
+  if (o.reminderMinutes === null) return null;
+  const before = o.reminderMinutes * 60_000;
+  if (!o.allDay) {
+    return {
+      fireAt: new Date(o.start.getTime() - before),
+      until: o.end ?? new Date(o.start.getTime() + NO_END_MS),
+    };
+  }
+  const day = localDateOf(o.start, timeZone);
+  const lastDay = localDateOf(o.end ?? o.start, timeZone);
+  return {
+    fireAt: new Date(localTimeAt(day, ALL_DAY_REMINDER_HOUR, 0, timeZone).getTime() - before),
+    until: startOfLocalDate(addDays(lastDay, 1), timeZone),
+  };
+}
+
+/** "Today at 3:00 PM", "Tomorrow, all day", "Fri, Nov 6 at 9:30 AM". */
+function eventWhen(o: EventReminderLike, now: Date, timeZone: string): string {
+  const diff = daysBetween(localDateOf(now, timeZone), localDateOf(o.start, timeZone));
+  const day =
+    diff === 0
+      ? 'Today'
+      : diff === 1
+        ? 'Tomorrow'
+        : o.start.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', timeZone });
+  if (o.allDay) return `${day}, all day`;
+  const time = o.start.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', timeZone });
+  return `${day} at ${time}`;
+}
+
+/**
+ * Events whose reminder time has come and that aren't over yet become an
+ * `event_reminder` for their attendees and creator. One per date (the key has
+ * the date's start), so each date of a repeating event reminds on its own.
+ * The text is refreshed each sweep, so "Tomorrow" turns into "Today".
+ */
+export function buildEventReminders(
+  occurrences: EventReminderLike[],
+  now: Date,
+  timeZone: string,
+): ReminderCandidate[] {
+  const out: ReminderCandidate[] = [];
+  for (const o of occurrences) {
+    const window = eventReminderWindow(o, timeZone);
+    if (!window || now < window.fireAt || now >= window.until) continue;
+    const where = o.location ? ` (${o.location})` : '';
+    out.push({
+      dedupeKey: `event_reminder:event:${o.eventId}:${o.start.toISOString()}`,
+      type: 'event_reminder',
+      title: o.title,
+      body: `${eventWhen(o, now, timeZone)}${where}.`,
+      subjectType: 'event',
+      subjectId: o.eventId,
+      audienceUserIds: tiedUsers(...o.attendeeIds, o.createdById),
+    });
+  }
+  return out;
+}
+
 /** All reminder candidates for the given state. */
 export function buildReminders(
   tasks: TaskLike[],
@@ -323,17 +418,43 @@ export async function generateReminders(
     }),
   ]);
 
-  const [taskManagers, billManagers, stockManagers, settings] = await Promise.all([
+  const [taskManagers, billManagers, stockManagers, settings, occurrences] = await Promise.all([
     membersWithAccess(householdId, 'tasks', 'editOthers'),
     membersWithAccess(householdId, 'bills', 'editOthers'),
     membersWithAccess(householdId, 'inventory', 'editOthers'),
     getPointsSettings(householdId),
+    // Dates that started up to a day ago (still on) or start within a week
+    // and a bit (the earliest reminder is a week ahead of 9:00 on the day).
+    !features.includes('calendar')
+      ? Promise.resolve([])
+      : listOccurrences(
+          householdId,
+          new Date(now.getTime() - EVENT_LOOKBACK_MS),
+          new Date(now.getTime() + EVENT_LOOKAHEAD_MS),
+        ),
   ]);
-  const candidates = withManagers(buildReminders(tasks, items, bills, now, REORDER_WINDOW_DAYS, settings.timezone), {
-    tasks: taskManagers,
-    bills: billManagers,
-    inventory: stockManagers,
-  });
+  const events: EventReminderLike[] = occurrences
+    .filter((o) => o.reminderMinutes !== null)
+    .map((o) => ({
+      eventId: o.eventId,
+      title: o.title,
+      location: o.location,
+      start: new Date(o.start),
+      end: o.end ? new Date(o.end) : null,
+      allDay: o.allDay,
+      reminderMinutes: o.reminderMinutes,
+      attendeeIds: o.attendees.map((a) => a.id),
+      createdById: o.createdById,
+    }));
+  const candidates = [
+    ...withManagers(buildReminders(tasks, items, bills, now, REORDER_WINDOW_DAYS, settings.timezone), {
+      tasks: taskManagers,
+      bills: billManagers,
+      inventory: stockManagers,
+    }),
+    // Only the people on the event: no managers added.
+    ...buildEventReminders(events, now, settings.timezone),
+  ];
   const keep = candidates.map((c) => c.dedupeKey);
 
   // Snapshot existing generated keys so we can tell created from refreshed:

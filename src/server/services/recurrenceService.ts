@@ -187,6 +187,10 @@ function nextWall(rule: NormalizedRule, from: Date): Date | null {
       break;
     }
 
+    case 'yearly':
+      next = nextAlignedMonths(anchor, from, interval * 12);
+      break;
+
     case 'cron':
     default:
       next = null;
@@ -207,14 +211,25 @@ function nextAligned(anchor: Date, from: Date, interval: number, stepDays: numbe
   return addDaysUTC(aligned, k * step);
 }
 
+/**
+ * Anchor + k*interval months for the smallest k≥1 that lands after `from`.
+ * Always counted from the anchor, never from the previous occurrence: a day
+ * the month doesn't have is clamped (Jan 31 -> Feb 28), and stepping on from
+ * that clamped date would keep the 28th for good.
+ */
 function nextAlignedMonths(anchor: Date, from: Date, interval: number): Date {
-  let candidate = withAnchorTime(anchor, anchor);
-  if (from < candidate) return candidate;
-  // Advance in interval-month steps until strictly after `from`.
-  let guard = 0;
-  while (candidate <= from && guard < 1200) {
-    candidate = addMonthsUTC(candidate, interval);
-    guard += 1;
+  const aligned = withAnchorTime(anchor, anchor);
+  if (from < aligned) return aligned;
+  const elapsed =
+    (from.getUTCFullYear() - aligned.getUTCFullYear()) * 12 +
+    (from.getUTCMonth() - aligned.getUTCMonth());
+  // Start one step short of `from`'s month, then step until strictly after it
+  // (at most a couple of passes).
+  let k = Math.max(1, Math.floor(elapsed / interval));
+  let candidate = addMonthsUTC(aligned, k * interval);
+  while (candidate <= from) {
+    k += 1;
+    candidate = addMonthsUTC(aligned, k * interval);
   }
   return candidate;
 }

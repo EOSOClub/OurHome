@@ -438,9 +438,29 @@ export interface EventOccurrenceDTO {
   end: string | null;
   baseStart: string;
   baseEnd: string | null;
+  /** True for a series' dates, and for a date of one changed on its own. */
   recurring: boolean;
+  /** The repeat; for a date changed on its own, its series' repeat. */
   recurrence: RecurrenceDTO | null;
   attendees: MemberDTO[];
+  /** Set on a date changed on its own: the series it belongs to. */
+  seriesId: string | null;
+  /** With seriesId: the series date this one replaces. */
+  originalStart: string | null;
+  /** Minutes before the start the reminder goes out; null = no reminder. */
+  reminderMinutes: number | null;
+}
+
+/** A chore's current due date, shown on the calendar (read-only; opens the task). */
+export interface CalendarChoreDTO {
+  id: string;
+  title: string;
+  due: string;
+  /** Due on the day with no time (picked without one, stored at 12:00). */
+  allDay: boolean;
+  assigneeId: string | null;
+  assigneeName: string | null;
+  overdue: boolean;
 }
 
 export interface BillDTO {

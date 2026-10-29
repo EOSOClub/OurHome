@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   Bell,
   Bug,
+  CalendarClock,
   CheckCheck,
   Inbox,
   Info,
@@ -54,6 +55,7 @@ const TYPE_ICON: Record<NotificationType, LucideIcon> = {
   extra_time: Timer,
   parent_pin: KeyRound,
   request_update: Inbox,
+  event_reminder: CalendarClock,
 };
 
 const TYPE_VARIANT: Record<
@@ -73,6 +75,7 @@ const TYPE_VARIANT: Record<
   extra_time: 'default',
   parent_pin: 'warning',
   request_update: 'default',
+  event_reminder: 'default',
 };
 
 type ReadFilter = 'all' | 'unread' | 'read';

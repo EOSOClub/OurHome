@@ -93,6 +93,15 @@ export function startOfLocalDate(date: LocalDate, timeZone: string): Date {
   return new Date(guess);
 }
 
+/** The instant the local time `hour:minute` on `date` happens in `timeZone`. */
+export function localTimeAt(date: LocalDate, hour: number, minute: number, timeZone: string): Date {
+  const naive = Date.UTC(date.year, date.month - 1, date.day, hour, minute);
+  // Same two passes as startOfLocalDate, for times next to a DST change.
+  let guess = naive - offsetMs(new Date(naive), timeZone);
+  guess = naive - offsetMs(new Date(guess), timeZone);
+  return new Date(guess);
+}
+
 export function addDays(date: LocalDate, days: number): LocalDate {
   const d = new Date(Date.UTC(date.year, date.month - 1, date.day + days));
   return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };

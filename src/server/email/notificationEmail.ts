@@ -22,6 +22,7 @@ const SUBJECT_PREFIX: Record<string, string> = {
   low_inventory: 'Low inventory',
   reminder: 'Reminder',
   bill_due: 'Bill due',
+  event_reminder: 'Coming up',
 };
 
 /** App section to deep-link per subject type; falls back to the inbox. */
@@ -29,6 +30,7 @@ const SUBJECT_PATH: Record<string, string> = {
   task: '/tasks',
   inventory_item: '/inventory',
   bill: '/bills',
+  event: '/calendar',
 };
 
 /**

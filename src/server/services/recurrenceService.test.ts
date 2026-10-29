@@ -123,6 +123,96 @@ describe('computeNextRunAt - monthly', () => {
     );
     expect(next?.toISOString()).toBe('2026-03-31T08:00:00.000Z');
   });
+
+  it('keeps an end-of-month anchor after a short month (no drift)', () => {
+    // Jan 31 -> Feb 28 (clamped), then back to the 31st, then Apr 30.
+    const r = rule({ kind: 'monthly', anchorDate: iso('2026-01-31T08:00:00.000Z') });
+    const feb = computeNextRunAt(r, iso('2026-01-31T08:00:00.000Z'));
+    const mar = computeNextRunAt(r, feb!);
+    const apr = computeNextRunAt(r, mar!);
+    expect(feb?.toISOString()).toBe('2026-02-28T08:00:00.000Z');
+    expect(mar?.toISOString()).toBe('2026-03-31T08:00:00.000Z');
+    expect(apr?.toISOString()).toBe('2026-04-30T08:00:00.000Z');
+  });
+
+  it('keeps an end-of-month anchor every other month', () => {
+    // Every 2 months from Dec 31: Feb 28, Apr 30, Jun 30, Aug 31.
+    const r = rule({ kind: 'monthly', interval: 2, anchorDate: iso('2025-12-31T08:00:00.000Z') });
+    const out: string[] = [];
+    let from = iso('2025-12-31T08:00:00.000Z');
+    for (let i = 0; i < 4; i += 1) {
+      from = computeNextRunAt(r, from)!;
+      out.push(from.toISOString());
+    }
+    expect(out).toEqual([
+      '2026-02-28T08:00:00.000Z',
+      '2026-04-30T08:00:00.000Z',
+      '2026-06-30T08:00:00.000Z',
+      '2026-08-31T08:00:00.000Z',
+    ]);
+  });
+});
+
+describe('computeNextRunAt - yearly', () => {
+  it('advances one year on the same date and time', () => {
+    const next = computeNextRunAt(
+      rule({ kind: 'yearly', anchorDate: iso('2026-05-10T08:00:00.000Z') }),
+      iso('2026-06-01T00:00:00.000Z'),
+    );
+    expect(next?.toISOString()).toBe('2027-05-10T08:00:00.000Z');
+  });
+
+  it('returns the anchor itself while it is still ahead', () => {
+    const next = computeNextRunAt(
+      rule({ kind: 'yearly', anchorDate: iso('2026-05-10T08:00:00.000Z') }),
+      iso('2026-01-01T00:00:00.000Z'),
+    );
+    expect(next?.toISOString()).toBe('2026-05-10T08:00:00.000Z');
+  });
+
+  it('puts a Feb 29 birthday on Feb 28 in other years, Feb 29 in leap years', () => {
+    const r = rule({ kind: 'yearly', anchorDate: iso('2028-02-29T08:00:00.000Z') });
+    const out: string[] = [];
+    let from = iso('2028-02-29T08:00:00.000Z');
+    for (let i = 0; i < 4; i += 1) {
+      from = computeNextRunAt(r, from)!;
+      out.push(from.toISOString());
+    }
+    expect(out).toEqual([
+      '2029-02-28T08:00:00.000Z',
+      '2030-02-28T08:00:00.000Z',
+      '2031-02-28T08:00:00.000Z',
+      '2032-02-29T08:00:00.000Z',
+    ]);
+  });
+
+  it('honors interval and until', () => {
+    const r = rule({
+      kind: 'yearly',
+      interval: 2,
+      anchorDate: iso('2026-03-01T08:00:00.000Z'),
+      until: iso('2029-01-01T00:00:00.000Z'),
+    });
+    const first = computeNextRunAt(r, iso('2026-03-01T08:00:00.000Z'));
+    expect(first?.toISOString()).toBe('2028-03-01T08:00:00.000Z');
+    expect(computeNextRunAt(r, first!)).toBeNull();
+  });
+
+  it('keeps the local time of day across daylight saving', () => {
+    // 9:00 in Chicago: CST (UTC-6) in January, CDT (UTC-5) in July.
+    const r = rule({
+      kind: 'yearly',
+      anchorDate: iso('2026-07-04T14:00:00.000Z'),
+      timeZone: 'America/Chicago',
+    });
+    const next = computeNextRunAt(r, iso('2026-07-04T14:00:00.000Z'));
+    expect(next?.toISOString()).toBe('2027-07-04T14:00:00.000Z');
+    const winter = computeNextRunAt(
+      { ...r, anchorDate: iso('2026-01-15T15:00:00.000Z') },
+      iso('2026-01-15T15:00:00.000Z'),
+    );
+    expect(winter?.toISOString()).toBe('2027-01-15T15:00:00.000Z');
+  });
 });
 
 describe('computeNextRunAt - until end date', () => {

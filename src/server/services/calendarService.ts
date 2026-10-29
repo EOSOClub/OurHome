@@ -2,17 +2,19 @@ import { Prisma } from '@prisma/client';
 import { getPointsSettings } from '@/server/services/pointsService';
 import { prisma } from '@/server/db/prisma';
 import { logActivity } from '@/server/services/activityService';
-import { NotFoundError } from '@/server/services/errors';
+import { ConflictError, NotFoundError } from '@/server/services/errors';
 import {
   computeNextRunAt,
   formatIntList,
   parseIntList,
   type NormalizedRule,
 } from '@/server/services/recurrenceService';
+import type { RecurrenceKind } from '@/lib/enums';
 import type { EventOccurrenceDTO } from '@/lib/types';
 import type { RecurrenceInput } from '@/lib/validation/task';
 import type {
   CreateEventInput,
+  DeleteEventInput,
   UpdateEventInput,
 } from '@/lib/validation/calendar';
 
@@ -22,6 +24,20 @@ const eventInclude = {
 } satisfies Prisma.EventInclude;
 
 type EventWithRelations = Prisma.EventGetPayload<{ include: typeof eventInclude }>;
+type RuleRow = NonNullable<EventWithRelations['recurrence']>;
+type Tx = Prisma.TransactionClient;
+
+/** The fields an edit can change, without the id, scope, repeat and attendees. */
+type EventChanges = Omit<
+  UpdateEventInput,
+  'id' | 'scope' | 'occurrenceStart' | 'recurrence' | 'attendeeIds'
+>;
+
+/** The rule columns recurrenceData reads (RecurrenceInput or a stored rule). */
+type RuleFields = Pick<
+  RecurrenceInput,
+  'kind' | 'interval' | 'byWeekday' | 'byMonthday' | 'cron' | 'timezone' | 'until'
+>;
 
 // Cap occurrence expansion so a malformed rule can never loop forever.
 const MAX_OCCURRENCES = 500;
@@ -42,7 +58,7 @@ function buildRule(r: EventWithRelations['recurrence'], timeZone?: string): Norm
 }
 
 /** Persisted RecurrenceRule columns for an event; anchored to the start time. */
-function recurrenceData(recurrence: RecurrenceInput, anchor: Date) {
+function recurrenceData(recurrence: RuleFields, anchor: Date) {
   return {
     kind: recurrence.kind,
     interval: recurrence.interval,
@@ -56,7 +72,42 @@ function recurrenceData(recurrence: RecurrenceInput, anchor: Date) {
   };
 }
 
-function occurrence(e: EventWithRelations, start: Date): EventOccurrenceDTO {
+/** A stored rule back in input form, to start a new series with the same repeat. */
+function ruleFieldsOf(r: RuleRow): RuleFields {
+  return {
+    kind: r.kind as RecurrenceKind,
+    interval: r.interval,
+    byWeekday: parseIntList(r.byWeekday),
+    byMonthday: parseIntList(r.byMonthday),
+    cron: r.cron ?? undefined,
+    timezone: r.timezone,
+    until: r.until,
+  };
+}
+
+/**
+ * Whether `input` repeats differently from the stored rule. The end date
+ * doesn't count: moving it leaves every remaining date where it was.
+ */
+export function repeatChanged(stored: RuleRow, input: RuleFields): boolean {
+  return (
+    stored.kind !== input.kind ||
+    stored.interval !== input.interval ||
+    (stored.byWeekday ?? null) !== formatIntList(input.byWeekday) ||
+    (stored.byMonthday ?? null) !== formatIntList(input.byMonthday)
+  );
+}
+
+/**
+ * `occurrence` one listed date of an event. A date changed on its own (an
+ * override row) carries its series' repeat, so the dialog offers the same
+ * This / following / all choices for it.
+ */
+function occurrence(
+  e: EventWithRelations,
+  start: Date,
+  repeat: EventWithRelations['recurrence'] = e.recurrence,
+): EventOccurrenceDTO {
   const durationMs =
     e.endAt != null ? e.endAt.getTime() - e.startAt.getTime() : null;
   const end = durationMs != null ? new Date(start.getTime() + durationMs) : null;
@@ -71,20 +122,66 @@ function occurrence(e: EventWithRelations, start: Date): EventOccurrenceDTO {
     end: end?.toISOString() ?? null,
     baseStart: e.startAt.toISOString(),
     baseEnd: e.endAt?.toISOString() ?? null,
-    recurring: !!e.recurrence,
-    recurrence: e.recurrence
+    recurring: !!repeat,
+    recurrence: repeat
       ? {
-          kind: e.recurrence.kind,
-          interval: e.recurrence.interval,
-          byWeekday: e.recurrence.byWeekday,
-          byMonthday: e.recurrence.byMonthday,
-          timezone: e.recurrence.timezone,
-          until: e.recurrence.until?.toISOString() ?? null,
-          nextRunAt: e.recurrence.nextRunAt?.toISOString() ?? null,
+          kind: repeat.kind,
+          interval: repeat.interval,
+          byWeekday: repeat.byWeekday,
+          byMonthday: repeat.byMonthday,
+          timezone: repeat.timezone,
+          until: repeat.until?.toISOString() ?? null,
+          nextRunAt: repeat.nextRunAt?.toISOString() ?? null,
         }
       : null,
     attendees: e.attendees.map((a) => ({ id: a.user.id, name: a.user.name })),
+    seriesId: e.seriesId ?? null,
+    originalStart: e.originalStart?.toISOString() ?? null,
+    reminderMinutes: e.reminderMinutes ?? null,
   };
+}
+
+/**
+ * The starts of one event within [rangeStart, rangeEnd]: its own start for a
+ * one-off event (when it overlaps the range), the rule's dates for a series,
+ * less the dates left out of it (`excludedStarts`). Pure, for tests.
+ */
+export function expandEvent(
+  e: { startAt: Date; endAt: Date | null; excludedStarts?: Date[] | null },
+  rule: NormalizedRule | null,
+  rangeStart: Date,
+  rangeEnd: Date,
+): Date[] {
+  if (!rule) {
+    const overlapEnd = e.endAt ?? e.startAt;
+    return e.startAt <= rangeEnd && overlapEnd >= rangeStart ? [e.startAt] : [];
+  }
+  const skipped = new Set((e.excludedStarts ?? []).map((d) => d.getTime()));
+  const out: Date[] = [];
+  let from = new Date(rangeStart.getTime() - 1);
+  let guard = 0;
+  while (guard < MAX_OCCURRENCES) {
+    const next = computeNextRunAt(rule, from);
+    if (!next || next > rangeEnd) break;
+    if (next >= rangeStart && !skipped.has(next.getTime())) out.push(next);
+    from = next;
+    guard += 1;
+  }
+  return out;
+}
+
+/** Whether `start` is one of the series' dates (and not left out of it). */
+export function isOccurrence(
+  rule: NormalizedRule,
+  excludedStarts: Date[] | null | undefined,
+  start: Date,
+): boolean {
+  const at = computeNextRunAt(rule, new Date(start.getTime() - 1));
+  return (
+    !!at &&
+    at.getTime() === start.getTime() &&
+    !(excludedStarts ?? []).some((d) => d.getTime() === start.getTime())
+  );
 }
 
 /** Expand all events into individual occurrences within [rangeStart, rangeEnd]. */
@@ -97,25 +194,14 @@ export async function listOccurrences(
     prisma.event.findMany({ where: { householdId }, include: eventInclude }),
     getPointsSettings(householdId),
   ]);
+  const byId = new Map(events.map((e) => [e.id, e]));
 
   const out: EventOccurrenceDTO[] = [];
   for (const e of events) {
     const rule = buildRule(e.recurrence, timezone);
-    if (!rule) {
-      const overlapEnd = e.endAt ?? e.startAt;
-      if (e.startAt <= rangeEnd && overlapEnd >= rangeStart) {
-        out.push(occurrence(e, e.startAt));
-      }
-      continue;
-    }
-    let from = new Date(rangeStart.getTime() - 1);
-    let guard = 0;
-    while (guard < MAX_OCCURRENCES) {
-      const next = computeNextRunAt(rule, from);
-      if (!next || next > rangeEnd) break;
-      if (next >= rangeStart) out.push(occurrence(e, next));
-      from = next;
-      guard += 1;
+    const repeat = e.recurrence ?? (e.seriesId ? byId.get(e.seriesId)?.recurrence : null) ?? null;
+    for (const start of expandEvent(e, rule, rangeStart, rangeEnd)) {
+      out.push(occurrence(e, start, repeat));
     }
   }
 
@@ -160,6 +246,7 @@ export async function createEvent(
         startAt: input.startAt,
         endAt: input.endAt ?? null,
         allDay: input.allDay,
+        reminderMinutes: input.reminderMinutes ?? null,
         recurrenceId,
         createdById: userId,
         attendees: attendeeIds.length
@@ -185,68 +272,146 @@ export async function createEvent(
   return occurrence(event, event.startAt);
 }
 
+/** The series' first date, or null when its rule produces none. */
+function firstOccurrence(series: EventWithRelations, rule: NormalizedRule): Date | null {
+  return computeNextRunAt(rule, new Date(series.startAt.getTime() - 1));
+}
+
+function assertOccurrence(series: EventWithRelations, rule: NormalizedRule, start: Date) {
+  if (!isOccurrence(rule, series.excludedStarts, start)) {
+    throw new ConflictError('That date isn’t part of this repeating event any more. Refresh and try again.');
+  }
+}
+
+/**
+ * Values for a new row cut from `source` at `start` (an override row or the
+ * start of a new series): the source's fields with the dialog's changes on
+ * top. Without a new start the row keeps the source's length.
+ */
+function cutFrom(source: EventWithRelations, start: Date, changes: EventChanges) {
+  const durationMs =
+    source.endAt != null ? source.endAt.getTime() - source.startAt.getTime() : null;
+  const startAt = changes.startAt ?? start;
+  const endAt =
+    changes.endAt !== undefined
+      ? changes.endAt
+      : durationMs != null
+        ? new Date(startAt.getTime() + durationMs)
+        : null;
+  return {
+    title: (changes.title ?? source.title).trim(),
+    description: changes.description !== undefined ? changes.description : source.description,
+    location: changes.location !== undefined ? changes.location : source.location,
+    startAt,
+    endAt,
+    allDay: changes.allDay ?? source.allDay,
+    reminderMinutes:
+      changes.reminderMinutes !== undefined ? changes.reminderMinutes : source.reminderMinutes,
+    // The series' owner keeps owning its dates (own vs. others' access).
+    createdById: source.createdById,
+  };
+}
+
+/** The original whole-event edit: fields, attendees and repeat of one row. */
+async function updateRow(
+  tx: Tx,
+  householdId: string,
+  existing: EventWithRelations,
+  changes: EventChanges,
+  attendees: string[] | undefined,
+  recurrence: UpdateEventInput['recurrence'],
+): Promise<EventWithRelations> {
+  const id = existing.id;
+  let recurrenceId: string | null | undefined; // undefined = unchanged
+  if (recurrence === null) {
+    recurrenceId = null;
+  } else if (recurrence) {
+    const anchor = changes.startAt ?? existing.startAt;
+    const data = recurrenceData(recurrence, anchor);
+    if (existing.recurrenceId) {
+      await tx.recurrenceRule.update({
+        where: { id: existing.recurrenceId },
+        data,
+      });
+    } else {
+      const rule = await tx.recurrenceRule.create({ data });
+      recurrenceId = rule.id;
+    }
+  }
+
+  if (attendees) {
+    await tx.eventAttendee.deleteMany({ where: { eventId: id } });
+    if (attendees.length) {
+      await tx.eventAttendee.createMany({
+        data: attendees.map((userId) => ({ eventId: id, userId })),
+      });
+    }
+  }
+
+  // A moved series, a new repeat or no repeat at all: the dates changed on
+  // their own no longer line up, so they go (the dialog warns first).
+  const startMoved =
+    changes.startAt !== undefined && changes.startAt.getTime() !== existing.startAt.getTime();
+  const dropExceptions =
+    !!existing.recurrence &&
+    (startMoved ||
+      recurrence === null ||
+      (!!recurrence && repeatChanged(existing.recurrence, recurrence)));
+  if (dropExceptions) {
+    await tx.event.deleteMany({ where: { householdId, seriesId: id } });
+  }
+
+  const updated = await tx.event.update({
+    where: { id },
+    data: {
+      title: changes.title?.trim(),
+      description: changes.description,
+      location: changes.location,
+      startAt: changes.startAt,
+      endAt: changes.endAt,
+      allDay: changes.allDay,
+      reminderMinutes: changes.reminderMinutes,
+      recurrenceId,
+      ...(dropExceptions ? { excludedStarts: { set: [] } } : {}),
+    },
+    include: eventInclude,
+  });
+
+  if (recurrence === null && existing.recurrenceId) {
+    await tx.recurrenceRule.delete({ where: { id: existing.recurrenceId } });
+  }
+  return updated;
+}
+
+/**
+ * Edit "all" from one opened date: the series moves by as much as the dialog
+ * moved that date (`opened` is where the dialog started), so changing a
+ * Tuesday's time changes every Tuesday's, not the first one's date.
+ */
+function shiftSeries(series: EventWithRelations, opened: Date, changes: EventChanges): EventChanges {
+  if (!changes.startAt) return changes;
+  const delta = changes.startAt.getTime() - opened.getTime();
+  const startAt = new Date(series.startAt.getTime() + delta);
+  const endAt =
+    changes.endAt != null
+      ? new Date(startAt.getTime() + (changes.endAt.getTime() - changes.startAt.getTime()))
+      : changes.endAt;
+  return { ...changes, startAt, endAt };
+}
+
 export async function updateEvent(
   householdId: string,
   userId: string,
   input: UpdateEventInput,
 ): Promise<EventOccurrenceDTO> {
-  const { id, recurrence, attendeeIds, ...rest } = input;
+  const { id, scope, occurrenceStart, recurrence, attendeeIds, ...changes } = input;
+  const [{ timezone }, attendees] = await Promise.all([
+    getPointsSettings(householdId),
+    attendeeIds ? validAttendeeIds(householdId, attendeeIds) : Promise.resolve(undefined),
+  ]);
 
   const event = await prisma.$transaction(async (tx) => {
-    const existing = await tx.event.findFirst({
-      where: { id, householdId },
-      select: { id: true, recurrenceId: true, startAt: true },
-    });
-    if (!existing) throw new NotFoundError(`Event ${id} not found.`);
-
-    let recurrenceId: string | null | undefined; // undefined = unchanged
-    if (recurrence === null) {
-      recurrenceId = null;
-    } else if (recurrence) {
-      const anchor = rest.startAt ?? existing.startAt;
-      const data = recurrenceData(recurrence, anchor);
-      if (existing.recurrenceId) {
-        await tx.recurrenceRule.update({
-          where: { id: existing.recurrenceId },
-          data,
-        });
-      } else {
-        const rule = await tx.recurrenceRule.create({ data });
-        recurrenceId = rule.id;
-      }
-    }
-
-    if (attendeeIds) {
-      const valid = await prisma.user.findMany({
-        where: { householdId, id: { in: attendeeIds } },
-        select: { id: true },
-      });
-      await tx.eventAttendee.deleteMany({ where: { eventId: id } });
-      if (valid.length) {
-        await tx.eventAttendee.createMany({
-          data: valid.map((m) => ({ eventId: id, userId: m.id })),
-        });
-      }
-    }
-
-    const updated = await tx.event.update({
-      where: { id },
-      data: {
-        title: rest.title?.trim(),
-        description: rest.description,
-        location: rest.location,
-        startAt: rest.startAt,
-        endAt: rest.endAt,
-        allDay: rest.allDay,
-        recurrenceId,
-      },
-      include: eventInclude,
-    });
-
-    if (recurrence === null && existing.recurrenceId) {
-      await tx.recurrenceRule.delete({ where: { id: existing.recurrenceId } });
-    }
-
+    const { event: updated, message } = await applyUpdate(tx);
     await logActivity(
       {
         householdId,
@@ -254,7 +419,7 @@ export async function updateEvent(
         verb: 'updated',
         subjectType: 'event',
         subjectId: updated.id,
-        message: `updated event “${updated.title}”`,
+        message,
       },
       tx,
     );
@@ -262,34 +427,213 @@ export async function updateEvent(
   });
 
   return occurrence(event, event.startAt);
+
+  /** The edit itself, by scope; returns the row it left and the activity line. */
+  async function applyUpdate(tx: Tx): Promise<{ event: EventWithRelations; message: string }> {
+    const existing = await tx.event.findFirst({
+      where: { id, householdId },
+      include: eventInclude,
+    });
+    if (!existing) throw new NotFoundError(`Event ${id} not found.`);
+
+    // A date changed on its own: "This event" edits that row (it doesn't
+    // repeat); the wider choices act on its series from its original date.
+    let series = existing;
+    let date = occurrenceStart;
+    let opened = occurrenceStart;
+    if (existing.seriesId && existing.originalStart) {
+      if (scope === 'this') {
+        const row = await updateRow(tx, householdId, existing, changes, attendees, undefined);
+        return { event: row, message: `changed one date of event “${row.title}”` };
+      }
+      const parent = await tx.event.findFirst({
+        where: { id: existing.seriesId, householdId },
+        include: eventInclude,
+      });
+      if (parent?.recurrence) {
+        series = parent;
+        date = existing.originalStart;
+        opened = existing.startAt;
+      }
+    }
+
+    const rule = buildRule(series.recurrence, timezone);
+    if (!rule || scope === 'all' || !date) {
+      const effective = rule && opened ? shiftSeries(series, opened, changes) : changes;
+      const row = await updateRow(tx, householdId, series, effective, attendees, recurrence);
+      return { event: row, message: `updated event “${row.title}”` };
+    }
+
+    const first = firstOccurrence(series, rule);
+    if (scope === 'following' && first && date <= first) {
+      // From the first date on is the whole series.
+      const row = await updateRow(tx, householdId, series, shiftSeries(series, opened!, changes), attendees, recurrence);
+      return { event: row, message: `updated event “${row.title}”` };
+    }
+    assertOccurrence(series, rule, date);
+    const attendeesFor = attendees ?? series.attendees.map((a) => a.userId);
+
+    if (scope === 'this') {
+      // Leave the date out of the series and give it a row of its own.
+      const override = await tx.event.create({
+        data: {
+          householdId,
+          ...cutFrom(series, date, changes),
+          seriesId: series.id,
+          originalStart: date,
+          attendees: attendeesFor.length
+            ? { create: attendeesFor.map((uid) => ({ userId: uid })) }
+            : undefined,
+        },
+        include: eventInclude,
+      });
+      await tx.event.update({
+        where: { id: series.id },
+        data: { excludedStarts: { push: date } },
+      });
+      return { event: override, message: `changed one date of event “${override.title}”` };
+    }
+
+    // "This and following": the series ends just before the date, and a new
+    // one starts there with the changes (and the same repeat unless changed).
+    const from = date;
+    const nextChanges = shiftSeries({ ...series, startAt: from }, opened!, changes);
+    const shiftedStart = nextChanges.startAt ?? from;
+    const repeat: RuleFields | null =
+      recurrence === undefined ? ruleFieldsOf(series.recurrence!) : recurrence;
+    await tx.recurrenceRule.update({
+      where: { id: series.recurrenceId! },
+      data: { until: new Date(from.getTime() - 1) },
+    });
+    const newRule = repeat
+      ? await tx.recurrenceRule.create({ data: recurrenceData(repeat, shiftedStart) })
+      : null;
+    const later = series.excludedStarts.filter((d) => d >= from);
+    const created = await tx.event.create({
+      data: {
+        householdId,
+        ...cutFrom(series, from, nextChanges),
+        recurrenceId: newRule?.id,
+        attendees: attendeesFor.length
+          ? { create: attendeesFor.map((uid) => ({ userId: uid })) }
+          : undefined,
+      },
+      include: eventInclude,
+    });
+
+    // The dates changed on their own from here on follow the new series while
+    // they still line up with it; a moved time or a new repeat drops them.
+    const laterOverrides = await tx.event.findMany({
+      where: { householdId, seriesId: series.id, originalStart: { gte: from } },
+      select: { id: true, originalStart: true },
+    });
+    const newNormalized = buildRule(newRule, timezone);
+    const keep =
+      !!newNormalized &&
+      shiftedStart.getTime() === from.getTime() &&
+      !repeatChanged(series.recurrence!, repeat!);
+    const fits = (d: Date) => keep && isOccurrence(newNormalized!, [], d);
+    const keptOverrides = laterOverrides.filter((o) => fits(o.originalStart!));
+    const droppedOverrides = laterOverrides.filter((o) => !fits(o.originalStart!));
+    if (keptOverrides.length) {
+      await tx.event.updateMany({
+        where: { id: { in: keptOverrides.map((o) => o.id) } },
+        data: { seriesId: created.id },
+      });
+    }
+    if (droppedOverrides.length) {
+      await tx.event.deleteMany({ where: { id: { in: droppedOverrides.map((o) => o.id) } } });
+    }
+    await tx.event.update({
+      where: { id: series.id },
+      data: { excludedStarts: { set: series.excludedStarts.filter((d) => d < from) } },
+    });
+    const keptExcluded = later.filter(fits);
+    const result = keptExcluded.length
+      ? await tx.event.update({
+          where: { id: created.id },
+          data: { excludedStarts: { set: keptExcluded } },
+          include: eventInclude,
+        })
+      : created;
+    return { event: result, message: `changed later dates of event “${result.title}”` };
+  }
 }
 
 export async function deleteEvent(
   householdId: string,
   userId: string,
-  id: string,
+  input: DeleteEventInput,
 ): Promise<void> {
+  const { id, scope, occurrenceStart } = input;
+  const { timezone } = await getPointsSettings(householdId);
+
   await prisma.$transaction(async (tx) => {
     const existing = await tx.event.findFirst({
       where: { id, householdId },
-      select: { id: true, title: true, recurrenceId: true },
+      include: eventInclude,
     });
     if (!existing) throw new NotFoundError(`Event ${id} not found.`);
 
-    await tx.event.delete({ where: { id: existing.id } });
-    if (existing.recurrenceId) {
-      await tx.recurrenceRule.delete({ where: { id: existing.recurrenceId } });
+    const log = (verb: 'deleted' | 'updated', subjectId: string, message: string) =>
+      logActivity({ householdId, actorId: userId, verb, subjectType: 'event', subjectId, message }, tx);
+
+    // A date changed on its own: "This event" removes that row (its date
+    // stays left out of the series); the wider choices act on the series.
+    let series = existing;
+    let date = occurrenceStart;
+    if (existing.seriesId && existing.originalStart) {
+      const parent =
+        scope === 'this'
+          ? null
+          : await tx.event.findFirst({ where: { id: existing.seriesId, householdId }, include: eventInclude });
+      if (!parent?.recurrence) {
+        await tx.event.delete({ where: { id: existing.id } });
+        await log('updated', existing.seriesId, `removed one date of event “${existing.title}”`);
+        return;
+      }
+      series = parent;
+      date = existing.originalStart;
     }
-    await logActivity(
-      {
-        householdId,
-        actorId: userId,
-        verb: 'deleted',
-        subjectType: 'event',
-        subjectId: existing.id,
-        message: `deleted event “${existing.title}”`,
-      },
-      tx,
-    );
+
+    const rule = buildRule(series.recurrence, timezone);
+    const first = rule ? firstOccurrence(series, rule) : null;
+    const whole =
+      !rule || scope === 'all' || !date || (scope === 'following' && (!first || date <= first));
+
+    if (whole) {
+      // Its dates changed on their own go with it.
+      await tx.event.deleteMany({ where: { householdId, seriesId: series.id } });
+      await tx.event.delete({ where: { id: series.id } });
+      if (series.recurrenceId) {
+        await tx.recurrenceRule.delete({ where: { id: series.recurrenceId } });
+      }
+      await log('deleted', series.id, `deleted event “${series.title}”`);
+      return;
+    }
+
+    assertOccurrence(series, rule, date!);
+    if (scope === 'this') {
+      await tx.event.update({
+        where: { id: series.id },
+        data: { excludedStarts: { push: date! } },
+      });
+      await log('updated', series.id, `removed one date of event “${series.title}”`);
+      return;
+    }
+
+    // "This and following": the series ends just before the date.
+    await tx.recurrenceRule.update({
+      where: { id: series.recurrenceId! },
+      data: { until: new Date(date!.getTime() - 1) },
+    });
+    await tx.event.deleteMany({
+      where: { householdId, seriesId: series.id, originalStart: { gte: date } },
+    });
+    await tx.event.update({
+      where: { id: series.id },
+      data: { excludedStarts: { set: series.excludedStarts.filter((d) => d < date!) } },
+    });
+    await log('updated', series.id, `removed later dates of event “${series.title}”`);
   });
 }

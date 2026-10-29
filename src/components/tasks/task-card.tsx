@@ -423,6 +423,8 @@ function baseRecurrenceLabel(r: NonNullable<TaskDTO['recurrence']>): string {
       return r.interval > 1 ? `${every}weeks` : 'weekly';
     case 'monthly':
       return r.interval > 1 ? `${every}months` : 'monthly';
+    case 'yearly':
+      return r.interval > 1 ? `${every}years` : 'yearly';
     case 'interval':
       return `every ${r.interval} days`;
     case 'cron':

@@ -53,7 +53,11 @@ The schema sticks to portable, document-friendly types:
 |---------------------------|-----------------------------------------------------------|
 | Prisma `enum`             | `String` column + Zod enum (`src/lib/enums.ts`)           |
 | `Json` column             | `String` of JSON text, parsed with Zod                    |
-| Scalar lists (`String[]`) | Relations or delimited strings (e.g. `byWeekday="1,3,5"`) |
+
+Scalar lists (`String[]`, `DateTime[]`, with `@default([])` so older documents
+read as empty) are used where a field is a plain set of values, e.g.
+`Notification.audienceUserIds` or `Event.excludedStarts`. The older recurrence
+columns keep delimited strings (`byWeekday="1,3,5"`).
 
 **Transactions need a replica set.** Several services use
 `prisma.$transaction(...)` (task complete, bill pay, calendar/shopping/user
@@ -113,7 +117,7 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
 `Verification` (Better Auth), `Category`, `Task`/`Subtask`, `RecurrenceRule`,
 `TaskCompletion`, `ActivityEntry`, `ShoppingList`/`ShoppingItem`, `Purchase`
 (written when a shopping item is marked purchased), `InventoryItem`, `Bill`/
-`BillPayment`, `CalendarEvent`, `Notification`, `EventLog`, `NfcTag`,
+`BillPayment`, `Event`, `Notification`, `EventLog`, `NfcTag`,
 `HomeAssistantIntegration`, `ContactMessage`.
 
 ## Feature systems

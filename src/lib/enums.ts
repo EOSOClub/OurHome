@@ -72,6 +72,8 @@ export const RECURRENCE_KINDS = [
   'daily',
   'weekly',
   'monthly',
+  // Same date every N years (birthdays); Feb 29 falls on Feb 28 in other years.
+  'yearly',
   'interval',
   'cron',
 ] as const;
@@ -232,6 +234,9 @@ export const NOTIFICATION_TYPES = [
   // Sent to a requester when someone else approves, declines, accepts or
   // finishes their request (requestNoticeService).
   'request_update',
+  // Sent to an event's attendees and creator at the reminder time they picked,
+  // one per date; gone once that date's event is over (reminderService).
+  'event_reminder',
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
@@ -249,6 +254,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   extra_time: 'Extra time',
   parent_pin: 'Parent PIN',
   request_update: 'Request',
+  event_reminder: 'Event',
 };
 
 // --- Bug reports ----------------------------------------------------------

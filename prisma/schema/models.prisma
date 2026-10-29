@@ -646,7 +646,7 @@ model Task {
 
 model RecurrenceRule {
   id        String   @id @default(cuid()) @map("_id")
-  // kind: "daily" | "weekly" | "monthly" | "interval" | "cron"
+  // kind: "daily" | "weekly" | "monthly" | "yearly" | "interval" | "cron"
   kind      String
   interval  Int      @default(1)
   // Delimited lists (kept as plain strings for portability). e.g. byWeekday="1,3,5" (0=Sun).
@@ -832,6 +832,17 @@ model Event {
   billId       String?
   // Optional recurrence (reuses RecurrenceRule); anchorDate is the event start.
   recurrenceId String?
+  // Repeating events only: occurrence starts left out of the series (deleted
+  // or changed on their own with "This event").
+  excludedStarts DateTime[] @default([])
+  // A single date of a series changed on its own: a normal, non-repeating
+  // event that points at its series (plain id) and the occurrence it replaces.
+  // That start is also in the series' excludedStarts.
+  seriesId      String?
+  originalStart DateTime?
+  // Remind the attendees and creator this many minutes before the start (an
+  // all-day event counts back from 9:00 on the day). null = no reminder.
+  reminderMinutes Int?
   createdById  String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -843,6 +854,7 @@ model Event {
 
   @@index([householdId, startAt])
   @@index([householdId, sourceRef])
+  @@index([householdId, seriesId])
 }
 
 model EventAttendee {

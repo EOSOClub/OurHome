@@ -1,3 +1,5 @@
+import { localTimeAt, parseLocalDate } from '@/lib/taskCycles';
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** `url` if it is http(s), else undefined: safe to put in an `href`. */
@@ -55,6 +57,24 @@ function zoned(d: Date, timeZone?: string) {
 /** "YYYY-MM-DD" of `date` in `timeZone` (default: wherever this runs). */
 export function dateKey(date: Date | string, timeZone?: string): string {
   return new Date(zoned(new Date(date), timeZone).day).toISOString().slice(0, 10);
+}
+
+/** "HH:MM" (24-hour) of `date` in `timeZone`, for a time input. */
+export function timeKey(date: Date | string, timeZone?: string): string {
+  const t = zoned(new Date(date), timeZone);
+  return `${String(t.hour).padStart(2, '0')}:${String(t.minute).padStart(2, '0')}`;
+}
+
+/**
+ * The instant a date input ("YYYY-MM-DD") and time input ("HH:MM") name in
+ * `timeZone`: the household's, so a form means the same moment the pages
+ * show, whatever zone the browser is in. With no zone, the browser's.
+ */
+export function zonedInstant(date: string, time: string, timeZone?: string): Date {
+  const local = parseLocalDate(date);
+  const m = /^(\d{2}):(\d{2})$/.exec(time);
+  if (!timeZone || !local || !m) return new Date(`${date}T${time}`);
+  return localTimeAt(local, Number(m[1]), Number(m[2]), timeZone);
 }
 
 /** Human-friendly due-date label, worded from today's point of view. */

@@ -6,7 +6,7 @@ import { nameSchema, passwordSchema, usernameSchema } from '@/lib/validation/use
 export const setupSchema = z.object({
   householdName: nameSchema,
   username: usernameSchema,
-  email: z.string().trim().email().max(160).optional(),
+  email: z.string().trim().pipe(z.email().max(160)).optional(),
   password: passwordSchema,
 });
 export type SetupInput = z.infer<typeof setupSchema>;

@@ -15,13 +15,13 @@ someone from outside the household.
 
 | Permission                                                                                                                                   | head | manager | adult | teen | child | guest |
 |----------------------------------------------------------------------------------------------------------------------------------------------|:----:|:-------:|:-----:|:----:|:-----:|:-----:|
-| `household:manage` (rename household, transfer headship, **edit page permissions**)                                                          |  ✓   |         |       |      |       |       |
-| `members:manage`                                                                                                                             |  ✓   |   ✓¹    |       |      |       |       |
-| `settings:manage` (HA tokens, NFC tags, categories)                                                                                          |  ✓   |    ✓    |       |      |       |       |
-| `tasks:complete` (complete tasks, tick checklist items)                                                                                      |  ✓   |    ✓    |   ✓   |  ✓   |   ✓   |  ✓²   |
-| `requests:write` (edit/delete **own** requests³, accept/finish assigned ones; *submitting* and *approving media* are Requests grid switches) |  ✓   |    ✓    |   ✓   |  ✓   |   ✓   |   ✓   |
-| `bugs:report` (file a bug report)                                                                                                            |  ✓   |    ✓    |   ✓   |  ✓   |   ✓   |   ✓   |
-| `bugs:manage` (receive bug reports: bell + phone alert)                                                                                      |  ✓   |         |       |      |       |       |
+| `household:manage` (rename household, transfer headship, **edit page permissions**)                                                          |  ✓  |         |       |      |       |       |
+| `members:manage`                                                                                                                             |  ✓  |   ✓¹   |       |      |       |       |
+| `settings:manage` (HA tokens, NFC tags, categories)                                                                                          |  ✓  |   ✓    |       |      |       |       |
+| `tasks:complete` (complete tasks, tick checklist items)                                                                                      |  ✓  |   ✓    |  ✓   |  ✓  |  ✓   |  ✓²  |
+| `requests:write` (edit/delete **own** requests³, accept/finish assigned ones; *submitting* and *approving media* are Requests grid switches) |  ✓  |   ✓    |  ✓   |  ✓  |  ✓   |  ✓   |
+| `bugs:report` (file a bug report)                                                                                                            |  ✓  |   ✓    |  ✓   |  ✓  |  ✓   |  ✓   |
+| `bugs:manage` (receive bug reports: bell + phone alert)                                                                                      |  ✓  |         |       |      |       |       |
 
 ¹ Managers may only manage and assign the ranks below them - adult, teen,
   child, guest (`canManageMember`, `canAssignRole`).

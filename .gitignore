@@ -46,8 +46,12 @@ yarn-error.log*
 # What the last deploy built (deploy.sh -y compares against it).
 .web-build
 
-# IDE + local AI-assistant notes
-/.idea/
+# IDE + local AI-assistant notes. The inspection profile, its scopes and the
+# project dictionary are shared, so every checkout inspects the same way.
+/.idea/*
+!/.idea/inspectionProfiles/
+!/.idea/scopes/
+!/.idea/dictionaries/
 /.claude/
 /CLAUDE.md
 # Written and rewritten by `next dev` for AI coding tools.
@@ -64,3 +68,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+/.idea/scopes/Mongo_shell_scripts.xml
+/.idea/dictionaries/project.xml
+/.idea/inspectionProfiles/Project_Default.xml
+/.idea/scopes/Screenshot_tooling.xml

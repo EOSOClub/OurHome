@@ -36,9 +36,13 @@ export const billIngestSchema = z.object({
   sourceUrl: z
     .string()
     .trim()
-    .url()
-    .max(500)
-    .refine((u) => /^https?:$/.test(new URL(u).protocol), 'Must be an http(s) URL.')
+    .pipe(
+      z
+        .url()
+        .max(500)
+        // zod runs this even when url() already failed, so a text that isn't a link must not throw here.
+        .refine((u) => URL.canParse(u) && /^https?:$/.test(new URL(u).protocol), 'Must be an http(s) URL.'),
+    )
     .optional()
     .nullable(),
   confidence: z.number().min(0).max(1).optional().nullable(),

@@ -14,7 +14,7 @@ export type ListNotificationsQuery = z.infer<typeof listNotificationsQuery>;
 // Mark a single notification read by id, or every notification with `all: true`.
 export const markReadSchema = z
   .object({
-    id: z.string().cuid().optional(),
+    id: z.cuid().optional(),
     all: z.boolean().optional(),
   })
   .refine((v) => Boolean(v.id) !== Boolean(v.all), {

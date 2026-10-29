@@ -152,7 +152,7 @@ const optionalText = (max: number) =>
     .nullable()
     .transform((s) => (s ? s : null));
 
-const ids = z.array(z.string().cuid()).max(100).transform((list) => [...new Set(list)]);
+const ids = z.array(z.cuid()).max(100).transform((list) => [...new Set(list)]);
 
 const commonSchema = z.object({
   enabled: z.boolean(),
@@ -182,7 +182,7 @@ export const mediaModuleSchema = commonSchema.extend(approveSchema.shape).extend
 export const maintenanceModuleSchema = commonSchema
   .extend({
     assigneeIds: ids,
-    defaultAssigneeId: z.string().cuid().nullable(),
+    defaultAssigneeId: z.cuid().nullable(),
     requireDueDate: z.boolean(),
     allowDecline: z.boolean(),
   })

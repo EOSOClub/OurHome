@@ -7,7 +7,6 @@ export const nfcScanWebhookSchema = z.object({
   tagId: z.string().trim().min(1).max(100),
   amount: z
     .number()
-    .finite()
     .refine((n) => n !== 0, 'Scan amount must be non-zero.'),
   note: z.string().trim().max(500).optional().nullable(),
   // App username of the person who scanned (sent by Home Assistant, mapped

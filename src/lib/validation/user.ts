@@ -24,7 +24,18 @@ export const passwordSchema = z
 
 export const nameSchema = z.string().trim().min(1, 'Enter a name.').max(80, 'At most 80 characters.');
 
-export const emailSchema = z.string().trim().email('Enter a valid email address, like name@example.com.').max(160);
+// The message is for the format check only: a plain message string on z.email()
+// would also replace the length message.
+export const emailSchema = z
+  .string()
+  .trim()
+  .pipe(
+    z
+      .email({
+        error: (iss) => (iss.code === 'invalid_format' ? 'Enter a valid email address, like name@example.com.' : undefined),
+      })
+      .max(160),
+  );
 
 // A setup link for one child's or teen's phone (Set up a child, Install step).
 export const setupLinkSchema = z.object({ memberId: z.string().min(1).max(64) });
@@ -57,7 +68,7 @@ export const createMemberSchema = z.object({
 export type CreateMemberInput = z.infer<typeof createMemberSchema>;
 
 export const updateMemberSchema = z.object({
-  id: z.string().cuid(),
+  id: z.cuid(),
   name: nameSchema.optional(),
   username: usernameSchema.optional(),
   email: emailSchema.optional(),
@@ -65,20 +76,20 @@ export const updateMemberSchema = z.object({
 export type UpdateMemberInput = z.infer<typeof updateMemberSchema>;
 
 export const setMemberRoleSchema = z.object({
-  id: z.string().cuid(),
+  id: z.cuid(),
   role: z.enum(USER_ROLES),
 });
 export type SetMemberRoleInput = z.infer<typeof setMemberRoleSchema>;
 
 export const resetMemberPasswordSchema = z.object({
-  id: z.string().cuid(),
+  id: z.cuid(),
   password: passwordSchema,
 });
 export type ResetMemberPasswordInput = z.infer<
   typeof resetMemberPasswordSchema
 >;
 
-export const memberIdSchema = z.object({ id: z.string().cuid() });
+export const memberIdSchema = z.object({ id: z.cuid() });
 export type MemberIdInput = z.infer<typeof memberIdSchema>;
 
 // Rename the household (requires household:manage).

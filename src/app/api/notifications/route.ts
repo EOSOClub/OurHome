@@ -7,7 +7,7 @@ import { listNotificationsQuery } from '@/lib/validation/notification';
 // `before` pages further back: pass the id of the oldest already-loaded
 // notification to get the next-older page.
 const listQuery = listNotificationsQuery.extend({
-  before: z.string().cuid().optional(),
+  before: z.cuid().optional(),
 });
 
 // Lazy-on-read generation: each fetch reconciles reminders from current state,

@@ -34,7 +34,7 @@ const maintenanceFields = {
   title,
   details,
   // The member asked to do it; the service rejects the requester themself.
-  assigneeId: z.string().cuid(),
+  assigneeId: z.cuid(),
 };
 
 const purchaseFields = {
@@ -118,7 +118,7 @@ export type CreateRequestInput = z.infer<typeof createRequestSchema>;
 // Updates replace every field (the edit form always sends the full request).
 // Whether a media request is a problem report is fixed when it's made; the
 // service keeps the stored one.
-const id = z.string().cuid();
+const id = z.cuid();
 export const updateRequestSchema = z
   .discriminatedUnion('category', [
     z.object({ id, ...mediaFields }),
@@ -138,7 +138,7 @@ export const reassignRequestSchema = z.object({ id, assigneeId: maintenanceField
 export type ReassignRequestInput = z.infer<typeof reassignRequestSchema>;
 
 // Marking done / approving. A purchase may name a shopping list to put it on.
-export const completeRequestSchema = z.object({ id, listId: z.string().cuid().nullish() });
+export const completeRequestSchema = z.object({ id, listId: z.cuid().nullish() });
 export type CompleteRequestInput = z.infer<typeof completeRequestSchema>;
 
 // Accepting: a maintenance request's assignee gives a done-by date (the

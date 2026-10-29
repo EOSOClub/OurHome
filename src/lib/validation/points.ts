@@ -12,14 +12,14 @@ export const pointsSummaryQuerySchema = z.object({
 });
 
 export const pointsAwardsQuerySchema = z.object({
-  userId: z.string().cuid().optional(),
+  userId: z.cuid().optional(),
   period: z.enum(POINTS_PERIODS).optional(),
   date: localDateSchema.optional(),
   limit: z.coerce.number().int().min(1).max(500).optional(),
 });
 
 export const voidAwardSchema = z.object({
-  awardId: z.string().cuid(),
+  awardId: z.cuid(),
   reason: z.string().trim().min(1).max(200),
 });
 

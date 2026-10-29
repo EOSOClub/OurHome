@@ -8,7 +8,7 @@ import { z } from 'zod';
 // `turnstileToken` is the Cloudflare Turnstile response verified server-side.
 export const contactSchema = z.object({
   name: z.string().trim().min(1).max(100),
-  email: z.string().trim().email().max(254),
+  email: z.string().trim().pipe(z.email().max(254)),
   description: z.string().trim().min(10).max(5000),
   // Honeypot: rendered hidden, so a real user never fills it. Capped, not
   // rejected here - the route treats any non-empty value as a bot and silently

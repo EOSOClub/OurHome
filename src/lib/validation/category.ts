@@ -22,7 +22,7 @@ export const createCategorySchema = z.object({
 export type CreateCategoryInput = z.infer<typeof createCategorySchema>;
 
 export const updateCategorySchema = z.object({
-  id: z.string().cuid(),
+  id: z.cuid(),
   name: nameSchema.optional(),
   kind: z.enum(CATEGORY_KINDS).optional(),
   color: colorSchema,
@@ -30,7 +30,7 @@ export const updateCategorySchema = z.object({
 });
 export type UpdateCategoryInput = z.infer<typeof updateCategorySchema>;
 
-export const categoryIdSchema = z.object({ id: z.string().cuid() });
+export const categoryIdSchema = z.object({ id: z.cuid() });
 export type CategoryIdInput = z.infer<typeof categoryIdSchema>;
 
 export const listCategoriesQuerySchema = z.object({

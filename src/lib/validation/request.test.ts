@@ -120,7 +120,9 @@ describe('createRequestSchema', () => {
     it('until needs a from before it', () => {
       expect(createRequestSchema.safeParse({ ...sleepover, endsAt: inHours(20) }).success).toBe(false);
       expect(createRequestSchema.safeParse({ ...sleepover, startsAt: inHours(20), endsAt: inHours(5) }).success).toBe(false);
-      expect(createRequestSchema.safeParse({ ...sleepover, startsAt: inHours(5), endsAt: inHours(5) }).success).toBe(false);
+      // One timestamp for both: two inHours(5) calls can land a millisecond apart.
+      const same = inHours(5);
+      expect(createRequestSchema.safeParse({ ...sleepover, startsAt: same, endsAt: same }).success).toBe(false);
     });
 
     it('can’t start in the past', () => {

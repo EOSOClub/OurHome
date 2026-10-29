@@ -45,7 +45,7 @@ export function hostnameOf(host: string): string {
   return (v6 ? v6[1] : host.replace(/:\d+$/, '')).toLowerCase();
 }
 
-/** This machine itself: localhost, 127.x.x.x or ::1. */
+/** This machine itself: localhost, `127.x.x.x`, or `::1`. */
 export function isLoopbackHost(hostname: string): boolean {
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
   return (

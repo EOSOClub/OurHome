@@ -20,9 +20,10 @@ const dateValue = (d: Date) =>
   `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
 /**
- * Record-payment modal shared by the bills list ("Mark paid") and the bill
- * detail page. Prefilled with the outstanding balance so paying in full is a
- * single confirm, while still allowing partial amounts, fees, and backdating.
+ * Record-payment modal shared by the bill list ("Mark paid") and the bill
+ * detail page. Prefilled with the outstanding balance, so paying in full takes
+ * a single confirmation, while still allowing partial amounts, fees, and
+ * backdating.
  * Accepts the list DTO - the remaining balance is derived, not read off the
  * detail-only DTO. Pass `payment` to edit an existing payment instead.
  */
@@ -37,7 +38,7 @@ export function PaymentDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  // When editing, exclude this payment from the paid total so the helper text
+  // When editing, exclude this payment from the paid total, so the helper text
   // shows the balance the edited amount is applied against.
   const remaining = Math.max(
     0,

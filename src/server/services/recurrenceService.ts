@@ -2,10 +2,10 @@ import type { RecurrenceKind } from '@/lib/enums';
 import { addDays, localDateOf, startOfLocalDate } from '@/lib/taskCycles';
 
 // Pure recurrence math. Kept free of Prisma/IO so it can be unit-tested directly.
-// The arithmetic runs on "wall clock" dates - fake-UTC dates whose UTC fields
-// are the local date and time in the rule's time zone - so an occurrence keeps
-// its local time of day across daylight-saving changes (noon stays noon) and
-// weekdays are local weekdays. With no zone (or UTC) wall time is UTC.
+// The arithmetic runs on "wall clock" dates: fake-UTC dates whose UTC fields
+// are the local date and time in the rule's time zone. That way an occurrence
+// keeps its local time of day across daylight-saving changes (noon stays noon)
+// and weekdays are local weekdays. With no zone (or UTC), wall time is UTC.
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -108,11 +108,11 @@ function addMonthsUTC(date: Date, months: number): Date {
 }
 
 /**
- * The occurrence after the current one (`current`, e.g. a bill's or task's due
- * date), when that one is being paid/completed. Counted from the current due
- * date while it's still ahead: picked dates sit at 12:00, so counting from
- * "now" on the morning of (or days before) the due date would land on that
- * same occurrence and nothing would move on.
+ * The occurrence after the current one (`current`, e.g., a bill's or task's
+ * due date), when that one is being paid/completed. Counted from the current
+ * due date while it's still ahead: picked dates sit at 12:00, so counting
+ * from "now" on the morning of (or days before) the due date would land on
+ * that same occurrence and nothing would move on.
  */
 export function nextAfterOccurrence(rule: NormalizedRule, current: Date | null, now = new Date()): Date | null {
   return computeNextRunAt(rule, current && current > now ? current : now);
@@ -120,7 +120,7 @@ export function nextAfterOccurrence(rule: NormalizedRule, current: Date | null, 
 
 /**
  * Completing a recurring task that has no cycles: one completion covers one
- * occurrence, and at most one a day. The task can be completed again from
+ * occurrence, with at most one a day. The task can be completed again from
  * local midnight after its due date or now, whichever is later (`opensAt`), and
  * its next due date is the first occurrence from then on. Done ahead of time,
  * that is the occurrence after the due date, as nextAfterOccurrence counts
@@ -142,7 +142,7 @@ export function completeOccurrence(
 /**
  * The next occurrence strictly after `from`. Cadence is aligned to `anchorDate`
  * (and to byWeekday/byMonthday when provided). Returns null for unsupported kinds
- * (e.g. cron, which is computed by an external scheduler in a later phase) and
+ * (e.g., cron, which is computed by an external scheduler in a later phase) and
  * when the computed occurrence would fall after the rule's `until` end date.
  */
 export function computeNextRunAt(rule: NormalizedRule, from: Date): Date | null {
@@ -192,7 +192,7 @@ function nextWall(rule: NormalizedRule, from: Date): Date | null {
       next = null;
   }
 
-  // Honour the optional end date: nothing recurs past `until`.
+  // Honor the optional end date: nothing recurs past `until`.
   if (next && rule.until && next > rule.until) return null;
   return next;
 }

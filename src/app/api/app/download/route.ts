@@ -1,7 +1,7 @@
 import { fail, withAuth } from '@/server/api/http';
 import { apkDownloadResponse } from '@/server/services/appDownloadService';
 
-// The Android app built by the deployment, for signed-in members only (the
+// The Android app built by the deployment for signed-in members only (the
 // Profile page links here). Streams the APK; 404 when none is built. A
 // child's phone without an account yet uses ../setup-download instead.
 export const GET = withAuth(async () => {

@@ -30,14 +30,14 @@ export function isPng(bytes: Uint8Array): boolean {
 }
 
 export interface AppMinutes {
-  /** The app's package name, e.g. "com.google.android.youtube". */
+  /** The app's package name, e.g., `com.google.android.youtube`. */
   app: string;
   /** Its name as the phone shows it, e.g. "YouTube". */
   label: string;
   minutes: number;
 }
 
-/** "2 h 5 min", "45 min", "under a minute". */
+/** Minutes as short text: `2 h 5 min`, `45 min`, `under a minute`. */
 export function formatMinutes(minutes: number): string {
   const m = Math.max(0, Math.round(minutes));
   if (m === 0) return 'under a minute';

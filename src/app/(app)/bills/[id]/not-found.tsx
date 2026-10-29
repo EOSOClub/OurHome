@@ -3,7 +3,7 @@ import { Receipt } from 'lucide-react';
 import { buttonVariants } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 
-// Rendered when the detail page calls notFound() - e.g. a deleted bill or a
+// Rendered when the detail page calls notFound() - e.g., a deleted bill or a
 // stale link from another household.
 export default function BillNotFound() {
   return (

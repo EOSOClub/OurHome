@@ -1,14 +1,14 @@
-# Our Home: settings, for local dev and the Docker deploy alike. Copy to
+# Our Home settings for local dev and Docker deployments alike. Copy to
 # settings.yml (gitignored) and fill it in.
 #
 # No secrets in here: passwords, keys, tokens and the database URL live in .env
 # (template: .env.example). Everything else you might change is below.
 #
 #   - The app reads both files when it starts. In Docker, they're handed to the
-#     container; nothing in docker/ ever needs editing.
+#     container; nothing in the docker folder ever needs editing.
 #   - The `dev:` section at the bottom overrides values for `npm run dev`.
 #
-# There are no accounts in here either: on first start, open the site by the
+# There are no accounts in here either: on the first start, open the site by the
 # server's address (http://<server-ip>:3000) and the setup page creates them.
 
 app:
@@ -19,7 +19,7 @@ better_auth:
   # Optional. The https:// address the site is reached at from outside (a
   # tunnel or reverse proxy), used for links in emails. Empty = home network only.
   url:
-  # Extra origins allowed to sign in. Usually empty: the address above and any
+  # Extra origins people may sign in from. Usually empty: the address above and any
   # home-network address (IP or hostname) are already allowed.
   trusted_origins: []
 

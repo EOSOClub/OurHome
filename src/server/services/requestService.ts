@@ -46,15 +46,17 @@ import type {
 // Household requests. Everyone in the household sees every request of the
 // kinds that are on (Settings → Request types, src/lib/requestModules.ts); a
 // kind that's turned off keeps its requests but hides them and refuses changes.
-//   media:       only the requester may edit or delete it. Whoever handles media
+//   media:
+//                only the requester may edit or delete it. Whoever handles media
 //                (the people the head chose, or by default anyone with the
 //                Requests "Approve" switch - head and managers) marks it added,
 //                which completes it, or declines it when the head allows that.
 //                Rows from before statuses existed have no status; treat that
-//                as pending. "accepted" rows from the older accept → available
-//                flow still count as waiting. A media request with `issue`
-//                reports a problem with something the household already has;
-//                it works the same way, and marking it done means fixed.
+//                as pending. "accepted" rows from the older two-step flow
+//                (accepted, then available) still count as waiting. A media
+//                request with `issue` reports a problem with something the
+//                household already has; it works the same way, and marking it
+//                done means fixed.
 //   maintenance: the requester asks another member (the assignee), one of the
 //                people the head lets be asked. The assignee accepts with a
 //                done-by date (`dueAt`, the deadline; optional when the head
@@ -62,9 +64,10 @@ import type {
 //                it when the head allows that. The requester may edit or delete
 //                it; reassigning sends it back to "pending". The head may also
 //                reassign or delete anyone's.
-//   purchase,    yes or no. Whoever decides (the requester's supervisors where
-//   permission:  the head chose that and they have any, otherwise the people
-//                the head chose or the Approve switch) approves it, which
+//   purchase, permission:
+//                yes or no. Whoever decides (the requester's supervisors, if
+//                any, where the head chose that; otherwise the people the
+//                head chose or the Approve switch) approves it, which
 //                completes it, or declines it. Approving a purchase may put it
 //                on a shopping list. The requester may edit it until it's
 //                decided, and delete it any time.
@@ -545,7 +548,8 @@ export async function updateRequest(
 
 /**
  * Maintenance: the head gives an open request to another member, anyone but
- * the requester (the who-may-be-asked list doesn't bind the head who set it).
+ * the requester (the list of people who may be asked doesn't bind the head,
+ * since the headset it).
  * Like the requester reassigning, it goes back to "pending" for the new person.
  */
 export async function reassignRequest(
@@ -606,8 +610,8 @@ export async function reassignRequest(
  * Maintenance: the assignee accepts, committing to (or moving) a done-by date
  * - the deadline. When the head made the date optional, accepting without one
  * is fine too (and saving no date clears it). The approval workflow has no
- * accept step; app builds from before the one-step media flow still call this,
- * so it marks the request done instead.
+ * step for accepting; app builds from before the one-step media flow still
+ * call this, so it marks the request done instead.
  */
 export async function acceptRequest(
   householdId: string,

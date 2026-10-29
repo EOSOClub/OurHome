@@ -33,7 +33,7 @@ function requestName(r: AnsweredRequest): string {
 }
 
 /**
- * The notice text, e.g. title "Approved: LEGO set", body "Alex said yes and
+ * The notice text, e.g., title "Approved: LEGO set", body "Alex said yes and
  * added it to Groceries." The outcome leads the title, so the phone's grouped
  * alert reads right without a label of its own.
  */

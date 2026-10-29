@@ -159,7 +159,7 @@ export function PointsEditor({
   const custom = customisedCount(value.steps);
   const base = snapshot ?? value;
 
-  /** Apply a total edit: live while nothing is customised; otherwise ask on commit. */
+  /** Apply a total edit: live while nothing is customized; otherwise ask on commit. */
   function totalLive(run: (confirm: boolean) => EditResult<DraftStep>) {
     const result = run(false);
     if (!result.needsConfirm) onChange(result.state);

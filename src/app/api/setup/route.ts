@@ -26,7 +26,8 @@ export async function GET(req: NextRequest): Promise<Response> {
  * First-run setup: creates the household and its Head of House. Public (there
  * is no one to sign in as yet), so it only answers while no account exists and
  * only to devices on the home network, never through a tunnel or proxy from the
- * internet, so a fresh install that is already exposed can't be claimed.
+ * internet. That way a fresh installation that is already exposed can't be
+ * claimed.
  */
 export async function POST(req: NextRequest): Promise<Response> {
   if (!rateLimit(`setup:${clientIp(req)}`, 60_000, 10)) {

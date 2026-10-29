@@ -4,7 +4,7 @@ import { z } from 'zod';
 // visitors on the login page. name/email/description are the real inputs; the
 // remaining fields are anti-spam signals the route inspects (see the route and
 // AGENTS notes): `company` is a honeypot that must stay empty, `elapsedMs` is how
-// long the form was open before submit (bots submit instantly), and
+// long the form was open before submission (bots submit instantly), and
 // `turnstileToken` is the Cloudflare Turnstile response verified server-side.
 export const contactSchema = z.object({
   name: z.string().trim().min(1).max(100),

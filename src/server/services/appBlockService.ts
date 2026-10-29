@@ -36,7 +36,7 @@ export async function phoneBlocks(householdId: string, userId: string): Promise<
   return rows.map((r) => ({ app: r.app, label: r.label, by: names.get(r.blockedById) ?? null }));
 }
 
-/** Each of [userIds]' blocked apps, newest first, for People you look after. */
+/** The blocked apps of each of [userIds], newest first, for People you look after. */
 export async function blockedAppsByKid(householdId: string, userIds: string[]): Promise<Map<string, BlockedAppDTO[]>> {
   const out = new Map<string, BlockedAppDTO[]>();
   if (userIds.length === 0) return out;

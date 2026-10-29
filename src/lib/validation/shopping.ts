@@ -3,8 +3,8 @@ import { recordId } from '@/lib/validation/ids';
 import { SHOPPING_LIST_KINDS, SHOPPING_PRIORITIES } from '@/lib/enums';
 
 /**
- * A web link: http or https only. `url()` alone also takes javascript: and
- * data: links, which would be stored and later opened from a link on the page
+ * A web link: http or https only. `url()` alone also takes `javascript:` and
+ * `data:` links, which would be stored and later opened from a link on the page
  * or in the app. Shared with purchase requests.
  */
 export const httpLink = z

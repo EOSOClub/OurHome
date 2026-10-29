@@ -52,12 +52,12 @@ const estimatedMinutesSchema = z.number().int().positive().max(100000);
 // Points as entered (2 decimals kept; stored as hundredths).
 const pointsSchema = z.number().min(0).max(100000);
 
-// Auto-uncheck cadence for a checklist item, in days (null clears it).
+// Auto-uncheck cadence for a checklist item, as a day count (null clears it).
 const resetIntervalDaysSchema = z.number().int().min(1).max(365);
 
 // A checklist item as the task editor saves it. Time/points values come from
-// the editor's live calculation (src/lib/taskPoints.ts); omitted ones are
-// filled in by the server. `id` keeps an existing item when replacing the
+// the editor's live calculation (src/lib/taskPoints.ts); the server fills in
+// omitted ones. `id` keeps an existing item when replacing the
 // whole checklist on update.
 const subtaskInputSchema = z.object({
   id: recordId.optional(),
@@ -86,7 +86,7 @@ const checklistSchema = z
 const placeIdsSchema = z.array(recordId).max(50);
 
 // Rotating assignees: member ids in turn order (src/lib/taskRotation.ts).
-// Fewer than two distinct people clears the rotation.
+// A list with fewer than two distinct people clears the rotation.
 const rotationSchema = z.array(recordId).max(MAX_ROTATION);
 
 export const createTaskSchema = z.object({
@@ -140,11 +140,11 @@ export const updateTaskSchema = z.object({
   pointsFollowTime: z.boolean().optional(),
   categoryId: recordId.optional().nullable(),
   // When either list is present, all the task's places are replaced (a
-  // missing list counts as []; both empty = the whole house).
+  // missing list counts as []; both lists empty = the whole house).
   roomIds: placeIdsSchema.optional(),
   floorIds: placeIdsSchema.optional(),
   // Older app builds: when either is present, the task's FIRST place is
-  // replaced (a room, else a whole floor, else none) and any further places
+  // replaced (a room, else a whole floor, else none), and any further places
   // are kept. Ignored when a list is sent. Both absent = unchanged.
   roomId: recordId.optional().nullable(),
   floorId: recordId.optional().nullable(),

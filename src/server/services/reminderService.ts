@@ -15,7 +15,7 @@ import { getHouseholdFeatures } from '@/server/services/serverAdminService';
 // kept as pure functions so it can be unit-tested without a database (see
 // reminderService.test.ts); only `generateReminders` touches Prisma.
 
-/** Days of look-ahead before a predicted depletion becomes a reminder. */
+/** Days of look-ahead: an item predicted to run out within this many days gets a reminder. */
 export const REORDER_WINDOW_DAYS = 3;
 
 const ACTIVE_STATUSES = ['pending', 'in_progress'];
@@ -200,7 +200,7 @@ export function buildReminders(
 
 /**
  * Candidates whose dedupeKey is not among the household's existing generated
- * notifications - i.e. the ones the upsert will *create* rather than refresh.
+ * notifications - i.e., the ones the upsert will *create* rather than refresh.
  * Only these trigger an email; refreshes stay silent.
  */
 export function selectNewReminders(
@@ -220,7 +220,7 @@ const SUBJECT_PAGE: Record<string, AccessPage> = {
 
 /**
  * Adds each subject's managers - whoever the page-access grid lets edit
- * other people's entries on that page (head only for tasks; head, manager and
+ * other people's entries on that page (head only for tasks; head, manager, and
  * member for bills and stock by default) - to the people tied to it.
  */
 export function withManagers(

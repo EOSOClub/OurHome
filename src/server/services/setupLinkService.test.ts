@@ -68,7 +68,7 @@ describe('setup links (Set up a child, phase 3)', () => {
   });
 
   it('points the link where their phone can reach the server', () => {
-    // The address built into the app first, as on the Install step.
+    // The address built into the app first, as on the app installation step.
     app.getAppRelease.mockReturnValueOnce({ server: 'https://built.example.com/' });
     expect(setupBaseUrl('http://192.0.2.10:3000/x')).toBe('https://built.example.com');
     expect(setupBaseUrl('http://192.0.2.10:3000/x')).toBe('https://home.example.com');

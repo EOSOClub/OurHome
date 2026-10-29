@@ -5,8 +5,8 @@ import { ringPhoneSchema } from '@/lib/validation/supervision';
 // Ringing a supervised child's phone, loudly, even on silent. The service only
 // lets an adult who supervises them ring.
 
-// Who the viewer may ring, in the shape app builds from before required
-// sharing ask for (they show their Ring list from it). New code reads
+// Who the viewer may ring, in the shape asked for by app builds from before
+// required sharing (they show their Ring list from it). New code reads
 // GET /api/supervision/mine.
 export const GET = withAuth(async (ctx) => {
   const mine = await lookAfterOverview(ctx.user.householdId!, ctx.user.id);

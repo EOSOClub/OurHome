@@ -18,7 +18,7 @@ export type AuthUser = {
 /**
  * Reads the current session from cookies. Cached per request. Under "HTTPS
  * only" (accessService) a plain-HTTP request from another device has no
- * session, so pages fall back to the login screen and the API answers 401.
+ * session, so pages fall back to the login screen, and the API answers 401.
  */
 export const getServerSession = cache(async () => {
   const h = await headers();
@@ -33,7 +33,7 @@ export const getServerSession = cache(async () => {
 /**
  * Require an authenticated user that belongs to a household. Redirects to the
  * login page (or onboarding) when those conditions aren't met. Use in Server
- * Components and Server Actions that need a guaranteed user + household.
+ * Components and Server Actions that need a guaranteed user and household.
  */
 export async function requireUser(): Promise<AuthUser> {
   const session = await getServerSession();

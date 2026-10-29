@@ -1,7 +1,8 @@
 // Calendar maths in the household's time zone: recurring-task cycle
 // boundaries (when an unfinished cycle rolls over) and the day / week / month
-// / year periods the points stats use. Pure and IO-free; uses Intl only (the
-// project has no date library), so DST is handled by the platform's tz data.
+// / year periods the point statistics use. Pure and IO-free; uses Intl only
+// (the project has no date library), so DST is handled by the platform's tz
+// data.
 //
 // A boundary is always local midnight. Monthly cycle days are 1-31; in a
 // month without that day the cycle starts on the month's last day instead
@@ -158,7 +159,7 @@ export function nextCycleStart(instant: Date, spec: CycleSpec, timeZone: string)
   return startOfLocalDate(addDays(today, 1), timeZone);
 }
 
-/** Bounds of the stats period containing `instant`: [start, end) and its
+/** Bounds of the statistics period containing `instant`: [start, end) and its
  *  length in days. Weeks start on `weekStartsOn` (0 = Sunday). */
 export function periodBounds(
   period: Period,

@@ -67,7 +67,7 @@ export interface SubtaskDTO {
   doneBy: MemberDTO | null;
   /** Who its points are queued for this cycle (survives the step's own reset). */
   queuedFor: MemberDTO | null;
-  // Auto-uncheck cadence in days; null = resets only with the parent task.
+  // Days between auto-unchecks; null = resets only with the parent task.
   resetIntervalDays: number | null;
   position: number;
   /** This step's share: whole minutes and points (2 decimals). */
@@ -277,7 +277,7 @@ export interface AddressMatchDTO {
 
 export interface TaskDTO {
   id: string;
-  /** Who created it (user id); null = nobody recorded. Drives own vs others' access. */
+  /** Who created it (user id); null = nobody recorded. Drives own vs. others' access. */
   createdById: string | null;
   title: string;
   notes: string | null;
@@ -304,7 +304,7 @@ export interface TaskDTO {
    *  completed again before this time. Null or past = open. */
   opensAt: string | null;
   category: CategoryDTO | null;
-  /** Its first place (src/lib/places.ts). Both null = the whole house. */
+  /** Its first place (src/lib/places.ts). Both fields null = the whole house. */
   room: PlaceRefDTO | null;
   /** The whole floor it covers, or its room's floor. */
   floor: PlaceRefDTO | null;
@@ -323,7 +323,7 @@ export interface TaskDTO {
 
 export interface ShoppingItemDTO {
   id: string;
-  /** Who created it (user id); null = nobody recorded. Drives own vs others' access. */
+  /** Who created it (user id); null = nobody recorded. Drives own vs. others' access. */
   createdById: string | null;
   listId: string;
   name: string;
@@ -340,8 +340,8 @@ export interface ShoppingItemDTO {
 }
 
 // Best-effort Open Graph metadata pulled from a pasted product link. Any field
-// may be null when the page can't be read (e.g. Amazon's bot wall) - the UI then
-// falls back to manual entry.
+// may be null when the page can't be read (e.g., Amazon's bot wall) - the UI
+// then falls back to manual entry.
 export interface LinkPreviewDTO {
   title: string | null;
   imageUrl: string | null;
@@ -350,7 +350,7 @@ export interface LinkPreviewDTO {
 
 export interface ShoppingListDTO {
   id: string;
-  /** Who created it (user id); null = nobody recorded. Drives own vs others' access. */
+  /** Who created it (user id); null = nobody recorded. Drives own vs. others' access. */
   createdById: string | null;
   name: string;
   kind: string;
@@ -361,7 +361,7 @@ export interface ShoppingListDTO {
 
 export interface InventoryItemDTO {
   id: string;
-  /** Who created it (user id); null = nobody recorded. Drives own vs others' access. */
+  /** Who created it (user id); null = nobody recorded. Drives own vs. others' access. */
   createdById: string | null;
   name: string;
   unit: string | null;
@@ -372,7 +372,7 @@ export interface InventoryItemDTO {
   lastRestockedAt: string | null;
   predictedDepletionAt: string | null;
   category: CategoryDTO | null;
-  /** Where it's kept (src/lib/places.ts). Both null = not set. */
+  /** Where it's kept (src/lib/places.ts). Both fields null = not set. */
   room: PlaceRefDTO | null;
   /** The whole floor it's kept on, or its room's floor. */
   floor: PlaceRefDTO | null;
@@ -386,7 +386,7 @@ export interface NfcTagDTO {
   item: { id: string; name: string } | null;
   /** Location tags: the room a scan opens (null = none set). */
   room: PlaceRefDTO | null;
-  /** Android app behaviour on scan: "open" | "notify" (NFC_SCAN_ACTIONS). */
+  /** Android app behavior on scan: "open" | "notify" (NFC_SCAN_ACTIONS). */
   scanAction: string;
   /** Where "Add to shopping list" puts the item; null = first grocery list. */
   shoppingListId: string | null;
@@ -428,7 +428,7 @@ export interface IntegrationDTO {
 // baseStart/baseEnd describe the underlying event so the edit form can prefill.
 export interface EventOccurrenceDTO {
   eventId: string;
-  /** Who created it (user id); null = nobody recorded. Drives own vs others' access. */
+  /** Who created it (user id); null = nobody recorded. Drives own vs. others' access. */
   createdById: string | null;
   title: string;
   description: string | null;
@@ -445,7 +445,7 @@ export interface EventOccurrenceDTO {
 
 export interface BillDTO {
   id: string;
-  /** Who created it (user id); null = nobody recorded. Drives own vs others' access. */
+  /** Who created it (user id); null = nobody recorded. Drives own vs. others' access. */
   createdById: string | null;
   name: string;
   amount: number;
@@ -472,7 +472,7 @@ export interface BillDTO {
 
 export interface BillPaymentDTO {
   id: string;
-  /** Who created it (user id); null = nobody recorded. Drives own vs others' access. */
+  /** Who created it (user id); null = nobody recorded. Drives own vs. others' access. */
   createdById: string | null;
   billId: string | null;
   // Portion applied to the bill's balance; `fee` is any card surcharge on top.
@@ -628,7 +628,7 @@ export interface AccessSettingsMatrixDTO {
 
 /** The head's supervision list (the Members page, GET /api/supervision). */
 export interface SupervisionDTO {
-  /** Everyone who may supervise (adults and up), highest role first. */
+  /** Everyone who may supervise (adults and up), the highest role first. */
   supervisors: { id: string; name: string; role: string }[];
   /** Every child and teen, with who supervises them. */
   supervised: { id: string; name: string; role: string; supervisorIds: string[] }[];
@@ -687,7 +687,7 @@ export interface LookAfterDTO {
     webFilter: { filter: WebFilter | null; on: boolean | null };
     /** Apps blocked on their phone (POST /api/supervision/blocked-apps), newest
      *  first. alwaysAllowed: package names their phone never blocks (its phone,
-     *  messages, home screen and OurHome), so they get no Block. works: whether
+     *  messages, home screen, and OurHome), so they get no Block. works: whether
      *  "Keep Our Home running" is on there, which does the blocking (null: no
      *  phone checked in yet, or an app too old to say). */
     blocking: {
@@ -702,7 +702,7 @@ export interface LookAfterDTO {
      *  all apps together (null: none). apps: one app each, newest first.
      *  counts: whether Usage access is on there, which counts the minutes
      *  (null: no phone checked in yet, or an app too old to say); the covering
-     *  also needs Keep Our Home running (blocking.works). */
+     *  also needs "Keep Our Home running" to be on (blocking.works). */
     limits: {
       total: AppLimitDTO | null;
       apps: AppLimitDTO[];

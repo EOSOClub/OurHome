@@ -5,8 +5,8 @@ import { formatPoints } from '@/lib/taskPoints';
 // spends task points on extra minutes for today, at the rate their supervising
 // adult set, up to a daily cap. The minutes go on top of every daily limit
 // they have today (all apps, and each app's own); schedules aren't touched.
-// Spending comes off their points balance (earned minus spent); what they
-// earned, and the stats, stay as they were. Adults can also give extra
+// Spending comes off their balance of points (earned minus spent); the total
+// they earned and the stats stay as they were. Adults can also give extra
 // minutes themselves. The Android app has the same rules (data/PointsTime.kt).
 
 /** What one point can buy, in minutes (the server takes 1 to 60). */

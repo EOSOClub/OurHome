@@ -110,7 +110,7 @@ export async function isPublicFetchTarget(url: URL): Promise<boolean> {
   }
 }
 
-/** Protocol + literal-host SSRF checks (DNS resolution happens separately). */
+/** Protocol and literal-host SSRF checks (DNS resolution happens separately). */
 function isFetchableUrl(url: URL): boolean {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
   const host = url.hostname.toLowerCase();

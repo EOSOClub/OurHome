@@ -88,7 +88,7 @@ function PlaceHeading({
   );
 }
 
-// Strip recurrence:null (invalid for create) and attach taskId for updates.
+// Strip recurrence:null (invalid when creating) and attach taskId for updates.
 function createBody(payload: TaskFormPayload) {
   const { recurrence, ...rest } = payload;
   return recurrence ? { ...rest, recurrence } : rest;
@@ -166,7 +166,7 @@ export function TasksView({
     syncUrl(filters, next, search);
   };
 
-  // Search updates state on every keystroke but debounces the URL write so
+  // Search updates state on every keystroke but debounces the URL update, so
   // typing doesn't spam router.replace.
   useEffect(() => {
     if (search === (searchParams.get('q') ?? '')) return;
@@ -308,7 +308,7 @@ export function TasksView({
         method: 'POST',
         body: JSON.stringify(vars),
       }),
-    // Optimistically flip the checkbox in the currently visible list so it
+    // Optimistically, flip the checkbox in the currently visible list so it
     // responds instantly; onSettled re-syncs every filter combo either way.
     onMutate: async ({ subtaskId, done }) => {
       await queryClient.cancelQueries({ queryKey: tasksKey });
@@ -540,7 +540,7 @@ export function TasksView({
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {/* Points has no tab of its own (account menu / More); this is the quick way in. */}
+          {/* The Points page has no tab of its own (account menu / More); this is the quick way in. */}
           {showPoints ? (
             <Button variant="outline" onClick={() => router.push('/points')}>
               <Trophy /> Points

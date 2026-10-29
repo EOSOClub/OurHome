@@ -313,7 +313,7 @@ function AddMemberCard({
       void queryClient.invalidateQueries({ queryKey: MEMBERS_KEY });
     },
     onError: (err) => {
-      // Mark the fields the server named, and say why (this replaces the global toast).
+      // Mark the fields the server named and say why (this replaces the global toast).
       setServerErrors(fieldErrors(err));
       toast.error(err instanceof Error ? err.message : 'Could not add them.');
     },
@@ -585,7 +585,7 @@ function MemberRow({
       void invalidate();
     },
     onError: (err) => {
-      // Mark the fields the server named, and say why (this replaces the global toast).
+      // Mark the fields the server named and say why (this replaces the global toast).
       setServerErrors((errs) => ({ ...errs, ...fieldErrors(err) }));
       toast.error(err instanceof Error ? err.message : 'Could not save their profile.');
     },

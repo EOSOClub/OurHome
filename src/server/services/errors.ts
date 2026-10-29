@@ -23,7 +23,7 @@ export class ForbiddenError extends Error {
 }
 
 /**
- * Thrown when an action conflicts with existing state (e.g. a duplicate name).
+ * Thrown when an action conflicts with existing state (e.g., a duplicate name).
  * [field]: the form field whose value caused it, so the form can mark it.
  */
 export class ConflictError extends Error {

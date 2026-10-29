@@ -20,7 +20,7 @@ interface SubmitMeta {
  *
  * The row is stored first, so a mail failure never loses the message: we log it,
  * flag the row `email_failed`, and still return success to the caller (we already
- * have their message; surfacing an error after the fact would be worse UX).
+ * have their message; surfacing an error after the fact would be worse for them).
  */
 export async function submitContactMessage(
   input: Pick<ContactInput, 'name' | 'email' | 'description'>,

@@ -10,9 +10,9 @@
 //            declines it where the module allows that. Where the head chose
 //            `bySupervisors`, a request from someone with supervisors (People
 //            you look after) goes to those supervisors instead.
-//   assign:  the requester asks one person, who accepts it (with a done-by
-//            date unless the head made that optional) and later marks it done,
-//            or declines it where the module allows that.
+//   assign: the requester asks one person, who accepts it (with a done-by
+//           date unless the head made that optional) and later marks it done,
+//           or declines it where the module allows that.
 //
 // Stored as JSON text in Household.requestModules. null, a missing module or a
 // missing field means its default, so a household that never opened the card

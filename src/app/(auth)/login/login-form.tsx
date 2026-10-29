@@ -34,7 +34,7 @@ export function LoginForm({ appName }: { appName: string }) {
     setError(null);
     setBad({});
     setLoading(true);
-    // Better Auth validates the characters before normalising, so a stray
+    // Better Auth validates the characters before normalizing, so a stray
     // space (autofill, phone keyboards) fails as "Invalid username".
     const { error } = await signIn.username({ username: username.trim(), password });
     setLoading(false);

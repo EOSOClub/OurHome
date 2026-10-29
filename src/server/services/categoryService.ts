@@ -123,7 +123,7 @@ export async function deleteCategory(
   });
   if (!existing) throw new NotFoundError(`Category ${id} not found.`);
 
-  // Tasks / shopping / inventory references are set null by the schema.
+  // The schema sets Tasks / shopping / inventory references to null.
   await prisma.category.delete({ where: { id } });
   await logActivity({
     householdId,

@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 
-// Encrypts credentials the app stores for a household (e.g. its Paperless API
+// Encrypts credentials the app stores for a household (e.g., its Paperless API
 // token) so a database dump alone doesn't hand them out. AES-256-GCM with a
 // key derived from BETTER_AUTH_SECRET (already a required secret) and a
 // purpose label. Changing that secret makes stored values unreadable: they
@@ -21,7 +21,7 @@ export function encryptSecret(plain: string, secret?: string): string {
   return [VERSION, iv, cipher.getAuthTag(), data].map((p) => (typeof p === 'string' ? p : p.toString('base64url'))).join(':');
 }
 
-/** The plain value, or null when it can't be read (other secret, tampered). */
+/** The plain value, or null when it can't be read (a different secret, or tampered with). */
 export function decryptSecret(stored: string, secret?: string): string | null {
   const [version, iv, tag, data] = stored.split(':');
   if (version !== VERSION || !iv || !tag || data === undefined) return null;

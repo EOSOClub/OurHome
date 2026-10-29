@@ -1,6 +1,6 @@
 // Groups the activity log's subject types into the filters on the Activity
-// page (web /activity, app ⋮ → Activity). Pure so both the service and the
-// page can use it; a subject type nobody listed falls under "household".
+// page (web /activity, app ⋮ → Activity). It is pure, so both the service and
+// the page can use it; a subject type nobody listed falls under "household".
 
 export const ACTIVITY_AREAS = [
   'tasks',

@@ -44,7 +44,7 @@ export const SUPERVISED_SELECT = {
 // required, into a bell notification for that child's supervisors only.
 // The alert goes away by itself once the problem does. Rules: src/lib/phoneHealth.ts.
 
-/** The bell type, and the key every alert row carries (one per problem, child and supervisor). */
+/** The bell type, and the key every alert row carries (one per problem, child, and supervisor). */
 export const PHONE_ALERT_TYPE = 'phone_alert';
 const alertKey = (problem: PhoneProblem, kidId: string, supervisorId: string) =>
   `phone:${problem}:${kidId}:${supervisorId}`;
@@ -134,10 +134,11 @@ export async function checkIn(
 }
 
 /**
- * The emergency unlock's milestone as stored. The phone sends each milestone
- * once; between them, it sends only when the unlock ends, so the last one is
- * kept while that's sent. "unlocked" is kept while the uninstall guard is
- * still off, so the alert stays until a parent has put it back.
+ * The emergency-unlock milestone as stored. The phone sends each milestone
+ * once; between them, it sends only the time the unlocking ends, so the last
+ * one is kept while that time is sent. "unlocked" is kept while the guard
+ * against uninstalling is still off, so the alert stays until a parent has
+ * put it back.
  */
 async function emergencyData(input: PhoneCheckInInput): Promise<{ emergencyUnlockStage?: string | null }> {
   if (input.emergencyUnlockStage) return { emergencyUnlockStage: input.emergencyUnlockStage };
@@ -233,10 +234,11 @@ export function clearPhoneWatches(): void {
 /**
  * What [userId]'s phone must have on, for its Set up this phone checklist:
  * nothing while nobody looks after them. Otherwise, notifications always (the
- * household's alerts and the ring's Stop need them), location all the time
- * while their sharing is required and the household uses Location, Usage
- * access while their app usage is shared, the web filter while one is chosen
- * (with what to enter for it), and the protections their supervisors require.
+ * household's alerts and the ring's Stop need them), and location all the
+ * time while their sharing is required and the household uses Location. It
+ * also needs Usage access while their app usage is shared, the web filter
+ * while one is chosen (with what to enter for it), and the protections their
+ * supervisors require.
  */
 export async function phoneSetup(householdId: string, userId: string): Promise<PhoneSetupDTO> {
   const [supervised, user, locationOn] = await Promise.all([
@@ -378,7 +380,7 @@ export async function phoneSummaries(
 
 /**
  * Bring the household's phone alerts in line with now: one unread-able row
- * per problem, child and supervisor; rows whose problem has gone (or whose
+ * per problem, child, and supervisor; rows whose problem has gone (or whose
  * supervisor no longer supervises) are removed. [onlyUserIds]: just these
  * children (a check-in), instead of the whole household (the sweep).
  */

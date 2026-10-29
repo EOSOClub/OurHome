@@ -51,7 +51,7 @@ export function stoppedAfterSec(ring: RingState): number | null {
   return Math.min(RING_MS / 1000, Math.max(1, Math.round((ring.endedAt - ring.ringingAt) / 1000)));
 }
 
-/** After "You rang 2 minutes ago: ". */
+/** The outcome that follows "You rang 2 minutes ago:" in the ring status line. */
 export function ringOutcome(ring: { phase: RingPhase; stoppedAfterSec: number | null }): string {
   switch (ring.phase) {
     case 'sending':

@@ -60,7 +60,7 @@ export function can(role: string, permission: Permission): boolean {
 /**
  * Whether an actor may administer a member who currently holds `targetRole`.
  * The head may manage anyone; a manager may only manage ranks below their own
- * (adults, teens, children and guests), never another manager or the head.
+ * (adults, teens, children, and guests), never another manager or the head.
  */
 export function canManageMember(
   actorRole: string,
@@ -215,10 +215,10 @@ const RECORD_ACTIONS = [
 ] as const satisfies readonly AccessAction[];
 
 /**
- * The switches that mean something on each page. Requests has "Add" (submit)
- * and "Approve" (mark media requests added): editing/deleting stays limited to
- * the requester and accepting maintenance to the assignee (requestService),
- * whatever the grid says.
+ * The switches that mean something on each page. The Requests page has "Add"
+ * (submit) and "Approve" (mark media requests added): editing/deleting stays
+ * limited to the requester and accepting maintenance to the assignee
+ * (requestService), whatever the grid says.
  */
 export const PAGE_ACTIONS: Record<AccessPage, readonly AccessAction[]> = {
   tasks: RECORD_ACTIONS,
@@ -271,7 +271,7 @@ const ADD_ONLY: PageAccess = { ...NONE, create: true };
 /**
  * Out-of-the-box defaults. Tasks are head-only; managers and adults can
  * change anything on the other pages; managers (and the head) mark media
- * requests added; teens add and change their own calendar, shopping and
+ * requests added; teens add and change their own calendar, shopping, and
  * inventory entries; children can add shopping items; guests change nothing;
  * and everyone may submit requests.
  */

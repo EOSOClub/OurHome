@@ -49,7 +49,7 @@ function withPlace<T extends SelectedTask>(tasks: T[], places: PlaceIndex) {
 /**
  * Requests that may wait on `userId` (attentionReason makes the final call):
  * open requests of the approve-workflow kinds they may decide (media,
- * purchase, permission: ones they handle, or where supervisors decide and
+ * purchase, permission: ones they handle, or where supervisors decide, if
  * they supervise someone), plus assign-workflow ones (maintenance) assigned to
  * them - kinds that are on only.
  */

@@ -4,8 +4,8 @@ import { assertServerAdmin, clearHouseholdCaches } from '@/server/services/serve
 
 // Everything a household owns, for its export (Head of House) and for
 // deleting it (server admin). Mongo has no foreign keys and several models
-// point at their household or parent by a plain id (points ledger, pending
-// credits, notification subjects), so both walk an explicit list instead of
+// point at their household or parent by a plain id (the ledger of points,
+// pending credits, notification subjects), so both walk an explicit list instead of
 // trusting cascades. `HOUSEHOLD_MODELS` / `SERVER_MODELS` must name every
 // model in the schema - src/server/services/householdDataService.test.ts
 // fails when a new one is added without deciding how it's exported and deleted.
@@ -80,7 +80,7 @@ export const EXPORT_VERSION = 1;
  * a child's phone (BlockedApp), their daily limits (AppLimit), schedules
  * (AppSchedule) and points-for-time rate (PointsForTime) stay out like the
  * other phone rules, and so does extra time an adult gave (ExtraTime without
- * points). Minutes bought with points go with the points ledger
+ * points). Minutes bought with points go with the ledger of points
  * (points.spent), so a restored balance stays right.
  */
 export async function exportHousehold(householdId: string) {
@@ -227,7 +227,7 @@ export async function deleteHousehold(adminId: string, householdId: string, conf
 
   await prisma.$transaction(
     async (tx) => {
-      // Ids the children hang off (and rules shared by nothing else).
+      // The ids that the child rows hang off, plus rules that nothing else shares.
       const [tasks, events, bills, lists, users] = await Promise.all([
         tx.task.findMany({ where, select: { id: true, recurrenceId: true } }),
         tx.event.findMany({ where, select: { id: true, recurrenceId: true } }),
@@ -289,7 +289,7 @@ export async function deleteHousehold(adminId: string, householdId: string, conf
       count('User', await tx.user.deleteMany({ where: { id: { in: userIds } } }));
       count('Household', await tx.household.deleteMany({ where: { id: householdId } }));
     },
-    // Big households take a while; the default 5 s would abort half way.
+    // Big households take a while; the default 5 s would abort halfway.
     { timeout: 120_000, maxWait: 10_000 },
   );
 

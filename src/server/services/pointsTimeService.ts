@@ -18,7 +18,7 @@ import type { BuyExtraTimeInput } from '@/lib/validation/phone';
 // Adults can also give minutes (supervisionService.giveExtraTime). Both are
 // ExtraTime rows for the phone's day; the phone adds the day's minutes to
 // every daily limit it has (notifications/AppLimiter). Spending comes off the
-// points balance (earned awards minus spent points); PointAward and so the
+// point balance (earned awards minus spent points); PointAward and so the
 // stats never change. Needs the household's Points feature. Rules:
 // src/lib/pointsTime.ts.
 
@@ -43,7 +43,7 @@ export function nearToday(day: string, now: Date): boolean {
   return day >= utcDay(now, -1) && day <= utcDay(now, 1);
 }
 
-/** Each of [userIds]' points balance in hundredths: points earned (not voided) minus points spent. */
+/** The point balance of each of [userIds] in hundredths: points earned (not voided) minus points spent. */
 export async function pointsBalances(db: Db, householdId: string, userIds: string[]): Promise<Map<string, number>> {
   const out = new Map(userIds.map((id) => [id, 0]));
   if (userIds.length === 0) return out;
@@ -109,7 +109,7 @@ export async function phonePointsRule(householdId: string, userId: string): Prom
  * The signed-in member's own view (their Profile, their phone): whether they
  * can buy minutes ([available]: someone looks after them, set a rate, the
  * household uses Points, and they have a daily limit to add to), the rate,
- * cap, balance and what [day] (their phone's date) has had.
+ * cap, balance, and what [day] (their phone's date) has had.
  */
 export async function myExtraTime(householdId: string, userId: string, day: string): Promise<MyExtraTimeDTO> {
   const [rule, supervisors, limits, balances, today] = await Promise.all([
@@ -134,10 +134,10 @@ export async function myExtraTime(householdId: string, userId: string, day: stri
 
 /**
  * The member buys [minutes] for [day] (their phone's date) with points:
- * refused (409, saying why) unless they can buy at all, it fits what's left
- * of the day's cap and their balance covers it. Each adult who looks after
- * them gets a bell alert, which wakes their phone; their own phones are woken
- * too, so every one of them adds the minutes.
+ * refused (409, saying why) unless buying is open to them, it fits what's
+ * left of the day's cap, and their balance covers it. Each adult who looks
+ * after them gets a bell alert, which wakes their phone; their own phones are
+ * woken too, so every one of them adds the minutes.
  */
 export async function buyExtraTime(
   householdId: string,

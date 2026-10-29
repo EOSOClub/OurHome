@@ -223,7 +223,7 @@ export function placeLabel(task: {
 
 /**
  * Every place of a task as one label. One place reads as placeLabel; several
- * share their floor: "Ground floor · Kitchen, Laundry; Upstairs".
+ * share their floor: `First floor · Kitchen, Laundry; Upstairs`.
  */
 export function placesLabel(task: {
   room: { name: string } | null;

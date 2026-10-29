@@ -3,8 +3,8 @@ import { recordId } from '@/lib/validation/ids';
 import { NFC_REPRESENTS, NFC_SCAN_ACTIONS } from '@/lib/enums';
 
 // A physical tag id. Tags written by the Home Assistant companion app carry a
-// UUID (read by HA and by the Android app alike); tags without one are
-// identified by the Android app as "uid:<hardware id hex>".
+// UUID (read by HA and by the Android app alike); for tags without one, the
+// Android app uses "uid:<hardware id hex>".
 // Kept to a stable, slug-like shape so it round-trips cleanly through HA.
 export const tagIdSchema = z
   .string()
@@ -13,7 +13,7 @@ export const tagIdSchema = z
   .max(100)
   .regex(/^[\w.:-]+$/, 'Use letters, numbers, dot, colon, dash or underscore.');
 
-// Per-tag app behaviour; omitted fields keep whatever the tag already has.
+// Per-tag app behavior; omitted fields keep whatever the tag already has.
 const scanSettings = {
   scanAction: z.enum(NFC_SCAN_ACTIONS).optional(),
   shoppingListId: recordId.optional().nullable(),

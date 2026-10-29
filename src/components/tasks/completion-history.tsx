@@ -15,7 +15,7 @@ const MAX_VISIBLE = 10;
 
 /**
  * Lazy disclosure of a task's completion history. Nothing is fetched until
- * the user opens the disclosure, so rendering this in every card is cheap.
+ * the user opens the disclosure, so rendering this in every card costs little.
  */
 export function CompletionHistory({
   taskId,

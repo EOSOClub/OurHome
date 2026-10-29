@@ -26,9 +26,9 @@ import type {
 // Live location checks (vault: Location and Presence, step 4). An adult asks
 // to see where someone is for a few minutes; the server wakes that person's
 // phone with a push, the phone shows a notification for the whole check and
-// sends a fix every interval. Only the latest fix is stored. When the check
-// closes the fix is cleared (it becomes their last known point if they're
-// away) and what's left is the log entry the checked person sees.
+// sends a fix at every interval. Only the latest fix is stored. When the
+// check closes, the fix is cleared (it becomes their last known point if
+// they're away), and what's left is the log entry the checked person sees.
 // Never hidden: no push reaching the phone means no check.
 
 /**
@@ -115,7 +115,7 @@ async function closeCheck(check: CheckRow, now: Date, endedById: string | null):
 }
 
 /**
- * Closes the household's checks whose time ran out, and forgets log entries
+ * Closes the household's checks whose time ran out and forgets log entries
  * older than 30 days. Run before anything reads checks or presence, so a
  * check that ran out while nobody was looking still hands over its last fix.
  */
@@ -131,7 +131,7 @@ export async function closeExpiredLiveChecks(householdId: string, now: Date = ne
 
 /**
  * Ends the running checks on a member that their new consent no longer allows
- * (they stopped sharing, or turned live checks off: a supervisor's check under
+ * (they stopped sharing or turned live checks off: a supervisor's check under
  * required sharing goes on).
  */
 export async function endLiveChecksOn(userId: string, consent: LocationConsent, now: Date = new Date()): Promise<void> {
@@ -197,7 +197,7 @@ export async function liveChecksOverview(
     }),
     mayCheck
       ? prisma.user.findMany({
-          // Allowed checks, or required sharing (then only for their supervisors).
+          // Members who allow checks or whose sharing is required (then only for their supervisors).
           where: { householdId, id: { not: userId }, OR: [{ liveChecks: true }, { locationSharing: 'required' }] },
           select: { id: true, name: true, locationSharing: true, liveChecks: true },
           orderBy: { name: 'asc' },

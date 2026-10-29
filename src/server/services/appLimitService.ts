@@ -37,7 +37,7 @@ export async function phoneLimits(householdId: string, userId: string): Promise<
   return rows.map((r) => ({ app: r.app, label: r.label, minutes: r.minutes, by: names.get(r.setById) ?? null }));
 }
 
-/** Each of [userIds]' limits (all apps together among them), newest first, for People you look after. */
+/** The limits of each of [userIds] (all apps together among them), newest first, for People you look after. */
 export async function appLimitsByKid(householdId: string, userIds: string[]): Promise<Map<string, AppLimitDTO[]>> {
   const out = new Map<string, AppLimitDTO[]>();
   if (userIds.length === 0) return out;

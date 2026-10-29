@@ -1,4 +1,4 @@
-// Recognise Amazon product links and pull the ASIN (Amazon's 10-character
+// Recognize Amazon product links and pull the ASIN (Amazon's 10-character
 // product id) out of them. Pure string parsing of a URL the user pasted - no
 // network access - so it's safe to use on both the server and the client.
 
@@ -33,7 +33,7 @@ export function isAmazonUrl(url: string): boolean {
   );
 }
 
-/** Pull the ASIN from an Amazon URL, or null if it can't be found (e.g. a
+/** Pull the ASIN from an Amazon URL, or null if it can't be found (e.g., a
  * short link that only resolves after a redirect we deliberately don't follow). */
 export function extractAsin(url: string): string | null {
   let parsed: URL;

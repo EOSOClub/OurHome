@@ -113,7 +113,7 @@ export async function getSupervision(householdId: string): Promise<SupervisionDT
 }
 
 /**
- * Replace who supervises one child or teen (Head of House only). Every
+ * Replace the supervisors of one child or teen (Head of House only). Every
  * supervisor must be an adult or above in the same household.
  */
 export async function setSupervisors(
@@ -228,7 +228,7 @@ export async function newMemberSupervisors(
   return loadSupervisors(householdId, wanted);
 }
 
-/** Saves [newMemberSupervisors]' answer for the member just made, in its transaction. */
+/** Saves the [newMemberSupervisors] answer for the member just made, in its transaction. */
 export async function linkNewSupervisors(
   db: Db,
   householdId: string,
@@ -255,8 +255,8 @@ export async function linkNewSupervisors(
 //  - Make their location sharing required: they can't turn it off, and their
 //    supervisors may check where they are without their yes (permissions.ts
 //    liveCheckAllowed). It goes back to "on" when nobody supervises them.
-//  - Share their app usage with their supervisors (appUsageService). It goes
-//    off, and what was kept is deleted, when nobody supervises them.
+//  - Share their app usage with their supervisors (appUsageService). It turns
+//    off when nobody supervises them, and what was kept is deleted.
 //  - Block apps from that usage on their phone (setAppBlocked), and give
 //    apps, or all apps together, a daily limit (setAppLimit), and set
 //    schedules when apps are closed (saveSchedule). All go when nobody
@@ -513,8 +513,8 @@ export async function setWebFilter(
 
 /**
  * Turn sharing a supervised child's app usage with their supervisors on or
- * off. Off deletes what was stored. Wakes their phone so it starts (or stops)
- * measuring at once.
+ * off. Turning it off deletes what was stored. Wakes their phone so it
+ * starts (or stops) measuring at once.
  */
 export async function setUsageSharing(
   householdId: string,
@@ -1029,7 +1029,7 @@ const USAGE_REFRESH_TTL_SEC = 120;
  * supervisor opened "People you look after"). Quietly does nothing when their
  * usage isn't shared, the server can't push, or their phone was asked less
  * than USAGE_REFRESH_COOLDOWN_MS ago: the page shows what's stored either way,
- * and the phone still reports every 15 minutes. Not logged in Activity: it
+ * and the phone still reports every 15 minutes. Not recorded in Activity: it
  * only reads what the supervisor may already see.
  */
 export async function refreshUsage(
@@ -1082,7 +1082,7 @@ export async function supervisedUsageHistory(
 
 /**
  * An app's icon (PNG), for a supervisor of a child whose shared usage names
- * the app or who has it blocked, limited or allowed in a schedule, or for the child (on their Profile).
+ * the app or who has it blocked, limited, or allowed in a schedule, or for the child (on their Profile).
  * Not found otherwise, so nobody else can tell which apps a child has. A
  * member's own days only exist while their usage is shared: turning it off
  * deletes them.

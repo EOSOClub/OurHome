@@ -102,7 +102,7 @@ export function TaskCard({
   onUndoCompletion: (completionId: string) => void;
   completing: boolean;
   deleting: boolean;
-  /** Opened from a link to this task (?task=<id>, e.g. a notification). */
+  /** Opened from a link to this task (?task=<id>, e.g., a notification). */
   focused?: boolean;
   /** Up/down within its place (grouped by room, for those who may reorder). */
   move?: { up: boolean; down: boolean; onMove: (direction: -1 | 1) => void };

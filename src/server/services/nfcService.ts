@@ -20,7 +20,7 @@ import { ConflictError, NotFoundError } from '@/server/services/errors';
 /** Everything a tag stores as JSON text in `config`. */
 export interface TagConfig {
   itemId?: string;
-  /** Android app behaviour on scan; absent = "open". */
+  /** Android app behavior on scan; absent = "open". */
   scanAction?: NfcScanAction;
   /** Target of "Add to shopping list"; absent = first grocery list. */
   shoppingListId?: string | null;

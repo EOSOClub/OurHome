@@ -34,7 +34,7 @@ export default async function LoginPage({
 }: {
   searchParams: Promise<{ redirect?: string }>;
 }) {
-  // Authoritative "already signed in -> skip the login form" check. This used to
+  // Authoritative "has a session already -> skip the login form" check. This used to
   // live in proxy.ts, but the proxy only sees that a session cookie *exists*,
   // not that it's valid. A stale cookie there caused an infinite redirect loop
   // (proxy bounced /login -> /dashboard, then requireUser() bounced it back).
@@ -45,8 +45,8 @@ export default async function LoginPage({
   await connection();
   if (await needsSetup()) redirect('/setup');
 
-  // "HTTPS only": don't offer a form whose password would cross the network
-  // unencrypted (the auth API refuses it anyway).
+  // HTTPS-only setting: never offer a sign-in form whose password would cross
+  // the network unencrypted (the auth API refuses it anyway).
   const requestHeaders = await headers();
   if (await isRefusedPlainHttp(requestHeaders)) {
     const httpsUrl = process.env.BETTER_AUTH_URL?.startsWith('https://')
@@ -87,7 +87,7 @@ export default async function LoginPage({
   }
 
   // Nonce (from the CSP in src/proxy.ts) lets the Turnstile script load under our
-  // strict script-src; the site key is passed to the client as a prop so it never
+  // strict script-src; the site key is passed to the client as a prop, so it never
   // needs the NEXT_PUBLIC_ env convention.
   const nonce = requestHeaders.get('x-nonce') ?? undefined;
   const turnstileSiteKey = process.env.TURNSTILE_SITE_KEY;

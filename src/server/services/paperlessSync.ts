@@ -17,10 +17,11 @@ import type { PaperlessStatusDTO, PaperlessSyncResultDTO } from '@/lib/types';
 // Imports bills and bill payments from Paperless-ngx.
 //
 // Each run asks Paperless for documents tagged `bill` / `bill-payment` that
-// changed since the last run (the stored cursor) and hands each finished one to
-// billIngestService. Runs from the in-app reminder sweep (every 15 minutes)
-// and from Settings → "Check now". Read-only towards Paperless. Each household
-// has its own Paperless, cursor and status (see "Which Paperless" below).
+// have changed since the last run (the stored cursor) and hands each finished
+// one to billIngestService. Runs from the in-app reminder sweep (every 15
+// minutes) and from Settings → "Check now". Read-only towards Paperless. Each
+// household has its own Paperless, cursor and status (see "Which Paperless"
+// below).
 //
 //  - Starts fresh: the first run only records "now", so documents already in
 //    Paperless are never imported in bulk.
@@ -43,7 +44,7 @@ type PaperlessSyncResult = PaperlessSyncResultDTO;
 interface ResolvedSetup {
   ctx: MappingContext;
   tagIds: number[];
-  /** What the preview prints so a wrong name is obvious. */
+  /** What the preview prints, so a wrong name stands out. */
   found: Record<string, string>;
 }
 
@@ -254,7 +255,7 @@ async function syncOnce(householdId: string): Promise<PaperlessSyncResult | null
 
   const state = await prisma.paperlessSync.findUnique({ where: { householdId } });
   if (!state) {
-    // Start fresh: nothing already in Paperless is imported.
+    // Start fresh: documents already in Paperless are never imported.
     await prisma.paperlessSync.create({ data: { householdId, cursor: now, lastRunAt: now } });
     console.log(`[paperless] import switched on for household ${householdId}; importing documents changed after ${now.toISOString()}`);
     return null;

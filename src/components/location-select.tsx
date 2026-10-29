@@ -18,7 +18,7 @@ export function placeIds(value: string): { roomId: string | null; floorId: strin
   };
 }
 
-/** A task's places as picker values ("room:<id>" / "floor:<id>"). */
+/** A task's places as picker values (`room:<id>` / `floor:<id>`). */
 export function placeValues(places: TaskPlaceDTO[] | undefined): string[] {
   return (places ?? []).map(placeValue).filter(Boolean);
 }
@@ -46,7 +46,7 @@ export function LocationMultiSelect({
 }: {
   id: string;
   places: PlacesDTO;
-  /** Picked places as "room:<id>" / "floor:<id>". */
+  /** Picked places as `room:<id>` / `floor:<id>`. */
   value: string[];
   onChange: (value: string[]) => void;
   emptyLabel: string;

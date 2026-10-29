@@ -1,7 +1,7 @@
 import { PROFILE_COLORS, initials, type ProfileColor } from '@/lib/profile';
 import { cn } from '@/lib/utils';
 
-/** A member's chosen emoji (or initials) on their chosen colour. */
+/** A member's chosen emoji (or initials) on their chosen color. */
 export function ProfileAvatar({
   name,
   emoji,
@@ -23,7 +23,7 @@ export function ProfileAvatar({
         size === 'md' && 'size-10 text-base',
         size === 'lg' && 'size-14 text-2xl',
       )}
-      // Emoji sit on a soft tint of the colour; initials on the solid colour.
+      // Emoji sit on a soft tint of the color; initials on the solid color.
       style={{ backgroundColor: emoji ? `${hex}33` : hex, boxShadow: `inset 0 0 0 2px ${hex}` }}
     >
       {emoji ?? initials(name)}

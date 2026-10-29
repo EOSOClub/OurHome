@@ -9,10 +9,10 @@ import { assertServerAdmin } from '@/server/services/serverAdminService';
 // Restore a household from its export (householdDataService.exportHousehold)
 // as a new household on this server (server admin, Server page).
 //
-// - Every record gets a fresh id and every reference is rewired - including
+// - Every record gets a fresh id, and every reference is rewired, including
 //   ids inside text (rotation lists, undo snapshots, notification keys, JSON
-//   settings) - so a restore never collides with what's on the server, even
-//   when the original household still exists.
+//   settings). That way a restore never collides with what's on the server,
+//   even when the original household still exists.
 // - Only fields the current schema knows are written, so exports from older
 //   or newer versions load (missing fields take their defaults).
 // - The export has no passwords: the head gets the temporary password the
@@ -235,7 +235,7 @@ export function planRestore(
 /**
  * An id shaped like Prisma's cuid() ("c" + 24 lowercase letters/digits): a
  * time part (sortable, as in a real cuid) then random. Collision odds are
- * negligible at household scale, and the unique _id would refuse one anyway.
+ * negligible at the scale of a household, and the unique _id would refuse one anyway.
  */
 let lastStamp = '';
 let counter = 0;

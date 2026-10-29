@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 
 /**
  * A member's phone battery next to where they are: "85%", "12%, 3 h ago".
- * Muted, or red when low (so a caller's colour can't hide that).
+ * Muted, or red when low (so a caller's color can't hide that).
  */
 export function BatteryBadge({ battery, className }: { battery: BatteryReading; className?: string }) {
   const { text, low } = batteryLabel(battery);

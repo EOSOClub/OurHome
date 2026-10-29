@@ -58,7 +58,7 @@ export async function reportUsage(
   // Only days near the server's own date: a phone clock far off (or a bad
   // request) mustn't store a far-future day, which would push every real day
   // out of the kept window below. The phone's "today" can be a day either
-  // side of the server's UTC date, and it sends yesterday too.
+  // side of the server's UTC date, and it also sends yesterday's usage.
   const days = input.days.filter((d) => d.day >= utcDay(now, -2) && d.day <= utcDay(now, 1));
   if (days.length === 0) return { missingIcons: [] };
   const stored = new Set<string>();
@@ -129,14 +129,14 @@ export async function findIcon(householdId: string, app: string): Promise<Uint8A
   return row ? new Uint8Array(row.png) : null;
 }
 
-/** Whether any of [userIds]' stored days names [app]. */
+/** Whether any stored day of [userIds] names [app]. */
 export async function usageNamesApp(userIds: string[], app: string): Promise<boolean> {
   if (userIds.length === 0) return false;
   const rows = await prisma.appUsageDay.findMany({ where: { userId: { in: userIds } }, select: { apps: true } });
   return rows.some((r) => parseApps(r.apps).some((a) => a.app === app));
 }
 
-/** Deletes [userIds]' stored usage, and the icons nobody's usage names anymore. */
+/** Deletes the stored usage of [userIds] and the icons nobody's usage names anymore. */
 export async function forgetUsage(db: Db, householdId: string, userIds: string[]): Promise<void> {
   await db.appUsageDay.deleteMany({ where: { userId: { in: userIds } } });
   await pruneIcons(db, householdId);
@@ -157,7 +157,7 @@ export async function usageLabel(userId: string, app: string): Promise<string | 
 
 /**
  * Deletes the household's icons that no stored usage day names, keeping the
- * icons of blocked, limited and schedule-allowed apps (their lists show them).
+ * icons of blocked, limited, and schedule-allowed apps (their lists show them).
  */
 export async function pruneIcons(db: Db, householdId: string): Promise<void> {
   const [rows, blocked, limited, scheduled] = await Promise.all([
@@ -303,8 +303,8 @@ export async function usageHistory(householdId: string, userId: string): Promise
 }
 
 /**
- * Every app in each of [userIds]' stored days, once, by name, with the name
- * from the newest day naming it: the apps a supervisor can give a limit.
+ * Every app in the stored days of each of [userIds], once, by name, with the
+ * name from the newest day naming it: the apps a supervisor can give a limit.
  */
 export async function usageApps(
   householdId: string,

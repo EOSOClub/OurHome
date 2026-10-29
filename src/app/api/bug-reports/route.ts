@@ -3,7 +3,7 @@ import { submitBugReport } from '@/server/services/bugReportService';
 import { submitBugReportSchema } from '@/lib/validation/bugReport';
 
 // File a bug report from the website or the Android app. The head is notified
-// in-app and support is emailed (see bugReportService).
+// in-app, and support is emailed (see bugReportService).
 export const POST = withAuth(async (ctx) => {
   requirePermission(ctx, 'bugs:report');
   // Each report can send an email; keep a tight per-user budget on top of the

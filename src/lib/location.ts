@@ -30,8 +30,8 @@ export function clampRadius(radiusM: number): number {
 
 /**
  * A member's location sharing. "required" is for parental controls: a
- * supervising adult turns it on and the member can't turn it off. Nothing sets
- * it yet; the value exists so that work needs no data migration.
+ * supervising adult turns it on, and the member can't turn it off. Nothing
+ * sets it yet; the value exists so that work needs no data migration.
  */
 export const LOCATION_SHARING = ['off', 'on', 'required'] as const;
 export type LocationSharing = (typeof LOCATION_SHARING)[number];
@@ -240,7 +240,7 @@ export function liveCheckState(
   return now.getTime() - check.startedAt.getTime() > LIVE_CHECK_ANSWER_MS ? 'no_answer' : 'waiting';
 }
 
-/** A live fix's age for its label: "updated 20s ago", "updated 3 min ago". */
+/** A live fix's age for its label: `updated 20s ago`, `updated 3 min ago`. */
 export function fixAge(at: string, now: number = Date.now()): string {
   const seconds = Math.max(0, Math.round((now - new Date(at).getTime()) / 1000));
   return seconds < 90 ? `updated ${seconds}s ago` : `updated ${Math.round(seconds / 60)} min ago`;

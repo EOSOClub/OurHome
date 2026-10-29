@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 import { ATTRIBUTION, TILE_URL, primaryColor, themeColor } from '@/components/map/leaflet-shared';
 import { fixAge } from '@/lib/location';
 
-// The household map (Map page): every map place as its circle, labelled with
+// The household map (Map page): every map place as its circle, labeled with
 // who is there, and everyone away at the point their phone left from, with
 // how long ago. Not live: it shows what the server has, and the page refetches.
 // Leaflet is imported inside the effect (it touches `window` when it loads).

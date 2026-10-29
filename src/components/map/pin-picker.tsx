@@ -72,7 +72,7 @@ export function PinPicker({
     }
   };
 
-  // Create the map once.
+  // Create the map a single time.
   useEffect(() => {
     let cancelled = false;
     let observer: ResizeObserver | null = null;

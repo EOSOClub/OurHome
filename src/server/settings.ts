@@ -7,19 +7,20 @@ import { parse } from 'yaml';
 // startup into process.env so the rest of the code keeps reading plain
 // environment variables:
 //
-//   settings.yml  everything a household changes that isn't secret
-//                 (template: settings.example.yml)
-//   .env          secrets only: passwords, keys, tokens (template: .env.example)
+//   - settings.yml: everything a household changes that isn't secret
+//     (template: settings.example.yml)
+//   - .env: secrets only (passwords, keys, tokens; template: .env.example)
 //
 // settings.yml keys flatten to variable names: nested keys join with "_" and
 // are uppercased, so `smtp.host` is SMTP_HOST and `paperless.field.due_date` is
 // PAPERLESS_FIELD_DUE_DATE. Lists join with commas; empty values become "".
 //
 // Both files have a dev override, applied when not running in production
-// (npm run dev, the Prisma CLI), so one pair serves local development and the
-// server: settings.yml's `dev:` section is merged over the rest, and in .env a
-// DEV_NAME entry replaces NAME. settings.yml's `docker:` section is read by the
-// deployment scripts for Compose (port, names, network); the app ignores it.
+// (npm run dev, the Prisma CLI), so one pair serves both local development and
+// the server: settings.yml's `dev:` section is merged over the rest, and in
+// .env a DEV_NAME entry replaces NAME. settings.yml's `docker:` section is read
+// by the deployment scripts for Compose (port, names, network); the app
+// ignores it.
 //
 // In Docker, compose passes .env to the container as environment variables
 // (env_file) and mounts settings.yml read-only.

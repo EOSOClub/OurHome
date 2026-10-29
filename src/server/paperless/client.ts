@@ -8,7 +8,7 @@ const API_VERSION = 9;
 const TIMEOUT_MS = 20_000;
 
 export interface PaperlessConfig {
-  /** How this server reaches Paperless, e.g. http://paperless:8000 on the Docker network. */
+  /** How this server reaches Paperless, e.g., http://paperless:8000 on the Docker network. */
   url: string;
   token: string;
   /** How people open Paperless in a browser; used only for links. */

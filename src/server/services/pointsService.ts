@@ -166,8 +166,8 @@ export type CheckOutcome = 'queue' | 'pay_now' | 'nothing';
  * - Re-checked after the step's own auto-reset, and its points were already
  *   queued this cycle or the task is finished (completed / done this cycle)
  *   → pay now: a repeat earns only its own points.
- * - Queued already or task finished, but unchecked *by hand* since → nothing
- *   (unchecking and re-checking never earns twice).
+ * - Queued already or the task finished, but unchecked *by hand* since →
+ *   nothing (unchecking and re-checking never earns twice).
  * - Otherwise → queue until the task is completed.
  */
 export function checkOutcome(input: {

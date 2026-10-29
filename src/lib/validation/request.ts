@@ -11,8 +11,8 @@ import { httpLink } from '@/lib/validation/shopping';
 // what's wrong, and on TV `season` (none = the whole show) and `episode`
 // (none = the whole season) say where.
 // A purchase is what to buy, with an optional link, picture, price of one,
-// how many and why (`details`). A permission is what for, with an optional
-// from and until (`startsAt`, `endsAt`) and details.
+// how many and why (`details`). A permission is what it's for, with optional
+// start and end times (`startsAt`, `endsAt`) and details.
 
 const title = z.string().trim().min(1, 'Name is required.').max(200);
 const details = z.string().trim().max(2000).optional().nullable();

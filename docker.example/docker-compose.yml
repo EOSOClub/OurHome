@@ -24,8 +24,9 @@ services:
   web:
     build:
       # GitHub repo#branch (BuildKit fetches it and checks for new commits on
-      # every build), or `..` for this checkout (deploy -l). The deployment scripts
-      # set it from settings.yml docker.repo / docker.branch.
+      # every build), or the folder one level up for this checkout (deploy -l).
+      # The deployment scripts set it from settings.yml docker.repo /
+      # docker.branch.
       context: ${BUILD_CONTEXT:-https://github.com/EOSOClub/OurHome.git#main}
       # Relative to the source being built, so the image recipe always matches
       # the code it builds.

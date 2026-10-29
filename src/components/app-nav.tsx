@@ -110,7 +110,7 @@ export function AppNav({
   if (variant === 'bottom') return <BottomNav isActive={isActive} badgeFor={badgeFor} looksAfter={looksAfter} />;
 
   return (
-    // The labelled row needs about 750px, so tablets keep the phone bar.
+    // The labeled row needs about 750px, so tablets keep the phone bar.
     <nav className="hidden items-center gap-1 lg:flex">
       {topItems.map(({ href, label, icon: Icon }) => (
         <Link

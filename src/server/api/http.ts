@@ -244,7 +244,7 @@ const buckets = new Map<string, { count: number; resetAt: number }>();
  * The real client IP. Behind the Cloudflare Tunnel, `cf-connecting-ip` is set by
  * Cloudflare and is the only value a client can't forge. `x-forwarded-for` is
  * client-controlled on the first hop, so it is used only as a fallback for
- * non-Cloudflare access (e.g. local dev). Unknown IPs share a single bucket.
+ * non-Cloudflare access (e.g., local dev). Unknown IPs share a single bucket.
  */
 export function clientIp(req: NextRequest): string {
   return (
@@ -258,7 +258,7 @@ export function clientIp(req: NextRequest): string {
 /**
  * Fixed-window limiter keyed by an arbitrary string. Returns false once more than
  * `max` calls land in the same `windowMs`. Public endpoints that don't use
- * `withAuth` (e.g. the contact form) reuse this with their own key + budget.
+ * `withAuth` (e.g., the contact form) reuse this with their own key and budget.
  */
 export function rateLimit(key: string, windowMs: number, max: number): boolean {
   const now = Date.now();

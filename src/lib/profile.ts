@@ -4,7 +4,7 @@
  * The Android app mirrors PROFILE_COLORS in data/ProfileStyle.kt.
  */
 
-/** Accent colours a member can pick for their avatar (key → hex). */
+/** Accent colors a member can pick for their avatar (key → hex). */
 export const PROFILE_COLORS = {
   slate: '#64748b',
   red: '#ef4444',

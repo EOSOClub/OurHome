@@ -7,7 +7,7 @@ import { webFilterOn, type WebFilter } from '@/lib/webFilter';
 
 /**
  * A phone that hasn't checked in for this long counts as quiet: off, flat,
- * out of signal for hours, signed out or uninstalled. Phones check in about
+ * out of signal for hours, signed out, or uninstalled. Phones check in about
  * hourly, but Android can hold background work back for a few hours while a
  * phone sits idle, so this leaves room before anyone is alerted.
  */
@@ -16,7 +16,7 @@ export const PHONE_QUIET_MS = 8 * 60 * 60_000;
 /**
  * A phone that holds a Stay connected stream with battery Unrestricted is
  * missed after this long instead: its connection drops the moment it goes,
- * and it reconnects within a few minutes after a network change, a reboot or
+ * and it reconnects within a few minutes after a network change, a reboot, or
  * an app update (its longest wait between tries is 5 minutes).
  */
 export const PHONE_QUICK_QUIET_MS = 20 * 60_000;
@@ -33,12 +33,12 @@ const STATUS_FRESH_MS = 45 * 60_000;
 const SHUTDOWN_NEAR_MS = 5 * 60_000;
 
 /**
- * Why a phone went quiet, best guess first:
- * - app_removed: Firebase says OurHome is no longer on that install
+ * Why a phone went quiet, the best guess first:
+ * - app_removed: Firebase says OurHome is no longer on that installation
  *   (uninstalled, or its data cleared).
  * - switched_off: the phone said Android was switching it off.
  * - battery_flat: its battery was nearly empty, not charging.
- * - no_signal: it had no network, or barely any mobile signal.
+ * - no_signal: it had no network or barely any mobile signal.
  * - quiet: nothing to tell why.
  *
  * Problems while it's not quiet: notifications_off: Android's notifications
@@ -51,16 +51,16 @@ const SHUTDOWN_NEAR_MS = 5 * 60_000;
  * aren't filtered there. battery_low: its battery was at [PHONE_LOW_PCT] or below
  * and not charging at its last word, so it may soon go flat; gone once it
  * charges or climbs back over. battery_restricted: Android's battery optimization still
- * applies to OurHome there, which can delay rings, live checks and alerts, or
+ * applies to OurHome there, which can delay rings, live checks, and alerts, or
  * stop the app in the background. close_guard_off: "Keep Our Home running" is
  * off in Android's Accessibility settings, so the child can close OurHome
  * (Android's Stop or Force stop). uninstall_guard_off: OurHome isn't a device
  * admin there, so it can be uninstalled without the parent's PIN.
- * emergency_unlock_*: the child started the emergency unlock (it can't be
- * cancelled; the parent chose its length, 1, 5 or 10 hours, when setting
+ * emergency_unlock_*: the child started the emergency unlock period (it can't
+ * be canceled; the parent chose its length, 1, 5, or 10 hours, when setting
  * the PIN), one alert per milestone; while it runs, the guards being off is
  * part of it and isn't alerted separately. battery_restricted,
- * close_guard_off and uninstall_guard_off only while a supervising adult
+ * close_guard_off, and uninstall_guard_off only while a supervising adult
  * requires that protection ([PHONE_RULES]).
  */
 export const PHONE_PROBLEMS = [
@@ -88,8 +88,8 @@ export const PHONE_PROBLEMS = [
 export type PhoneProblem = (typeof PHONE_PROBLEMS)[number];
 
 /**
- * The emergency unlock's milestones, as the phone sends them (its
- * CloseGuard.EmergencyDuration). "2h_elapsed" is only in the 5-hour unlock,
+ * The milestones of an emergency unlock period, as the phone sends them (its
+ * CloseGuard.EmergencyDuration). "2h_elapsed" is only in the 5-hour period,
  * "3h_elapsed" and "6h_elapsed" are only in the 10-hour one.
  */
 export const EMERGENCY_UNLOCK_STAGES = [
@@ -113,7 +113,7 @@ const EMERGENCY_PROBLEMS: Record<EmergencyUnlockStage, PhoneProblem> = {
   unlocked: 'emergency_unlock_unlocked',
 };
 
-/** How long a running emergency unlock has left at each countdown milestone. */
+/** How long a running emergency unlock period has left at each countdown milestone. */
 const EMERGENCY_LEFT: Partial<Record<PhoneProblem, string>> = {
   emergency_unlock_30m_left: '30 minutes',
   emergency_unlock_1h: '1 hour',
@@ -137,7 +137,7 @@ export const SILENT_PROBLEMS: ReadonlySet<PhoneProblem> = new Set([
  * means required). keepRunning: "Keep Our Home running" (the close guard,
  * an Accessibility service), so OurHome can't be closed. preventUninstall:
  * OurHome as a device admin with the parent's PIN, so it can't be removed.
- * batteryUnrestricted: battery optimization off for OurHome, so rings and
+ * batteryUnrestricted: battery optimization turned off for OurHome, so rings and
  * alerts aren't held back.
  */
 export const PHONE_RULES = ['keepRunning', 'preventUninstall', 'batteryUnrestricted'] as const;
@@ -170,7 +170,7 @@ export function phoneRules(user: Partial<PhoneRuleColumns>): PhoneRules {
 
 /**
  * The steps of Set up this phone, in the app's order (its PhoneSetupSteps.kt):
- * Keep Our Home running last, because once it's on, App info, Device admin and
+ * Keep Our Home running last, because once it's on, App info, Device admin, and
  * Accessibility can't be opened there.
  */
 export const PHONE_SETUP_STEPS = [
@@ -259,9 +259,9 @@ export interface PhoneSnapshot {
   batteryUnrestricted?: boolean | null;
   /** null: an app from before the close guard, which can't say. */
   closeGuard?: boolean | null;
-  /** null: an app from before the uninstall guard, which can't say. */
+  /** null: an app from before the guard against uninstalling, which can't say. */
   uninstallGuard?: boolean | null;
-  /** The emergency unlock's last milestone; null while none is running. */
+  /** The last milestone of the emergency unlock period; null while none is running. */
   emergencyUnlockStage?: string | null;
   /** Stay connected is on in the app. */
   stayConnected?: boolean | null;
@@ -348,9 +348,9 @@ function isLow(phone: PhoneSnapshot): boolean {
  * only while their app usage is shared, and only from apps that report it.
  * The web filter while one is chosen, once the phone has said what its
  * Private DNS is. A low battery always, from its latest reading. Battery saving, the close
- * guard and the uninstall guard only while their
- * supervisors require them ([PHONE_RULES]). The emergency unlock's milestones
- * always: the guard is there, and the child is taking it off.
+ * guard, and the guard against uninstalling only while their
+ * supervisors require them ([PHONE_RULES]). The milestones of an emergency unlock
+ * period always: the guard is there, and the child is taking it off.
  */
 export function phoneProblems(phone: PhoneSnapshot | null, expect: PhoneExpectations, now: Date): PhoneProblem[] {
   if (!phone) return [];

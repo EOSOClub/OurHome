@@ -2,7 +2,7 @@
 // validation, and UI. (The MongoDB schema stores these as plain strings -
 // validated here and in src/lib/validation - see prisma/schema/models.prisma.)
 
-// Household roles, highest authority first. There is exactly one `head` per
+// Household roles, most authority first. There is exactly one `head` per
 // household (the "Head of House"); see src/server/services/userService.ts.
 // Teen and child are household members with narrower defaults; a guest is
 // someone from outside the household (a sitter, a visitor). `adult` was stored
@@ -150,7 +150,7 @@ export const REQUEST_CATEGORY_LABELS: Record<RequestCategory, string> = {
 export const MAINTENANCE_STATUSES = ['pending', 'accepted', 'completed', 'declined'] as const;
 export type MaintenanceStatus = (typeof MAINTENANCE_STATUSES)[number];
 
-/** Section headers on the requests page. */
+/** Section headers on the Requests page. */
 export const MAINTENANCE_STATUS_LABELS: Record<MaintenanceStatus, string> = {
   pending: 'Waiting for acceptance',
   accepted: 'In progress',
@@ -166,9 +166,9 @@ export type RequestStatus = (typeof REQUEST_STATUSES)[number];
 // Media requests are one step: whoever approves them (Settings → Request
 // types; by default the Requests "Approve" switch in the page-access grid)
 // marks them added (which completes them) or declines them where allowed.
-// "accepted" only exists on rows from the older accept → available flow and
-// still counts as waiting. Requests made before statuses existed have none -
-// treat a missing status as pending.
+// "accepted" only exists on rows from the older two-step flow (accepted, then
+// available) and still counts as waiting. Requests made before statuses
+// existed have none - treat a missing status as pending.
 export const MEDIA_STATUS_LABELS: Record<RequestStatus, string> = {
   pending: 'Waiting',
   accepted: 'Waiting',
@@ -194,7 +194,7 @@ export const MEDIA_TYPE_LABELS: Record<MediaType, string> = {
   tv: 'TV show',
 };
 
-/** Plural, for the section headers on the requests page. */
+/** Plural, for the section headers on the Requests page. */
 export const MEDIA_TYPE_SECTION_LABELS: Record<MediaType, string> = {
   movie: 'Movies',
   tv: 'TV shows',

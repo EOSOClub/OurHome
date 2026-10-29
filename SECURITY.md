@@ -1,8 +1,8 @@
 # Security Policy
 
-OurHome holds a household's bills, documents, calendar, the inventory of the home and the sign-ins of everyone in it. If you find a way to get at that data, or to do something your role should not allow, please tell us privately so it can be fixed before anyone else finds it.
+OurHome holds a household's bills, documents, calendar, the inventory of the home, and the sign-ins of everyone in it. If you find a way to get at that data, or to do something your role should not allow, please tell us privately so it can be fixed before anyone else finds it.
 
-This policy covers all three OurHome repos: [OurHome](https://github.com/EOSOClub/OurHome) (the website and server), [OurHomeApp](https://github.com/EOSOClub/OurHomeApp) (the Android app) and [OurHomeServices](https://github.com/EOSOClub/OurHomeServices) (the supporting Docker stacks).
+This policy covers all three OurHome repos: [OurHome](https://github.com/EOSOClub/OurHome) (the website and server), [OurHomeApp](https://github.com/EOSOClub/OurHomeApp) (the Android app), and [OurHomeServices](https://github.com/EOSOClub/OurHomeServices) (the supporting Docker stacks).
 
 ## How to report a security problem
 
@@ -17,7 +17,7 @@ Report it privately on GitHub instead:
 Helpful things to include:
 
 - What the problem is, and what someone could do with it.
-- Which part it is in: the website, the Android app or the server setup.
+- Which part it is in: the website, the Android app, or the server setup.
 - Steps to show it happening, or a small example.
 - Which version you are running (the release, or the date or commit you installed).
 

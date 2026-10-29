@@ -1,6 +1,6 @@
 // Task time-to-complete (TTC) and points: the pure rules shared by the task
-// editor (live, as you type), the server (every save is normalised here) and
-// the Android app (mirrored in data/TaskPoints.kt - keep the two in step).
+// editor (live, as you type), the server (every save is normalized here), and
+// the Android app (mirrored in data/TaskPoints.kt - keep the two in sync).
 //
 // Units: minutes are whole minutes; points are integer hundredths ("centi"),
 // so 3.33 pts is 333. Splits use largest-remainder rounding, so the parts
@@ -17,10 +17,10 @@
 // - A task with steps shows *live* totals: the sum of its steps.
 // - Editing a step changes only that step (and so the live totals).
 // - Editing a task total redistributes that dimension across the steps in
-//   proportion to their current values. If any step is customised, this needs
-//   confirmation, and confirming clears the customisation it overwrites.
+//   proportion to their current values. If any step is customized, this needs
+//   confirmation, and confirming clears the customization it overwrites.
 // - Adding/removing a step redistributes the base totals while no step is
-//   customised; once one is, totals float (a new step gets the average).
+//   customized; once one is, totals float (a new step gets the average).
 
 export const DEFAULT_MINUTES_PER_POINT = 10;
 
@@ -48,7 +48,7 @@ export interface PointsState<S extends StepPoints = StepPoints> {
 
 export interface EditResult<S extends StepPoints> {
   state: PointsState<S>;
-  /** The edit would overwrite customised steps; nothing changed. Re-run with
+  /** The edit would overwrite customized steps; nothing changed. Re-run with
    *  `confirm: true` after the user agrees. */
   needsConfirm: boolean;
 }
@@ -63,7 +63,7 @@ export function fromCenti(centi: number): number {
   return centi / 100;
 }
 
-/** "3.5", "6.79", "12": a points value for display. */
+/** "3.5", "6.79", "12": a point value for display. */
 export function formatPoints(centi: number): string {
   const value = fromCenti(centi);
   return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0$/, '');
@@ -84,8 +84,8 @@ export function taskRateCenti(task: TaskPointsBase, minutesPerPoint: number): nu
 }
 
 /**
- * Splits a whole-number `total` in proportion to `weights` (largest remainder),
- * so the parts sum to exactly `total`. All-zero (or no) weights split evenly.
+ * Splits a whole-number `total` in proportion to `weights` (by the largest
+ * remainder method), so the parts sum to exactly `total`. All-zero (or no) weights split evenly.
  */
 export function distribute(total: number, weights: number[]): number[] {
   const n = weights.length;
@@ -146,7 +146,7 @@ function stepPointsFromTime(
 }
 
 /**
- * Set the task's TTC. With points following time the base points follow too,
+ * Set the task's TTC. With points following time, the base points follow too,
  * and both are redistributed across the steps; otherwise only time is.
  */
 export function setTaskMinutes<S extends StepPoints>(
@@ -209,7 +209,7 @@ function redistribute<S extends StepPoints>(
         ...s,
         minutes: minutes[i],
         pointsCenti: points[i],
-        // Confirming clears the customisation of each dimension it rescaled.
+        // Confirming clears the customization of each dimension it rescaled.
         minutesCustom: dims.minutes ? false : s.minutesCustom,
         pointsFollowTime: dims.points ? true : s.pointsFollowTime,
       })),
@@ -270,7 +270,7 @@ function mapStep<S extends StepPoints>(
 
 /**
  * Add a step (its own fields come from `extra`). The first step takes the whole
- * base; while nothing is customised, the base is re-split with the new step
+ * base; while nothing is customized, the base is re-split with the new step
  * weighted like an average one; otherwise totals float and the new step gets
  * the average values.
  */
@@ -302,7 +302,7 @@ export function addStep<S extends StepPoints>(
 }
 
 /** Remove a step: its share goes back to the others while nothing is
- *  customised; otherwise totals shrink. */
+ *  customized; otherwise totals shrink. */
 export function removeStep<S extends StepPoints>(state: PointsState<S>, index: number): PointsState<S> {
   const { task } = state;
   const steps = state.steps.filter((_, i) => i !== index);

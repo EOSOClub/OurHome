@@ -27,8 +27,8 @@ export function hashSetupToken(token: string): string {
 /**
  * Where the child's phone can reach this server: the address built into the
  * app, else the site's public address, else the one this request came in on.
- * Like the Install step, so a Head on a home-network address doesn't hand out
- * a link that only works at home.
+ * Like the installation step of the add-child wizard, so a Head on a
+ * home-network address doesn't hand out a link that only works at home.
  */
 export function setupBaseUrl(requestUrl: string): string {
   const base = getAppRelease()?.server || process.env.BETTER_AUTH_URL?.trim() || new URL(requestUrl).origin;

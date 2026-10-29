@@ -60,7 +60,7 @@ export const SETUP_NAMES = {
 const PAYMENT_WORDING =
   String.raw`payment (was |has been )?(\w+ )?(processed|posted|confirm|received)|thank you for your payment`;
 
-/** Biller names from "City Water, Electric Co" - trimmed, de-duplicated. */
+/** Biller names from "City Water, Electric Co" - trimmed, without duplicates. */
 export function parseBillers(text: string): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -81,13 +81,14 @@ function escapeRegex(s: string): string {
 /**
  * The two tag patterns: a payment names a biller and payment wording; a bill
  * names a biller, has no payment wording, and reads like a bill. They exclude
- * each other, since a document tagged both is skipped by the import. Matching
+ * each other, since the import skips a document tagged both. Matching
  * is case-insensitive (set on the tag), so no (?i).
  */
 export function billerPatterns(billers: string[]): { bill: string; payment: string } {
-  // \b only works next to a letter or digit ("AT&T (Mobile)" ends in ")"), so
-  // names that start or end otherwise get their boundaries one by one. The
-  // shared form is shorter, which matters under the 256-character limit.
+  // \b only works next to a letter or digit, and "AT&T (Mobile)" ends in a
+  // closing parenthesis, so names that start or end otherwise get their
+  // boundaries one by one. The shared form is shorter, which matters under
+  // the 256-character limit.
   const plain = billers.every((b) => /^\w/.test(b) && /\w$/.test(b));
   const who = plain
     ? String.raw`\b(${billers.map(escapeRegex).join('|')})\b`
@@ -187,7 +188,7 @@ function savedView(name: string, rules: { rule_type: number; value: string }[]):
   return { name, show_on_dashboard: true, show_in_sidebar: true, sort_field: 'modified', sort_reverse: true, filter_rules: rules };
 }
 
-/** Everything tagged bill or bill-payment, newest change first. */
+/** Everything tagged bill or bill-payment, the newest change first. */
 export function allBillsView(tagIds: number[]): SavedViewBody {
   return savedView(
     SETUP_NAMES.allView,
@@ -353,7 +354,7 @@ export class PaperlessAdmin {
 
   /**
    * Every document source a workflow trigger accepts (consume folder, API,
-   * mail, web UI…). Paperless's default leaves newer ones out, e.g. browser
+   * mail, web UI…). Paperless's default leaves newer ones out, e.g., browser
    * uploads, so triggers list them all. Undefined = use Paperless's default.
    */
   async triggerSources(): Promise<number[] | undefined> {

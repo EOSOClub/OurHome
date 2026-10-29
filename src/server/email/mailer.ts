@@ -12,8 +12,8 @@ interface SendEmailArgs {
   text: string;
   html?: string;
   // Optional Reply-To. The envelope `from` always stays SMTP_FROM (Proton only
-  // lets you send as an address you own), so to route replies elsewhere - e.g. a
-  // contact-form forward that should reply to the visitor - set replyTo.
+  // lets you send mail as an address you own), so to route replies elsewhere
+  // (e.g., a contact-form forward that should reply to the visitor), set replyTo.
   replyTo?: string;
 }
 
@@ -45,7 +45,7 @@ export function isEmailConfigured(): boolean {
 export async function sendEmail({ to, subject, text, html, replyTo }: SendEmailArgs): Promise<void> {
   const tx = getTransporter();
   if (!tx) {
-    // No SMTP configured (e.g. local dev). Log so the flow is still testable
+    // No SMTP configured (e.g., local dev). Log so the flow is still testable
     // without silently dropping the message.
     console.warn(
       `[email] SMTP not configured; skipping send to ${to}.\nSubject: ${subject}\n${replyTo ? `Reply-To: ${replyTo}\n` : ''}${text}`,

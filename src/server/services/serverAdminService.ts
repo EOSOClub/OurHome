@@ -17,7 +17,7 @@ import type {
 
 type Tx = Prisma.TransactionClient;
 
-/** Starter categories, so the task, shopping and inventory pickers aren't empty. */
+/** Starter categories, so the task, shopping, and inventory pickers aren't empty. */
 const DEFAULT_CATEGORIES = [
   { name: 'Cleaning', kind: 'task', color: '#38bdf8' },
   { name: 'Pets', kind: 'task', color: '#f472b6' },

@@ -117,7 +117,7 @@ const DECISION_SECTIONS = [
 const shortDate = (iso: string, timeZone?: string) =>
   new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric', timeZone });
 
-/** "Fri, Oct 24, 6:00 PM" in the household's zone. */
+/** `Sat, Oct 24, 6:00 PM` in the household's zone. */
 const shortDateTime = (iso: string, timeZone?: string) =>
   new Date(iso).toLocaleString(undefined, {
     weekday: 'short',
@@ -128,7 +128,7 @@ const shortDateTime = (iso: string, timeZone?: string) =>
     timeZone,
   });
 
-/** A permission's from and until: "Fri, Oct 24, 6:00 PM until Sat, Oct 25, 11:00 AM". */
+/** A permission's from and until: `Saturday, Oct 24, 6:00 PM until Sun, Oct 25, 11:00 AM`. */
 const whenLabel = (r: { startsAt: string | null; endsAt: string | null }, timeZone?: string) =>
   r.startsAt
     ? `${shortDateTime(r.startsAt, timeZone)}${r.endsAt ? ` until ${shortDateTime(r.endsAt, timeZone)}` : ''}`

@@ -6,7 +6,7 @@ import { FEATURES, featureForPath, type Feature } from '@/lib/features';
 
 // The features the server admin left on for this household, from the app
 // layout, so menus and nav links can hide the rest. The server enforces it
-// anyway (API 403, pages redirect); this only keeps dead links out of sight.
+// anyway (API 403, page redirects); this only keeps dead links out of sight.
 
 const HouseholdFeaturesContext = createContext<readonly Feature[]>(FEATURES);
 

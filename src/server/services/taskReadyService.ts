@@ -18,7 +18,7 @@ export interface ReadyTask {
   rotationUserIds?: string | null;
 }
 
-/** The notice text, e.g. "It's your turn - due Fri, Oct 10." */
+/** The notice text, e.g., `It's your turn - due Sat, Oct 10.` */
 export function taskReadyBody(task: ReadyTask, timeZone?: string): string {
   const lead = task.rotationUserIds ? 'It’s your turn' : 'Ready for you';
   if (!task.dueDate) return `${lead}.`;

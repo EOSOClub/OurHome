@@ -185,7 +185,7 @@ async function ingestBill(
   const name = billName(doc);
   const from = fromLabel(opts.source);
   // What's owed by the due date is the total/balance. When a statement carries both
-  // a balance (`totalDue`) and this period's charges (`amount`, e.g. a utility), the
+  // a balance (`totalDue`) and this period's charges (`amount`, e.g., a utility), the
   // balance is the headline amount and the current charges are kept as detail.
   const amount = doc.totalDue ?? doc.amount ?? 0;
   const currentCharges = doc.totalDue != null ? doc.amount ?? null : null;
@@ -270,7 +270,7 @@ async function ingestReceipt(
       return { status: 'duplicate' as const, kind: 'receipt' as const, reference, paymentId: dupPayment.id };
     }
 
-    // Match to an existing bill, strongest signal first:
+    // Match to an existing bill, the strongest signal first:
     //   1. a shared real invoice/confirmation number (reference),
     //   2. the same account number - a strong identifier; amounts may legitimately
     //      differ (partial payments, or a payment toward a past-due balance),
@@ -404,8 +404,8 @@ async function ingestReceipt(
     }
 
     // No matching bill: record the bill as already paid, plus its payment, so the
-    // Bills tab shows what was paid (the user's "automatically add bills and
-    // payments made"). Honor an explicit fee split so the bill's balance is the base
+    // Bills tab shows what was paid (the user asked for bills and payments made
+    // to be added automatically). Honor an explicit fee split so the bill's balance is the base
     // amount and the surcharge is recorded separately (not baked into the balance).
     const fee = doc.fee ?? null;
     const base = fee != null ? (doc.baseAmount ?? Math.max(0, amount - fee)) : amount;

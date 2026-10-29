@@ -1,7 +1,7 @@
 /**
  * Rotating assignees: a task holds an ordered list of member ids, and its
  * assignee moves along that list each time the task moves on - a recurring
- * task completed (no cycles), or a cycle ending, done or missed (one step
+ * task completed (no cycles), or a cycle ending, whether done or missed (one step
  * per cycle, so a missed turn still passes on). Pure helpers; the server
  * applies them in taskService. See docs/ARCHITECTURE.md "Rotating assignees".
  */

@@ -5,8 +5,8 @@
 //   making them wait before the next try (anywhere it's asked for: a protected
 //   screen, Profile, signing out, changing the PIN). At most once an hour.
 // - opened: the PIN let someone into a protected screen ([PIN_SCREENS]), which
-//   stays open until they leave it or the screen turns off. Prevent uninstall
-//   and Keep Our Home running stay on.
+//   stays open until they leave it or the screen turns off. The settings
+//   "Prevent uninstall" and "Keep Our Home running" stay on.
 // - unlocked: the PIN was entered in Unlock Our Home (Profile, or Login while
 //   offline), which turns Prevent uninstall off so OurHome can be uninstalled.
 

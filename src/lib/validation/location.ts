@@ -45,7 +45,7 @@ export const reportPresenceSchema = z.object({
 });
 export type ReportPresenceInput = z.infer<typeof reportPresenceSchema>;
 
-/** A member's own choices. "required" is never chosen by the member. */
+/** A member's own choices. The member never chooses "required". */
 export const updateLocationConsentSchema = z
   .object({
     sharing: z.enum(SELF_SHARING),

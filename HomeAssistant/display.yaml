@@ -1,5 +1,5 @@
-# Home Assistant - display-only inventory (scanning now happens in the
-# "Our Home" Android app; see docs/home-assistant.md → "Display-only mode").
+# Home Assistant - display-only inventory. Scanning now happens in the
+# "Our Home" Android app; see docs/home-assistant.md → "Display-only mode".
 #
 # HA polls a read-only feed and shows the numbers. Nothing here changes stock,
 # and nothing needs editing when you add a new tag or item.

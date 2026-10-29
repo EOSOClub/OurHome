@@ -14,7 +14,7 @@ import { fieldErrors } from '@/lib/api';
 
 /**
  * One checklist item - shared by the task card's expanded checklist and the
- * task editor. Handles its own inline edit mode (title + reset cadence) and
+ * task editor. Handles its own inline edit mode (title and reset cadence) and
  * delete confirmation; toggling/reordering/saving go through the caller's
  * mutations.
  */

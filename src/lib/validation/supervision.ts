@@ -5,7 +5,7 @@ import { LIMIT_MAX, LIMIT_MIN } from '@/lib/appLimits';
 import { MAX_ALLOWED } from '@/lib/appSchedules';
 import { CAP_MAX, CAP_MIN, RATE_MAX } from '@/lib/pointsTime';
 
-/** Replace who supervises one child or teen. An empty list means nobody does. */
+/** Replaces the list of who supervises one child or teen. An empty list means nobody does. */
 export const setSupervisorsSchema = z.object({
   supervisedId: z.string().min(1),
   supervisorIds: z.array(z.string().min(1)).max(50),

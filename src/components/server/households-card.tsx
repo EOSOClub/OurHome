@@ -373,8 +373,8 @@ function CreateHouseholdDialog({ onClose, onCreated }: { onClose: () => void; on
 }
 
 /**
- * Which features a household uses. Turned-off ones vanish from its site and
- * app (their API refuses too) but nothing is deleted: turning one back on
+ * Which features a household use. Turned-off ones vanish from its site and
+ * app (their API refuses too), but nothing is deleted: turning one back on
  * brings its data back.
  */
 function FeaturesDialog({

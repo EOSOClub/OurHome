@@ -355,7 +355,7 @@ function BillRow({
 }) {
   const timeZone = useHouseholdZone();
   const router = useRouter();
-  // Paying and duplicating add records (Add); deleting follows own vs others'.
+  // Paying and duplicating add records (Add); deleting follows own vs. others'.
   const canDelete = canModify(access, 'delete', bill.createdById, userId);
   const queryClient = useQueryClient();
   const [confirmDelete, setConfirmDelete] = useState(false);

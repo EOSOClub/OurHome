@@ -14,7 +14,7 @@ export type WebFilter = (typeof WEB_FILTERS)[number];
  * What each filter is, for the chooser and Set up this phone. hostname: what
  * goes into Android's Private DNS ("Private DNS provider hostname").
  * - family: CleanBrowsing's Family Filter. Blocks adult sites, and the proxy
- *   and VPN sites used to get around a filter, and keeps Google, Bing and
+ *   and VPN sites used to get around a filter, and keeps Google, Bing, and
  *   YouTube on safe search.
  * - adult: Cloudflare's 1.1.1.1 for Families. Blocks adult sites and malware.
  */

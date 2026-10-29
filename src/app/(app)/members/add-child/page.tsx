@@ -7,8 +7,8 @@ import { getAppRelease } from '@/server/services/appDownloadService';
 import { AddChildWizard } from '@/components/members/add-child-wizard';
 
 // Set up a child: Head of House only, because choosing who supervises a child
-// is the Head's (supervisionService). ?member= reopens it at the Install step
-// for a child or teen already added.
+// is the Head's (supervisionService). ?member= reopens it at the installation
+// step for a child or teen already added.
 export default async function AddChildPage({
   searchParams,
 }: {

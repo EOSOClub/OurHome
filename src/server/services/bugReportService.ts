@@ -5,7 +5,7 @@ import { can } from '@/lib/permissions';
 import type { SubmitBugReportInput } from '@/lib/validation/bugReport';
 
 // Where bug reports are emailed (BUG_REPORT_EMAIL). Unset → reports are still
-// stored and the head is notified in-app; the email is skipped and logged.
+// stored, and the head is notified in-app; the email is skipped and logged.
 const SUPPORT_TO = process.env.BUG_REPORT_EMAIL?.trim() || null;
 
 interface Reporter {

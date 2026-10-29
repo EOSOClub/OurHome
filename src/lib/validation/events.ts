@@ -13,7 +13,7 @@ export const nfcScanWebhookSchema = z.object({
   // per phone). Resolved to a household member so the activity feed names them;
   // optional so unmapped/legacy scans still validate.
   actor: z.string().trim().min(1).max(100).optional().nullable(),
-  // HA tag friendly name. Used only to auto-register a new item the first time
+  // Friendly name of the HA tag. Used only to auto-register a new item the first time
   // an unknown tag is scanned; ignored once the tag is bound to an item.
   name: z.string().trim().min(1).max(200).optional().nullable(),
 });

@@ -33,8 +33,8 @@ export default async function SettingsPage() {
 
   const householdId = user.householdId!;
   const isHead = can(user.role, 'household:manage');
-  // "HTTPS only" and contact-form messages are server-wide: they're on the
-  // server admin's Server page now.
+  // The HTTPS-only setting and contact-form messages are server-wide: they're
+  // on the server admin's Server page now.
   const [
     integrations,
     tags,

@@ -165,11 +165,11 @@ export async function sendData(
 
 /** Tries per message, the first included. */
 export const SEND_ATTEMPTS = 3;
-/** The longest a `Retry-After` is honoured; past it the push waits for the hourly check. */
+/** The longest a `Retry-After` is honored; past it the push waits for the hourly check. */
 const MAX_RETRY_WAIT_MS = 10_000;
 
 /**
- * How long to wait before trying a failed send again, or null to give up.
+ * How long to wait before retrying a failed delivery, or null to give up.
  * [status] null: the request never got an answer (connection refused, DNS).
  * Retried: that, 429 (FCM's quota) and 5xx (FCM down for a moment), as
  * Firebase asks: its `Retry-After` when given, else 0.5 s then 1 s.

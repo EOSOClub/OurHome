@@ -15,7 +15,7 @@ const ONE_DAY = 60 * 60 * 24;
  * The app is reached at its public URL (BETTER_AUTH_URL, trusted automatically,
  * plus BETTER_AUTH_TRUSTED_ORIGINS) and also by IP or hostname on the home
  * network, which no config can list ahead of time. A home-network origin is
- * trusted only when it is the very host the request was sent to, i.e. a
+ * trusted only when it is the very host the request was sent to, i.e., a
  * same-origin request, so another site still can't forge a sign-in.
  */
 function sameOriginOnHomeNetwork(request?: Request): string[] {
@@ -118,7 +118,7 @@ If you didn't request this, you can safely ignore this email.`,
   },
   // A temporary password is gone only once the user really changed it: the
   // forced-change flag is lifted here, after Better Auth's change-password
-  // succeeded - never on the client's word (that route could be called
+  // succeeded, and not on the client's word (that route could be called
   // without changing anything). Their setup link ends with it: the phone it
   // was for is signed in.
   hooks: {

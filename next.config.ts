@@ -30,7 +30,7 @@ const nextConfig: NextConfig = {
   // just localhost. Without this, Next 16 blocks cross-origin requests to its
   // internal /_next/* dev resources, which breaks client JS, HMR, and the RSC
   // navigation that runs after sign-in - making mobile login appear to fail.
-  // Wildcards cover common private subnets so a DHCP IP change doesn't break it.
+  // Wildcards cover common private subnets, so a DHCP IP change doesn't break it.
   allowedDevOrigins: ['192.168.*', '10.*', '172.16.*'],
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];

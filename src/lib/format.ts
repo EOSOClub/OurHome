@@ -57,7 +57,7 @@ export function dateKey(date: Date | string, timeZone?: string): string {
   return new Date(zoned(new Date(date), timeZone).day).toISOString().slice(0, 10);
 }
 
-/** Human-friendly due-date label relative to today. */
+/** Human-friendly due-date label, worded from today's point of view. */
 export function formatDueDate(date: Date | string | null | undefined, timeZone?: string): string {
   if (!date) return 'No due date';
   const due = new Date(date);

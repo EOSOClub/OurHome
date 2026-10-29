@@ -66,7 +66,7 @@ export async function phoneSchedules(householdId: string, userId: string): Promi
   }));
 }
 
-/** Each of [userIds]' schedules, earliest start first, for People you look after. */
+/** The schedules of each of [userIds], earliest start first, for People you look after. */
 export async function schedulesByKid(householdId: string, userIds: string[]): Promise<Map<string, ScheduleDTO[]>> {
   const out = new Map<string, ScheduleDTO[]>();
   if (userIds.length === 0) return out;

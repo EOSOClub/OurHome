@@ -17,7 +17,7 @@ export interface AppRelease {
   builtAt: string;
   sizeBytes: number;
   sha256: string;
-  /** Built with google-services.json, i.e. with instant alerts. */
+  /** Built with google-services.json, i.e., with instant alerts. */
   firebase: boolean;
 }
 

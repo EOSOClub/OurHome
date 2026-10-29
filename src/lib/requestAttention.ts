@@ -22,7 +22,7 @@ export interface AttentionRequest {
 
 /** Who decides which approve-workflow requests, from one member's side (Settings → Request types). */
 export interface RequestDeciding {
-  /** Approve-workflow kinds they handle (for requesters the supervisors rule doesn't cover). */
+  /** Approve-workflow kinds they handle (for requesters the supervisor rule doesn't cover). */
   handles: ReadonlySet<string>;
   /** Kinds where a request from someone with supervisors goes to those supervisors. */
   bySupervisors: ReadonlySet<string>;

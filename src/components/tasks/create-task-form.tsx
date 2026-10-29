@@ -29,7 +29,7 @@ import {
   type PointsDraft,
 } from '@/components/tasks/points-editor';
 
-/** The keys the server reports the time, points and checklist under. */
+/** The keys the server reports the time, points, and checklist under. */
 const POINTS_KEYS = ['estimatedMinutes', 'points', 'pointsFollowTime', 'subtasks'];
 
 const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
@@ -242,7 +242,7 @@ export function CreateTaskForm({
         cycleMonthdays: recurKind === 'monthly' && rollover ? cycleMonthdays : null,
       };
     } else {
-      // null clears recurrence on edit; ignored on create.
+      // null clears recurrence when editing; ignored when creating.
       payload.recurrence = null;
     }
 

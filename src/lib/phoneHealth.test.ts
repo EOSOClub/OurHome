@@ -157,7 +157,7 @@ describe('phone problems', () => {
     const phone = { lastSeenAt: hoursAgo(1), locationAlways: true };
     expect(phoneProblems({ ...phone, closeGuard: false }, { sharing: 'on' }, now)).toEqual(['close_guard_off']);
     expect(phoneProblems({ ...phone, closeGuard: true }, { sharing: 'on' }, now)).toEqual([]);
-    // An app from before the close guard can't say: no alert.
+    // An app older than the close guard leaves the field unset: the check stays quiet.
     expect(phoneProblems({ ...phone, closeGuard: null }, { sharing: 'on' }, now)).toEqual([]);
     expect(phoneAlertText('close_guard_off', 'Mia').body).toMatch(/Keep Our Home running/);
   });
@@ -191,7 +191,7 @@ describe('phone problems', () => {
     expect(
       phoneProblems(phone, { sharing: 'on', rules: { keepRunning: false, preventUninstall: false, batteryUnrestricted: false } }, now),
     ).toEqual([]);
-    // The emergency unlock is still said: the guard is on that phone either way.
+    // The emergency unlock stage is still reported: the guard is on that phone either way.
     expect(
       phoneProblems(
         { ...phone, emergencyUnlockStage: 'started' },
@@ -310,7 +310,7 @@ describe('Set up this phone progress', () => {
       usageAccess: null,
       batteryUnrestricted: true,
       closeGuard: false,
-      // An app from before the uninstall guard leaves it out.
+      // An app that predates uninstall prevention leaves it out.
     });
     const required = setupRequired({ sharing: 'required', usageShared: true, rules: allRules });
     expect(setupProgress(required, checks)).toEqual([

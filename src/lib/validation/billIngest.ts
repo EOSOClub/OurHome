@@ -17,8 +17,8 @@ export const billIngestSchema = z.object({
   amount: z.number().nonnegative().max(10_000_000).optional().nullable(),
   totalDue: z.number().nonnegative().max(10_000_000).optional().nullable(),
   // Optional split of a receipt's `amount` when the parser can extract it: the
-  // base charge vs. the card/convenience fee. When absent, the ingest service
-  // infers the fee from the matched bill's balance (see billIngestService).
+  // base charge vs. the card/convenience fee. When absent, billIngestService
+  // infers the fee from the matched bill's balance.
   fee: z.number().nonnegative().max(10_000_000).optional().nullable(),
   baseAmount: z.number().nonnegative().max(10_000_000).optional().nullable(),
   currency: z.string().trim().max(8).optional().nullable(),
@@ -31,8 +31,8 @@ export const billIngestSchema = z.object({
   // Stable sender key for matching a payment to its bill when no reference or
   // account number links them (Paperless: "paperless-correspondent:<id>").
   billerKey: z.string().trim().max(200).optional().nullable(),
-  // Link back to the original document, e.g. the Paperless details page.
-  // http(s) only: it is rendered as a link, and z.url() alone allows javascript:.
+  // Link back to the original document, e.g., the Paperless details page.
+  // http(s) only: it is rendered as a link, and z.url() alone allows `javascript:` links.
   sourceUrl: z
     .string()
     .trim()

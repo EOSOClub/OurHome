@@ -9,6 +9,7 @@ import { toast } from '@/components/ui/toast';
  * field): which fields to mark and what to say under each, each kept until
  * that field is edited.
  *
+ * ```tsx
  *   const fe = useFieldErrors('task');
  *   useMutation({ ..., onError: fe.fail })
  *   <form {...fe.formProps}>
@@ -16,6 +17,7 @@ import { toast } from '@/components/ui/toast';
  *       <Input {...fe.invalid('title')} />
  *       <FieldNote id={fe.noteId('title')} error={fe.get('title')} />
  *     </div>
+ * ```
  *
  * Typing in (or clicking a button inside) an element with data-field="key"
  * clears that key; one element may name several ("roomIds floorIds").
@@ -68,7 +70,7 @@ export function useFieldErrors(prefix = 'field') {
     const noteId = (key: string) => `${prefix}-${key}-note`;
     return {
       errors,
-      /** What's wrong with [key], or null. */
+      /** What's wrong with [key] (null if nothing is). */
       get: (key: string): string | null => errors[key] ?? null,
       has: (key: string): boolean => key in errors,
       /** The first of [keys] that's wrong (a field saved under several names). */

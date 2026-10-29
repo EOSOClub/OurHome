@@ -40,7 +40,7 @@ was. Run with `OURHOME_PLAIN=1` for plain typed prompts; without a keyboard
 ### Later runs and options
 
 Each later run asks once **"Change settings before deploying?"** Answer no (the
-default) and it deploys straight away; answer yes and it walks through the settings again,
+default), and it deploys straight away; answer yes, and it walks through the settings again,
 with your current values as the defaults (Enter keeps each one).
 
 | Option                 | PowerShell      | What it does                                                                                                                                                                                                                                                                                                                                                                                   |

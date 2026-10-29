@@ -31,10 +31,10 @@ function unreadBy(userId: string): Prisma.NotificationWhereInput {
 }
 
 /**
- * Notifications a user may see: those addressed to them (e.g. bug reports to
+ * Notifications a user may see: those addressed to them (e.g., bug reports to
  * the head), generated reminders whose audience includes them (the people
  * tied to the task/bill/item plus that page's managers; see
- * reminderService.withManagers), and other household-wide rows (e.g. a new
+ * reminderService.withManagers), and other household-wide rows (e.g., a new
  * app version). Unset is matched alongside null for the same Mongo reason as
  * in [unreadBy].
  */

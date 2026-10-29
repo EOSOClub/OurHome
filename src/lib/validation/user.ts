@@ -9,7 +9,7 @@ import {
 } from '@/lib/profile';
 
 // Mirrors the Better Auth username plugin defaults (3-30 chars). Letters,
-// numbers, and . _ - so display names like "jane.d" work.
+// numbers, dots, underscores, and hyphens, so display names like "jane.d" work.
 export const usernameSchema = z
   .string()
   .trim()

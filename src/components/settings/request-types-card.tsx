@@ -151,7 +151,7 @@ function CommonFields<T extends CommonModuleSettings>({
 
 /**
  * Purchase or Permission: on, the common fields, and who decides - the
- * asker's supervisors first if ticked, then the Approve switch or chosen
+ * requester's supervisors first if ticked, then the Approve switch or chosen
  * people. Declining is always possible.
  */
 function DecisionSection({

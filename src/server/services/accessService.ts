@@ -24,7 +24,7 @@ let cached: { allowHttp: boolean; at: number } | null = null;
 /**
  * The saved server-wide choice. Before the server admin first saves it, the
  * old per-household setting still applies (any household that refused plain
- * HTTP refused it for everyone - the behaviour this replaced).
+ * HTTP refused it for everyone - the behavior this replaced).
  */
 async function currentPolicy(): Promise<{ allowHttp: boolean; reviewed: boolean }> {
   const row = await prisma.serverSettings.findUnique({ where: { id: SERVER_ID } });

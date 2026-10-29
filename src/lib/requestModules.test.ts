@@ -188,7 +188,7 @@ describe('rules', () => {
 
   it('decidesRequest: the requester’s supervisors when that’s on and they have any', () => {
     const members = new Set([MOM, DAD, KID]);
-    // KID is supervised by MOM; DAD has the Approve switch.
+    // MOM supervises KID; DAD has the Approve switch.
     expect(decidesRequest(approve([], true), MOM, false, members, [MOM])).toBe(true);
     expect(decidesRequest(approve([], true), DAD, true, members, [MOM])).toBe(false);
     // No supervisors (an adult asking), or only ones who have left: the usual people.

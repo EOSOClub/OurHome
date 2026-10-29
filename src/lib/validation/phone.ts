@@ -4,8 +4,8 @@ import { RING_REPORTS } from '@/lib/ring';
 
 /**
  * How the phone is doing, so a phone that goes quiet can be told apart (flat,
- * out of signal, switched off, or OurHome removed). network: "wifi" |
- * "cellular" | "other" | "none"; signal: mobile signal 0 (none) to 4 (great).
+ * out of signal, switched off, or OurHome removed). network is one of
+ * `"Wi-Fi" | "cellular" | "other" | "none"`; signal: mobile signal 0 (none) to 4 (great).
  */
 export const phoneStatusSchema = z.object({
   battery: z.number().int().min(0).max(100).optional(),
@@ -39,7 +39,7 @@ export const pinEventSchema = z.object({
 });
 export type PinEventInput = z.infer<typeof pinEventSchema>;
 
-/** The Android app checking in (hourly): which install, and what it may do. */
+/** The Android app checking in (hourly): which installation, and what it may do. */
 export const phoneCheckInSchema = z.object({
   installId: z.string().trim().min(8).max(100),
   appVersion: z.string().trim().max(40).optional(),
@@ -74,12 +74,12 @@ export const phoneCheckInSchema = z.object({
    * a refused check-in leaves the phone looking quiet to its supervisors.
    */
   emergencyUnlockStage: z.enum(EMERGENCY_UNLOCK_STAGES).optional().catch(undefined),
-  /** When a running emergency unlock finishes (the phone's clock); left out when none is running. */
+  /** When a running emergency unlock period finishes (the phone's clock); left out when none is running. */
   emergencyUnlockReadyAtMs: z.number().int().positive().optional(),
   /** Sent only while an adult looks after the member (phoneStatusSchema). */
   status: phoneStatusSchema.optional(),
   /**
-   * Package names the phone never blocks (its phone, messages, home screen and
+   * Package names the phone never blocks (its phone, messages, home screen, and
    * OurHome itself); sent only while an adult looks after the member.
    */
   alwaysAllowed: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
@@ -93,7 +93,7 @@ export const phoneCheckInSchema = z.object({
 export type PhoneCheckInInput = z.infer<typeof phoneCheckInSchema>;
 
 /**
- * A phone opening its Stay connected stream: which install (the check-in's
+ * A phone opening its Stay connected stream: which installation (the check-in's
  * id), and its status as query fields (only while an adult looks after them).
  */
 export const phoneStreamQuerySchema = z.object({

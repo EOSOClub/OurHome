@@ -21,7 +21,7 @@ Every button asks you to unlock first; the lock screen shows no item details.
 
 - Tags written by Our Home hold `ourhome://tag/<id>` plus an Android
   Application Record, so Android never shows an app chooser for them.
-- While the app is open it takes every scan.
+- While the app is open, it takes every scan.
 - **Inventory → Recent scans** shows what was scanned, when, by whom, and
   whether it came from the app or HA.
 - To re-point a tag, scan it → **Change item for this tag**.
@@ -195,7 +195,7 @@ scan any tag and read it from the `tag_scanned` event (step 2).
 > Concurrency: the generic automation runs in `mode: parallel`, so scanning a
 > second tag won't cancel a prompt already in flight. The `wait_for_trigger`
 > still matches *any* `INV_REPLY`, so if two people reply to different prompts at
-> the exact same moment the replies could cross - fine for a single scanner. For
+> the exact same moment, the replies could cross - fine for a single scanner. For
 > strict multi-user handling, add a `context: user_id:` filter on the
 > `wait_for_trigger` so each reply maps to its own scan.
 

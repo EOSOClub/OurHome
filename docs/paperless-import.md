@@ -77,7 +77,7 @@ Paperless.
 > **The easy way:** in `docker/`, run `./deploy.sh -s` (or `.\deploy.ps1 -Setup`),
 > answer yes to Paperless and to **"Set up Paperless for you?"**, and give an
 > admin login (used for that run only, never saved) and, optionally, your
-> billers. Once the app is up it does all of step 1 below, plus the starters,
+> billers. Once the app is up, it does all of step 1 below, plus the starters,
 > puts the token in `.env`, and restarts the app. Safe to run again: it finds
 > what exists by name and only adds what's missing. By hand, from the web
 > container:
@@ -126,7 +126,7 @@ Documents already tagged before setup are shared with the group too.
    `ourhome`, with only these **view** permissions: *Document*, *Tag*,
    *Correspondent*, *Custom field*. It also needs to see the documents
    themselves. If you use document owners, grant this user (or a group it's in)
-   **view** on new documents, for example in an "Added" workflow with
+   **view** on new documents, for example, in an "Added" workflow with
    *Assign view permissions*.
 5. **Token:** sign in as that user, go to *My Profile → API Auth Token*, and
    generate one.

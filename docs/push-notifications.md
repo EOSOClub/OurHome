@@ -89,7 +89,7 @@ the app still builds and works, just without instant alerts.
 
    The empty `DEV_FIREBASE_SERVICE_ACCOUNT` keeps it off for `npm run dev`.
 
-3. Redeploy. The new `PushDevice` collection is created on start.
+3. Redeploy. The new `PushDevice` collection is created when the server starts.
 
 ## 5. Check it works
 

@@ -22,7 +22,7 @@ The first run creates `settings.yml` and `.env` from their templates and walks
 you through every setting: what each one is for, an example of what the value
 looks like, and links to the outside accounts (Firebase, Cloudflare Turnstile,
 your mail provider). It can also run MongoDB, Paperless-ngx and the Proton Bridge
-for you and build the Android app (see below), so with nothing else installed
+for you and build the Android app (see below), so with nothing else installed,
 you only need Docker. Optional parts can be skipped and set up later with
 `./deploy.sh -s`; the sign-in keys and every service password are generated.
 
@@ -40,7 +40,7 @@ was. Run with `OURHOME_PLAIN=1` for plain typed prompts; without a keyboard
 ### Later runs and options
 
 Each later run asks once **"Change settings before deploying?"** Answer no (the
-default) and it deploys straight away; yes walks through the settings again,
+default) and it deploys straight away; answer yes and it walks through the settings again,
 with your current values as the defaults (Enter keeps each one).
 
 | Option                 | PowerShell      | What it does                                                                                                                                                                                                                                                                                                                                                                                   |
@@ -223,7 +223,7 @@ server itself (`http://localhost:3000`) or any device on the same network
    password (email optional, for password recovery). The admin becomes the
    Head of House and is signed in straight away.
 2. **Add the household.** A username and a starting password for each person,
-   plus an optional email and a role. They choose their own password on first
+   plus an optional email and a role. They choose their own password on their first
    sign-in. You can skip this step and use **Members** later.
 
 After you click **Finish**, the app asks once how the site may be reached:

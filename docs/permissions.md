@@ -94,7 +94,7 @@ not who paid).
   tag binding need **any** switch on that page. Creating an item during NFC
   setup needs Inventory **Add**; "add to shopping list" needs Shopping **Add**.
 - "Clear bought" removes only the bought items you may delete; recurring
-  items are just un-checked.
+  items are just unchecked.
 - Deleting a shopping list deletes all its items, whoever added them.
 
 **Enforcement:** route handlers call `requireCreate`, `requireModify` (with the

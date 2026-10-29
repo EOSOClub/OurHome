@@ -21,7 +21,7 @@ export const REORDER_WINDOW_DAYS = 3;
 const ACTIVE_STATUSES = ['pending', 'in_progress'];
 
 /** Notification types this generator owns. Used to scope stale cleanup so it
- *  never deletes manually-created "system" notifications. */
+ *  never deletes manually created "system" notifications. */
 export const MANAGED_TYPES: NotificationType[] = [
   'overdue',
   'low_inventory',
@@ -255,11 +255,11 @@ export type ReminderEmailSender = (args: {
 /**
  * Reconcile the household's generated notifications with current state:
  * upsert a notification for each candidate (idempotent via the
- * `(householdId, dedupeKey)` unique index) and delete any previously-generated
- * notification whose condition no longer holds. Manually-created "system"
+ * `(householdId, dedupeKey)` unique index) and delete any previously generated
+ * notification whose condition no longer holds. Manually created "system"
  * notifications are never touched.
  *
- * Newly-created notifications (not refreshes of an existing dedupeKey) are also
+ * Newly created notifications (not refreshes of an existing dedupeKey) are also
  * emailed to every household member as a best-effort side effect. The rows stay
  * channel `in_app` - they remain the source of truth; email failures are logged
  * and never break generation. `send` is injectable for tests.
@@ -395,7 +395,7 @@ export async function generateReminders(
     pushSync(householdId, { userIds: created.flatMap((c) => c.audienceUserIds) }, 'reminder');
   }
 
-  // Best-effort email for the newly-created notifications, after the rows are
+  // Best-effort email for the newly created notifications, after the rows are
   // committed. Each goes to the members who see it in the bell (its
   // audience). Any failure is logged and swallowed - email must never break
   // reminder generation.

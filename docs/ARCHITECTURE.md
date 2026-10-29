@@ -241,7 +241,7 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
   user's own "About me" (`PATCH /api/profile`; blank clears; one emoji;
   colour keys and `MM-DD` birthdays in `lib/profile.ts`, mirrored in the app's
   `data/ProfileStyle.kt`). Every member can read everyone's via
-  `GET /api/household/members` (also the picker list; now with role) - shown
+  `GET /api/household/members` (also the picker list; now with each member's role) - shown
   as the Household card on Profile. Emails stay behind `members:manage`.
   Changing your own email needs your current password (`currentPassword`):
   password resets go there.
@@ -324,7 +324,7 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
   it in the bell, get its email when created, and get the push.
 - **Shopping & grocery.** `shoppingService` owns lists (create, rename, delete)
   and items (add, check-off, edit, delete, and a "clear bought" that deletes
-  one-off items but un-checks recurring consumables). Marking an item purchased
+  one-off items but unchecks recurring consumables). Marking an item purchased
   records a `Purchase` for history. `/shopping` is a mobile-first list view.
   Lists and items are separate rows in the page-access grid ("Shopping lists"
   / "Shopping items"); the Android app can create, rename and delete lists too.

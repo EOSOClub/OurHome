@@ -31,7 +31,7 @@ Sunday). Changing the rate doesn't touch existing tasks; their values are stored
   nothing recalculates in a circle.
 - Editing a task total redistributes that dimension (both, when points follow
   time) across the steps in proportion to their current values. If any step is
-  customised the editor warns first; confirming rescales everything and clears
+  customised, the editor warns first; confirming rescales everything and clears
   the customisation; cancelling changes nothing.
 - Adding/removing a step re-splits the base while no step is customised; once
   one is, totals float (a new step gets the average values).

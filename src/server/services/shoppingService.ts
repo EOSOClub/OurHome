@@ -260,7 +260,7 @@ export async function setItemPurchased(
     });
 
     // Record household purchase history on the transition into "purchased".
-    // Purchase has no back-link to the shopping item, so un-checking leaves the
+    // Purchase has no back-link to the shopping item, so unchecking leaves the
     // history row in place rather than guessing which record to remove.
     if (input.purchased && !existing.purchased) {
       await tx.purchase.create({
@@ -285,7 +285,7 @@ export async function setItemPurchased(
         subjectId: item.id,
         message: input.purchased
           ? `bought “${item.name}”`
-          : `un-checked “${item.name}”`,
+          : `unchecked “${item.name}”`,
       },
       tx,
     );
@@ -315,7 +315,7 @@ export async function deleteShoppingItem(
 
 /**
  * Clear purchased items from a list. Non-recurring items are deleted; recurring
- * consumables (e.g. paper towels) are un-checked so they stay on the list for
+ * consumables (e.g. paper towels) are unchecked so they stay on the list for
  * the next shopping trip. `mayDelete` decides, per item creator, which
  * non-recurring items the caller may remove; the others are left untouched.
  */

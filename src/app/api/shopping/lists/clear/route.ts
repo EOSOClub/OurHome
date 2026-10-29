@@ -4,7 +4,7 @@ import { canModify } from '@/lib/permissions';
 import { listIdSchema } from '@/lib/validation/shopping';
 
 // Clearing removes only the purchased items the caller may delete; the rest
-// (and every recurring item, which is just un-checked) stay put.
+// (and every recurring item, which is just unchecked) stay put.
 export const POST = withAuth(async (ctx) => {
   await requireAnyAccess(ctx, 'shopping');
   const access = (await getAccess(ctx)).shopping;

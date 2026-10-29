@@ -467,7 +467,7 @@ export function ShoppingView({
           }
           title={`Clear ${clearable} bought item${plural(clearable)}?`}
           description={
-            'One-off items are removed for good; recurring items are un-checked and stay on the list.' +
+            'One-off items are removed for good; recurring items are unchecked and stay on the list.' +
             (clearable < selected.purchasedCount
               ? ` ${selected.purchasedCount - clearable} you can't remove will stay in the cart.`
               : '')

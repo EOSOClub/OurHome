@@ -131,35 +131,6 @@ export const NFC_REPRESENTS_LABELS: Record<NfcRepresents, string> = {
 export const NFC_SCAN_ACTIONS = ['open', 'notify'] as const;
 export type NfcScanAction = (typeof NFC_SCAN_ACTIONS)[number];
 
-// EventLog discriminators (open-ended; these cover the current ingestion paths).
-export const EVENT_TYPES = [
-  'nfc_scan',
-  'nfc_register',
-  'inventory_change',
-  'task_completion',
-  'automation',
-] as const;
-
-export const EVENT_SOURCES = [
-  'home_assistant',
-  'web',
-  'system',
-  'nfc',
-] as const;
-
-// Activity feed verbs / subject types (open-ended, but these cover the MVP).
-export const ACTIVITY_VERBS = [
-  'created',
-  'updated',
-  'completed',
-  'reopened',
-  'deleted',
-  'adjusted',
-  'restocked',
-  'consumed',
-  'marked_low',
-] as const;
-
 // --- Requests -------------------------------------------------------------
 
 // What a household request is for: each is a request module the head turns on
@@ -293,20 +264,6 @@ export const BILL_STATUS_LABELS: Record<BillStatus, string> = {
   unpaid: 'Unpaid',
   paid: 'Paid',
 };
-
-// How a bill/payment entered the system. "email" and "paperless" are written by
-// src/server/services/billIngestService.ts ("paperless" via paperlessSync).
-export const BILL_SOURCES = ['manual', 'email', 'paperless', 'import'] as const;
-
-// Delivery channels. Only "in_app" is dispatched today; the rest are reserved
-// for the email/push/Home Assistant seams (see notificationService).
-export const NOTIFICATION_CHANNELS = [
-  'in_app',
-  'push',
-  'home_assistant',
-  'discord',
-  'email',
-] as const;
 
 export const PRIORITY_LABELS: Record<TaskPriority, string> = {
   low: 'Low',

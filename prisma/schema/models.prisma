@@ -794,7 +794,8 @@ model ActivityEntry {
   id          String   @id @default(cuid()) @map("_id")
   householdId String
   actorId     String?
-  // verb: "completed" | "created" | "updated" | "marked_low" | "replaced" | ...
+  // verb: "created" | "updated" | "deleted" | "completed" | "reopened" |
+  // "restocked" | "consumed" | "marked_low" | "missed" | ...
   verb        String
   // subjectType: "task" | "shopping_item" | "inventory_item" | "automation" | ...
   subjectType String
@@ -1167,7 +1168,8 @@ model Notification {
   type        String
   title       String
   body        String?
-  // channel: "in_app" | "push" | "home_assistant" | "discord" | "email"
+  // channel: "in_app" | "push" | "home_assistant" | "discord" | "email". Only
+  // "in_app" is written today; the rest are reserved.
   channel     String    @default("in_app")
   // What this notification is about, so the UI can deep-link and the generator
   // can resolve/clear stale entries. subjectType: "task" | "inventory_item" | ...
@@ -1261,7 +1263,8 @@ model PushDevice {
 model EventLog {
   id          String   @id @default(cuid()) @map("_id")
   householdId String?
-  // eventType: "nfc_scan" | "task_completion" | "automation" | "inventory_change" | ...
+  // eventType: "nfc_scan" | "nfc_register" | "task_completion" | "automation" |
+  // "inventory_change" | ...
   eventType   String
   // source: "home_assistant" | "web" | "system" | "nfc"
   source      String

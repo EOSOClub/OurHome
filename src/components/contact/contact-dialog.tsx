@@ -30,8 +30,8 @@ interface TurnstileApi {
 }
 
 // Adds window.turnstile to the browser's Window type (used below).
-// noinspection JSUnusedGlobalSymbols
 declare global {
+  // noinspection JSUnusedGlobalSymbols
   interface Window {
     turnstile?: TurnstileApi;
   }

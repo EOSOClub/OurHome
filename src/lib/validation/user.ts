@@ -97,11 +97,15 @@ export const renameHouseholdSchema = z.object({ name: nameSchema });
 // Allow or refuse sign-in over plain HTTP (requires household:manage).
 export const accessSettingsSchema = z.object({ allowHttp: z.boolean() });
 
+// A pictograph or a flag letter. Built from a string because the IDE's regex
+// checker doesn't know the Extended_Pictographic property (JavaScript does).
+const EMOJI_PART = new RegExp(String.raw`\p{Extended_Pictographic}|\p{Regional_Indicator}`, 'u');
+
 /** Exactly one emoji (one grapheme with a pictograph or a flag in it). */
 function isSingleEmoji(v: string): boolean {
   if (v.length > 32) return false;
   const graphemes = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(v)];
-  return graphemes.length === 1 && /\p{Extended_Pictographic}|\p{Regional_Indicator}/u.test(v);
+  return graphemes.length === 1 && EMOJI_PART.test(v);
 }
 
 // Optional profile text: blank clears it (stored as null).

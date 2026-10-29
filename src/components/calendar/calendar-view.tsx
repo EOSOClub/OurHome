@@ -37,6 +37,7 @@ import { toast } from '@/components/ui/toast';
 import { useHouseholdZone } from '@/components/household-zone';
 import { dateKey, timeKey, zonedInstant } from '@/lib/format';
 import { ALL_DAY_REMINDERS, TIMED_REMINDERS } from '@/lib/validation/calendar';
+import { MONTHS, MonthPicker } from '@/components/calendar/month-picker';
 
 type YearMonth = { year: number; month: number };
 type Repeat = 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly';
@@ -45,10 +46,6 @@ type ViewMode = 'month' | 'week' | 'agenda';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const WEEKDAY_PILLS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
-const MONTHS = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
-];
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const dateValue = (d: Date) =>
@@ -289,6 +286,10 @@ export function CalendarView({
 
   const matrix = useMemo(() => monthMatrix(ym), [ym]);
   const todayKey = dateKey(new Date(), timeZone);
+  const todayYm = {
+    year: Number(todayKey.slice(0, 4)),
+    month: Number(todayKey.slice(5, 7)) - 1,
+  };
 
   // Chronological [dayKey, entries] pairs for the agenda list.
   const agendaDays = [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b));
@@ -341,23 +342,33 @@ export function CalendarView({
     syncUrl(nextYm, view, nextAnchor);
   };
 
+  // The week to show for a month: today's when it is the current month,
+  // otherwise the one with the 1st.
+  const anchorIn = (target: YearMonth) => {
+    const today = dateKey(new Date(), timeZone);
+    return today.startsWith(`${target.year}-${pad(target.month + 1)}-`)
+      ? today
+      : dateValue(new Date(target.year, target.month, 1));
+  };
+
   const changeView = (next: ViewMode) => {
     let nextAnchor = anchor;
     if (next === 'week') {
-      // Re-anchor when the kept anchor left the viewed month: today when the
-      // viewed month is the current one, otherwise the 1st of that month.
+      // Re-anchor when the kept anchor left the viewed month.
       const a = new Date(`${anchor}T00:00`);
       if (a.getFullYear() !== ym.year || a.getMonth() !== ym.month) {
-        const today = dateKey(new Date(), timeZone);
-        nextAnchor =
-          today.startsWith(`${ym.year}-${pad(ym.month + 1)}-`)
-            ? today
-            : dateValue(new Date(ym.year, ym.month, 1));
+        nextAnchor = anchorIn(ym);
         setAnchor(nextAnchor);
       }
     }
     setView(next);
     syncUrl(ym, next, nextAnchor);
+  };
+
+  // The heading's month chooser: week view jumps to a week in that month.
+  const jumpTo = (target: YearMonth) => {
+    if (view === 'week') changeAnchor(anchorIn(target));
+    else changeMonth(target);
   };
 
   const shift = (delta: number) => {
@@ -400,13 +411,13 @@ export function CalendarView({
       {/* Phones: the toolbar box dissolves (`contents`) so the view switcher
           can drop to its own full-width row under the title and arrows. */}
       <div className="flex flex-wrap items-center gap-x-1 gap-y-3">
-        <h2 className="min-w-0 flex-1 text-lg font-medium">
+        <MonthPicker value={ym} today={todayYm} onPick={jumpTo}>
           {view === 'week'
             ? weekDays[0].getMonth() === weekDays[6].getMonth()
               ? `${MONTHS[weekDays[0].getMonth()]} ${weekDays[0].getDate()} - ${weekDays[6].getDate()}, ${weekDays[6].getFullYear()}`
               : `${MONTHS[weekDays[0].getMonth()]} ${weekDays[0].getDate()} - ${MONTHS[weekDays[6].getMonth()]} ${weekDays[6].getDate()}, ${weekDays[6].getFullYear()}`
             : `${MONTHS[ym.month]} ${ym.year}`}
-        </h2>
+        </MonthPicker>
         <div className="contents sm:flex sm:items-center sm:gap-1">
           <div
             role="group"

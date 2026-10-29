@@ -136,8 +136,8 @@ function describe(r: {
 /**
  * Wakes the phones of everyone a request change can matter to: the requester,
  * the handler (assignee, or the approve-workflow handlers: the chosen people,
- * the Approve switch holders and, where they decide, the requester's
- * supervisors), and anyone in `also` (e.g. an assignee it was just taken
+ * the Approve switch holders, and, where they decide, the requester's
+ * supervisors), and anyone in `also` (e.g., an assignee it was just taken
  * from). Each phone works out for itself whether to alert, so waking an extra
  * one costs nothing but a quiet re-check, and it clears notifications that
  * went stale on other devices.

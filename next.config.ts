@@ -26,7 +26,7 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   // Don't advertise the framework.
   poweredByHeader: false,
-  // Dev-only: allow the app to be opened from the LAN (e.g. a phone) instead of
+  // Dev-only: allow the app to be opened from the LAN (e.g., a phone) instead of
   // just localhost. Without this, Next 16 blocks cross-origin requests to its
   // internal /_next/* dev resources, which breaks client JS, HMR, and the RSC
   // navigation that runs after sign-in - making mobile login appear to fail.

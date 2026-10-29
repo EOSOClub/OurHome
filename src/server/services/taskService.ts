@@ -357,7 +357,7 @@ async function rotatedAssignee(
   return nextInRotation(rotation, task.assigneeId, steps) ?? undefined;
 }
 
-/** Cap on missed cycles recorded in one catch-up (e.g. after downtime). */
+/** Cap on missed cycles recorded in one catch-up (e.g., after downtime). */
 const MAX_MISSED_PER_ROLL = 60;
 
 /**

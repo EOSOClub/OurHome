@@ -521,7 +521,7 @@ function limitsLine(person: Person): string | null {
   return limitsSummary(person.limits.total?.minutes ?? null, person.limits.apps);
 }
 
-/** Sets, changes or removes (minutes null) one daily limit on their phone; the answer is the page's new data. */
+/** Sets, changes, or removes (minutes null) one daily limit on their phone; the answer is the page's new data. */
 function useAppLimit(person: Person) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -834,7 +834,7 @@ function Schedules({ person }: { person: Person }) {
 }
 
 /**
- * A schedule's name, days, times and the apps still open meanwhile; a new one
+ * A schedule's name, days, times, and the apps still open meanwhile; a new one
  * starts as Bedtime, and the other presets fill it in with a tap.
  */
 function ScheduleForm({
@@ -1173,8 +1173,8 @@ interface RingButtonProps {
 /** Rings their phone. On their card and on their page. */
 function RingButton({ person, until, onRang }: RingButtonProps) {
   const queryClient = useQueryClient();
-  // Rests while the phone rings, so a second tap can't be refused by the
-  // server; until their phone says the ring ended, when the server allows another.
+  // Rests while the phone rings, so the server can't refuse a second tap
+  // ; until their phone says the ring ended, when the server allows another.
   const [now, setNow] = useState(() => Date.now());
   const ringEnded = person.ring?.phase === 'stopped' || person.ring?.phase === 'rang_out';
   const ringing = now < until && !ringEnded;
@@ -1218,7 +1218,7 @@ function RingButton({ person, until, onRang }: RingButtonProps) {
  * Everything about one person, as Profile is laid out (two stacks on wide
  * screens, one list in the same order on a phone): their phone with Ring,
  * then a folded card each for Location, App usage (with what's blocked),
- * Daily limits, Schedules, Points for screen time and Phone protections (a
+ * Daily limits, Schedules, Points for screen time, and Phone protections (a
  * box per protection their phone must have on, and how far Set up this phone
  * has got). Each title row says how it stands; a card opens by itself while
  * something in it isn't working.

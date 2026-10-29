@@ -177,7 +177,7 @@ export function HouseholdMap({
     if (!fittedRef.current && shown.length) {
       fittedRef.current = true;
       const all = shown.reduce((acc, b) => acc.extend(b), L.latLngBounds(shown[0].getSouthWest(), shown[0].getNorthEast()));
-      // Room for the labels: places are named above their centre, people to the right of their dot.
+      // Room for the labels: places are named above their center, people to the right of their dot.
       map.fitBounds(all, { paddingTopLeft: [48, 72], paddingBottomRight: [140, 32], maxZoom: FOCUS_ZOOM });
     }
   }, [ready, places, presence, live, timeZone, tick]);

@@ -53,7 +53,7 @@ export function SetupForm({ appName, local }: { appName: string; local: boolean 
     !passwordError &&
     form.password === form.confirm;
 
-  async function onSubmit(e: React.FormEvent) {
+  async function onSubmit(e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!canSubmit) return;
     setError(null);

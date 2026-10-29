@@ -32,7 +32,7 @@ export function ForcedPasswordChange({ userName }: { userName: string }) {
     current.length > 0 && next.length >= 8 && confirm.length > 0 && !loading;
   const nextTooShort = next.length > 0 && next.length < 8;
 
-  async function onSubmit(e: React.FormEvent) {
+  async function onSubmit(e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
     setBad(null);

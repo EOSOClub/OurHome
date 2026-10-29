@@ -635,7 +635,7 @@ function CategoryManager({
   const [name, setName] = useState('');
   const [color, setColor] = useState('#fb923c');
 
-  function handleSubmit(e: React.FormEvent) {
+  function handleSubmit(e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
     const trimmed = name.trim();
     if (!trimmed) return;
@@ -778,7 +778,7 @@ function QuickAddItem({
     // The location stays: items are often added a room at a time.
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  function handleSubmit(e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!name.trim()) return;
     const qty = Number.parseFloat(quantity);

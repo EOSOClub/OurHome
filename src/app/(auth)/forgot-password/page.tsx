@@ -23,7 +23,7 @@ export default function ForgotPasswordPage() {
   // The one field: marked when the refusal is about what was typed (not a busy server).
   const [emailBad, setEmailBad] = useState(false);
 
-  async function onSubmit(e: React.FormEvent) {
+  async function onSubmit(e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
     setEmailBad(false);

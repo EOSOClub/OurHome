@@ -102,7 +102,7 @@ export function ContactDialog({
     };
   }, [open, siteKey, scriptReady]);
 
-  async function onSubmit(e: React.FormEvent) {
+  async function onSubmit(e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
 

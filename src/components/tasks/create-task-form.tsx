@@ -184,7 +184,7 @@ export function CreateTaskForm({
       : [...list, value];
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  function handleSubmit(e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
     if (cycleIncomplete) return;
     if (noPoints) {

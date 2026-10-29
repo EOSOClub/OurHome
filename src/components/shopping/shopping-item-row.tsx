@@ -302,7 +302,7 @@ function EditItemForm({
   const [saving, setSaving] = useState(false);
   const fe = useFieldErrors(`edit-${item.id}`);
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!name.trim()) return;
 

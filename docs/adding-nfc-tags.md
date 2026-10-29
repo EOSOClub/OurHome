@@ -120,7 +120,7 @@ context:
 ```
 
 Record the **`tag_id`**. If you route notifications per phone (see
-[Per-phone notifications](#per-phone-notifications)), also record the
+[Per-phone routing](#per-phone-routing-and-crediting-the-scanner)), also record the
 **`device_id`**.
 
 > A friendly tag name in HA (e.g. "Test site") is **not** the `tag_id`. Always

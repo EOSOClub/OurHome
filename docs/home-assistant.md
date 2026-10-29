@@ -66,7 +66,7 @@ a junk item).
 
 `actor` is the app **username** of the person who scanned. It is optional - an
 empty or unknown value just logs the change as "System" - and is supplied by the
-automation via a per-phone map (see [Per-phone notifications](#per-phone-notifications)
+automation via a per-phone map (see [Per-phone routing](adding-nfc-tags.md#per-phone-routing-and-crediting-the-scanner)
 and `actor_by_device` in `HomeAssistant/automation.yml`).
 
 Then an automation that fires on a tag scan, asks for the number, and calls the

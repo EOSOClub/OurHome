@@ -49,7 +49,7 @@ function ResetPasswordForm() {
     );
   }
 
-  async function onSubmit(e: React.FormEvent) {
+  async function onSubmit(e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
     setBad(null);

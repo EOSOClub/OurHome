@@ -263,7 +263,7 @@ function EditForm({
   const hasPlaces = places.floors.length > 0 || places.rooms.length > 0;
   const fe = useFieldErrors(`inv-edit-${item.id}`);
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!name.trim()) return;
     const low = Number.parseFloat(lowThreshold);

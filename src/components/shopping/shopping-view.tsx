@@ -652,7 +652,7 @@ function QuickAddItem({
     setImageUrl(null);
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!name.trim()) return;
     const payload: Omit<AddItemPayload, 'listId'> = {
@@ -846,7 +846,7 @@ function RenameListDialog({
 }) {
   const [name, setName] = useState(list.name);
 
-  function handleSubmit(e: React.FormEvent) {
+  function handleSubmit(e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
     const trimmed = name.trim();
     if (!trimmed) return;
@@ -901,7 +901,7 @@ function NewListForm({
   const [name, setName] = useState('');
   const [kind, setKind] = useState('grocery');
 
-  function handleSubmit(e: React.FormEvent) {
+  function handleSubmit(e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!name.trim()) return;
     onSubmit({ name: name.trim(), kind });

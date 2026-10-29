@@ -44,7 +44,7 @@ export function MembersStep() {
   const canSubmit =
     !!form.username.trim() && !usernameError && !emailError && !!form.password && !passwordError && !fe.has('role');
 
-  async function onSubmit(e: React.FormEvent) {
+  async function onSubmit(e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!canSubmit) return;
     setError(null);

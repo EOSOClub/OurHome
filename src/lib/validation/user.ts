@@ -52,7 +52,7 @@ export const createMemberSchema = z.object({
   // Who looks after a new child or teen (Head of House only; supervisionService).
   supervisorIds: z.array(z.string().min(1)).max(50).optional(),
   // Their phone choices, from Set up a child: only when the adult adding them
-  // is one of their supervisors (People you look after changes them later).
+  // is one of their supervisors (they're changed later on People you look after).
   setup: z
     .object({
       locationRequired: z.boolean(),

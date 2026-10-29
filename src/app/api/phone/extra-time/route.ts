@@ -4,7 +4,7 @@ import { buyExtraTimeSchema, extraTimeQuerySchema } from '@/lib/validation/phone
 
 // The member's own points for screen time: GET what they can buy on their
 // phone's date (?day=YYYY-MM-DD), POST to buy minutes with points. The
-// service refuses buying unless an adult who looks after them turned it on.
+// service refuses buying unless an adult who looks after them has turned it on.
 export const GET = withAuth(async (ctx) => {
   const { day } = parseQuery(ctx.req, extraTimeQuerySchema);
   return ok(await myExtraTime(ctx.user.householdId!, ctx.user.id, day));

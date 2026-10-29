@@ -86,7 +86,7 @@ export type TaskWithRelations = Prisma.TaskGetPayload<{ include: typeof taskIncl
 type Tx = Prisma.TransactionClient;
 type RuleRow = NonNullable<TaskWithRelations['recurrence']>;
 
-/** Who is acting on a task; role narrows what guests may do. */
+/** Who is acting on a task; the role narrows what guests may do. */
 export interface CompletingActor {
   id: string;
   role: string;
@@ -318,7 +318,7 @@ const UNCHECKED = { done: false, doneAt: null, doneById: null, checkAwardId: nul
 
 // --- Rotating assignees (src/lib/taskRotation.ts) ---------------------------------
 
-/** The rotation's ids that are (still) household members, in order. */
+/** In rotation order, the ids that are (still) household members. */
 async function liveRotation(db: Tx, householdId: string, ids: readonly string[]): Promise<string[]> {
   if (ids.length === 0) return [];
   const members = await db.user.findMany({
@@ -627,7 +627,7 @@ export async function createTask(
 /**
  * Auto-uncheck checklist items whose `resetIntervalDays` cadence has elapsed
  * since they were checked (e.g. "dishes" flips back daily inside a task that
- * repeats every 3 days). Runs opportunistically before task reads and from the
+ * repeats every 3 days). Runs opportunistically before tasks are read and from the
  * reminder cron, mirroring how reminders regenerate. The elapsed check is
  * `doneAt + N×24h <= now`, computed in JS because the cutoff varies per row.
  * Queued points survive this reset; `autoResetAt` lets the next check pay out.
@@ -1140,7 +1140,7 @@ function isWriteConflict(err: unknown): boolean {
 
 /**
  * Undo a completion: restore the task as it was just before and void the
- * points it paid. The completer may within UNDO_WINDOW_MS, the head any time
+ * points it paid. The completer can undo within UNDO_WINDOW_MS, the head any time
  * - but only for the task's latest completion, and only while nothing has
  * happened on the task since (otherwise the head voids points in the ledger).
  */
@@ -1181,7 +1181,7 @@ export async function undoCompletion(
       (await tx.pendingCredit.count({ where: { taskId: task.id, checkedAt: { gt: completion.completedAt } } })) > 0;
     const snapshot = JSON.parse(completion.snapshot) as CompletionSnapshot;
     const rolled = (task.cycleStartedAt?.toISOString() ?? null) !== snapshot.cycleStartedAt;
-    // Saved in the editor since (completing itself writes the row in the
+    // Saved in the editor since (completing itself writes the row at the
     // same moment, hence the margin): undoing would silently put back the old
     // due date / recurrence / assignee over that edit.
     const edited = task.updatedAt.getTime() > completion.completedAt.getTime() + EDIT_MARGIN_MS;
@@ -1263,7 +1263,7 @@ export async function undoCompletion(
   return result;
 }
 
-/** How long after a completion the task row may still be written by it. */
+/** After a completion, how long the task row may still be written by it. */
 const EDIT_MARGIN_MS = 10_000;
 
 /** When a done task opens again, e.g. "Thu, Oct 22", in the household's zone. */
@@ -1315,7 +1315,7 @@ export async function listTaskCompletions(
 /**
  * Permanently delete a task. Completions and subtasks cascade via their DB
  * relation, but the recurrence rule is the FK parent (Task.recurrenceId ->
- * SetNull on delete) so it is removed explicitly to avoid orphaning it. Queued
+ * SetNull on delete), so it is removed explicitly to avoid orphaning it. Queued
  * points are dropped; paid points stay in the ledger (it keeps the title).
  */
 export async function deleteTask(
@@ -1522,7 +1522,7 @@ async function setStepDone(
 
 /**
  * Persist a full checklist order: each subtask's position becomes its index in
- * `subtaskIds`. The id set must exactly match the task's current checklist so a
+ * `subtaskIds`. The id set must exactly match the task's current checklist, so a
  * concurrent add/delete can't be silently dropped or reordered onto the wrong
  * rows.
  */

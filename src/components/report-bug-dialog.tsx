@@ -15,7 +15,7 @@ import { FieldNote } from '@/components/ui/field-note';
 import { useFieldErrors } from '@/lib/use-field-errors';
 
 /**
- * The "Report a bug" form, opened from the user menu. The current page path
+ * The "Report a bug" form from the user menu. The current page path
  * is sent as context; the head is notified and support is emailed server-side.
  */
 export function ReportBugDialog({ open, onClose }: { open: boolean; onClose: () => void }) {

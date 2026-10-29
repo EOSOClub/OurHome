@@ -18,7 +18,7 @@ function refuse(req: Request, code: string, message: string, status: number): Re
 }
 
 /**
- * Auth cookies are issued without the Secure flag so sign-in works over plain
+ * Auth cookies are issued without the Secure flag, so sign-in works over plain
  * HTTP on the home network (see auth.ts). When the browser came in over HTTPS,
  * mark them Secure again so they are never sent back over plain HTTP.
  */

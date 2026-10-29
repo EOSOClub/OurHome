@@ -284,7 +284,7 @@ export function TaskCard({
                 </span>
               </>
             )}
-            {/* Grouped by room the heading already says where. */}
+            {/* Grouped by room, the heading already says where. */}
             {!hidePlace && placesLabel(task) ? (
               <span className="inline-flex items-center gap-1 text-muted-foreground">
                 <MapPin className="size-3" />

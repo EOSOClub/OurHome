@@ -134,7 +134,7 @@ export function LookAfterView({ initial }: { initial: LookAfterDTO }) {
   }, [initial, queryClient]);
 
   // Ring buttons rest while a ring of the viewer's goes (see RingButton), kept
-  // here so moving between the cards and a person's page doesn't free them.
+  // here, so moving between the cards and a person's page doesn't free them.
   const [ringingUntil, setRingingUntil] = useState<Record<string, number>>({});
   // Spread into PersonCard and PersonDetail; the IDE doesn't follow the spread.
   // noinspection JSUnusedGlobalSymbols
@@ -415,7 +415,7 @@ function blockedSummary(apps: BlockedAppDTO[]): string {
 function useBlockApp(person: Person) {
   const queryClient = useQueryClient();
   return useMutation({
-    // A refetch already on its way mustn't put the old list back.
+    // A fetch already on its way mustn't put the old list back.
     onMutate: () => queryClient.cancelQueries({ queryKey: LOOK_AFTER_KEY }),
     mutationFn: ({ app, blocked }: { app: string; label: string; blocked: boolean }) =>
       apiFetch<LookAfterDTO>('/api/supervision/blocked-apps', {
@@ -525,7 +525,7 @@ function limitsLine(person: Person): string | null {
 function useAppLimit(person: Person) {
   const queryClient = useQueryClient();
   return useMutation({
-    // A refetch already on its way mustn't put the old limits back.
+    // A fetch already on its way mustn't put the old limits back.
     onMutate: () => queryClient.cancelQueries({ queryKey: LOOK_AFTER_KEY }),
     mutationFn: ({ app, minutes }: { app: string; label: string; minutes: number | null }) =>
       apiFetch<LookAfterDTO>('/api/supervision/app-limits', {
@@ -1185,7 +1185,7 @@ function RingButton({ person, until, onRang }: RingButtonProps) {
   }, [ringing, until, now]);
 
   const ring = useMutation({
-    // A refetch already on its way mustn't put the last ring back.
+    // A fetch already on its way mustn't put the last ring back.
     onMutate: () => queryClient.cancelQueries({ queryKey: LOOK_AFTER_KEY }),
     mutationFn: () =>
       apiFetch<{ rung: boolean; ring: RingDTO }>('/api/supervision/ring', {
@@ -1226,7 +1226,7 @@ function RingButton({ person, until, onRang }: RingButtonProps) {
 function PersonDetail({ person, canRing, until, onRang }: RingButtonProps & { canRing: boolean }) {
   const queryClient = useQueryClient();
 
-  // A refetch already on its way (window focus) mustn't put the old value back.
+  // A fetch already on its way (window focus) mustn't put the old value back.
   const cancelRefetch = () => queryClient.cancelQueries({ queryKey: LOOK_AFTER_KEY });
 
   const require = useMutation({
@@ -1501,7 +1501,7 @@ function PhoneProtections({ person }: { person: Person }) {
 function RuleBox({ person, rule }: { person: LookAfterDTO['people'][number]; rule: PhoneRule }) {
   const queryClient = useQueryClient();
   const save = useMutation({
-    // A refetch already on its way (window focus) mustn't put the old value back.
+    // A fetch already on its way (window focus) mustn't put the old value back.
     onMutate: () => queryClient.cancelQueries({ queryKey: LOOK_AFTER_KEY }),
     mutationFn: (required: boolean) =>
       apiFetch<LookAfterDTO>('/api/supervision/phone-rules', {

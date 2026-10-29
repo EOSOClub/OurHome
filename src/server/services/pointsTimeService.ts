@@ -18,8 +18,8 @@ import type { BuyExtraTimeInput } from '@/lib/validation/phone';
 // Adults can also give minutes (supervisionService.giveExtraTime). Both are
 // ExtraTime rows for the phone's day; the phone adds the day's minutes to
 // every daily limit it has (notifications/AppLimiter). Spending comes off the
-// points balance (earned awards minus spent points); PointAward, and so the
-// stats, never change. Needs the household's Points feature. Rules:
+// points balance (earned awards minus spent points); PointAward and so the
+// stats never change. Needs the household's Points feature. Rules:
 // src/lib/pointsTime.ts.
 
 type Db = Prisma.TransactionClient | typeof prisma;

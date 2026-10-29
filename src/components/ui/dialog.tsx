@@ -39,7 +39,7 @@ export function Dialog({
   if (idRef.current === null) idRef.current = Symbol('dialog');
   const titleId = React.useId();
   // Callers usually pass a new inline onClose every render. Read it through a
-  // ref so the open effect below runs only on open/close: re-running it moved
+  // ref, so the open effect below runs only on open/close: re-running it moved
   // focus back to the first field on every keystroke (e.g. Report a bug).
   const onCloseRef = React.useRef(onClose);
   React.useEffect(() => {

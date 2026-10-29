@@ -64,7 +64,7 @@ export function UserMenu({
   const items = () =>
     Array.from(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []);
 
-  // Navigating (a link in the menu, or anywhere else) closes it.
+  // Navigating (a link in the menu or anywhere else) closes it.
   React.useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setOpen(false);

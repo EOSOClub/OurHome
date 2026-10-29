@@ -1,7 +1,7 @@
-// Runs once when the Next.js server starts, and must finish before the server
+// Runs once when the Next.js server starts and must finish before the server
 // takes requests (see the Next docs for instrumentation.ts):
 //
-//   1. Reads settings.yml and the .env secrets into the environment, before
+//   1. Reads settings.yml and the .env secrets into the environment before
 //      any code that uses them.
 //   2. On the production server, starts the in-process reminder sweep (every 15
 //      minutes). Not during `next build`, and not in `next dev`, which points at

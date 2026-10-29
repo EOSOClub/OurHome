@@ -5,7 +5,7 @@ import { submitContactMessage } from '@/server/services/contactService';
 import { verifyTurnstile } from '@/server/security/turnstile';
 import { contactSchema } from '@/lib/validation/contact';
 
-// Public, unauthenticated contact form. Like the webhook routes it does NOT use
+// Public, unauthenticated contact form. Like the webhook routes, it does NOT use
 // withAuth (there's no session). Layered anti-spam: strict per-IP rate limit,
 // honeypot, submit-timing check, and Cloudflare Turnstile.
 
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   // Honeypot filled or submitted implausibly fast -> almost certainly a bot.
-  // Return success without doing anything so the bot gets no signal to adapt.
+  // Return success without doing anything, so the bot gets no signal to adapt.
   if (input.company && input.company.trim() !== '') {
     return ok({ delivered: true });
   }

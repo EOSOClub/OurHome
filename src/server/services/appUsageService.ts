@@ -177,12 +177,12 @@ export async function pruneIcons(db: Db, householdId: string): Promise<void> {
   await db.appIcon.deleteMany({ where: { householdId, app: { notIn: named } } });
 }
 
-/** The bell type for an app new on a child's phone. */
+/** The bell type for a new app on a child's phone. */
 export const NEW_APP_TYPE = 'new_app';
 
 /**
- * Apps the phone found since its last look (it compares the apps that can be
- * opened, every 15 minutes; its first look only remembers them). Each adult
+ * Apps the phone found since its last look (every 15 minutes it compares the
+ * apps that can be opened; its first look only remembers them). Each adult
  * who looks after the member gets one bell alert, which wakes their phone.
  * The same report sent twice the same day (an answer lost on the way) alerts
  * once. 409 while their usage isn't shared, like the usage itself.

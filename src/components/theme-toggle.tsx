@@ -31,7 +31,7 @@ export function useTheme(): [Theme, () => void] {
     } catch {
       // Unreadable storage: keep the default.
     }
-    // One-time sync of initial theme from persisted storage.
+    // One-time sync of the initial theme from persisted storage.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setTheme(initial);
   }, []);

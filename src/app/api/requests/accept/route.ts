@@ -3,7 +3,7 @@ import { acceptRequest, requestToDTO } from '@/server/services/requestService';
 import { acceptRequestSchema } from '@/lib/validation/request';
 
 // Accept a maintenance request (assignee, with a done-by date, or moving it).
-// Media is one step (complete); older app builds calling this mark it added.
+// Media is one step (complete); when an older app build calls this, it's marked added.
 // Who may handle it is enforced in the service.
 export const POST = withAuth(async (ctx) => {
   requirePermission(ctx, 'requests:write');

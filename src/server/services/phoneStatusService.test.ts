@@ -295,7 +295,7 @@ describe('phone alerts', () => {
     await checkIn(H, 'mia', { ...base, uninstallGuard: true }, now);
     expect(stored()).toMatchObject({ uninstallGuard: true, emergencyUnlockStage: null });
 
-    // "unlocked" stays while the guard is still off, and goes once it's back on.
+    // "unlocked" stays while the guard is still off and goes once it's back on.
     prisma.phoneStatus.findUnique.mockResolvedValue({ emergencyUnlockStage: 'unlocked' });
     await checkIn(H, 'mia', { ...base, uninstallGuard: false }, now);
     expect(stored()).not.toHaveProperty('emergencyUnlockStage');

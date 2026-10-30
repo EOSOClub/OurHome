@@ -208,6 +208,9 @@ export function planRestore(
   // taskReviewService.healAwaitingReview).
   const putBack = new Map<unknown, string>(); // task id → status before it was sent
   for (const sub of rows.TaskSubmission) {
+    // Nothing waits after a restore, so each check's unique key is its own
+    // (new) id; an exported "task:<old id>" key would name the old task.
+    sub.waitingKey = sub.id;
     if (sub.status !== 'waiting') continue;
     sub.status = 'withdrawn';
     if (sub.kind === 'task') {

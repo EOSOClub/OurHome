@@ -12,5 +12,5 @@ export const POST = withAuth(async (ctx) => {
   const { completionId } = await parseBody(ctx.req, undoCompletionSchema);
   const householdId = ctx.user.householdId!;
   const { task, outcome } = await undoCompletion(householdId, { id: ctx.user.id, role: ctx.user.role }, completionId);
-  return ok({ ...(await taskDTO(householdId, task)), undo: outcome });
+  return ok({ ...(await taskDTO(householdId, task, ctx.user.id)), undo: outcome });
 });

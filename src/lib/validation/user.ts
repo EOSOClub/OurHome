@@ -141,3 +141,6 @@ export const updateProfileSchema = z
     message: 'Nothing to update.',
   });
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
+
+/** Closing "What's new": the newest entry it showed (src/lib/changelog.ts). */
+export const changelogSeenSchema = z.object({ id: z.string().trim().min(1).max(40) });

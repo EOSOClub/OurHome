@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   CalendarClock,
@@ -57,6 +57,8 @@ import { FieldNote } from '@/components/ui/field-note';
 import { useFieldErrors, type FieldErrorsState } from '@/lib/use-field-errors';
 import { EmptyState } from '@/components/empty-state';
 import { useHouseholdZone } from '@/components/household-zone';
+import { NAV_BADGES_KEY } from '@/components/app-nav';
+import type { NavBadges } from '@/server/services/navBadgeService';
 import { isOverdue } from '@/lib/format';
 
 export type RequestPayload =
@@ -185,11 +187,21 @@ export function RequestsView({
   // Bumped after a request is created so the form remounts empty.
   const [formKey, setFormKey] = useState(0);
 
-  const { data: requests = [] } = useQuery({
+  const { data: requests = [], dataUpdatedAt } = useQuery({
     queryKey: ['requests'],
     queryFn: () => apiFetch<RequestDTO[]>('/api/requests'),
     initialData: initialRequests,
   });
+
+  // Opening the page, and each fresh copy of the list after it, clears the
+  // nav's Requests badge here and on their other devices.
+  useEffect(() => {
+    apiFetch('/api/requests/seen', { method: 'POST' })
+      .then(() =>
+        queryClient.setQueryData<NavBadges>(NAV_BADGES_KEY, (b) => (b ? { ...b, requestsNew: 0 } : b)),
+      )
+      .catch(() => {});
+  }, [dataUpdatedAt, queryClient]);
 
   const { data: modules = [] } = useQuery({
     queryKey: ['request-modules'],

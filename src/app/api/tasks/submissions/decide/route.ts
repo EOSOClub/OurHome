@@ -11,5 +11,5 @@ export const POST = withAuth(async (ctx) => {
   const input = await parseBody(ctx.req, decideSubmissionSchema);
   const householdId = ctx.user.householdId!;
   const { taskId, completionId } = await decideSubmission(householdId, { id: ctx.user.id, role: ctx.user.role }, input);
-  return ok({ ...(await taskDTO(householdId, await getTaskOrThrow(householdId, taskId))), completionId });
+  return ok({ ...(await taskDTO(householdId, await getTaskOrThrow(householdId, taskId), ctx.user.id)), completionId });
 });

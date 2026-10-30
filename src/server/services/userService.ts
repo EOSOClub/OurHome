@@ -369,7 +369,7 @@ export async function removeMember(
     // The children and teens they supervised. Their links go first (the
     // cascade below would remove them too), so the check after the delete
     // sees who is still left to supervise each one.
-    const theirs = await tx.supervision.findMany({ where: { supervisorId: target.id }, select: { supervisedId: true } });
+    const theirs = await tx.supervision.findMany({ where: { householdId, supervisorId: target.id }, select: { supervisedId: true } });
     if (theirs.length) await tx.supervision.deleteMany({ where: { supervisorId: target.id } });
     // Cascades remove sessions/accounts; assigned tasks are set null by schema.
     await tx.user.delete({ where: { id: target.id } });

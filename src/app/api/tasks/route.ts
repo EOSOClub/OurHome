@@ -11,12 +11,12 @@ import { createTaskSchema, listTasksQuerySchema } from '@/lib/validation/task';
 export const GET = withAuth(async (ctx) => {
   const query = parseQuery(ctx.req, listTasksQuerySchema);
   const tasks = await listTasks(ctx.user.householdId!, query);
-  return ok(await taskDTOs(ctx.user.householdId!, tasks));
+  return ok(await taskDTOs(ctx.user.householdId!, tasks, ctx.user.id));
 });
 
 export const POST = withAuth(async (ctx) => {
   await requireCreate(ctx, 'tasks');
   const input = await parseBody(ctx.req, createTaskSchema);
   const task = await createTask(ctx.user.householdId!, ctx.user.id, input);
-  return ok(await taskDTO(ctx.user.householdId!, task), { status: 201 });
+  return ok(await taskDTO(ctx.user.householdId!, task, ctx.user.id), { status: 201 });
 });

@@ -78,6 +78,11 @@ export interface SubtaskDTO {
   minutesCustom: boolean;
   /** false = points set by hand. */
   pointsFollowTime: boolean;
+  /**
+   * Task Photo Proof: the points for this tick wait for an adult's OK in a
+   * "steps" check (the step shows "Waiting for an OK").
+   */
+  waitingForOk: boolean;
 }
 
 export interface TaskCompletionDTO {
@@ -337,6 +342,10 @@ export interface TaskReviewDTO {
   submittedBy: MemberDTO | null;
   submittedAt: string | null;
   decideBy: string | null;
+  /** For the member reading it: Complete sends this task for a check (open the send dialog at once). */
+  checkForMe: boolean;
+  /** The waiting check's id, for the child who sent it and the adults who look after them now; null for everyone else. */
+  submissionId: string | null;
 }
 
 /** What an adult (or the child) may do with a check now (POST /api/tasks/submissions/decide or /withdraw). */

@@ -29,22 +29,35 @@ import {
   PHOTO_KEEP_MS,
   TASK_REVIEWED_TYPE,
   TASK_REVIEW_TYPE,
+  ALREADY_WAITING,
+  TOO_MANY_WAITING,
   WAITING_FOR_OK,
+  addStepEntries,
   askSupervisors,
+  checkConflict,
   clearChildBell,
   clearReviewBells,
   currentSupervisors,
+  dropStepEntries,
   healAwaitingReview,
   isSupervisedChild,
+  isWaitingKeyClash,
   mayUndoCheck,
   needsCheck,
+  parseEntries,
+  retryOnWaitingClash,
+  startedWaiting,
   statusBefore,
+  stoppedWaiting,
   supervisedNow,
   supervisesNow,
   tellChild,
   waitingCheck,
+  waitingKey,
+  waitingSteps,
   wakeForChecks,
   withdrawInTx,
+  type StoredEntry,
 } from '@/server/services/taskReviewService';
 import { rebuildJpeg, type RebuiltJpeg } from '@/server/security/jpeg';
 import { canBeSupervised } from '@/lib/permissions';
@@ -128,11 +141,41 @@ export interface TaskContext {
   /** The household's floors and rooms, for each task's places. */
   places: PlaceIndex;
   /** taskId → its waiting "task" check (Task Photo Proof), if any. */
-  waiting: Map<string, { userId: string; submittedAt: Date; cycleEndsAt: Date | null }>;
+  waiting: Map<string, { id: string; userId: string; submittedAt: Date; cycleEndsAt: Date | null }>;
+  /** `${subtaskId}|${checkedAt ISO}` of each step tick waiting for an OK in a "steps" check. */
+  stepsWaiting: Set<string>;
+  /** Who the DTOs are for (review.checkForMe, review.submissionId); null = nobody in particular. */
+  viewer: TaskViewer | null;
 }
 
-export async function loadTaskContext(householdId: string, taskIds: string[]): Promise<TaskContext> {
-  const [settings, members, pending, places, waiting] = await Promise.all([
+/** The member reading the tasks, read once per list (never once per task). */
+interface TaskViewer {
+  id: string;
+  /** needsCheck for them on a task that asks for a photo, and on one that doesn't. */
+  checkPhoto: boolean;
+  checkPlain: boolean;
+  /** The children they look after right now (whose waiting checks they may open). */
+  supervises: Set<string>;
+}
+
+/**
+ * needsCheck for [viewerId], asked once for a whole list: it reads the task
+ * only for photoProof, so two answers cover every task. Without a photo asked
+ * it also needs "Check their tasks before points", so it can only hold when
+ * the photo answer does.
+ */
+async function viewerChecks(householdId: string, viewerId: string): Promise<{ checkPhoto: boolean; checkPlain: boolean }> {
+  const checkPhoto = await needsCheck(prisma, householdId, viewerId, { photoProof: true });
+  const checkPlain = checkPhoto && (await needsCheck(prisma, householdId, viewerId, { photoProof: null }));
+  return { checkPhoto, checkPlain };
+}
+
+/**
+ * What the task DTOs need beyond the rows. [viewerId]: the member they are
+ * for; without one, review.checkForMe is false and review.submissionId null.
+ */
+export async function loadTaskContext(householdId: string, taskIds: string[], viewerId?: string): Promise<TaskContext> {
+  const [settings, members, pending, places, waiting, stepChecks, checks] = await Promise.all([
     getPointsSettings(householdId),
     prisma.user.findMany({ where: { householdId }, select: { id: true, name: true } }),
     taskIds.length
@@ -142,16 +185,33 @@ export async function loadTaskContext(householdId: string, taskIds: string[]): P
     taskIds.length
       ? prisma.taskSubmission.findMany({
           where: { householdId, taskId: { in: taskIds }, kind: 'task', status: 'waiting' },
-          select: { taskId: true, userId: true, submittedAt: true, cycleEndsAt: true },
+          select: { id: true, taskId: true, userId: true, submittedAt: true, cycleEndsAt: true },
         })
       : Promise.resolve([]),
+    taskIds.length
+      ? prisma.taskSubmission.findMany({
+          where: { householdId, taskId: { in: taskIds }, kind: 'steps', status: 'waiting' },
+          select: { entries: true },
+        })
+      : Promise.resolve([]),
+    viewerId && taskIds.length ? viewerChecks(householdId, viewerId) : null,
   ]);
+  // Only asked when someone else's check waits in the list: the viewer's own
+  // need no supervision read.
+  const supervises =
+    viewerId && waiting.some((w) => w.userId !== viewerId)
+      ? await supervisedNow(prisma, householdId, viewerId)
+      : new Set<string>();
   return {
     settings,
     names: new Map(members.map((m) => [m.id, m.name])),
     pending: new Map(pending.map((p) => [p.subtaskId, p.userId])),
     places,
     waiting: new Map(waiting.map((w) => [w.taskId, w])),
+    stepsWaiting: new Set(stepChecks.flatMap((c) => parseEntries(c.entries).map((e) => `${e.subtaskId}|${e.checkedAt}`))),
+    viewer: viewerId
+      ? { id: viewerId, checkPhoto: checks?.checkPhoto ?? false, checkPlain: checks?.checkPlain ?? false, supervises }
+      : null,
   };
 }
 
@@ -189,6 +249,12 @@ export function taskToDTO(task: TaskWithRelations, ctx: TaskContext): TaskDTO {
   const rotation = parseRotation(task.rotationUserIds).filter((id) => ctx.names.has(id));
   const next = rotation.length >= 2 ? nextInRotation(rotation, task.assigneeId) : null;
   const check = ctx.waiting.get(task.id);
+  const viewer = ctx.viewer;
+  // Whether Complete from this viewer goes through a check (needsCheck).
+  const checkForMe = !!viewer && (task.photoProof === true ? viewer.checkPhoto : viewer.checkPlain);
+  // The waiting check's id, for the child who sent it and the adults who look after them now.
+  const submissionId =
+    check && viewer && (check.userId === viewer.id || viewer.supervises.has(check.userId)) ? check.id : null;
   return {
     id: task.id,
     createdById: task.createdById,
@@ -255,6 +321,8 @@ export function taskToDTO(task: TaskWithRelations, ctx: TaskContext): TaskDTO {
       points: state.steps[i].pointsCenti / 100,
       minutesCustom: state.steps[i].minutesCustom,
       pointsFollowTime: state.steps[i].pointsFollowTime,
+      // Its current tick's points wait for an adult's OK ("Waiting for an OK").
+      waitingForOk: s.done && !!s.doneAt && ctx.stepsWaiting.has(`${s.id}|${s.doneAt.toISOString()}`),
     })),
     photoProof: task.photoProof === true,
     // Who sent it and when, for everyone; the note and photo are only for the
@@ -265,17 +333,21 @@ export function taskToDTO(task: TaskWithRelations, ctx: TaskContext): TaskDTO {
           submittedBy: member(check.userId, ctx.names),
           submittedAt: check.submittedAt.toISOString(),
           decideBy: check.cycleEndsAt?.toISOString() ?? null,
+          checkForMe,
+          submissionId,
         }
-      : { waiting: false, submittedBy: null, submittedAt: null, decideBy: null },
+      : { waiting: false, submittedBy: null, submittedAt: null, decideBy: null, checkForMe, submissionId: null },
   };
 }
 
-export async function taskDTO(householdId: string, task: TaskWithRelations): Promise<TaskDTO> {
-  return taskToDTO(task, await loadTaskContext(householdId, [task.id]));
+/** [viewerId]: the member it is for (review.checkForMe, review.submissionId). */
+export async function taskDTO(householdId: string, task: TaskWithRelations, viewerId?: string): Promise<TaskDTO> {
+  return taskToDTO(task, await loadTaskContext(householdId, [task.id], viewerId));
 }
 
-export async function taskDTOs(householdId: string, tasks: TaskWithRelations[]): Promise<TaskDTO[]> {
-  const ctx = await loadTaskContext(householdId, tasks.map((t) => t.id));
+/** One context for the whole list, so the viewer's checks are read once. */
+export async function taskDTOs(householdId: string, tasks: TaskWithRelations[], viewerId?: string): Promise<TaskDTO[]> {
+  const ctx = await loadTaskContext(householdId, tasks.map((t) => t.id), viewerId);
   return tasks.map((t) => taskToDTO(t, ctx));
 }
 
@@ -465,7 +537,7 @@ async function rollOne(
   // waiting with nothing to wait for is opened again; (2) a real one is
   // counted as done (or taken back for a child who is gone); (3) whether the
   // ended cycle was finished follows from the status that leaves.
-  let status = (await healAwaitingReview(tx, task)).status;
+  let status = (await healAwaitingReview(tx, householdId, task)).status;
   if (status === 'awaiting_review') {
     status = await endCycleCheck(tx, householdId, task, settings, now, wake);
   }
@@ -540,7 +612,7 @@ async function endCycleCheck(
   wake: string[],
 ): Promise<string> {
   // healAwaitingReview just found it, in this transaction.
-  const check = (await waitingCheck(tx, task.id))!;
+  const check = (await waitingCheck(tx, householdId, task.id))!;
   const supervisors = await currentSupervisors(tx, householdId, check.userId);
   wake.push(...supervisors);
   const child = await tx.user.findFirst({ where: { id: check.userId, householdId }, select: { id: true, role: true } });
@@ -548,7 +620,7 @@ async function endCycleCheck(
     await withdrawInTx(tx, householdId, check, now);
     return statusBefore(check.prevStatus);
   }
-  const paid = await payCheckInTx(tx, { householdId, check, child, settings, now });
+  const paid = await payCheckInTx(tx, { householdId, check, child, settings, now, wake });
   await tx.taskSubmission.update({
     where: { id: check.id },
     data: {
@@ -559,6 +631,7 @@ async function endCycleCheck(
       completionId: paid.completionId,
       takenBackAt: null,
       photoDeleteAt: new Date(now.getTime() + PHOTO_KEEP_MS),
+      ...stoppedWaiting(check),
     },
   });
   await clearReviewBells(tx, householdId, check.id);
@@ -581,9 +654,11 @@ export async function payCheckInTx(
     child: CompletingActor;
     settings: PointsSettings;
     now: Date;
+    /** See CompleteInTxOptions.wake. */
+    wake?: string[];
   },
 ): Promise<CompleteInTxResult> {
-  const { householdId, check, child, settings, now } = opts;
+  const { householdId, check, child, settings, now, wake } = opts;
   await tx.task.update({ where: { id: check.taskId }, data: { status: statusBefore(check.prevStatus) } });
   return completeInTx(tx, {
     householdId,
@@ -594,6 +669,7 @@ export async function payCheckInTx(
     at: check.submittedAt,
     now,
     submissionId: check.id,
+    wake,
   });
 }
 
@@ -908,7 +984,7 @@ export async function updateTask(
     if (!found) throw new TaskNotFoundError(input.taskId);
     // Left waiting for a check with nothing to wait for: open again, so the
     // waiting rule below can't lock it for good.
-    const existing = await healAwaitingReview(tx, found);
+    const existing = await healAwaitingReview(tx, householdId, found);
     if (input.photoProof !== undefined && input.photoProof !== (existing.photoProof === true)) {
       await assertMayChangePhotoProof(tx, householdId, userId);
     }
@@ -1155,15 +1231,18 @@ async function editWhileWaiting(
   input: UpdateTaskInput,
   settings: PointsSettings,
 ): Promise<UpdateTaskInput> {
-  const check = await waitingCheck(tx, existing.id);
-  const locked = () => new ConflictError(WAITING_FOR_OK);
+  const check = await waitingCheck(tx, householdId, existing.id);
+  const locked = () => checkConflict(WAITING_FOR_OK, 'check_waiting');
   const time = (d: Date | null | undefined) => d?.getTime() ?? null;
 
   // Values that may not change while it waits: refused unless sent as stored.
   if (input.type !== undefined && input.type !== existing.type) throw locked();
   if (input.priority !== undefined && input.priority !== existing.priority) throw locked();
   if (input.status !== undefined && input.status !== existing.status) throw locked();
-  if (input.dueDate !== undefined && time(input.dueDate) !== time(existing.dueDate)) throw locked();
+  // To the minute: both editors send whole minutes, so a stored due date with
+  // seconds still counts as sent unchanged (it then stays as stored).
+  const minute = (d: Date | null | undefined) => (d ? Math.floor(d.getTime() / 60_000) : null);
+  if (input.dueDate !== undefined && minute(input.dueDate) !== minute(existing.dueDate)) throw locked();
   if (input.categoryId !== undefined && (input.categoryId ?? null) !== existing.categoryId) throw locked();
   if (input.photoProof !== undefined && input.photoProof !== (existing.photoProof === true)) throw locked();
   if (input.rotationUserIds !== undefined) {
@@ -1176,6 +1255,10 @@ async function editWhileWaiting(
   if (input.recurrence === null && existing.recurrence) throw locked();
   if (input.recurrence) {
     // The rule as saving would store it, apart from the dates it derives.
+    // Its `timezone` is left out: nothing reads the stored zone (cycles, due
+    // dates and next runs all use the household's), and both editors always
+    // send 'UTC', so a task stored with another zone could never be re-saved
+    // unchanged while it waits.
     const rule = existing.recurrence;
     const next = recurrenceData(input.recurrence, input.dueDate ?? existing.dueDate);
     const same =
@@ -1185,7 +1268,6 @@ async function editWhileWaiting(
       next.byWeekday === rule.byWeekday &&
       next.byMonthday === rule.byMonthday &&
       next.cron === rule.cron &&
-      next.timezone === rule.timezone &&
       time(next.until) === time(rule.until) &&
       next.rollover === (rule.rollover ?? false) &&
       next.cycleWeekdays === rule.cycleWeekdays &&
@@ -1262,36 +1344,54 @@ export async function completeTask(
   // Only sent with a check (the schema refuses it otherwise). Rebuilt before
   // anything is written: a photo that can't be read is refused (422) as is.
   const photo = input.photo !== undefined ? readPhoto(input.photo) : null;
-  const result = await prisma.$transaction(async (tx): Promise<
+  // Supervisors of a checked child whose step points went for a check.
+  const wake: string[] = [];
+  // Whether the transaction that failed was sending the task for a check.
+  let sending = false;
+  const attempt = () => prisma.$transaction(async (tx): Promise<
     { completed: CompleteInTxResult } | { sent: { task: TaskWithRelations; submissionId: string; wake: string[] } }
   > => {
+    wake.length = 0;
+    sending = false;
     // Completed by hand: done now, and written now.
     const now = new Date();
-    const opts: CompleteInTxOptions = { householdId, completer: actor, input, settings, at: now, now };
+    const opts: CompleteInTxOptions = { householdId, completer: actor, input, settings, at: now, now, wake };
     const existing = await loadForCompletion(tx, opts);
     // Who is checked is decided here, for every way of completing; the
     // compatibility fields say what this app can do about it.
     if (await needsCheck(tx, householdId, actor.id, existing)) {
-      if (!input.checks) throw new ConflictError('Update the Our Home app to send this for a check.');
-      if (!input.forCheck) throw new ConflictError('This task now needs a check.');
+      if (!input.checks) throw checkConflict('Update the Our Home app to send this for a check.', 'update_app');
+      if (!input.forCheck) throw checkConflict('This task now needs a check.', 'check_needed');
+      sending = true;
       return { sent: await sendForCheck(tx, existing, { householdId, child: actor, input, photo, now }) };
     }
     if (input.forCheck) {
       // Checks were turned off while the send dialog was open.
-      throw new ConflictError('This task doesn’t need a check any more. Tap Complete again.');
+      throw checkConflict('This task doesn’t need a check any more. Tap Complete again.', 'check_not_needed');
     }
     return { completed: await writeCompletion(tx, existing, opts) };
-  }).catch((err: unknown) => {
-    // Two people completing at the same moment: Mongo aborts the second
-    // transaction (write conflict). Only one is paid; tell the other plainly.
-    if (isWriteConflict(err)) throw new ConflictError('Someone else just completed this task.');
-    throw err;
   });
+  const result = await attempt()
+    .catch((err: unknown) => {
+      // Two waiting checks clashed (TaskSubmission.waitingKey): a second
+      // check of this task is refused; a child's steps check made by this
+      // completion at the same moment as another is added to on a re-run.
+      if (!isWaitingKeyClash(err)) throw err;
+      if (sending) throw checkConflict(ALREADY_WAITING, 'check_already_waiting');
+      return attempt();
+    })
+    .catch((err: unknown) => {
+      // Two people completing at the same moment: Mongo aborts the second
+      // transaction (write conflict). Only one is paid; tell the other plainly.
+      if (isWriteConflict(err)) throw new ConflictError('Someone else just completed this task.');
+      throw err;
+    });
   if ('sent' in result) {
     wakeForChecks(householdId, result.sent.wake);
     return { task: result.sent.task, completionId: null, submissionId: result.sent.submissionId };
   }
   pushTaskReady(householdId, [result.completed.ready]);
+  wakeForChecks(householdId, wake);
   return { task: result.completed.task, completionId: result.completed.completionId };
 }
 
@@ -1319,13 +1419,9 @@ async function sendForCheck(
   if (existing.photoProof === true && !photo && !note) {
     throw new UnprocessableError('This task needs a photo. Can’t take a photo? Say why in the note.', 'photo');
   }
-  // Checks the child started themselves. Only "task" checks exist so far;
-  // step re-ticks the child starts count here too once the steps kind does.
-  const waiting = await tx.taskSubmission.count({
-    where: { householdId, userId: child.id, kind: 'task', status: 'waiting' },
-  });
-  if (waiting >= MAX_WAITING_CHECKS) {
-    throw new ConflictError(`You have ${MAX_WAITING_CHECKS} things waiting for an OK. Wait for an adult to check some first.`);
+  // Checks the child started themselves: "task" sends and step re-ticks.
+  if ((await startedWaiting(tx, householdId, child.id)) >= MAX_WAITING_CHECKS) {
+    throw checkConflict(TOO_MANY_WAITING, 'check_cap');
   }
 
   const check = await tx.taskSubmission.create({
@@ -1341,7 +1437,11 @@ async function sendForCheck(
       cycleEndsAt: existing.cycleEndsAt,
       dueDate: existing.dueDate,
       stepIds: existing.subtasks.filter((s) => s.done).map((s) => s.id),
+      // Frozen for settle: what the task asked when it was sent.
+      photoProof: existing.photoProof === true,
       status: 'waiting',
+      // A second check of this task written at the same moment clashes here (ALREADY_WAITING).
+      waitingKey: waitingKey('task', existing.id, child.id),
     },
   });
   if (photo) {
@@ -1362,6 +1462,9 @@ async function sendForCheck(
     data: { status: 'awaiting_review' },
     include: taskInclude,
   });
+  // Nothing left for them to do while it waits: its "your turn" notice goes
+  // (a take back or a send back puts it back, as an undo does).
+  await clearTaskReady(tx, householdId, existing.id);
 
   const me = await tx.user.findFirst({ where: { id: child.id, householdId }, select: { name: true } });
   const supervisors = await currentSupervisors(tx, householdId, child.id);
@@ -1399,6 +1502,11 @@ export interface CompleteInTxOptions {
   now: Date;
   /** The approved check (TaskSubmission) this completion pays, recorded on it. */
   submissionId?: string;
+  /**
+   * Collects whose phones to wake once the caller commits: the supervisors of
+   * a checked child whose queued step points went to a "steps" check.
+   */
+  wake?: string[];
 }
 
 export interface CompleteInTxResult {
@@ -1439,7 +1547,7 @@ async function loadForCompletion(
     throw new TaskNotFoundError(input.taskId);
   }
   // Waiting for an OK with nothing to wait for: opened again, so it can't block.
-  const existing = await healAwaitingReview(tx, found);
+  const existing = await healAwaitingReview(tx, householdId, found);
 
   if (completer.role === 'guest' && existing.assigneeId !== completer.id) {
     throw new ForbiddenError(
@@ -1454,7 +1562,7 @@ async function loadForCompletion(
   // Sent for a check: its points are paid when an adult approves it (which
   // puts it back as it was before completing it), never by completing it again.
   if (existing.status === 'awaiting_review') {
-    throw new ConflictError('This is waiting for an adult’s OK.');
+    throw checkConflict('This is waiting for an adult’s OK.', 'check_waiting');
   }
 
   // A recurring task done for its occurrence waits for the next one to
@@ -1469,12 +1577,16 @@ async function loadForCompletion(
 async function writeCompletion(
   tx: Tx,
   existing: CompletableTask,
-  { householdId, completer, input, settings, at, now, submissionId }: CompleteInTxOptions,
+  { householdId, completer, input, settings, at, now, submissionId, wake }: CompleteInTxOptions,
 ): Promise<CompleteInTxResult> {
   const userId = completer.id;
   let ready: string | null = null;
   const pending = await tx.pendingCredit.findMany({ where: { taskId: existing.id } });
   const pendingBy = new Map(pending.map((p) => [p.subtaskId, p]));
+  // Checked children whose queued step points wait for an OK instead of
+  // being paid now (completedByOutsider).
+  const toCheck = await completedByOutsider(tx, householdId, existing, pending, userId);
+  const diverted = new Set(pending.filter((p) => toCheck.has(p.userId)).map((p) => p.subtaskId));
   const state = effectivePoints(existing, settings.minutesPerPoint);
   const snapshot: CompletionSnapshot = {
     status: existing.status,
@@ -1528,9 +1640,31 @@ async function writeCompletion(
     completerId: userId,
     // Steps nobody queued were earned when the work was done...
     now: at,
-  });
+    // Diverted steps are left out entirely, never paid to the completer instead.
+  }).filter((a) => !(a.subtaskId && diverted.has(a.subtaskId)));
   // ...and every point lands now.
   await writeAwards(tx, { householdId, taskId: existing.id, taskTitle: existing.title, completionId: completion.id, now }, awards);
+  for (const childId of toCheck) {
+    const entries = existing.subtasks.flatMap((s, i): StoredEntry[] => {
+      const p = pendingBy.get(s.id);
+      const pointsCenti = state.steps[i].pointsCenti;
+      return p && p.userId === childId && pointsCenti > 0
+        ? [{ subtaskId: s.id, title: s.title, pointsCenti, checkedAt: p.checkedAt.toISOString(), awardKind: 'step', completionId: completion.id }]
+        : [];
+    });
+    if (entries.length === 0) continue;
+    const supervisors = await addStepEntries(tx, {
+      householdId,
+      taskId: existing.id,
+      taskTitle: existing.title,
+      photoProof: existing.photoProof === true,
+      childId,
+      entries,
+      now,
+      startedByChild: false,
+    });
+    wake?.push(...supervisors);
+  }
   await tx.pendingCredit.deleteMany({ where: { taskId: existing.id } });
   // Rows from before points get their values written now, so what was paid
   // matches what the task shows from here on.
@@ -1610,6 +1744,30 @@ async function writeCompletion(
   return { task, completionId: completion.id, ready };
 }
 
+/**
+ * The checked children (needsCheck) whose queued step points must wait for an
+ * OK when [completerId] completes the task: anyone who isn't one of their
+ * current supervisors (a sibling, the head). A completion by one of their
+ * supervisors pays them as always, and the completer's own queued points
+ * (an approved check paying the child who sent it) are never held back.
+ */
+async function completedByOutsider(
+  tx: Tx,
+  householdId: string,
+  task: { photoProof?: boolean | null },
+  pending: { userId: string }[],
+  completerId: string,
+): Promise<Set<string>> {
+  const out = new Set<string>();
+  for (const childId of new Set(pending.map((p) => p.userId))) {
+    if (childId === completerId) continue;
+    if (!(await needsCheck(tx, householdId, childId, task))) continue;
+    if ((await currentSupervisors(tx, householdId, childId)).includes(completerId)) continue;
+    out.add(childId);
+  }
+  return out;
+}
+
 /** Prisma's "transaction failed due to a writing conflict" (Mongo). */
 export function isWriteConflict(err: unknown): boolean {
   return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2034';
@@ -1685,23 +1843,51 @@ export async function undoCompletion(
       throw new ConflictError('The task has changed since it was completed; ask the head to void the points instead.');
     }
 
+    // Step points this completion sent for a check (a checked child's, when
+    // whoever completed it doesn't look after them; see completedByOutsider).
+    // Still waiting: taken out of the check, as undoing queues them again.
+    // Sent back by an adult: that stands, so the step is left unticked with
+    // no queued points, to be done again (and paid to whoever does it).
+    const sentBack = new Set<string>();
+    if (snapshot.pending.some((p) => p.userId !== completion.userId)) {
+      const checks = await tx.taskSubmission.findMany({
+        where: {
+          householdId,
+          taskId: task.id,
+          kind: 'steps',
+          status: { in: ['waiting', 'sent_back'] },
+          entries: { contains: `"completionId":"${completion.id}"` },
+        },
+      });
+      const fromThis = (e: StoredEntry) => e.completionId === completion.id;
+      for (const c of checks) {
+        if (c.status === 'sent_back') {
+          for (const e of parseEntries(c.entries).filter(fromThis)) sentBack.add(e.subtaskId);
+        } else if (await dropStepEntries(tx, householdId, c, fromThis, now)) {
+          wake.push(...(await currentSupervisors(tx, householdId, c.userId)));
+        }
+      }
+    }
+
     const date = (v: string | null) => (v ? new Date(v) : null);
     for (const s of snapshot.steps) {
       if (!task.subtasks.some((t) => t.id === s.id)) continue;
       await tx.subtask.update({
         where: { id: s.id },
-        data: {
-          done: s.done,
-          doneAt: date(s.doneAt),
-          doneById: s.doneById,
-          checkAwardId: s.checkAwardId,
-          autoResetAt: date(s.autoResetAt),
-        },
+        data: sentBack.has(s.id)
+          ? UNCHECKED
+          : {
+              done: s.done,
+              doneAt: date(s.doneAt),
+              doneById: s.doneById,
+              checkAwardId: s.checkAwardId,
+              autoResetAt: date(s.autoResetAt),
+            },
       });
     }
     await tx.pendingCredit.deleteMany({ where: { taskId: task.id } });
     const liveSteps = new Set(task.subtasks.map((s) => s.id));
-    const restore = snapshot.pending.filter((p) => liveSteps.has(p.subtaskId));
+    const restore = snapshot.pending.filter((p) => liveSteps.has(p.subtaskId) && !sentBack.has(p.subtaskId));
     if (restore.length) {
       await tx.pendingCredit.createMany({
         data: restore.map((p) => ({
@@ -1754,7 +1940,14 @@ export async function undoCompletion(
       // the child's answer goes, and nobody is told it's their turn.
       await tx.taskSubmission.update({
         where: { id: check.id },
-        data: { status: 'waiting', decidedById: null, decidedAt: null, completionId: null, photoDeleteAt: null },
+        data: {
+          status: 'waiting',
+          decidedById: null,
+          decidedAt: null,
+          completionId: null,
+          photoDeleteAt: null,
+          waitingKey: waitingKey(check.kind, check.taskId, check.userId),
+        },
       });
       const child = await tx.user.findFirst({ where: { id: check.userId, householdId }, select: { name: true } });
       const supervisors = await currentSupervisors(tx, householdId, check.userId);
@@ -1775,8 +1968,6 @@ export async function undoCompletion(
       await clearChildBell(tx, householdId, check.id);
       wake.push(check.userId);
     }
-    // Still-waiting "steps" entries this completion diverted are removed here
-    // too, once the steps kind exists.
     return restored;
   });
   pushTaskReady(householdId, [ready]);
@@ -1906,13 +2097,14 @@ export async function addSubtask(
   await prisma.$transaction(async (tx) => {
     const task = await healAwaitingReview(
       tx,
+      householdId,
       await tx.task.findFirstOrThrow({
         where: { id: input.taskId },
         include: { subtasks: { orderBy: { position: 'asc' } } },
       }),
     );
     // A new step would change what the adult is checking.
-    if (task.status === 'awaiting_review') throw new ConflictError(WAITING_FOR_OK);
+    if (task.status === 'awaiting_review') throw checkConflict(WAITING_FOR_OK, 'check_waiting');
     const state = addStep(effectivePoints(task, settings.minutesPerPoint), {});
     const created = await tx.subtask.create({
       data: {
@@ -1935,6 +2127,11 @@ export async function updateSubtask(
   householdId: string,
   input: UpdateSubtaskInput,
   actor?: CompletingActor,
+  /**
+   * allowCheck: the caller's per-user limit, asked only when a tick puts
+   * step points in a check (false: 429). Ordinary ticks never ask it.
+   */
+  opts: { allowCheck?: () => boolean } = {},
 ): Promise<TaskWithRelations> {
   const taskId = await assertSubtaskInHousehold(input.subtaskId, householdId);
   // Guests may toggle items only on tasks assigned to them - the same scope
@@ -1950,28 +2147,30 @@ export async function updateSubtask(
       );
     }
   }
-  if (input.title !== undefined || input.resetIntervalDays !== undefined || input.position !== undefined) {
-    await assertStepEditWhileWaiting(householdId, taskId, input, actor);
-  }
   if (input.done !== undefined) {
     await rollTaskCycles(householdId, new Date(), taskId);
-    await setStepDone(householdId, taskId, input.subtaskId, input.done, actor ?? null);
+    await setStepDone(householdId, taskId, input.subtaskId, input.done, actor ?? null, opts.allowCheck);
   }
-  if (input.title !== undefined || input.resetIntervalDays !== undefined) {
-    await prisma.subtask.update({
-      where: { id: input.subtaskId },
-      data: { title: input.title, resetIntervalDays: input.resetIntervalDays },
-    });
-  }
-  if (input.position !== undefined) {
-    // Move it and renumber the rest, so no two steps share a position.
+  if (input.title !== undefined || input.resetIntervalDays !== undefined || input.position !== undefined) {
+    // The waiting rule is read and checked in the transaction that writes.
+    // (A tick sent with it is refused on a waiting task anyway, with the same 409.)
     await prisma.$transaction(async (tx) => {
-      const ids = (
-        await tx.subtask.findMany({ where: { taskId }, orderBy: { position: 'asc' }, select: { id: true } })
-      ).map((s) => s.id).filter((id) => id !== input.subtaskId);
-      ids.splice(Math.min(input.position!, ids.length), 0, input.subtaskId);
-      for (const [position, id] of ids.entries()) {
-        await tx.subtask.update({ where: { id }, data: { position } });
+      await assertStepEditWhileWaiting(tx, householdId, taskId, input, actor);
+      if (input.title !== undefined || input.resetIntervalDays !== undefined) {
+        await tx.subtask.update({
+          where: { id: input.subtaskId },
+          data: { title: input.title, resetIntervalDays: input.resetIntervalDays },
+        });
+      }
+      if (input.position !== undefined) {
+        // Move it and renumber the rest, so no two steps share a position.
+        const ids = (
+          await tx.subtask.findMany({ where: { taskId }, orderBy: { position: 'asc' }, select: { id: true } })
+        ).map((s) => s.id).filter((id) => id !== input.subtaskId);
+        ids.splice(Math.min(input.position, ids.length), 0, input.subtaskId);
+        for (const [position, id] of ids.entries()) {
+          await tx.subtask.update({ where: { id }, data: { position } });
+        }
       }
     });
   }
@@ -1981,17 +2180,20 @@ export async function updateSubtask(
 /**
  * The waiting rule (editWhileWaiting) for one step edited on its own: while
  * the task waits for its check, a new name is fine (not from the child who
- * sent it); a new reset or a move is refused. Sent unchanged is fine.
+ * sent it); a new reset or a move is refused. Sent unchanged is fine. Read
+ * in [tx], the transaction that then writes the edit.
  */
 async function assertStepEditWhileWaiting(
+  tx: Tx,
   householdId: string,
   taskId: string,
   input: UpdateSubtaskInput,
   actor: CompletingActor | undefined,
 ): Promise<void> {
   const task = await healAwaitingReview(
-    prisma,
-    await prisma.task.findFirstOrThrow({
+    tx,
+    householdId,
+    await tx.task.findFirstOrThrow({
       where: { id: taskId, householdId },
       include: { subtasks: { orderBy: { position: 'asc' } } },
     }),
@@ -2000,14 +2202,14 @@ async function assertStepEditWhileWaiting(
   const index = task.subtasks.findIndex((s) => s.id === input.subtaskId);
   const step = task.subtasks[index];
   if (input.resetIntervalDays !== undefined && (input.resetIntervalDays ?? null) !== step.resetIntervalDays) {
-    throw new ConflictError(WAITING_FOR_OK);
+    throw checkConflict(WAITING_FOR_OK, 'check_waiting');
   }
   if (input.position !== undefined && Math.min(input.position, task.subtasks.length - 1) !== index) {
-    throw new ConflictError(WAITING_FOR_OK);
+    throw checkConflict(WAITING_FOR_OK, 'check_waiting');
   }
   if (input.title !== undefined && input.title !== step.title) {
-    const check = await waitingCheck(prisma, taskId);
-    if (check && actor && check.userId === actor.id) throw new ConflictError(WAITING_FOR_OK);
+    const check = await waitingCheck(tx, householdId, taskId);
+    if (check && actor && check.userId === actor.id) throw checkConflict(WAITING_FOR_OK, 'check_waiting');
   }
 }
 
@@ -2017,13 +2219,23 @@ async function setStepDone(
   subtaskId: string,
   done: boolean,
   actor: CompletingActor | null,
+  allowCheck?: () => boolean,
 ) {
   const settings = await getPointsSettings(householdId);
   const now = new Date();
-  await prisma.$transaction(async (tx) => {
+  // Supervisors whose bell rows for a "steps" check changed, woken after commit.
+  const wake: string[] = [];
+  // One tick asks the per-user limit once, even when it runs again below.
+  let allowed: boolean | undefined;
+  const allowOnce = allowCheck && (() => (allowed ??= allowCheck()));
+  // Run again once when it lost the race to start the child's steps check:
+  // the re-run finds that check and adds to it.
+  await retryOnWaitingClash(() => prisma.$transaction(async (tx) => {
+    wake.length = 0;
     // Left waiting for a check with nothing to wait for: open again first.
     const task = await healAwaitingReview(
       tx,
+      householdId,
       await tx.task.findFirstOrThrow({
         where: { id: taskId },
         include: { subtasks: { orderBy: { position: 'asc' } } },
@@ -2033,7 +2245,7 @@ async function setStepDone(
       throw new ConflictError('This task is archived; restore it before ticking steps.');
     }
     // Its steps stay as they were sent, so the adult checks what was done.
-    if (task.status === 'awaiting_review') throw new ConflictError(WAITING_FOR_OK);
+    if (task.status === 'awaiting_review') throw checkConflict(WAITING_FOR_OK, 'check_waiting');
     const index = task.subtasks.findIndex((s) => s.id === subtaskId);
     const step = task.subtasks[index];
     const pending = await tx.pendingCredit.findUnique({ where: { subtaskId } });
@@ -2055,7 +2267,22 @@ async function setStepDone(
         });
       } else if (outcome === 'pay_now') {
         const points = effectivePoints(task, settings.minutesPerPoint).steps[index].pointsCenti;
-        if (points > 0) {
+        if (points > 0 && (await needsCheck(tx, householdId, actor!.id, task))) {
+          // A checked child: the repeat's points wait for an adult's OK in
+          // their "steps" check instead. Still one tap: no photo, no note.
+          const supervisors = await addStepEntries(tx, {
+            householdId,
+            taskId,
+            taskTitle: task.title,
+            photoProof: task.photoProof === true,
+            childId: actor!.id,
+            entries: [{ subtaskId, title: step.title, pointsCenti: points, checkedAt: now.toISOString(), awardKind: 'step_repeat' }],
+            now,
+            startedByChild: true,
+            allow: allowOnce,
+          });
+          wake.push(...supervisors);
+        } else if (points > 0) {
           const award = await tx.pointAward.create({
             data: {
               householdId,
@@ -2084,6 +2311,12 @@ async function setStepDone(
     // Set when the points this check paid are taken back: the step is then
     // as it was after its own reset, so re-ticking it pays again (once).
     let autoResetAt: Date | null = null;
+    // This very tick waiting for an OK in its child's "steps" check (an entry
+    // for an earlier tick of the step is a different one, and stays).
+    const tickAt = step.doneAt?.toISOString();
+    const isThisTick = (e: StoredEntry) => e.awardKind === 'step_repeat' && e.subtaskId === subtaskId && e.checkedAt === tickAt;
+    const open = !step.checkAwardId && step.doneById && tickAt ? await waitingSteps(tx, householdId, taskId, step.doneById) : null;
+    const tickCheck = open && parseEntries(open.entries).some(isThisTick) ? open : null;
     if (step.checkAwardId) {
       // This check paid at once: unchecking it within the undo window (by the
       // same person, or the head) takes the points back.
@@ -2100,12 +2333,27 @@ async function setStepDone(
         });
         autoResetAt = now;
       }
+    } else if (tickCheck) {
+      // Ticked again and waiting for an OK: as with a repeat paid at once
+      // (above), the child, an adult who looks after them, or the head takes
+      // it out of the check and re-ticking it counts again; anyone else's
+      // uncheck leaves it waiting. Its queued points stay either way.
+      const child = tickCheck.userId;
+      if (
+        actor &&
+        (actor.id === child || actor.role === 'head' || (await supervisesNow(tx, householdId, actor.id, child)))
+      ) {
+        await dropStepEntries(tx, householdId, tickCheck, isThisTick, now);
+        wake.push(...(await currentSupervisors(tx, householdId, child)));
+        autoResetAt = now;
+      }
     } else if (pending) {
       // Unchecked by hand: its queued points are dropped.
       await tx.pendingCredit.delete({ where: { id: pending.id } });
     }
     await tx.subtask.update({ where: { id: subtaskId }, data: { ...UNCHECKED, autoResetAt } });
-  });
+  }));
+  wakeForChecks(householdId, wake);
 }
 
 /**
@@ -2136,8 +2384,8 @@ export async function reorderSubtasks(
     const moved = input.subtaskIds.some((id, i) => id !== existing[i].id);
     if (moved) {
       const row = await tx.task.findFirst({ where: { id: input.taskId, householdId }, select: { id: true, status: true } });
-      if (row && (await healAwaitingReview(tx, row)).status === 'awaiting_review') {
-        throw new ConflictError(WAITING_FOR_OK);
+      if (row && (await healAwaitingReview(tx, householdId, row)).status === 'awaiting_review') {
+        throw checkConflict(WAITING_FOR_OK, 'check_waiting');
       }
     }
     for (const [index, id] of input.subtaskIds.entries()) {
@@ -2163,13 +2411,14 @@ export async function deleteSubtask(
   await prisma.$transaction(async (tx) => {
     const task = await healAwaitingReview(
       tx,
+      householdId,
       await tx.task.findFirstOrThrow({
         where: { id: taskId },
         include: { subtasks: { orderBy: { position: 'asc' } } },
       }),
     );
     // Removing a step would change what the adult is checking.
-    if (task.status === 'awaiting_review') throw new ConflictError(WAITING_FOR_OK);
+    if (task.status === 'awaiting_review') throw checkConflict(WAITING_FOR_OK, 'check_waiting');
     const index = task.subtasks.findIndex((s) => s.id === subtaskId);
     const state = removeStep(effectivePoints(task, settings.minutesPerPoint), index);
     await tx.pendingCredit.deleteMany({ where: { subtaskId } });

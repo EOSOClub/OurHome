@@ -40,9 +40,15 @@ export function SubtaskRow({
   onDelete,
   onSave,
   onMove,
+  waitingForOk = false,
+  locked = false,
 }: {
   subtask: SubtaskDTO;
   canWrite: boolean;
+  /** Its points wait for an adult's OK (a "steps" check): shows the chip. */
+  waitingForOk?: boolean;
+  /** The task waits for an OK: no ticking, moving or removing; only its name may change. */
+  locked?: boolean;
   isFirst: boolean;
   isLast: boolean;
   onToggle: (subtaskId: string, done: boolean) => void;
@@ -116,7 +122,8 @@ export function SubtaskRow({
           aria-describedby={noteId}
           autoFocus
         />
-        <div className="flex items-center justify-between gap-2">
+        {/* Wraps on a narrow card rather than pushing the row wider. */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
             Resets every
             <Input
@@ -129,6 +136,7 @@ export function SubtaskRow({
                 setErrors((errs) => without(errs, 'resetIntervalDays'));
               }}
               placeholder="-"
+              disabled={locked}
               className="h-7 w-16 text-xs"
               aria-label="Reset interval in days"
               aria-invalid={errors.resetIntervalDays ? true : undefined}
@@ -168,14 +176,20 @@ export function SubtaskRow({
     );
   }
 
+  const who = subtask.queuedFor || subtask.doneBy;
+  const hasDetails =
+    waitingForOk || !!who || (showPoints && subtask.points > 0) || !!subtask.resetIntervalDays;
+
   return (
-    <div className="group flex items-center gap-2">
+    <div className="group flex items-start gap-2">
       <button
         type="button"
         onClick={() => onToggle(subtask.id, !subtask.done)}
+        // Ticking a task that waits for an OK is refused; don't flick the box.
+        disabled={locked}
         aria-label={subtask.done ? 'Mark not done' : 'Mark done'}
         className={cn(
-          'flex size-5 shrink-0 items-center justify-center rounded border transition-colors',
+          'flex size-5 shrink-0 items-center justify-center rounded border transition-colors disabled:opacity-60',
           subtask.done
             ? 'border-primary bg-primary text-primary-foreground'
             : 'border-input hover:bg-accent',
@@ -183,53 +197,64 @@ export function SubtaskRow({
       >
         {subtask.done ? <Check className="size-3.5" /> : null}
       </button>
-      <span
-        className={cn(
-          'min-w-0 flex-1 truncate text-sm',
-          subtask.done && 'text-muted-foreground line-through',
-        )}
-      >
-        {subtask.title}
-      </span>
-      {/* Shows who did it, and whether its points are waiting for the task. */}
-      {subtask.queuedFor || subtask.doneBy ? (
+      {/* The name keeps a readable width; on a narrow row, what's said about
+          the step wraps onto the next line instead of pushing the row wider. */}
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5">
         <span
-          className="shrink-0 text-xs text-muted-foreground"
-          title={
-            showPoints && subtask.queuedFor
-              ? `${subtask.queuedFor.name}'s points are queued until the task is completed`
-              : undefined
-          }
+          className={cn(
+            'min-w-[7rem] flex-1 break-words text-sm',
+            subtask.done && 'text-muted-foreground line-through',
+          )}
         >
-          {showPoints && subtask.queuedFor
-            ? `queued · ${subtask.queuedFor.name}`
-            : (subtask.queuedFor ?? subtask.doneBy)?.name}
+          {subtask.title}
         </span>
-      ) : null}
-      {showPoints && subtask.points > 0 ? (
-        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-          {formatPoints(toCenti(subtask.points))} pts
-        </span>
-      ) : null}
-      {subtask.resetIntervalDays ? (
-        <span
-          className="inline-flex shrink-0 items-center gap-0.5 text-xs text-muted-foreground"
-          title={
-            subtask.resetIntervalDays === 1
-              ? 'Unchecks itself every day'
-              : `Unchecks itself every ${subtask.resetIntervalDays} days`
-          }
-        >
-          <Repeat className="size-3" />
-          {resetBadgeLabel(subtask.resetIntervalDays)}
-        </span>
-      ) : null}
+        {hasDetails ? (
+          <span className="flex min-w-0 max-w-full flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+            {waitingForOk ? (
+              <span className="whitespace-nowrap rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-400">
+                Waiting for an OK
+              </span>
+            ) : null}
+            {/* Shows who did it, and whether its points are waiting for the task. */}
+            {who ? (
+              <span
+                className="min-w-0 break-words"
+                title={
+                  showPoints && subtask.queuedFor
+                    ? `${subtask.queuedFor.name}'s points are queued until the task is completed`
+                    : undefined
+                }
+              >
+                {showPoints && subtask.queuedFor
+                  ? `queued · ${subtask.queuedFor.name}`
+                  : (subtask.queuedFor ?? subtask.doneBy)?.name}
+              </span>
+            ) : null}
+            {showPoints && subtask.points > 0 ? (
+              <span className="whitespace-nowrap tabular-nums">{formatPoints(toCenti(subtask.points))} pts</span>
+            ) : null}
+            {subtask.resetIntervalDays ? (
+              <span
+                className="inline-flex items-center gap-0.5 whitespace-nowrap"
+                title={
+                  subtask.resetIntervalDays === 1
+                    ? 'Unchecks itself every day'
+                    : `Unchecks itself every ${subtask.resetIntervalDays} days`
+                }
+              >
+                <Repeat className="size-3" />
+                {resetBadgeLabel(subtask.resetIntervalDays)}
+              </span>
+            ) : null}
+          </span>
+        ) : null}
+      </div>
       {canWrite ? (
-        <div className="flex shrink-0 items-center gap-0.5">
+        <div className="flex shrink-0 items-center gap-0.5 pt-0.5">
           <button
             type="button"
             aria-label="Move item up"
-            disabled={isFirst}
+            disabled={isFirst || locked}
             className="text-muted-foreground hover:text-foreground disabled:opacity-30"
             onClick={() => onMove(subtask.id, -1)}
           >
@@ -238,7 +263,7 @@ export function SubtaskRow({
           <button
             type="button"
             aria-label="Move item down"
-            disabled={isLast}
+            disabled={isLast || locked}
             className="text-muted-foreground hover:text-foreground disabled:opacity-30"
             onClick={() => onMove(subtask.id, 1)}
           >
@@ -255,7 +280,8 @@ export function SubtaskRow({
           <button
             type="button"
             aria-label="Remove item"
-            className="text-muted-foreground hover:text-destructive"
+            disabled={locked}
+            className="text-muted-foreground hover:text-destructive disabled:opacity-30"
             onClick={() => setConfirmDelete(true)}
           >
             <X className="size-4" />

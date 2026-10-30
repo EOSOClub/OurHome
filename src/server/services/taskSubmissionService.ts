@@ -3,7 +3,7 @@ import { prisma } from '@/server/db/prisma';
 import { logActivity } from '@/server/services/activityService';
 import { ConflictError, ForbiddenError, NotFoundError, UnprocessableError } from '@/server/services/errors';
 import { NOT_VOIDED, effectivePoints, getPointsSettings } from '@/server/services/pointsService';
-import { pushTaskReady } from '@/server/services/taskReadyService';
+import { announceTaskReady, pushTaskReady } from '@/server/services/taskReadyService';
 import {
   UNCHECKED,
   isWriteConflict,
@@ -14,16 +14,21 @@ import {
   ALREADY_DECIDED,
   CYCLE_END_REVIEW_MS,
   PHOTO_KEEP_MS,
+  checkConflict,
   clearReviewBells,
   currentSupervisors,
   healAwaitingReview,
   needsCheck,
+  parseEntries,
+  retryOnWaitingClash,
   statusBefore,
+  stoppedWaiting,
   supervisedNow,
   supervisesNow,
   tellChild,
   wakeForChecks,
   withdrawInTx,
+  type StoredEntry,
 } from '@/server/services/taskReviewService';
 import { canBeSupervised } from '@/lib/permissions';
 import { formatPoints, liveTotals } from '@/lib/taskPoints';
@@ -46,7 +51,7 @@ const TOO_LATE = 'Points can only be taken back for 3 days after the day ended.'
 
 /** Each decision, withdraw and take-back reports a lost race the same plain way. */
 function plainConflict(err: unknown): never {
-  if (isWriteConflict(err)) throw new ConflictError(ALREADY_DECIDED);
+  if (isWriteConflict(err)) throw checkConflict(ALREADY_DECIDED, 'check_decided');
   throw err;
 }
 
@@ -96,6 +101,8 @@ async function childPoints(db: Tx, completionId: string, childId: string): Promi
  * - counted as done when its day ended (3 days): approve clears it from To
  *   check; send back takes the child's points from that completion back,
  *   once. The task stays done for that day.
+ * - waiting "steps" check: approve pays its entries, send back pays none
+ *   (decideSteps).
  * Cycles roll first, so a check whose day just ended is decided as what it
  * now is. Returns the task and, for an approval, the completion (for Undo).
  */
@@ -115,18 +122,20 @@ export async function decideSubmission(
   let ready: string | null = null;
   const wake: string[] = [];
 
-  const completionId = await prisma
+  // Run again once if paying it started another child's steps check at the
+  // same moment as someone else did (see completedByOutsider).
+  const completionId = await retryOnWaitingClash(() => prisma
     .$transaction(async (tx): Promise<string | null> => {
+      wake.length = 0;
       const check = await tx.taskSubmission.findFirst({ where: { id: input.submissionId, householdId } });
       if (!check) throw new NotFoundError('That check wasn’t found.');
-      // Steps checks are decided once they exist (nothing creates them yet).
-      if (check.kind !== 'task') throw new ConflictError('This can’t be decided yet. Update Our Home, then try again.');
       if (!(await supervisesNow(tx, householdId, actor.id, check.userId))) {
         throw new ForbiddenError('Only an adult who looks after them can decide this.');
       }
       // Its day ended while the adult was looking: it counted as done, so a
       // send back would now take points back. Let them look again first.
-      if (before.status === 'waiting' && check.status === 'auto_approved') {
+      // (Only "task" checks count as done when their day ends.)
+      if (check.kind === 'task' && before.status === 'waiting' && check.status === 'auto_approved') {
         throw new ConflictError('This was counted as done when the day ended. Look at it again.');
       }
       const child = await tx.user.findFirst({
@@ -141,9 +150,15 @@ export async function decideSubmission(
       const supervisors = await currentSupervisors(tx, householdId, check.userId);
       wake.push(child.id, ...supervisors);
 
+      if (check.kind === 'steps') {
+        if (check.status !== 'waiting') throw checkConflict(ALREADY_DECIDED, 'check_decided');
+        await decideSteps(tx, { householdId, actor, check, task, input, now });
+        return null;
+      }
+
       if (check.status === 'waiting') {
         if (input.decision === 'approve') {
-          const paid = await payCheckInTx(tx, { householdId, check, child, settings, now });
+          const paid = await payCheckInTx(tx, { householdId, check, child, settings, now, wake });
           await tx.taskSubmission.update({
             where: { id: check.id },
             data: {
@@ -152,6 +167,7 @@ export async function decideSubmission(
               decidedAt: now,
               completionId: paid.completionId,
               photoDeleteAt: new Date(now.getTime() + PHOTO_KEEP_MS),
+              ...stoppedWaiting(check),
             },
           });
           const points = await childPoints(tx, paid.completionId, child.id);
@@ -177,7 +193,10 @@ export async function decideSubmission(
         if (redo.some((id) => !steps.has(id))) {
           throw new UnprocessableError('Pick steps from this task.', 'redoStepIds');
         }
-        await tx.task.update({ where: { id: task.id }, data: { status: statusBefore(check.prevStatus) } });
+        const back = await tx.task.update({ where: { id: task.id }, data: { status: statusBefore(check.prevStatus) } });
+        // Theirs to do again: its "your turn" notice comes back, with no
+        // extra push (the "Sent back" row below wakes them already).
+        await announceTaskReady(tx, householdId, back, actor.id, settings.timezone);
         if (redo.length) {
           // Steps to do again: unticked, their queued points dropped. The
           // rest stay ticked and keep theirs.
@@ -193,6 +212,7 @@ export async function decideSubmission(
             reviewNote: input.reviewNote,
             redoStepIds: redo,
             photoDeleteAt: new Date(now.getTime() + PHOTO_KEEP_MS),
+            ...stoppedWaiting(check),
           },
         });
         await clearReviewBells(tx, householdId, check.id);
@@ -214,7 +234,7 @@ export async function decideSubmission(
 
       // Counted as done when its day ended: still the adults' to look at for 3 days.
       const cycleEnd = check.status === 'auto_approved' && check.autoReason === 'cycle_end';
-      if (!cycleEnd || check.decidedById || check.takenBackAt) throw new ConflictError(ALREADY_DECIDED);
+      if (!cycleEnd || check.decidedById || check.takenBackAt) throw checkConflict(ALREADY_DECIDED, 'check_decided');
       if (!check.decidedAt || now.getTime() - check.decidedAt.getTime() > CYCLE_END_REVIEW_MS) {
         throw new ConflictError(TOO_LATE);
       }
@@ -247,7 +267,7 @@ export async function decideSubmission(
         tx,
       );
       return null;
-    })
+    }))
     .catch(plainConflict);
 
   if (completionId) {
@@ -259,10 +279,96 @@ export async function decideSubmission(
   return { taskId: before.taskId, completionId };
 }
 
+type StepsCheck = { id: string; taskId: string; userId: string; entries: string | null };
+type TaskWithSteps = Prisma.TaskGetPayload<{ include: { subtasks: true } }>;
+
+/**
+ * Pays every entry of a "steps" check to its child: each as its own award,
+ * earned when the step was ticked and landing now, carrying the completion
+ * that diverted it (if any), so undoing that completion takes it back. A
+ * repeat whose step is still ticked from that very tick becomes the step's
+ * paid check (checkAwardId), as if it had been paid when ticked. Returns
+ * the points paid (hundredths).
+ */
+async function paySteps(tx: Tx, check: StepsCheck, task: TaskWithSteps, householdId: string, now: Date): Promise<number> {
+  const steps = new Map(task.subtasks.map((s) => [s.id, s]));
+  let paid = 0;
+  for (const e of parseEntries(check.entries)) {
+    if (e.pointsCenti <= 0) continue;
+    const award = await tx.pointAward.create({
+      data: {
+        householdId,
+        userId: check.userId,
+        taskId: task.id,
+        subtaskId: e.subtaskId,
+        completionId: e.completionId ?? null,
+        kind: e.awardKind,
+        pointsCenti: e.pointsCenti,
+        taskTitle: task.title,
+        stepTitle: e.title,
+        earnedAt: new Date(e.checkedAt),
+        awardedAt: now,
+      },
+    });
+    paid += e.pointsCenti;
+    if (e.awardKind === 'step_repeat' && stillTicked(steps.get(e.subtaskId), e)) {
+      await tx.subtask.update({ where: { id: e.subtaskId }, data: { checkAwardId: award.id } });
+    }
+  }
+  return paid;
+}
+
+/** Whether [step] is still ticked from the tick [entry] is for. */
+function stillTicked(step: { done: boolean; doneAt: Date | null } | undefined, entry: StoredEntry): boolean {
+  return !!step && step.done && step.doneAt?.toISOString() === entry.checkedAt;
+}
+
+/**
+ * An adult decides a waiting "steps" check (decideSubmission): approve pays
+ * every entry (paySteps); send back pays nothing, and a step still ticked
+ * from a repeat in it is unticked as if by its own reset, so ticking it again
+ * counts (and waits for an OK again). Its queued points stay. The task itself
+ * never changes.
+ */
+async function decideSteps(
+  tx: Tx,
+  opts: { householdId: string; actor: Actor; check: StepsCheck; task: TaskWithSteps; input: DecideSubmissionInput; now: Date },
+): Promise<void> {
+  const { householdId, actor, check, task, input, now } = opts;
+  if (input.decision === 'approve') {
+    const paid = await paySteps(tx, check, task, householdId, now);
+    await tx.taskSubmission.update({
+      where: { id: check.id },
+      data: { status: 'approved', decidedById: actor.id, decidedAt: now, ...stoppedWaiting(check) },
+    });
+    await clearReviewBells(tx, householdId, check.id);
+    await tellChild(tx, householdId, check, `Approved: steps on ${task.title}${paid > 0 ? ` (+${formatPoints(paid)} pts)` : ''}`);
+    return;
+  }
+  const steps = new Map(task.subtasks.map((s) => [s.id, s]));
+  const redo = [
+    ...new Set(
+      parseEntries(check.entries)
+        .filter((e) => e.awardKind === 'step_repeat' && stillTicked(steps.get(e.subtaskId), e))
+        .map((e) => e.subtaskId),
+    ),
+  ];
+  if (redo.length) {
+    await tx.subtask.updateMany({ where: { taskId: task.id, id: { in: redo } }, data: { ...UNCHECKED, autoResetAt: now } });
+  }
+  await tx.taskSubmission.update({
+    where: { id: check.id },
+    data: { status: 'sent_back', decidedById: actor.id, decidedAt: now, reviewNote: input.reviewNote, ...stoppedWaiting(check) },
+  });
+  await clearReviewBells(tx, householdId, check.id);
+  await tellChild(tx, householdId, check, `Sent back: steps on ${task.title}`, input.reviewNote ?? null);
+}
+
 /**
  * The child takes back their own waiting check (POST
  * /api/tasks/submissions/withdraw, also the send toast's Undo): the task goes
- * back to how it was, the photo is deleted, the supervisors' bell rows go.
+ * back to how it was, the photo is deleted, the supervisors' bell rows go,
+ * and its "your turn" notice comes back, as after an undo.
  */
 export async function withdrawSubmission(householdId: string, actor: Actor, submissionId: string): Promise<string> {
   const before = await prisma.taskSubmission.findFirst({
@@ -273,16 +379,36 @@ export async function withdrawSubmission(householdId: string, actor: Actor, subm
   await rollTaskCycles(householdId, new Date(), before.taskId);
   const now = new Date();
   const wake: string[] = [];
+  let ready: string | null = null;
   await prisma
     .$transaction(async (tx) => {
       const check = await tx.taskSubmission.findFirst({ where: { id: submissionId, householdId } });
       if (!check) throw new NotFoundError('That check wasn’t found.');
       if (check.userId !== actor.id) throw new ForbiddenError('Only the person who sent it can take it back.');
-      if (check.kind !== 'task' || check.status !== 'waiting') throw new ConflictError(ALREADY_DECIDED);
+      if (check.kind !== 'task' || check.status !== 'waiting') throw checkConflict(ALREADY_DECIDED, 'check_decided');
       await withdrawInTx(tx, householdId, check, now);
       wake.push(...(await currentSupervisors(tx, householdId, check.userId)));
+      const task = await tx.task.findFirst({ where: { id: check.taskId, householdId } });
+      if (task) {
+        // No note: Activity is for the whole household.
+        await logActivity(
+          {
+            householdId,
+            actorId: actor.id,
+            verb: 'updated',
+            subjectType: 'task',
+            subjectId: task.id,
+            message: `took back “${task.title}” from the check`,
+          },
+          tx,
+        );
+        if (task.status !== 'completed' && task.status !== 'archived') {
+          ready = await announceTaskReady(tx, householdId, task, actor.id);
+        }
+      }
     })
     .catch(plainConflict);
+  pushTaskReady(householdId, [ready]);
   wakeForChecks(householdId, wake);
   return before.taskId;
 }
@@ -294,7 +420,8 @@ export async function withdrawSubmission(householdId: string, actor: Actor, subm
  * in every sweep): a child who is gone or no longer a teen or child has their
  * check withdrawn, unpaid; a child nobody looks after now, or whose checks
  * were turned off on a task that doesn't ask for a photo, has it counted as
- * done ("unsupervised") with the photo deleted at once. Anything else waits
+ * done ("unsupervised") with the photo deleted at once, and is told so (a
+ * "steps" check: its entries paid as they stand). Anything else waits
  * on. Tasks left waiting with nothing to wait for are opened again first.
  * Logs one line per change, ids only. Returns how many checks changed.
  */
@@ -303,17 +430,17 @@ export async function settleOrphanedSubmissions(householdId: string, now: Date =
     where: { householdId, status: 'awaiting_review' },
     select: { id: true, status: true },
   });
-  for (const task of stuck) await healAwaitingReview(prisma, task);
+  for (const task of stuck) await healAwaitingReview(prisma, householdId, task);
 
-  // Steps checks are settled here as well once they exist (nothing creates them yet).
+  // Both kinds: a whole task sent, and step points waiting ("steps").
   const waiting = await prisma.taskSubmission.findMany({
-    where: { householdId, kind: 'task', status: 'waiting' },
-    select: { id: true, taskId: true },
+    where: { householdId, status: 'waiting' },
+    select: { id: true, taskId: true, kind: true },
   });
   if (waiting.length === 0) return 0;
   const settings = await getPointsSettings(householdId);
   let changed = 0;
-  for (const { id, taskId } of waiting) {
+  for (const { id, taskId, kind } of waiting) {
     try {
       const wake: string[] = [];
       let ready: string | null = null;
@@ -328,8 +455,31 @@ export async function settleOrphanedSubmissions(householdId: string, now: Date =
           return 'withdrawn';
         }
         const task = await tx.task.findFirst({ where: { id: check.taskId, householdId }, select: { photoProof: true } });
-        if (!task || (await needsCheck(tx, householdId, child.id, task))) return null;
-        const paid = await payCheckInTx(tx, { householdId, check, child, settings, now });
+        if (!task) return null;
+        // What the task asked when the check was made, never a later change to
+        // "Ask for a photo": only losing every supervisor, or checks turned
+        // off, may count it as done. Rows from before it was kept use the
+        // task's value (a waiting "task" check locks it anyway).
+        const photoProof = check.photoProof ?? task.photoProof;
+        if (await needsCheck(tx, householdId, child.id, { photoProof })) return null;
+        if (check.kind === 'steps') {
+          // Step points nobody can check: paid as they stand, the task untouched.
+          const full = await tx.task.findFirst({
+            where: { id: check.taskId, householdId },
+            include: { subtasks: { orderBy: { position: 'asc' } } },
+          });
+          if (!full) return null;
+          await paySteps(tx, check, full, householdId, now);
+          await tx.taskSubmission.update({
+            where: { id: check.id },
+            data: { status: 'auto_approved', autoReason: 'unsupervised', decidedById: null, decidedAt: now, ...stoppedWaiting(check) },
+          });
+          await clearReviewBells(tx, householdId, check.id);
+          await tellChild(tx, householdId, check, `Counted as done: steps on ${full.title}`);
+          wake.push(child.id, ...supervisors);
+          return 'auto_approved';
+        }
+        const paid = await payCheckInTx(tx, { householdId, check, child, settings, now, wake });
         await tx.taskSubmission.update({
           where: { id: check.id },
           data: {
@@ -339,11 +489,13 @@ export async function settleOrphanedSubmissions(householdId: string, now: Date =
             decidedAt: now,
             completionId: paid.completionId,
             takenBackAt: null,
+            ...stoppedWaiting(check),
           },
         });
         // Nobody is left to look at it.
         await tx.taskPhoto.deleteMany({ where: { submissionId: check.id } });
         await clearReviewBells(tx, householdId, check.id);
+        await tellChild(tx, householdId, check, `Counted as done: ${paid.task.title}`);
         ready = paid.ready;
         wake.push(child.id, ...supervisors);
         return 'auto_approved';
@@ -351,7 +503,8 @@ export async function settleOrphanedSubmissions(householdId: string, now: Date =
       if (!outcome) continue;
       changed += 1;
       console.log(`[tasks] settled check ${id} on task ${taskId}: ${outcome}`);
-      if (outcome === 'auto_approved') {
+      // A task completed as of when it was sent rolls over now; step points change no task.
+      if (outcome === 'auto_approved' && kind !== 'steps') {
         await rollTaskCycles(householdId, new Date(), taskId);
         pushTaskReady(householdId, [ready]);
       }
@@ -378,26 +531,6 @@ export async function deleteExpiredPhotos(householdId: string, now: Date = new D
 }
 
 // --- Reading ----------------------------------------------------------------------
-
-/** A "steps" check's frozen entries, as stored (JSON). */
-interface StoredEntry {
-  subtaskId: string;
-  title: string;
-  pointsCenti: number;
-  checkedAt: string;
-  awardKind: 'step' | 'step_repeat';
-  completionId?: string | null;
-}
-
-function parseEntries(raw: string | null): StoredEntry[] {
-  if (!raw) return [];
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as StoredEntry[]) : [];
-  } catch {
-    return [];
-  }
-}
 
 /**
  * GET /api/tasks/submissions: the checks in the viewer's To check (children
@@ -495,7 +628,7 @@ export async function listSubmissions(householdId: string, viewerId: string, now
 
 /**
  * How many checks wait on [viewerId] in To check right now (children they
- * look after): the dashboard's Needs you line, like countRequestsWaitingOn.
+ * look after): the dashboard's Needs you line, and the Tasks tab's count.
  */
 export async function countTasksToCheck(householdId: string, viewerId: string, now: Date = new Date()): Promise<number> {
   const kids = await supervisedNow(prisma, householdId, viewerId);

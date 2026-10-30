@@ -94,7 +94,7 @@ describe('healAwaitingReview', () => {
   it('leaves every other task alone, without reading anything', async () => {
     for (const status of ['pending', 'in_progress', 'completed', 'archived']) {
       const task = { id: 't1', status };
-      expect(await healAwaitingReview(tx as never, task)).toBe(task);
+      expect(await healAwaitingReview(tx as never, H, task)).toBe(task);
     }
     expect(tx.taskSubmission.findFirst).not.toHaveBeenCalled();
     expect(tx.task.update).not.toHaveBeenCalled();
@@ -103,9 +103,9 @@ describe('healAwaitingReview', () => {
   it('leaves a task that really is waiting for its check', async () => {
     tx.taskSubmission.findFirst.mockResolvedValueOnce({ id: 's1' });
     const task = { id: 't1', status: 'awaiting_review', title: 'Dishes' };
-    expect(await healAwaitingReview(tx as never, task)).toBe(task);
+    expect(await healAwaitingReview(tx as never, H, task)).toBe(task);
     expect(tx.taskSubmission.findFirst).toHaveBeenCalledWith({
-      where: { taskId: 't1', kind: 'task', status: 'waiting' },
+      where: { householdId: H, taskId: 't1', kind: 'task', status: 'waiting' },
       select: { id: true },
     });
     expect(tx.task.update).not.toHaveBeenCalled();
@@ -113,7 +113,7 @@ describe('healAwaitingReview', () => {
 
   it('opens a task waiting with nothing to wait for, writes it back and says so in one line', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const healed = await healAwaitingReview(tx as never, { id: 't1', status: 'awaiting_review', title: 'Dishes' });
+    const healed = await healAwaitingReview(tx as never, H, { id: 't1', status: 'awaiting_review', title: 'Dishes' });
     expect(healed).toEqual({ id: 't1', status: 'pending', title: 'Dishes' });
     expect(tx.task.update).toHaveBeenCalledWith({ where: { id: 't1' }, data: { status: 'pending' } });
     expect(warn).toHaveBeenCalledTimes(1);
@@ -216,7 +216,7 @@ describe('withdrawInTx', () => {
 
   it('ends the check unpaid, deletes the photo, removes the rows, and puts a waiting task back', async () => {
     await withdrawInTx(tx as never, H, { id: 's1', taskId: 't1', userId: 'kid', kind: 'task', prevStatus: 'pending' }, NOW);
-    expect(tx.taskSubmission.update).toHaveBeenCalledWith({ where: { id: 's1' }, data: { status: 'withdrawn', decidedAt: NOW } });
+    expect(tx.taskSubmission.update).toHaveBeenCalledWith({ where: { id: 's1' }, data: { status: 'withdrawn', decidedAt: NOW, waitingKey: 's1' } });
     expect(tx.taskPhoto.deleteMany).toHaveBeenCalledWith({ where: { submissionId: 's1' } });
     expect(tx.task.updateMany).toHaveBeenCalledWith({ where: { id: 't1', status: 'awaiting_review' }, data: { status: 'pending' } });
   });

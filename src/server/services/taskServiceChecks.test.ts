@@ -129,6 +129,7 @@ const {
   updateTask,
 } = await import('./taskService');
 const { UnprocessableError } = await import('./errors');
+const { recurrenceInputSchema } = await import('@/lib/validation/task');
 
 const H = 'household1';
 const NOW = new Date('2026-10-29T15:00:00.000Z');
@@ -289,6 +290,8 @@ describe('completeTask: sending a task for a check', () => {
     expect(names()).toEqual([
       'taskSubmission.create',
       'task.update',
+      // Its "your turn" notice goes while it waits.
+      'clearTaskReady',
       'notification.deleteMany',
       'notification.createMany',
       'logActivity',
@@ -305,7 +308,9 @@ describe('completeTask: sending a task for a check', () => {
       cycleEndsAt: null,
       dueDate: new Date('2026-10-29T17:00:00.000Z'),
       stepIds: ['a'],
+      photoProof: false,
       status: 'waiting',
+      waitingKey: 'task:t1',
     });
     expect(written('task.update')[0].data).toEqual({ status: 'awaiting_review' });
     expect(written('notification.createMany')[0].data).toEqual(
@@ -410,6 +415,47 @@ describe('completeTask: sending a task for a check', () => {
   });
 });
 
+describe('check refusals carry a stable code beside their message', () => {
+  const refused = (message: string, code: string) => ({ name: 'ConflictError', message, code });
+
+  it('the compatibility replies', async () => {
+    checked();
+    await expect(completeTask(H, kid, { taskId: 't1' })).rejects.toMatchObject(
+      refused('Update the Our Home app to send this for a check.', 'update_app'),
+    );
+    await expect(completeTask(H, kid, { taskId: 't1', checks: 1 })).rejects.toMatchObject(
+      refused('This task now needs a check.', 'check_needed'),
+    );
+    checked({ reviewTasks: null });
+    await expect(completeTask(H, kid, { taskId: 't1', checks: 1, forCheck: true })).rejects.toMatchObject(
+      refused('This task doesn’t need a check any more. Tap Complete again.', 'check_not_needed'),
+    );
+  });
+
+  it('the cap on waiting checks', async () => {
+    checked();
+    tx.taskSubmission.count.mockResolvedValueOnce(10);
+    await expect(completeTask(H, kid, { taskId: 't1', checks: 1, forCheck: true })).rejects.toMatchObject(
+      refused('You have 10 things waiting for an OK. Wait for an adult to check some first.', 'check_cap'),
+    );
+  });
+
+  it('a task that waits: completing it, editing what it locks, ticking its steps', async () => {
+    stored = task({ status: 'awaiting_review' });
+    tx.taskSubmission.findFirst.mockResolvedValue(waiting());
+    await expect(completeTask(H, mum, { taskId: 't1' })).rejects.toMatchObject(
+      refused('This is waiting for an adult’s OK.', 'check_waiting'),
+    );
+    await expect(updateTask(H, 'mum', { taskId: 't1', priority: 'high' })).rejects.toMatchObject(refused(LOCKED, 'check_waiting'));
+    await expect(updateSubtask(H, { subtaskId: 'a', done: false }, mum)).rejects.toMatchObject(refused(LOCKED, 'check_waiting'));
+  });
+
+  it('other refusals keep no code', async () => {
+    stored = task({ status: 'completed', completedAt: QUEUED_AT });
+    await expect(completeTask(H, mum, { taskId: 't1' })).rejects.toMatchObject({ name: 'ConflictError', code: undefined });
+  });
+});
+
 // --- Cycle end ------------------------------------------------------------------------
 
 describe('rollTaskCycles: a check waiting when its cycle ends', () => {
@@ -465,6 +511,7 @@ describe('rollTaskCycles: a check waiting when its cycle ends', () => {
         completionId: 'done1',
         takenBackAt: null,
         photoDeleteAt: new Date(NOW.getTime() + 14 * DAY),
+        waitingKey: 's1',
       },
     });
     expect(written('notification.create')[0].data).toMatchObject({
@@ -502,7 +549,7 @@ describe('rollTaskCycles: a check waiting when its cycle ends', () => {
     checked();
     tx.user.findFirst.mockResolvedValue(null);
     await rollWith(daily);
-    expect(written('taskSubmission.update')[0]).toEqual({ where: { id: 's1' }, data: { status: 'withdrawn', decidedAt: NOW } });
+    expect(written('taskSubmission.update')[0]).toEqual({ where: { id: 's1' }, data: { status: 'withdrawn', decidedAt: NOW, waitingKey: 's1' } });
     expect(written('taskPhoto.deleteMany')[0]).toEqual({ where: { submissionId: 's1' } });
     expect(written('task.updateMany')[0]).toEqual({ where: { id: 't1', status: 'awaiting_review' }, data: { status: 'in_progress' } });
     expect(written('taskCompletion.create').map((c) => c.data)).toEqual([
@@ -568,7 +615,8 @@ describe('undoCompletion of an approved check', () => {
     expect(written('task.update').at(-1)!.data).toMatchObject({ status: 'awaiting_review' });
     expect(written('taskSubmission.update')[0]).toEqual({
       where: { id: 's1' },
-      data: { status: 'waiting', decidedById: null, decidedAt: null, completionId: null, photoDeleteAt: null },
+      // Waiting again: its unique key comes back.
+      data: { status: 'waiting', decidedById: null, decidedAt: null, completionId: null, photoDeleteAt: null, waitingKey: 'task:t1' },
     });
     expect(written('notification.createMany')[0].data).toHaveLength(2);
     expect(written('notification.deleteMany')).toContainEqual({ where: { householdId: H, type: 'task_reviewed', dedupeKey: 'task_reviewed:s1' } });
@@ -747,6 +795,43 @@ describe('updateTask while a task waits for its check', () => {
     expect(data).not.toHaveProperty('cycleStartedAt');
   });
 
+  it('the web form’s save of a recurring task stored with the household’s zone: the new title is saved, the rule is left as it was', async () => {
+    const rule = {
+      id: 'r1', kind: 'daily', interval: 1, byWeekday: null, byMonthday: null, cron: null, timezone: 'America/Chicago',
+      anchorDate: new Date('2026-10-01T17:00:00.000Z'), until: null, nextRunAt: new Date('2026-11-05T17:00:00.000Z'),
+      rollover: true, cycleWeekdays: null, cycleMonthdays: null,
+    };
+    stored = waitingTask({
+      type: 'recurring', recurrence: rule, recurrenceId: 'r1',
+      cycleStartedAt: new Date('2026-10-29T05:00:00.000Z'), cycleEndsAt: new Date('2026-10-30T05:00:00.000Z'),
+    });
+    // The recurrence exactly as create-task-form.tsx sends it (always 'UTC'), through the route's schema.
+    const recurrence = recurrenceInputSchema.parse(
+      JSON.parse('{"kind":"daily","interval":1,"timezone":"UTC","until":null,"rollover":true,"cycleWeekdays":null,"cycleMonthdays":null}'),
+    );
+    await updateTask(H, 'mum', webSave({ type: 'recurring', title: 'Dishes and pans', recurrence }));
+    expect(names()).toEqual(['task.update', 'logActivity']);
+    const data = written('task.update')[0].data;
+    expect(data).toMatchObject({ title: 'Dishes and pans', recurrenceId: undefined, type: undefined });
+    expect(data).not.toHaveProperty('cycleStartedAt');
+    // A real change to the rule is still refused.
+    await expect(
+      updateTask(H, 'mum', webSave({ type: 'recurring', recurrence: { ...recurrence, interval: 2 } })),
+    ).rejects.toThrow(LOCKED);
+  });
+
+  it('a stored due date with seconds: the web form’s unchanged minute is fine, a minute later is refused', async () => {
+    stored = waitingTask({ dueDate: new Date('2026-10-29T17:00:42.123Z') });
+    await updateTask(H, 'mum', webSave({ title: 'Dishes and pans' }));
+    expect(names()).toEqual(['task.update', 'logActivity']);
+    // Left as stored, seconds and all.
+    expect(written('task.update')[0].data).toMatchObject({ title: 'Dishes and pans', dueDate: undefined });
+    writes.length = 0;
+    await expect(updateTask(H, 'mum', webSave({ dueDate: new Date('2026-10-29T17:01:00.000Z') }))).rejects.toThrow(LOCKED);
+    await expect(updateTask(H, 'mum', webSave({ dueDate: new Date('2026-10-29T16:59:00.000Z') }))).rejects.toThrow(LOCKED);
+    expect(writes).toEqual([]);
+  });
+
   it('refuses a change to a step’s points, writing nothing', async () => {
     const save = webSave();
     save.subtasks[0].points = 2;
@@ -859,6 +944,17 @@ describe('steps while a task waits', () => {
     await expect(updateSubtask(H, { subtaskId: 'b', resetIntervalDays: 2 }, mum)).rejects.toThrow(LOCKED);
     expect(writes).toEqual([]);
     await updateSubtask(H, { subtaskId: 'b', title: 'Step b', resetIntervalDays: null }, mum);
+  });
+
+  it('the rule is read and checked in the transaction that writes the edit', async () => {
+    // Outside any transaction the task still looks open; inside it, the send has landed.
+    prisma.task.findFirstOrThrow.mockResolvedValue(task());
+    await expect(updateSubtask(H, { subtaskId: 'b', position: 0 }, mum)).rejects.toThrow(LOCKED);
+    await expect(updateSubtask(H, { subtaskId: 'b', title: 'Dry' }, kid)).rejects.toThrow(LOCKED);
+    expect(prisma.task.findFirstOrThrow).not.toHaveBeenCalled();
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(tx.taskSubmission.findFirst).toHaveBeenCalledWith({ where: { householdId: H, taskId: 't1', kind: 'task', status: 'waiting' } });
+    expect(writes).toEqual([]);
   });
 
   it('the child who sent it can’t rename one', async () => {

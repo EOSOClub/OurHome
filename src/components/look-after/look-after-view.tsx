@@ -14,6 +14,7 @@ import {
   Globe,
   HeartHandshake,
   Hourglass,
+  ListChecks,
   Loader2,
   MapPin,
   ShieldCheck,
@@ -38,6 +39,7 @@ import { Select } from '@/components/ui/select';
 import { toast } from '@/components/ui/toast';
 import { LIVE_CHECKS_KEY } from '@/components/profile/location-card';
 import { RelativeTime } from '@/components/household-zone';
+import { useHouseholdFeatures } from '@/components/household-features';
 import {
   PHONE_PROBLEM_LABELS,
   PHONE_RULES,
@@ -215,6 +217,22 @@ const SHARING_SUMMARY: Record<Person['sharing'], string> = {
 /** A card's explanation, under the switch or list it's about. */
 function Help({ children, className }: { children: ReactNode; className?: string }) {
   return <p className={cn('text-xs text-muted-foreground', className)}>{children}</p>;
+}
+
+/**
+ * What was just tapped, held until its save settles. A controlled box set
+ * only through a mutation paints its old value for one frame after a tap:
+ * React puts the input back at once, and the mutation reports "pending" a
+ * tick later. Holding the tapped value in state from the same tap avoids it.
+ */
+function useTapped<T>() {
+  const [tapped, setTapped] = useState<{ value: T } | null>(null);
+  return {
+    /** The tapped value while one is held, else [otherwise]. */
+    or: (otherwise: T): T => (tapped ? tapped.value : otherwise),
+    hold: (value: T) => setTapped({ value }),
+    release: () => setTapped(null),
+  };
 }
 
 /** The App usage card's title line: their latest day, and what's blocked. */
@@ -1032,6 +1050,8 @@ function ScheduleForm({
 function PointsForTime({ person }: { person: Person }) {
   const queryClient = useQueryClient();
   const { available, rule, balanceCenti, bought, given } = person.pointsTime;
+  // The box and both lists show what was picked from the same tap (useTapped).
+  const tap = useTapped<{ minutesPerPoint: number | null; dailyCap: number } | null>();
   const save = useMutation({
     onMutate: () => queryClient.cancelQueries({ queryKey: LOOK_AFTER_KEY }),
     mutationFn: (body: { minutesPerPoint: number | null; dailyCap: number }) =>
@@ -1048,7 +1068,12 @@ function PointsForTime({ person }: { person: Person }) {
       );
     },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not change it.'),
+    onSettled: tap.release,
   });
+  const change = (body: { minutesPerPoint: number | null; dailyCap: number }) => {
+    tap.hold(body);
+    save.mutate(body);
+  };
   const give = useMutation({
     onMutate: () => queryClient.cancelQueries({ queryKey: LOOK_AFTER_KEY }),
     mutationFn: (minutes: number) =>
@@ -1063,7 +1088,7 @@ function PointsForTime({ person }: { person: Person }) {
     onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not give it.'),
   });
   if (!available) return null;
-  const pending = save.isPending ? save.variables : null;
+  const pending = tap.or(save.isPending ? save.variables : null);
   const rate = pending ? pending.minutesPerPoint : (rule?.minutesPerPoint ?? null);
   const cap = pending ? pending.dailyCap : (rule?.dailyCap ?? 30);
   const hasLimits = !!person.limits.total || person.limits.apps.length > 0;
@@ -1086,7 +1111,7 @@ function PointsForTime({ person }: { person: Person }) {
           className="size-4 rounded border-input"
           checked={rate !== null}
           disabled={save.isPending}
-          onChange={(e) => save.mutate({ minutesPerPoint: e.target.checked ? 5 : null, dailyCap: cap })}
+          onChange={(e) => change({ minutesPerPoint: e.target.checked ? 5 : null, dailyCap: cap })}
         />
         Let them spend points on more time
         {save.isPending ? <Loader2 className="size-3.5 animate-spin text-muted-foreground" /> : null}
@@ -1099,7 +1124,7 @@ function PointsForTime({ person }: { person: Person }) {
             className="h-8 w-auto px-2 py-0 text-xs"
             value={String(rate)}
             disabled={save.isPending}
-            onChange={(e) => save.mutate({ minutesPerPoint: Number(e.target.value), dailyCap: cap })}
+            onChange={(e) => change({ minutesPerPoint: Number(e.target.value), dailyCap: cap })}
           >
             {[...new Set([...RATE_CHOICES, rate])].sort((a, b) => a - b).map((m) => (
               <option key={m} value={m}>
@@ -1113,7 +1138,7 @@ function PointsForTime({ person }: { person: Person }) {
             className="h-8 w-auto px-2 py-0 text-xs"
             value={String(cap)}
             disabled={save.isPending}
-            onChange={(e) => save.mutate({ minutesPerPoint: rate, dailyCap: Number(e.target.value) })}
+            onChange={(e) => change({ minutesPerPoint: rate, dailyCap: Number(e.target.value) })}
           >
             {[...new Set([...CAP_CHOICES, cap])].sort((a, b) => a - b).map((m) => (
               <option key={m} value={m}>
@@ -1159,6 +1184,60 @@ function PointsForTime({ person }: { person: Person }) {
           Extra time goes on top of their daily limits, and they have none yet.
         </p>
       )}
+    </CollapsibleCard>
+  );
+}
+
+/**
+ * "Check their tasks before points" (Task Photo Proof): their finished tasks
+ * wait for one of their supervisors to approve them before points are paid.
+ * Only while the household has Tasks on.
+ */
+function TaskChecks({ person }: { person: Person }) {
+  const queryClient = useQueryClient();
+  const tasksOn = useHouseholdFeatures().includes('tasks');
+  // The box shows what was tapped from the same tap (useTapped).
+  const tap = useTapped<boolean>();
+  const save = useMutation({
+    // A fetch already on its way (window focus) mustn't put the old value back.
+    onMutate: () => queryClient.cancelQueries({ queryKey: LOOK_AFTER_KEY }),
+    mutationFn: (on: boolean) =>
+      apiFetch<LookAfterDTO>('/api/supervision/review-tasks', {
+        method: 'POST',
+        body: JSON.stringify({ supervisedId: person.id, on }),
+      }),
+    onSuccess: (next, on) => {
+      queryClient.setQueryData(LOOK_AFTER_KEY, next);
+      toast.success(
+        on
+          ? `Checking ${person.name}’s tasks before points is on`
+          : `Checking ${person.name}’s tasks before points is off`,
+      );
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not change it.'),
+    onSettled: tap.release,
+  });
+  if (!tasksOn) return null;
+  const checked = tap.or(save.isPending ? save.variables : person.reviewTasks);
+  return (
+    <CollapsibleCard icon={<ListChecks className="size-4" />} title="Task checks" description={checked ? 'On' : 'Off'}>
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          className="size-4 rounded border-input"
+          checked={checked}
+          disabled={save.isPending}
+          onChange={(e) => {
+            tap.hold(e.target.checked);
+            save.mutate(e.target.checked);
+          }}
+        />
+        Check their tasks before points
+        {save.isPending ? <Loader2 className="size-3.5 animate-spin text-muted-foreground" /> : null}
+      </label>
+      <Help className="pl-6 pt-1">
+        When they finish a task, it waits for one of you to look. Points are paid when you approve it.
+      </Help>
     </CollapsibleCard>
   );
 }
@@ -1228,6 +1307,9 @@ function PersonDetail({ person, canRing, until, onRang }: RingButtonProps & { ca
 
   // A fetch already on its way (window focus) mustn't put the old value back.
   const cancelRefetch = () => queryClient.cancelQueries({ queryKey: LOOK_AFTER_KEY });
+  // The boxes show what was tapped from the same tap (useTapped).
+  const requireTap = useTapped<boolean>();
+  const usageTap = useTapped<boolean>();
 
   const require = useMutation({
     onMutate: cancelRefetch,
@@ -1246,6 +1328,7 @@ function PersonDetail({ person, canRing, until, onRang }: RingButtonProps & { ca
       );
     },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not change it.'),
+    onSettled: requireTap.release,
   });
 
   const usage = useMutation({
@@ -1260,10 +1343,11 @@ function PersonDetail({ person, canRing, until, onRang }: RingButtonProps & { ca
       toast.success(share ? `${person.name}’s app usage will be shared` : `${person.name}’s app usage is no longer shared`);
     },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not change it.'),
+    onSettled: usageTap.release,
   });
 
-  const required = require.isPending ? require.variables : person.sharing === 'required';
-  const sharesUsage = usage.isPending ? usage.variables : person.appUsage.shared;
+  const required = requireTap.or(require.isPending ? require.variables : person.sharing === 'required');
+  const sharesUsage = usageTap.or(usage.isPending ? usage.variables : person.appUsage.shared);
 
   return (
     <div className="grid items-start gap-6 sm:landscape:grid-cols-2 lg:grid-cols-2">
@@ -1280,7 +1364,10 @@ function PersonDetail({ person, canRing, until, onRang }: RingButtonProps & { ca
               className="size-4 rounded border-input"
               checked={required}
               disabled={require.isPending}
-              onChange={(e) => require.mutate(e.target.checked)}
+              onChange={(e) => {
+                requireTap.hold(e.target.checked);
+                require.mutate(e.target.checked);
+              }}
             />
             Location required
             {require.isPending ? <Loader2 className="size-3.5 animate-spin text-muted-foreground" /> : null}
@@ -1305,7 +1392,10 @@ function PersonDetail({ person, canRing, until, onRang }: RingButtonProps & { ca
                 className="size-4 rounded border-input"
                 checked={sharesUsage}
                 disabled={usage.isPending}
-                onChange={(e) => usage.mutate(e.target.checked)}
+                onChange={(e) => {
+                  usageTap.hold(e.target.checked);
+                  usage.mutate(e.target.checked);
+                }}
               />
               Share app usage
               {usage.isPending ? <Loader2 className="size-3.5 animate-spin text-muted-foreground" /> : null}
@@ -1333,6 +1423,7 @@ function PersonDetail({ person, canRing, until, onRang }: RingButtonProps & { ca
       <div className="space-y-6">
         <DailyLimits person={person} />
         <Schedules person={person} />
+        <TaskChecks person={person} />
         <PointsForTime person={person} />
         <PhoneProtections person={person} />
       </div>
@@ -1500,6 +1591,8 @@ function PhoneProtections({ person }: { person: Person }) {
 /** One protection their phone must have on, saved with each tick. */
 function RuleBox({ person, rule }: { person: LookAfterDTO['people'][number]; rule: PhoneRule }) {
   const queryClient = useQueryClient();
+  // The box shows what was tapped from the same tap (useTapped).
+  const tap = useTapped<boolean>();
   const save = useMutation({
     // A fetch already on its way (window focus) mustn't put the old value back.
     onMutate: () => queryClient.cancelQueries({ queryKey: LOOK_AFTER_KEY }),
@@ -1517,8 +1610,9 @@ function RuleBox({ person, rule }: { person: LookAfterDTO['people'][number]; rul
       );
     },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not change it.'),
+    onSettled: tap.release,
   });
-  const checked = save.isPending ? save.variables : person.rules[rule];
+  const checked = tap.or(save.isPending ? save.variables : person.rules[rule]);
   return (
     <div className="space-y-0.5">
       <label className="flex items-center gap-2 text-sm">
@@ -1527,7 +1621,10 @@ function RuleBox({ person, rule }: { person: LookAfterDTO['people'][number]; rul
           className="size-4 rounded border-input"
           checked={checked}
           disabled={save.isPending}
-          onChange={(e) => save.mutate(e.target.checked)}
+          onChange={(e) => {
+            tap.hold(e.target.checked);
+            save.mutate(e.target.checked);
+          }}
         />
         Require {PHONE_RULE_LABELS[rule]}
         {save.isPending ? <Loader2 className="size-3.5 animate-spin text-muted-foreground" /> : null}

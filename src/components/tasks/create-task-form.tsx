@@ -67,6 +67,9 @@ export interface TaskFormPayload {
   rotationUserIds: string[];
   // object when recurring, null to clear, undefined to leave unchanged
   recurrence?: TaskRecurrencePayload | null;
+  // "Ask for a photo" (Task Photo Proof). Left out when the viewer can't set
+  // it on a new task; an edit sends the stored value back unchanged.
+  photoProof?: boolean;
   // The whole checklist as edited (existing items keep their id).
   subtasks: {
     id?: string;
@@ -109,6 +112,7 @@ export function CreateTaskForm({
   onSubmit,
   onCancel,
   minutesPerPoint,
+  canSetPhotoProof = true,
 }: {
   categories: CategoryDTO[];
   /** Floors and rooms (Settings → Rooms & floors) for the Location picker. */
@@ -122,8 +126,13 @@ export function CreateTaskForm({
   onCancel: () => void;
   /** Household rate (points settings), for live points. */
   minutesPerPoint: number;
+  /** "Ask for a photo" is shown (a teen or child someone looks after can't change it). */
+  canSetPhotoProof?: boolean;
 }) {
   const isEdit = !!initial;
+  // Sent for a check: only the name, notes, places and step names may change
+  // (the server compares the values, so the full form is still sent).
+  const waitingCheck = !!initial?.review.waiting;
   const initialDue = splitDateTime(initial?.dueDate ?? null);
   const initialUntil = splitDateTime(initial?.recurrence?.until ?? null);
 
@@ -157,6 +166,7 @@ export function CreateTaskForm({
   const [cycleMonthdays, setCycleMonthdays] = useState<number[]>(
     parseList(initial?.recurrence?.cycleMonthdays ?? null),
   );
+  const [photoProof, setPhotoProof] = useState(initial?.photoProof ?? false);
 
   const isRecurring = type === 'recurring';
   // Turns only move on when a recurring task does, so rotation needs it.
@@ -211,6 +221,8 @@ export function CreateTaskForm({
       ...placeIdLists(locations),
       assigneeId: currentTurn || null,
       rotationUserIds: rotating ? rotation : [],
+      // Hidden from them, a new task leaves it out; an edit sends it back as stored.
+      ...(canSetPhotoProof || isEdit ? { photoProof } : {}),
       subtasks: points.steps
         .filter((s) => s.title.trim())
         .map((s) => ({
@@ -253,6 +265,11 @@ export function CreateTaskForm({
     <Card>
       <CardContent className="p-5">
         <form onSubmit={handleSubmit} className="space-y-4" {...errors.formProps}>
+          {waitingCheck ? (
+            <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
+              Waiting for an OK, so only the name, notes and places can change.
+            </p>
+          ) : null}
           <div className="space-y-2" data-field="title">
             <Label htmlFor="title">Title</Label>
             <Input
@@ -279,6 +296,8 @@ export function CreateTaskForm({
             <FieldNote id={errors.noteId('notes')} error={errors.get('notes')} />
           </div>
 
+          {/* Greyed out while it waits for an OK. */}
+          <fieldset disabled={waitingCheck} className="m-0 min-w-0 border-0 p-0 disabled:opacity-60">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2" data-field="type">
               <Label htmlFor="type">Type</Label>
@@ -369,6 +388,7 @@ export function CreateTaskForm({
               <FieldNote id={errors.noteId('categoryId')} error={errors.get('categoryId')} />
             </div>
           </div>
+          </fieldset>
 
           {places.floors.length || places.rooms.length ? (
             <div className="space-y-2" data-field="roomIds floorIds roomId floorId">
@@ -384,7 +404,34 @@ export function CreateTaskForm({
             </div>
           ) : null}
 
+          {canSetPhotoProof ? (
+            <fieldset
+              disabled={waitingCheck}
+              className="m-0 min-w-0 space-y-1 border-0 p-0 disabled:opacity-60"
+              data-field="photoProof"
+            >
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 size-4"
+                  checked={photoProof}
+                  onChange={(e) => setPhotoProof(e.target.checked)}
+                  aria-describedby={errors.noteId('photoProof')}
+                />
+                <span>
+                  Ask for a photo
+                  <span className="block text-xs text-muted-foreground">
+                    Children someone looks after take a photo when they finish. An adult who looks after them checks
+                    it before points are paid.
+                  </span>
+                </span>
+              </label>
+              <FieldNote id={errors.noteId('photoProof')} error={errors.get('photoProof')} />
+            </fieldset>
+          ) : null}
+
           {isRecurring ? (
+            <fieldset disabled={waitingCheck} className="m-0 min-w-0 border-0 p-0 disabled:opacity-60">
             <div
               className={cn(
                 'space-y-4 rounded-md border bg-muted/40 p-4',
@@ -623,6 +670,7 @@ export function CreateTaskForm({
                 ) : null}
               </div>
             </div>
+            </fieldset>
           ) : null}
 
           <div
@@ -634,7 +682,7 @@ export function CreateTaskForm({
           >
             {/* Time, points and the checklist; a step's problem says which step. */}
             <FieldNote id="task-points-note" error={errors.first(...POINTS_KEYS)} />
-            <PointsEditor value={points} onChange={setPoints} minutesPerPoint={minutesPerPoint} />
+            <PointsEditor value={points} onChange={setPoints} minutesPerPoint={minutesPerPoint} locked={waitingCheck} />
           </div>
 
           <div className="flex justify-end gap-2">

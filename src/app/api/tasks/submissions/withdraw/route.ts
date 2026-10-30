@@ -10,5 +10,5 @@ export const POST = withAuth(async (ctx) => {
   const { submissionId } = await parseBody(ctx.req, withdrawSubmissionSchema);
   const householdId = ctx.user.householdId!;
   const taskId = await withdrawSubmission(householdId, { id: ctx.user.id, role: ctx.user.role }, submissionId);
-  return ok(await taskDTO(householdId, await getTaskOrThrow(householdId, taskId)));
+  return ok(await taskDTO(householdId, await getTaskOrThrow(householdId, taskId), ctx.user.id));
 });

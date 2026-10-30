@@ -10,6 +10,7 @@ import { isOverdue } from '@/lib/format';
 import { getPointsSettings } from '@/server/services/pointsService';
 import { getHouseholdFeatures } from '@/server/services/serverAdminService';
 import { listOccurrences } from '@/server/services/calendarService';
+import { isWriteConflict } from '@/server/services/taskService';
 import { addDays, daysBetween, localDateOf, localTimeAt, startOfLocalDate } from '@/lib/taskCycles';
 
 // Turns current household state (overdue tasks, low / soon-depleted inventory,
@@ -530,6 +531,67 @@ export async function generateReminders(
     // Only the people on the event: no managers added.
     ...buildEventReminders(events, now, settings.timezone),
   ];
+
+  // This runs inside reads (GET /api/notifications, the bell page), and its
+  // rows are best effort: a write conflict with another transaction writing
+  // notifications at the same moment (a Take back putting a task's "your
+  // turn" row back, another reminder run) is tried once more, then left to
+  // the next run instead of failing the read.
+  let created: ReminderCandidate[] = [];
+  for (let attempt = 1; ; attempt++) {
+    try {
+      created = await writeReminders(householdId, candidates);
+      break;
+    } catch (err) {
+      if (!isWriteConflict(err)) throw err;
+      if (attempt === 2) {
+        console.warn(`[reminders] household ${householdId}: lost a write race twice; the next run catches up`);
+        return;
+      }
+    }
+  }
+
+  // Wake the phones of whoever can see a new row so the app alerts now rather
+  // than on its next hourly check. Only for new rows: refreshes are silent
+  // there too.
+  if (created.length > 0) {
+    pushSync(householdId, { userIds: created.flatMap((c) => c.audienceUserIds) }, 'reminder');
+  }
+
+  // Best-effort email for the newly created notifications, after the rows are
+  // committed. Each goes to the members who see it in the bell (its
+  // audience). Any failure is logged and swallowed - email must never break
+  // reminder generation.
+  if (created.length > 0) {
+    try {
+      const members = await prisma.user.findMany({
+        where: { householdId },
+        select: { id: true, email: true },
+      });
+      await Promise.all(
+        created.flatMap((c) => {
+          const { subject, text } = buildReminderEmail(c);
+          return reminderRecipients(c, members).map((m) =>
+            send({ to: m.email, subject, text }).catch((err) => {
+              console.warn(
+                `[reminders] failed to email ${m.email} for ${c.dedupeKey}:`,
+                err,
+              );
+            }),
+          );
+        }),
+      );
+    } catch (err) {
+      console.warn('[reminders] failed to send reminder emails:', err);
+    }
+  }
+}
+
+/**
+ * Write the household's generated rows to match [candidates] in one
+ * transaction (see generateReminders), and return the ones that are new.
+ */
+async function writeReminders(householdId: string, candidates: ReminderCandidate[]): Promise<ReminderCandidate[]> {
   const keep = candidates.map((c) => c.dedupeKey);
 
   // Snapshot existing generated keys so we can tell created from refreshed:
@@ -583,39 +645,5 @@ export async function generateReminders(
       },
     });
   });
-
-  // Wake the phones of whoever can see a new row so the app alerts now rather
-  // than on its next hourly check. Only for new rows: refreshes are silent
-  // there too.
-  if (created.length > 0) {
-    pushSync(householdId, { userIds: created.flatMap((c) => c.audienceUserIds) }, 'reminder');
-  }
-
-  // Best-effort email for the newly created notifications, after the rows are
-  // committed. Each goes to the members who see it in the bell (its
-  // audience). Any failure is logged and swallowed - email must never break
-  // reminder generation.
-  if (created.length > 0) {
-    try {
-      const members = await prisma.user.findMany({
-        where: { householdId },
-        select: { id: true, email: true },
-      });
-      await Promise.all(
-        created.flatMap((c) => {
-          const { subject, text } = buildReminderEmail(c);
-          return reminderRecipients(c, members).map((m) =>
-            send({ to: m.email, subject, text }).catch((err) => {
-              console.warn(
-                `[reminders] failed to email ${m.email} for ${c.dedupeKey}:`,
-                err,
-              );
-            }),
-          );
-        }),
-      );
-    } catch (err) {
-      console.warn('[reminders] failed to send reminder emails:', err);
-    }
-  }
+  return created;
 }

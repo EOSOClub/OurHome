@@ -7,10 +7,12 @@ const prisma = {
     // The saved row: the request as it was, with the change.
     update: vi.fn(async (args: { data: Record<string, unknown> }): Promise<unknown> => ({ ...ROW, ...args.data })),
     delete: vi.fn(),
+    findMany: vi.fn(async (): Promise<unknown[]> => []),
   },
   user: {
     findFirst: vi.fn(async (): Promise<unknown> => null),
     findUnique: vi.fn(async (): Promise<unknown> => ({ name: 'Sam' })),
+    update: vi.fn(),
   },
 };
 vi.mock('@/server/db/prisma', () => ({ prisma }));
@@ -30,7 +32,7 @@ vi.mock('@/server/services/pointsService', () => ({ getPointsSettings: vi.fn() }
 vi.mock('@/server/services/shoppingService', () => ({ addShoppingItem: vi.fn() }));
 vi.mock('@/server/services/serverAdminService', () => ({ isFeatureEnabled: vi.fn() }));
 
-const { deleteRequest, reassignRequest } = await import('./requestService');
+const { countNewRequests, deleteRequest, markRequestsSeen, reassignRequest } = await import('./requestService');
 
 const H = 'h1';
 const HEAD = { id: 'head', role: 'head' };
@@ -70,6 +72,7 @@ describe('the head reassigns a maintenance request', () => {
       dueAt: null,
       acceptedAt: null,
       completedAt: null,
+      changedById: 'head',
     });
     expect(notices.clearRequestNotice).toHaveBeenCalledWith(prisma, H, ID);
     expect(activity.logActivity).toHaveBeenCalledWith(
@@ -135,5 +138,74 @@ describe('removing a request', () => {
     prisma.request.findFirst.mockResolvedValueOnce({ ...ROW, category: 'purchase' });
     await expect(deleteRequest(H, HEAD, ID)).rejects.toThrow('your own requests');
     expect(prisma.request.delete).not.toHaveBeenCalled();
+  });
+});
+
+// The Requests badge counts what someone else did since they last opened
+// Requests, not what is still waiting on them.
+describe('the Requests badge', () => {
+  const MEDIA_AND_MAINTENANCE: RequestModuleSettings = {
+    ...DEFAULT_REQUEST_MODULES,
+    media: { ...DEFAULT_REQUEST_MODULES.media, enabled: true },
+    maintenance: { ...DEFAULT_REQUEST_MODULES.maintenance, enabled: true },
+    purchase: { ...DEFAULT_REQUEST_MODULES.purchase, enabled: false },
+    permission: { ...DEFAULT_REQUEST_MODULES.permission, enabled: false },
+  };
+  const SEEN = new Date('2026-10-29T12:00:00Z');
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    modules.getRequestModules.mockResolvedValue(MEDIA_AND_MAINTENANCE);
+  });
+
+  it('counts only changes by someone else, of kinds that are on, after their last visit', async () => {
+    prisma.user.findUnique.mockResolvedValueOnce({ requestsSeenAt: SEEN });
+    prisma.request.findMany.mockResolvedValueOnce([
+      { category: 'media', changedById: 'sam' },
+      { category: 'maintenance', changedById: 'head' },
+      // Their own change.
+      { category: 'media', changedById: 'alex' },
+      // Untouched since the badge was added.
+      { category: 'media', changedById: null },
+      // A kind that is off.
+      { category: 'purchase', changedById: 'sam' },
+    ]);
+    await expect(countNewRequests(H, 'alex')).resolves.toBe(2);
+    expect(prisma.request.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { householdId: H, updatedAt: { gt: SEEN } } }),
+    );
+  });
+
+  it('never opened: counts every changed row, still leaving out untouched ones', async () => {
+    prisma.user.findUnique.mockResolvedValueOnce({ requestsSeenAt: null });
+    prisma.request.findMany.mockResolvedValueOnce([
+      { category: 'media', changedById: 'sam' },
+      { category: 'media', changedById: null },
+    ]);
+    await expect(countNewRequests(H, 'alex')).resolves.toBe(1);
+    expect(prisma.request.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { householdId: H } }));
+  });
+
+  it('every kind off: nothing, without asking for rows', async () => {
+    modules.getRequestModules.mockResolvedValueOnce({
+      ...MEDIA_AND_MAINTENANCE,
+      media: { ...MEDIA_AND_MAINTENANCE.media, enabled: false },
+      maintenance: { ...MEDIA_AND_MAINTENANCE.maintenance, enabled: false },
+    });
+    prisma.user.findUnique.mockResolvedValueOnce({ requestsSeenAt: SEEN });
+    await expect(countNewRequests(H, 'alex')).resolves.toBe(0);
+    expect(prisma.request.findMany).not.toHaveBeenCalled();
+  });
+
+  it('opening Requests starts the count over', async () => {
+    await markRequestsSeen('alex', SEEN);
+    expect(prisma.user.update).toHaveBeenCalledWith({ where: { id: 'alex' }, data: { requestsSeenAt: SEEN } });
+  });
+
+  it('every change records who made it', async () => {
+    prisma.request.findFirst.mockResolvedValueOnce({ ...ROW, status: 'pending' });
+    prisma.user.findFirst.mockResolvedValueOnce({ id: 'alex', name: 'Alex' });
+    await reassignRequest(H, HEAD, { id: ID, assigneeId: 'alex' });
+    expect(savedData()).toMatchObject({ changedById: 'head' });
   });
 });

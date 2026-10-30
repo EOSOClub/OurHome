@@ -25,13 +25,17 @@ export class ForbiddenError extends Error {
 /**
  * Thrown when an action conflicts with existing state (e.g., a duplicate name).
  * [field]: the form field whose value caused it, so the form can mark it.
+ * [code]: a stable machine code sent as `error.details.code`, for a refusal
+ * an app acts on (so it never matches the message text).
  */
 export class ConflictError extends Error {
   readonly field?: string;
-  constructor(message: string, field?: string) {
+  readonly code?: string;
+  constructor(message: string, field?: string, code?: string) {
     super(message);
     this.name = 'ConflictError';
     this.field = field;
+    this.code = code;
   }
 }
 
@@ -54,5 +58,13 @@ export class PayloadTooLargeError extends Error {
   constructor(message = 'That’s too big to send.') {
     super(message);
     this.name = 'PayloadTooLargeError';
+  }
+}
+
+/** Thrown when the caller did one thing too often in a short time (429). */
+export class TooManyRequestsError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TooManyRequestsError';
   }
 }

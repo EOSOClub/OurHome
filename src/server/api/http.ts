@@ -16,6 +16,7 @@ import {
   ForbiddenError,
   NotFoundError,
   PayloadTooLargeError,
+  TooManyRequestsError,
   UnprocessableError,
 } from '@/server/services/errors';
 import {
@@ -262,6 +263,12 @@ function fieldDetails(field: string | undefined, message: string) {
   return field ? { fieldErrors: { [field]: [message] } } : undefined;
 }
 
+/** A refusal's details: its machine code (as `household_disabled` above) alongside any field. */
+function codedDetails(code: string | undefined, field: string | undefined, message: string) {
+  const fields = fieldDetails(field, message);
+  return code ? { code, ...fields } : fields;
+}
+
 function handleError(err: unknown, user: AuthUser, req: NextRequest): Response {
   if (err instanceof ZodError) {
     return validationFailed(err);
@@ -273,13 +280,16 @@ function handleError(err: unknown, user: AuthUser, req: NextRequest): Response {
     return fail(err.message, 403, fieldDetails(err.field, err.message));
   }
   if (err instanceof ConflictError) {
-    return fail(err.message, 409, fieldDetails(err.field, err.message));
+    return fail(err.message, 409, codedDetails(err.code, err.field, err.message));
   }
   if (err instanceof UnprocessableError) {
     return fail(err.message, 422, fieldDetails(err.field, err.message));
   }
   if (err instanceof PayloadTooLargeError) {
     return fail(err.message, 413);
+  }
+  if (err instanceof TooManyRequestsError) {
+    return fail(err.message, 429);
   }
   console.error('[api] unhandled error', {
     path: new URL(req.url).pathname,

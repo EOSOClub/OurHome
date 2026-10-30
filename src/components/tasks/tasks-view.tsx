@@ -9,11 +9,14 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import { ChevronDown, ListChecks, Loader2, Plus, Trophy } from 'lucide-react';
-import type { CategoryDTO, MemberDTO, PlacesDTO, TaskDTO } from '@/lib/types';
+import type { CategoryDTO, MemberDTO, PlacesDTO, TaskDTO, TaskSubmissionDTO } from '@/lib/types';
 import { groupByPlace, moveId } from '@/lib/places';
 import { TASK_STATUSES, TASK_STATUS_LABELS, TASK_TYPES, TASK_TYPE_LABELS } from '@/lib/enums';
 import { cn } from '@/lib/utils';
 import { apiFetch } from '@/lib/api';
+import { checkCode } from '@/lib/taskChecks';
+import { SendCheckDialog, type SentForCheck } from '@/components/tasks/send-check-dialog';
+import { TASK_SUBMISSIONS_KEY, ToCheck } from '@/components/tasks/to-check';
 import { useFieldErrors } from '@/lib/use-field-errors';
 import { toast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
@@ -102,6 +105,9 @@ export function TasksView({
   access,
   userId,
   minutesPerPoint,
+  supervised = false,
+  isHead = false,
+  initialSubmissions = null,
 }: {
   initialTasks: TaskDTO[];
   categories: CategoryDTO[];
@@ -113,6 +119,12 @@ export function TasksView({
   userId: string;
   /** Household points rate, for the editor's live points. */
   minutesPerPoint: number;
+  /** A teen or child someone looks after: "Ask for a photo" isn't theirs to change (Task Photo Proof). */
+  supervised?: boolean;
+  /** The Head of House: told how to check a child's task they don't look after. */
+  isHead?: boolean;
+  /** To check; null when the viewer looks after nobody (no To check to load). */
+  initialSubmissions?: TaskSubmissionDTO[] | null;
 }) {
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -194,7 +206,36 @@ export function TasksView({
 
   function invalidate() {
     void queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    // A tick or a completion can start, change or end a check.
+    void queryClient.invalidateQueries({ queryKey: TASK_SUBMISSIONS_KEY });
   }
+
+  // Task Photo Proof: To check, the checks of children the viewer looks
+  // after (notes, steps, entries). Take back and the step chip come with
+  // each task (review.submissionId, waitingForOk).
+  const { data: submissions = [] } = useQuery({
+    queryKey: TASK_SUBMISSIONS_KEY,
+    queryFn: () => apiFetch<TaskSubmissionDTO[]>('/api/tasks/submissions'),
+    initialData: initialSubmissions ?? undefined,
+    enabled: initialSubmissions !== null,
+  });
+  const toCheck = submissions.filter((s) => s.actions.includes('approve'));
+
+  // Complete goes through a check when the server says so for this viewer
+  // (review.checkForMe). A refusal saying otherwise wins until the task is
+  // read again with the new answer.
+  const [checkOverride, setCheckOverride] = useState<Record<string, { to: boolean; was: boolean }>>({});
+  const needsCheck = (task: TaskDTO) => {
+    const o = checkOverride[task.id];
+    return o && o.was === task.review.checkForMe ? o.to : task.review.checkForMe;
+  };
+  const overrideCheck = (taskId: string, to: boolean) => {
+    const was = tasks.find((t) => t.id === taskId)?.review.checkForMe ?? !to;
+    setCheckOverride((o) => ({ ...o, [taskId]: { to, was } }));
+  };
+  // The task whose "Send for a check" dialog is open.
+  const [sendTaskId, setSendTaskId] = useState<string | null>(null);
+  const sendTask = sendTaskId ? (tasks.find((t) => t.id === sendTaskId) ?? null) : null;
 
   // The open task form's field errors (one form is open at a time).
   const taskForm = useFieldErrors('task');
@@ -232,10 +273,12 @@ export function TasksView({
   // due date (or finalizes it when the rule has ended), which the client can't
   // predict. The `completingId` spinner covers the wait instead.
   const completeMutation = useMutation({
+    // checks: 1 says this app can send a task for a check (Task Photo Proof);
+    // the server then answers 409 "now needs a check" instead of completing.
     mutationFn: (taskId: string) =>
       apiFetch<TaskDTO & { completionId: string }>('/api/tasks/complete', {
         method: 'POST',
-        body: JSON.stringify({ taskId }),
+        body: JSON.stringify({ taskId, checks: 1 }),
       }),
     onMutate: (taskId) => setCompletingId(taskId),
     onSettled: () => setCompletingId(null),
@@ -248,16 +291,61 @@ export function TasksView({
         onClick: () => undoMutation.mutate(task.completionId),
       });
     },
+    onError: (error, taskId) => {
+      const message = error instanceof Error ? error.message : 'Something went wrong.';
+      if (checkCode(error) === 'check_needed') {
+        // A check was turned on meanwhile: look again and open the send dialog.
+        overrideCheck(taskId, true);
+        invalidate();
+        setSendTaskId(taskId);
+        return;
+      }
+      // A local onError suppresses the global MutationCache toast; re-surface.
+      toast.error(message);
+    },
   });
+
+  // Take back a check the viewer sent (also the send toast's Undo).
+  const withdrawMutation = useMutation({
+    mutationFn: (submissionId: string) =>
+      apiFetch<TaskDTO>('/api/tasks/submissions/withdraw', {
+        method: 'POST',
+        body: JSON.stringify({ submissionId }),
+      }),
+    onSettled: () => {
+      invalidate();
+      // The nav's To check badge is counted by the server layout.
+      router.refresh();
+    },
+  });
+
+  function onSentForCheck(result: SentForCheck) {
+    setSendTaskId(null);
+    invalidate();
+    router.refresh();
+    const submissionId = result.submissionId;
+    toast.success(
+      'Sent for a check',
+      submissionId ? { label: 'Undo', onClick: () => withdrawMutation.mutate(submissionId) } : undefined,
+    );
+  }
 
   const undoMutation = useMutation({
     mutationFn: (completionId: string) =>
-      apiFetch<TaskDTO>('/api/tasks/completions/undo', {
+      apiFetch<TaskDTO & { undo?: 'back_to_check' | 'undone' }>('/api/tasks/completions/undo', {
         method: 'POST',
         body: JSON.stringify({ completionId }),
       }),
-    onSuccess: () => {
-      toast.success(showPoints ? 'Completion undone; its points were taken back' : 'Completion undone');
+    onSuccess: (task) => {
+      toast.success(
+        task.undo === 'back_to_check'
+          ? 'Back in To check'
+          : showPoints
+            ? 'Completion undone; its points were taken back'
+            : 'Completion undone',
+      );
+      // Back in To check: the nav's badge (server layout) counts it again.
+      if (task.undo === 'back_to_check') router.refresh();
       invalidate();
       void queryClient.invalidateQueries({ queryKey: ['points'] });
       void queryClient.invalidateQueries({ queryKey: ['task-completions'] });
@@ -498,7 +586,15 @@ export function TasksView({
   const cardHandlers = {
     access,
     userId,
-    onComplete: (id: string) => completeMutation.mutate(id),
+    // A teen or child someone looks after sends it for a check instead.
+    onComplete: (id: string) => {
+      const task = tasks.find((t) => t.id === id);
+      if (task && needsCheck(task)) setSendTaskId(id);
+      else completeMutation.mutate(id);
+    },
+    isHead,
+    onTakeBack: (submissionId: string) => withdrawMutation.mutate(submissionId),
+    takingBackId: withdrawMutation.isPending ? withdrawMutation.variables : null,
     onDelete: (id: string) =>
       setConfirmDelete(tasks.find((t) => t.id === id) ?? null),
     onEdit: (task: TaskDTO) => {
@@ -559,12 +655,16 @@ export function TasksView({
         </div>
       </div>
 
+      {/* Checks waiting on the viewer, for an adult who looks after the children who sent them. */}
+      <ToCheck items={toCheck} />
+
       {showForm ? (
         <CreateTaskForm
           categories={categories}
           places={places}
           members={members}
           minutesPerPoint={minutesPerPoint}
+          canSetPhotoProof={!supervised}
           submitting={createMutation.isPending}
           errors={taskForm}
           onSubmit={(payload) => createMutation.mutate(payload)}
@@ -585,6 +685,7 @@ export function TasksView({
           members={members}
           minutesPerPoint={minutesPerPoint}
           initial={tasks.find((t) => t.id === editing.id) ?? editing}
+          canSetPhotoProof={!supervised}
           submitting={updateMutation.isPending}
           errors={taskForm}
           onSubmit={(payload) =>
@@ -799,6 +900,22 @@ export function TasksView({
           </div>
         ) : null}
       </div>
+
+      {sendTask ? (
+        <SendCheckDialog
+          key={sendTask.id}
+          task={sendTask}
+          onClose={() => setSendTaskId(null)}
+          onSent={onSentForCheck}
+          onClosedByServer={(message, code) => {
+            // The check was turned off while the dialog was open: Complete completes again.
+            if (code === 'check_not_needed') overrideCheck(sendTask.id, false);
+            setSendTaskId(null);
+            invalidate();
+            toast.info(message);
+          }}
+        />
+      ) : null}
 
       <ConfirmDialog
         open={!!confirmDelete}

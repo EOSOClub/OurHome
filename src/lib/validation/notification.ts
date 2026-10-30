@@ -12,14 +12,17 @@ export const listNotificationsQuery = z.object({
 
 export type ListNotificationsQuery = z.infer<typeof listNotificationsQuery>;
 
-// Mark a single notification read by id, or every notification with `all: true`.
+// Mark a single notification read by id, several by `ids` (the reminders one
+// phone notification listed, read by tapping it), or every notification with
+// `all: true`.
 export const markReadSchema = z
   .object({
     id: recordId.optional(),
+    ids: z.array(recordId).min(1).max(100).optional(),
     all: z.boolean().optional(),
   })
-  .refine((v) => Boolean(v.id) !== Boolean(v.all), {
-    message: 'Provide exactly one of `id` or `all`.',
+  .refine((v) => [v.id, v.ids, v.all].filter(Boolean).length === 1, {
+    message: 'Provide exactly one of `id`, `ids` or `all`.',
   });
 
 export type MarkReadInput = z.infer<typeof markReadSchema>;

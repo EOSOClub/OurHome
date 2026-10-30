@@ -76,27 +76,6 @@ function waitingRequestsWhere(householdId: string, userId: string, handling: Req
 }
 
 /**
- * How many requests wait on the user right now: the dashboard's "Needs you"
- * rule, shown as the badge on the phone nav's "More" button (Requests lives
- * there). `approveSwitch`: their Requests "Approve" switch.
- */
-export async function countRequestsWaitingOn(
-  user: { id: string; householdId: string },
-  approveSwitch: boolean,
-  timezone: string,
-) {
-  const endOfToday = startOfLocalDate(addDays(localDateOf(new Date(), timezone), 1), timezone);
-  const handling = await getRequestHandling(user.householdId, user.id, approveSwitch);
-  // Nothing on: an empty OR would match nothing anyway, but skip the query.
-  if (handling.on.length === 0) return 0;
-  const rows = await prisma.request.findMany({
-    where: waitingRequestsWhere(user.householdId, user.id, handling),
-    select: { category: true, status: true, requesterId: true, assigneeId: true, dueAt: true },
-  });
-  return rows.filter((r) => attentionReason(r, user.id, handling, endOfToday)).length;
-}
-
-/**
  * The member's own tasks due by the end of today, overdue included: the
  * dashboard's "today" list, counted for the "You're home" reminder.
  * `titles` holds the first few, soonest due first.

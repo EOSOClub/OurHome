@@ -9,5 +9,5 @@ export const POST = withAuth(async (ctx) => {
   const { subtaskId } = await parseBody(ctx.req, deleteSubtaskSchema);
   await requireModify(ctx, 'tasks', 'edit', await recordOwner.subtask(householdId, subtaskId));
   const task = await deleteSubtask(householdId, subtaskId);
-  return ok(await taskDTO(householdId, task));
+  return ok(await taskDTO(householdId, task, ctx.user.id));
 });

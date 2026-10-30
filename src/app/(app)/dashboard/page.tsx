@@ -121,7 +121,10 @@ type DashTask = Me['today'][number];
 // Rendered on the server (UTC there): every date shows in the household's zone.
 function NeedsYouCard({ me, timeZone }: { me: Me; timeZone: string }) {
   const nothing =
-    me.today.length === 0 && me.requests.length === 0 && me.openToAnyone.length === 0;
+    me.today.length === 0 &&
+    me.requests.length === 0 &&
+    me.openToAnyone.length === 0 &&
+    me.tasksToCheck === 0;
   return (
     <Card>
       <CardHeader>
@@ -140,6 +143,17 @@ function NeedsYouCard({ me, timeZone }: { me: Me; timeZone: string }) {
           </div>
         ) : null}
         {me.today.length > 0 ? <TaskList tasks={me.today} timeZone={timeZone} /> : null}
+        {/* Tasks the children they look after sent for a check (Task Photo Proof). */}
+        {me.tasksToCheck > 0 ? (
+          <Section title="To check">
+            <Link href="/tasks" className="group flex items-center justify-between gap-3">
+              <p className="min-w-0 truncate text-sm font-medium group-hover:underline">
+                {me.tasksToCheck === 1 ? '1 task waiting for your OK' : `${me.tasksToCheck} tasks waiting for your OK`}
+              </p>
+              <Badge>Check</Badge>
+            </Link>
+          </Section>
+        ) : null}
         {me.requests.length > 0 ? (
           <Section title="Requests">
             <ul className="divide-y divide-border">

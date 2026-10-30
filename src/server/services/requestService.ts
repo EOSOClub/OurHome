@@ -299,6 +299,31 @@ export async function listRequests(householdId: string): Promise<RequestWithPeop
   return rows.filter((r) => on.has(r.category));
 }
 
+/**
+ * The Requests badge: requests someone else made or changed since `userId`
+ * last opened Requests (website or app, see markRequestsSeen). Rows untouched
+ * since the badge was added have no `changedById` and never count; neither do
+ * kinds that are off, which aren't listed.
+ */
+export async function countNewRequests(householdId: string, userId: string): Promise<number> {
+  const [modules, me] = await Promise.all([
+    getRequestModules(householdId),
+    prisma.user.findUnique({ where: { id: userId }, select: { requestsSeenAt: true } }),
+  ]);
+  const on = new Set<string>(enabledModules(modules));
+  if (on.size === 0) return 0;
+  const rows = await prisma.request.findMany({
+    where: { householdId, ...(me?.requestsSeenAt ? { updatedAt: { gt: me.requestsSeenAt } } : {}) },
+    select: { category: true, changedById: true },
+  });
+  return rows.filter((r) => on.has(r.category) && r.changedById != null && r.changedById !== userId).length;
+}
+
+/** They opened Requests: the badge counts from now. */
+export async function markRequestsSeen(userId: string, now: Date = new Date()) {
+  await prisma.user.update({ where: { id: userId }, data: { requestsSeenAt: now } });
+}
+
 export interface RequestActor {
   id: string;
   role: string;
@@ -325,6 +350,7 @@ export async function createRequest(
       data: {
         householdId,
         requesterId: actor.id,
+        changedById: actor.id,
         category: 'media',
         mediaType: input.mediaType,
         title: input.title,
@@ -342,6 +368,7 @@ export async function createRequest(
       data: {
         householdId,
         requesterId: actor.id,
+        changedById: actor.id,
         category: 'purchase',
         title: input.title,
         details: input.details ?? null,
@@ -359,6 +386,7 @@ export async function createRequest(
       data: {
         householdId,
         requesterId: actor.id,
+        changedById: actor.id,
         category: 'permission',
         title: input.title,
         details: input.details ?? null,
@@ -375,6 +403,7 @@ export async function createRequest(
       data: {
         householdId,
         requesterId: actor.id,
+        changedById: actor.id,
         category: 'maintenance',
         title: input.title,
         details: input.details ?? null,
@@ -524,7 +553,7 @@ export async function updateRequest(
 
   const request = await prisma.request.update({
     where: { id: input.id },
-    data,
+    data: { ...data, changedById: userId },
     include: requestInclude,
   });
 
@@ -549,7 +578,7 @@ export async function updateRequest(
 /**
  * Maintenance: the head gives an open request to another member, anyone but
  * the requester (the list of people who may be asked doesn't bind the head,
- * since the headset it).
+ * since the head set it).
  * Like the requester reassigning, it goes back to "pending" for the new person.
  */
 export async function reassignRequest(
@@ -586,6 +615,7 @@ export async function reassignRequest(
       dueAt: null,
       acceptedAt: null,
       completedAt: null,
+      changedById: actor.id,
     },
     include: requestInclude,
   });
@@ -635,6 +665,7 @@ export async function acceptRequest(
       status: 'accepted',
       dueAt: input.dueAt ?? null,
       acceptedAt: existing.acceptedAt ?? new Date(),
+      changedById: actor.id,
     },
     include: requestInclude,
   });
@@ -727,6 +758,7 @@ export async function completeRequest(
       completedAt: new Date(),
       ...(approve ? { decidedBy: { connect: { id: actor.id } } } : {}),
       ...(addedToList ? { addedToList } : {}),
+      changedById: actor.id,
     },
     include: requestInclude,
   });
@@ -781,6 +813,7 @@ export async function declineRequest(
       declinedAt: new Date(),
       decidedBy: { connect: { id: actor.id } },
       reply: input.reply,
+      changedById: actor.id,
     },
     include: requestInclude,
   });

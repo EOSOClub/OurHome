@@ -8,5 +8,5 @@ export const POST = withAuth(async (ctx) => {
   const input = await parseBody(ctx.req, updateTaskSchema);
   await requireModify(ctx, 'tasks', 'edit', await recordOwner.task(householdId, input.taskId));
   const task = await updateTask(householdId, ctx.user.id, input);
-  return ok(await taskDTO(householdId, task));
+  return ok(await taskDTO(householdId, task, ctx.user.id));
 });

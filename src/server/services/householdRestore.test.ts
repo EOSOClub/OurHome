@@ -311,6 +311,8 @@ describe('planRestore', () => {
     expect(steps.status).toBe('withdrawn');
     expect(JSON.parse(steps.entries as string)[0].subtaskId).toBe(restored.rows.Subtask[0].id);
     expect(decided).toMatchObject({ status: 'approved', completionId: restored.rows.TaskCompletion[0].id });
+    // Nothing waits after a restore: each check's unique key is its own new id.
+    for (const row of [waiting, steps, decided]) expect(row.waitingKey).toBe(row.id);
     for (const row of [task, other]) expect(row).not.toHaveProperty('submissions');
   });
 

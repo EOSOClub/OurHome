@@ -47,6 +47,7 @@ describe('priority', () => {
     expect(syncPriority('location')).toBe('normal');
     expect(syncPriority('usage')).toBe('normal');
     expect(syncPriority('supervision')).toBe('normal');
+    expect(syncPriority('read')).toBe('normal');
     expect(syncPriority('request')).toBe('high');
     expect(syncPriority('reminder')).toBe('high');
     expect(syncPriority('app_update')).toBe('high');

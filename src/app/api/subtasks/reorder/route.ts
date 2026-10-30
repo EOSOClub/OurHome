@@ -8,5 +8,5 @@ export const POST = withAuth(async (ctx) => {
   const input = await parseBody(ctx.req, reorderSubtasksSchema);
   await requireModify(ctx, 'tasks', 'edit', await recordOwner.task(householdId, input.taskId));
   const task = await reorderSubtasks(householdId, input);
-  return ok(await taskDTO(householdId, task));
+  return ok(await taskDTO(householdId, task, ctx.user.id));
 });

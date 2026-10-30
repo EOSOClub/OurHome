@@ -8,9 +8,10 @@ import { prisma } from '@/server/db/prisma';
 import { getAccessSettings } from '@/server/services/accessService';
 import { getHouseholdFeatures, isServerAdmin } from '@/server/services/serverAdminService';
 import { HouseholdFeaturesProvider } from '@/components/household-features';
-import { getUserAccess } from '@/server/services/permissionService';
-import { countRequestsWaitingOn } from '@/server/services/dashboardService';
+import { getNavBadges } from '@/server/services/navBadgeService';
+import { unseenChangelog } from '@/lib/changelog';
 import { AccessPrompt } from '@/components/settings/access-settings';
+import { WhatsNew } from '@/components/whats-new';
 import { can } from '@/lib/permissions';
 import { USER_ROLE_LABELS, type UserRole } from '@/lib/enums';
 import { isProfileColor } from '@/lib/profile';
@@ -48,26 +49,20 @@ export default async function AppLayout({
   // Every date on the pages is shown in the household's zone (see
   // HouseholdZoneProvider), so server and browser render the same text.
   const { timezone } = await getPointsSettings(user.householdId!);
-  // The avatar isn't on the session; the badge mirrors the dashboard's
-  // "Needs you" requests and refreshes on every navigation.
-  const [profile, pageAccess, features, supervised] = await Promise.all([
+  // The avatar and what's-new state aren't on the session.
+  const [profile, features, supervised] = await Promise.all([
     prisma.user.findUnique({
       where: { id: user.id },
-      select: { avatarEmoji: true, profileColor: true },
+      select: { avatarEmoji: true, profileColor: true, changelogSeen: true, createdAt: true },
     }),
-    getUserAccess(user),
     getHouseholdFeatures(user.householdId!),
     // "People you look after" is only linked for someone who supervises somebody.
     supervisedIds(user.householdId!, user.id),
   ]);
   const looksAfter = supervised.size > 0;
-  const requestsWaiting = features.includes('requests')
-    ? await countRequestsWaitingOn(
-        { id: user.id, householdId: user.householdId! },
-        pageAccess.requests.approve,
-        timezone,
-      )
-    : 0;
+  // The nav's first counts; it asks again as they move around (AppNav).
+  const badges = await getNavBadges({ id: user.id, householdId: user.householdId! });
+  const changelog = unseenChangelog(profile?.changelogSeen ?? null, profile?.createdAt ?? new Date());
 
   // The skip link's #main-content is the <main> further down; the IDE doesn't
   // find ids in JSX.
@@ -91,7 +86,7 @@ export default async function AppLayout({
             <span className="hidden sm:inline">Household</span>
           </Link>
           <div className="ml-2">
-            <AppNav variant="top" requestsWaiting={requestsWaiting} looksAfter={looksAfter} />
+            <AppNav variant="top" initialBadges={badges} looksAfter={looksAfter} />
           </div>
           <div className="ml-auto flex items-center gap-1">
             <Tooltip label="Notifications">
@@ -117,9 +112,11 @@ export default async function AppLayout({
         {children}
       </main>
 
-      <AppNav variant="bottom" requestsWaiting={requestsWaiting} looksAfter={looksAfter} />
+      <AppNav variant="bottom" initialBadges={badges} looksAfter={looksAfter} />
       <KeyboardShortcuts />
       {access && !access.reviewed ? <AccessPrompt settings={access} /> : null}
+      {/* After the access question, so the server admin isn't asked two things at once. */}
+      {changelog.length > 0 && !(access && !access.reviewed) ? <WhatsNew entries={changelog} /> : null}
     </div>
     </HouseholdFeaturesProvider>
     </HouseholdZoneProvider>

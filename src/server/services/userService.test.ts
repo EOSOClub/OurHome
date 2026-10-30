@@ -252,7 +252,7 @@ describe('removeMember and supervision', () => {
     prisma.user.findFirst.mockResolvedValueOnce(row({ id: alex, name: 'Alex', role: 'adult' }));
     prisma.supervision.findMany.mockResolvedValueOnce([{ supervisedId: 'sam' }, { supervisedId: 'jo' }]);
     await removeMember(HOUSEHOLD, head, alex);
-    expect(prisma.supervision.findMany).toHaveBeenCalledWith({ where: { supervisorId: alex }, select: { supervisedId: true } });
+    expect(prisma.supervision.findMany).toHaveBeenCalledWith({ where: { householdId: HOUSEHOLD, supervisorId: alex }, select: { supervisedId: true } });
     expect(prisma.supervision.deleteMany).toHaveBeenCalledWith({ where: { supervisorId: alex } });
     expect(prisma.user.delete).toHaveBeenCalledWith({ where: { id: alex } });
     // Checked in the same transaction, after their links and their account are gone.

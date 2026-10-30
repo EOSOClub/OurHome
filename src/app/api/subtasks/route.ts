@@ -9,5 +9,5 @@ export const POST = withAuth(async (ctx) => {
   const input = await parseBody(ctx.req, createSubtaskSchema);
   await requireModify(ctx, 'tasks', 'edit', await recordOwner.task(householdId, input.taskId));
   const task = await addSubtask(householdId, input);
-  return ok(await taskDTO(householdId, task), { status: 201 });
+  return ok(await taskDTO(householdId, task, ctx.user.id), { status: 201 });
 });

@@ -1,6 +1,7 @@
 import {
   ok,
   parseBody,
+  rateLimit,
   requireModify,
   requirePermission,
   withAuth,
@@ -30,9 +31,13 @@ export const POST = withAuth(async (ctx) => {
       await recordOwner.subtask(householdId, input.subtaskId),
     );
   }
-  const task = await updateSubtask(householdId, input, {
-    id: ctx.user.id,
-    role: ctx.user.role,
-  });
-  return ok(await taskDTO(householdId, task));
+  const task = await updateSubtask(
+    householdId,
+    input,
+    { id: ctx.user.id, role: ctx.user.role },
+    // The same per-user limit as sending a task for a check, counted only
+    // when a tick puts step points in a check (Task Photo Proof): 429.
+    { allowCheck: () => rateLimit(`task-check:${ctx.user.id}`, 60_000, 10) },
+  );
+  return ok(await taskDTO(householdId, task, ctx.user.id));
 });

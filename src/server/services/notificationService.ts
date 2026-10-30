@@ -9,6 +9,7 @@ import { NotFoundError } from '@/server/services/errors';
 import { MANAGED_TYPES } from '@/server/services/reminderService';
 import { getHouseholdFeatures } from '@/server/services/serverAdminService';
 import { hiddenSubjectTypes } from '@/lib/features';
+import { pushSync } from '@/server/services/pushService';
 
 /**
  * Matches notifications [userId] hasn't read. Read state is per person
@@ -126,10 +127,12 @@ export async function listNotifications(
 }
 
 /**
- * Mark a single notification (by id) or all of the notifications [userId] can
- * see as read - for [userId] only. Scoped to what they can see, so members
- * can't touch other households' rows or notifications addressed to someone
- * else.
+ * Mark a single notification (by id), several (by ids) or all of the
+ * notifications [userId] can see as read - for [userId] only. Scoped to what
+ * they can see, so members can't touch other households' rows or
+ * notifications addressed to someone else. Anything newly read wakes
+ * [userId]'s phones, which then take it out of their own notifications; their
+ * other browsers catch up on the bell's next check.
  */
 export async function markRead(
   householdId: string,
@@ -139,20 +142,16 @@ export async function markRead(
   const visible = visibleTo(householdId, userId, await hiddenSubjectsFor(householdId));
   const unread = unreadBy(userId);
   const data = { readByUserIds: { push: userId } };
-
-  if (input.all) {
-    const res = await prisma.notification.updateMany({
-      where: { AND: [visible, unread] },
-      data,
-    });
-    return { updated: res.count };
-  }
+  const which = input.all ? [] : input.ids ? [{ id: { in: input.ids } }] : [{ id: input.id }];
 
   const res = await prisma.notification.updateMany({
-    where: { AND: [visible, unread, { id: input.id }] },
+    where: { AND: [visible, unread, ...which] },
     data,
   });
-  if (res.count === 0) {
+  if (res.count > 0) pushSync(householdId, { userIds: [userId] }, 'read');
+  // A list can hold rows already read elsewhere (or since cleared); only a
+  // single id is worth a "not found".
+  if (res.count === 0 && input.id) {
     // Either already read or not visible to this user; distinguish "not found".
     const exists = await prisma.notification.findFirst({
       where: { AND: [visible, { id: input.id }] },

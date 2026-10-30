@@ -22,6 +22,7 @@ vi.mock('@/server/services/taskService', () => tasks);
 
 const { POST } = await import('@/app/api/tasks/complete/route');
 const { COMPLETE_BODY_MAX_BYTES } = await import('@/lib/validation/task');
+const { ConflictError } = await import('@/server/services/errors');
 
 const ID = 'cmabcdefghijklmnopqrstuvw';
 function post(body: unknown, headers: Record<string, string> = {}) {
@@ -74,6 +75,24 @@ describe('POST /api/tasks/complete', () => {
     const res = await post({ taskId: ID, forCheck: true, photo: 'A'.repeat(COMPLETE_BODY_MAX_BYTES) });
     expect(res.status).toBe(413);
     expect(tasks.completeTask).not.toHaveBeenCalled();
+  });
+
+  it('a check refusal carries its machine code next to the message; other refusals are as before', async () => {
+    user = { id: 'kid6', householdId: 'household1', role: 'child' };
+    tasks.completeTask.mockRejectedValueOnce(new ConflictError('This task now needs a check.', undefined, 'check_needed'));
+    const coded = await post({ taskId: ID, checks: 1 });
+    expect(coded.status).toBe(409);
+    expect(await coded.json()).toEqual({
+      ok: false,
+      error: { message: 'This task now needs a check.', details: { code: 'check_needed' } },
+    });
+    tasks.completeTask.mockRejectedValueOnce(new ConflictError('Someone else just completed this task.'));
+    const plain = await post({ taskId: ID, checks: 1 });
+    expect(await plain.json()).toEqual({ ok: false, error: { message: 'Someone else just completed this task.' } });
+    // A code and a field together keep both.
+    tasks.completeTask.mockRejectedValueOnce(new ConflictError('Taken.', 'title', 'some_code'));
+    const both = await post({ taskId: ID, checks: 1 });
+    expect((await both.json()).error.details).toEqual({ code: 'some_code', fieldErrors: { title: ['Taken.'] } });
   });
 
   it('refuses a photo sent without a check (422)', async () => {

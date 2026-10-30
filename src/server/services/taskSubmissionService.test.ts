@@ -240,6 +240,7 @@ describe('decideSubmission: approve', () => {
         decidedAt: NOW,
         completionId: 'done1',
         photoDeleteAt: new Date(NOW.getTime() + 14 * DAY),
+        waitingKey: 's1',
       },
     });
     // Only the child's own points count in their answer.
@@ -304,8 +305,8 @@ describe('decideSubmission: approve', () => {
     expect(writes).toEqual([]);
   });
 
-  it('a steps check can’t be decided yet; an unknown one is not found', async () => {
-    setUp(check({ kind: 'steps' }));
+  it('a steps check already decided can’t be decided again; an unknown one is not found', async () => {
+    setUp(check({ kind: 'steps', status: 'approved' }));
     await expect(decideSubmission(H, mum, { submissionId: 's1', decision: 'approve' })).rejects.toMatchObject({ name: 'ConflictError' });
     prisma.taskSubmission.findFirst.mockResolvedValue(null);
     await expect(decideSubmission(H, mum, { submissionId: 'nope', decision: 'approve' })).rejects.toMatchObject({ name: 'NotFoundError' });
@@ -328,6 +329,7 @@ describe('decideSubmission: send back', () => {
       reviewNote: 'The pans are still dirty',
       redoStepIds: [],
       photoDeleteAt: new Date(NOW.getTime() + 14 * DAY),
+      waitingKey: 's1',
     });
     expect(written('notification.create')[0].data).toMatchObject({ title: 'Sent back: Dishes', body: 'The pans are still dirty' });
     const activity = writes.find(([n]) => n === 'logActivity')![1];
@@ -413,10 +415,11 @@ describe('withdrawSubmission', () => {
     const taskId = await withdrawSubmission(H, kid, 's1');
     expect(taskId).toBe('t1');
     expect(writes).toEqual([
-      ['taskSubmission.update', { where: { id: 's1' }, data: { status: 'withdrawn', decidedAt: NOW } }],
+      ['taskSubmission.update', { where: { id: 's1' }, data: { status: 'withdrawn', decidedAt: NOW, waitingKey: 's1' } }],
       ['taskPhoto.deleteMany', { where: { submissionId: 's1' } }],
       ['notification.deleteMany', { where: { householdId: H, type: 'task_review', dedupeKey: { startsWith: 'task_review:s1:' } } }],
       ['task.updateMany', { where: { id: 't1', status: 'awaiting_review' }, data: { status: 'in_progress' } }],
+      ['logActivity', { householdId: H, actorId: 'kid', verb: 'updated', subjectType: 'task', subjectId: 't1', message: 'took back “Dishes” from the check' }],
     ]);
     expect(pushSync).toHaveBeenCalledWith(H, { userIds: ['mum', 'dad'] }, 'task');
   });
@@ -430,6 +433,17 @@ describe('withdrawSubmission', () => {
     prisma.$transaction.mockRejectedValueOnce(new Prisma.PrismaClientKnownRequestError('conflict', { code: 'P2034', clientVersion: 'test' }));
     await expect(withdrawSubmission(H, kid, 's1')).rejects.toThrow('Someone already decided this.');
     expect(writes).toEqual([]);
+  });
+
+  it('a check already decided carries the code check_decided, whether it moved on or lost a race', async () => {
+    const decided = { name: 'ConflictError', message: 'Someone already decided this.', code: 'check_decided' };
+    setUp(check({ status: 'approved' }));
+    await expect(withdrawSubmission(H, kid, 's1')).rejects.toMatchObject(decided);
+    setUp(check({ status: 'approved', decidedById: 'dad', decidedAt: NOW }));
+    await expect(decideSubmission(H, mum, { submissionId: 's1', decision: 'approve' })).rejects.toMatchObject(decided);
+    setUp();
+    prisma.$transaction.mockRejectedValueOnce(new Prisma.PrismaClientKnownRequestError('conflict', { code: 'P2034', clientVersion: 'test' }));
+    await expect(decideSubmission(H, mum, { submissionId: 's1', decision: 'approve' })).rejects.toMatchObject(decided);
   });
 });
 
@@ -446,7 +460,7 @@ describe('settleOrphanedSubmissions', () => {
   it('withdraws a check whose child is gone, unpaid, and says so in one line of ids', async () => {
     tx.user.findFirst.mockResolvedValue(null);
     expect(await settleOrphanedSubmissions(H, NOW)).toBe(1);
-    expect(written('taskSubmission.update')[0].data).toEqual({ status: 'withdrawn', decidedAt: NOW });
+    expect(written('taskSubmission.update')[0].data).toEqual({ status: 'withdrawn', decidedAt: NOW, waitingKey: 's1' });
     expect(names()).not.toContain('taskCompletion.create');
     expect(log).toHaveBeenCalledWith('[tasks] settled check s1 on task t1: withdrawn');
   });
@@ -471,6 +485,7 @@ describe('settleOrphanedSubmissions', () => {
       decidedAt: NOW,
       completionId: 'done1',
       takenBackAt: null,
+      waitingKey: 's1',
     });
     expect(written('taskPhoto.deleteMany')).toEqual([{ where: { submissionId: 's1' } }]);
     expect(log).toHaveBeenCalledWith('[tasks] settled check s1 on task t1: auto_approved');

@@ -10,6 +10,7 @@ import {
   ChevronDown,
   ChevronUp,
   Clock,
+  Hourglass,
   ListChecks,
   Loader2,
   MapPin,
@@ -22,6 +23,7 @@ import {
 } from 'lucide-react';
 import type { TaskDTO } from '@/lib/types';
 import { formatPoints, toCenti } from '@/lib/taskPoints';
+import { plusPoints } from '@/lib/taskChecks';
 import { placesLabel } from '@/lib/places';
 import { canModify, type PageAccess } from '@/lib/permissions';
 import { PRIORITY_LABELS, TASK_TYPE_LABELS, type TaskPriority, type TaskType } from '@/lib/enums';
@@ -79,6 +81,9 @@ export function TaskCard({
   focused = false,
   move,
   hidePlace = false,
+  isHead = false,
+  onTakeBack,
+  takingBackId = null,
 }: {
   task: TaskDTO;
   /** The viewer's Tasks access; own = tasks they created. */
@@ -108,6 +113,12 @@ export function TaskCard({
   move?: { up: boolean; down: boolean; onMove: (direction: -1 | 1) => void };
   /** Under a room heading, the place label would only repeat it. */
   hidePlace?: boolean;
+  /** The viewer is the Head of House (not a reviewer unless they look after the child). */
+  isHead?: boolean;
+  /** Take back the viewer's own waiting check (POST /api/tasks/submissions/withdraw). */
+  onTakeBack?: (submissionId: string) => void;
+  /** The check being taken back right now, if any. */
+  takingBackId?: string | null;
 }) {
   const timeZone = useHouseholdZone();
   const showPoints = usePointsShown();
@@ -140,6 +151,15 @@ export function TaskCard({
   const doneCount = task.subtasks.filter((s) => s.done).length;
   const hasChecklist = task.subtasks.length > 0;
 
+  // Sent for a check (Task Photo Proof): it waits for an adult's OK.
+  const waitingCheck = task.review.waiting;
+  const sentByMe = waitingCheck && task.review.submittedBy?.id === userId;
+  // The check's id comes only to the child who sent it and the adults who look after them.
+  const checkId = task.review.submissionId;
+  // The head decides only for children they look after: say how to.
+  const headHint = isHead && waitingCheck && !sentByMe && !checkId;
+  const takingBack = !!checkId && takingBackId === checkId;
+
   async function submitSubtask() {
     const t = subtaskDraft.trim();
     if (!t) return;
@@ -160,16 +180,29 @@ export function TaskCard({
     >
       <div className="flex items-start gap-3">
         <Button
-          variant={done || waiting ? 'secondary' : 'outline'}
+          variant={done || waiting || waitingCheck ? 'secondary' : 'outline'}
           size="icon"
           className="size-9 shrink-0 rounded-full"
           onClick={() => onComplete(task.id)}
           // The server refuses to complete an archived task; restore it first.
-          disabled={completing || done || archived || waiting}
-          aria-label={done ? 'Completed' : archived ? 'Archived' : waiting ? 'Done for now' : 'Mark complete'}
+          // One waiting for an OK can't be completed until it's decided.
+          disabled={completing || done || archived || waiting || waitingCheck}
+          aria-label={
+            done
+              ? 'Completed'
+              : archived
+                ? 'Archived'
+                : waitingCheck
+                  ? 'Waiting for an OK'
+                  : waiting
+                    ? 'Done for now'
+                    : 'Mark complete'
+          }
         >
           {completing ? (
             <Loader2 className="animate-spin" />
+          ) : waitingCheck ? (
+            <Hourglass />
           ) : (
             <Check className={done || waiting ? 'opacity-100' : 'opacity-40'} />
           )}
@@ -230,7 +263,8 @@ export function TaskCard({
                   <Pencil />
                 </Button>
               ) : null}
-              {canEdit && (archived || !done) ? (
+              {/* Archiving is a status change, refused while it waits for an OK. */}
+              {canEdit && (archived || !done) && !waitingCheck ? (
                 <Button
                   variant="ghost"
                   size="icon"
@@ -262,6 +296,28 @@ export function TaskCard({
           ) : null}
 
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+            {waitingCheck ? (
+              sentByMe ? (
+                <span className="inline-flex items-center gap-2">
+                  <span className="font-medium text-amber-700 dark:text-amber-400">Waiting for an OK</span>
+                  {onTakeBack ? (
+                    <button
+                      type="button"
+                      onClick={() => checkId && onTakeBack(checkId)}
+                      disabled={!checkId || takingBack}
+                      className="inline-flex items-center gap-1 font-medium text-primary hover:underline disabled:opacity-50"
+                    >
+                      {takingBack ? <Loader2 className="size-3 animate-spin" /> : null}
+                      Take back
+                    </button>
+                  ) : null}
+                </span>
+              ) : (
+                <span className="font-medium text-amber-700 dark:text-amber-400">
+                  {task.review.submittedBy?.name ?? 'Someone'} sent this for a check
+                </span>
+              )
+            ) : null}
             {doneThisCycle ? (
               <span className="font-medium text-emerald-600 dark:text-emerald-400">
                 Done this cycle · reopens {formatUntil(task.cycleEndsAt!, timeZone)}
@@ -292,13 +348,23 @@ export function TaskCard({
               </span>
             ) : null}
             {showPoints && task.points > 0 ? (
-              <span
-                className="inline-flex items-center gap-1 text-muted-foreground"
-                title="Points are paid when the task is completed"
-              >
-                <Star className="size-3" />
-                {formatPoints(toCenti(task.points))} pts
-              </span>
+              sentByMe ? (
+                <span
+                  className="inline-flex items-center gap-1 text-muted-foreground"
+                  title="Points are paid when an adult approves it"
+                >
+                  <Star className="size-3" />
+                  {plusPoints(task.points)} waiting for an OK
+                </span>
+              ) : (
+                <span
+                  className="inline-flex items-center gap-1 text-muted-foreground"
+                  title="Points are paid when the task is completed"
+                >
+                  <Star className="size-3" />
+                  {formatPoints(toCenti(task.points))} pts
+                </span>
+              )
             ) : null}
             {task.assignee ? (
               <span className="text-muted-foreground">
@@ -346,6 +412,12 @@ export function TaskCard({
               )}
             </button>
           </div>
+          {headHint ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              To check it yourself, add yourself as someone who looks after{' '}
+              {task.review.submittedBy?.name ?? 'them'} on the Members page.
+            </p>
+          ) : null}
         </div>
       </div>
 
@@ -356,7 +428,10 @@ export function TaskCard({
               <SubtaskRow
                 key={s.id}
                 subtask={s}
-                canWrite={canEdit}
+                // While it waits, only the name of a step may change, and not by the one who sent it.
+                canWrite={canEdit && !sentByMe}
+                locked={waitingCheck}
+                waitingForOk={s.waitingForOk}
                 isFirst={i === 0}
                 isLast={i === task.subtasks.length - 1}
                 onToggle={onToggleSubtask}
@@ -365,7 +440,8 @@ export function TaskCard({
                 onMove={(id, dir) => onMoveSubtask(task, id, dir)}
               />
             ))}
-            {canEdit ? (
+            {/* Adding a step to a task waiting for an OK is refused. */}
+            {canEdit && !waitingCheck ? (
               <div className="space-y-1">
                 <div className="flex gap-2">
                   <Input

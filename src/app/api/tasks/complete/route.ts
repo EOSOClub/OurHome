@@ -20,5 +20,5 @@ export const POST = withAuth(async (ctx) => {
     { id: ctx.user.id, role: ctx.user.role },
     input,
   );
-  return ok({ ...(await taskDTO(householdId, task)), completionId, submissionId: submissionId ?? null });
+  return ok({ ...(await taskDTO(householdId, task, ctx.user.id)), completionId, submissionId: submissionId ?? null });
 });

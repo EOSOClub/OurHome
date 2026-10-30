@@ -17,8 +17,11 @@ import {
   ShoppingCart,
   Trophy,
 } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
+import { apiFetch } from '@/lib/api';
 import { useHrefEnabled } from '@/components/household-features';
+import type { NavBadges } from '@/server/services/navBadgeService';
 
 type NavItem = {
   href: string;
@@ -86,26 +89,67 @@ function CountBadge({ count, className }: { count: number; className?: string })
   );
 }
 
+export const NAV_BADGES_KEY = ['nav-badges'] as const;
+
+/**
+ * The tab counts, starting from the layout's (which never re-renders on
+ * navigation) and asked again on every page change, on focus and each minute.
+ */
+function useNavBadges(initial: NavBadges, pathname: string) {
+  const { data, refetch } = useQuery({
+    queryKey: NAV_BADGES_KEY,
+    queryFn: () => apiFetch<NavBadges>('/api/badges'),
+    initialData: initial,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+  });
+  const firstPath = React.useRef(pathname);
+  React.useEffect(() => {
+    if (pathname === firstPath.current) return;
+    firstPath.current = '';
+    void refetch();
+  }, [pathname, refetch]);
+  // router.refresh() re-renders the layout, handing in a new counts object
+  // (even with the same numbers), which initialData ignores after the first
+  // render: take it as the latest.
+  const queryClient = useQueryClient();
+  const firstCounts = React.useRef(initial);
+  React.useEffect(() => {
+    if (initial === firstCounts.current) return;
+    firstCounts.current = initial;
+    queryClient.setQueryData<NavBadges>(NAV_BADGES_KEY, initial);
+  }, [initial, queryClient]);
+  return data;
+}
+
 /**
  * Desktop: one row of tabs (the account menu holds the rest). Phone: four
- * tabs plus "More", a sheet with the other pages. `requestsWaiting` (requests
- * waiting on the viewer) badges Requests, and More while Requests is inside it.
+ * tabs plus "More", a sheet with the other pages. `requestsNew` (requests
+ * someone else made or changed since the viewer last opened Requests) badges
+ * Requests, and More while Requests is inside it; `tasksToCheck` (tasks sent
+ * for the viewer's OK) badges Tasks the same way. Requests shows no count while
+ * it is open: opening it is what clears it.
  */
 export function AppNav({
   variant,
-  requestsWaiting = 0,
+  initialBadges,
   looksAfter = false,
 }: {
   variant: 'top' | 'bottom';
-  requestsWaiting?: number;
+  initialBadges: NavBadges;
   /** The viewer supervises someone ("Look after" under More). */
   looksAfter?: boolean;
 }) {
   const pathname = usePathname();
   const { topItems } = useNavItems(looksAfter);
+  const badges = useNavBadges(initialBadges, pathname);
   const isActive = (href: string) =>
     pathname === href || pathname.startsWith(`${href}/`);
-  const badgeFor = (href: string) => (href === '/requests' ? requestsWaiting : 0);
+  const badgeFor = (href: string) =>
+    href === '/requests'
+      ? isActive(href) ? 0 : badges.requestsNew
+      : href === '/tasks' ? badges.tasksToCheck : 0;
 
   if (variant === 'bottom') return <BottomNav isActive={isActive} badgeFor={badgeFor} looksAfter={looksAfter} />;
 
@@ -231,6 +275,8 @@ function BottomNav({
             >
               <Icon className="size-5" />
               {short}
+              {/* Tasks is on the bar itself, so its count sits on its tab, placed like More's. */}
+              <CountBadge count={badgeFor(href)} className="absolute left-1/2 top-1 ml-1.5" />
             </Link>
           ))}
           {moreItems.length ? (

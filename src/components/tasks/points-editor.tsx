@@ -142,10 +142,13 @@ export function PointsEditor({
   value,
   onChange,
   minutesPerPoint,
+  locked = false,
 }: {
   value: PointsDraft;
   onChange: (next: PointsDraft) => void;
   minutesPerPoint: number;
+  /** The task waits for an OK: only step names may change (no adding, removing or moving). */
+  locked?: boolean;
 }) {
   // Totals are edited against the state from when the field was focused, so
   // typing "1" then "12" scales from the original split, not from "1".
@@ -201,6 +204,7 @@ export function PointsEditor({
           <Label htmlFor="ttc">Time to complete (min)</Label>
           <NumberField
             id="ttc"
+            disabled={locked}
             value={value.steps.length || value.task.baseMinutes !== null ? live.minutes : null}
             placeholder="e.g. 15"
             marked={custom > 0}
@@ -218,6 +222,7 @@ export function PointsEditor({
           <Label htmlFor="points">Points</Label>
           <NumberField
             id="points"
+            disabled={locked}
             decimals
             value={value.steps.length || value.task.basePointsCenti !== null ? live.pointsCenti / 100 : null}
             placeholder="0"
@@ -230,10 +235,11 @@ export function PointsEditor({
             }}
           />
         </div>
-        <label className="flex items-end gap-2 pb-2 text-sm">
+        <label className={cn('flex items-end gap-2 pb-2 text-sm', locked && 'opacity-60')}>
           <input
             type="checkbox"
             className="size-4"
+            disabled={locked}
             checked={value.task.pointsFollowTime}
             onChange={(e) => {
               const on = e.target.checked;
@@ -296,6 +302,7 @@ export function PointsEditor({
                 <NumberField
                   aria-label="Step minutes"
                   title={s.minutesCustom ? 'Time set by hand' : 'Share of the task time'}
+                  disabled={locked}
                   className="h-9"
                   value={s.minutes}
                   marked={s.minutesCustom}
@@ -306,6 +313,7 @@ export function PointsEditor({
                   <NumberField
                     aria-label="Step points"
                     title={s.pointsFollowTime ? 'Follows the step time' : 'Points set by hand'}
+                    disabled={locked}
                     className="h-9"
                     decimals
                     value={s.pointsCenti / 100}
@@ -316,9 +324,10 @@ export function PointsEditor({
                     type="button"
                     title={s.pointsFollowTime ? 'Points follow time (click to keep them fixed)' : 'Make points follow time again'}
                     aria-pressed={s.pointsFollowTime}
+                    disabled={locked}
                     onClick={() => onChange(setStepFollow(value, i, !s.pointsFollowTime, minutesPerPoint))}
                     className={cn(
-                      'rounded p-1 text-muted-foreground hover:text-foreground',
+                      'rounded p-1 text-muted-foreground hover:text-foreground disabled:opacity-30',
                       s.pointsFollowTime && 'text-primary',
                     )}
                   >
@@ -330,6 +339,7 @@ export function PointsEditor({
                   aria-label="Unchecks every N days"
                   title="Unchecks itself every N days (empty = only with the task)"
                   placeholder="-"
+                  disabled={locked}
                   className="h-9"
                   value={s.resetIntervalDays}
                   onValue={(v) =>
@@ -345,7 +355,7 @@ export function PointsEditor({
                   <button
                     type="button"
                     aria-label="Move step up"
-                    disabled={i === 0}
+                    disabled={i === 0 || locked}
                     className="text-muted-foreground hover:text-foreground disabled:opacity-30"
                     onClick={() => moveStep(i, -1)}
                   >
@@ -354,7 +364,7 @@ export function PointsEditor({
                   <button
                     type="button"
                     aria-label="Move step down"
-                    disabled={i === value.steps.length - 1}
+                    disabled={i === value.steps.length - 1 || locked}
                     className="text-muted-foreground hover:text-foreground disabled:opacity-30"
                     onClick={() => moveStep(i, 1)}
                   >
@@ -363,7 +373,8 @@ export function PointsEditor({
                   <button
                     type="button"
                     aria-label="Remove step"
-                    className="text-muted-foreground hover:text-destructive"
+                    disabled={locked}
+                    className="text-muted-foreground hover:text-destructive disabled:opacity-30"
                     onClick={() => onChange(removeStep(value, i))}
                   >
                     <X className="size-4" />
@@ -380,6 +391,7 @@ export function PointsEditor({
         <div className="flex gap-2">
           <Input
             value={draftTitle}
+            disabled={locked}
             onChange={(e) => setDraftTitle(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
@@ -390,7 +402,7 @@ export function PointsEditor({
             placeholder="Add a step…"
             className="h-9"
           />
-          <Button type="button" variant="outline" size="sm" onClick={addDraftStep} aria-label="Add step">
+          <Button type="button" variant="outline" size="sm" onClick={addDraftStep} disabled={locked} aria-label="Add step">
             <Plus />
           </Button>
         </div>

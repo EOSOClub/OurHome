@@ -27,17 +27,19 @@ export type PushReason =
   | 'map_places'
   | 'location'
   | 'usage'
-  | 'supervision';
+  | 'supervision'
+  | 'read';
 
 /**
  * Reasons the phone handles without posting anything: its geofences, its
- * sharing state, its usage report, whether it must Stay connected. Sent at
+ * sharing state, its usage report, whether it must Stay connected, and
+ * clearing what the member read on another device ('read'). Sent at
  * normal priority, because Firebase demotes an installation's high-priority
  * messages when they keep ending without a visible notification (fcm.ts), and
  * that would slow its rings and live checks. The rest usually end in a
  * notification and stay high.
  */
-const SILENT_REASONS: ReadonlySet<PushReason> = new Set(['map_places', 'location', 'usage', 'supervision']);
+const SILENT_REASONS: ReadonlySet<PushReason> = new Set(['map_places', 'location', 'usage', 'supervision', 'read']);
 
 export function syncPriority(reason: PushReason): PushPriority {
   return SILENT_REASONS.has(reason) ? 'normal' : 'high';

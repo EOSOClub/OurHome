@@ -162,6 +162,12 @@ model User {
   // they choose their own password. See setupLinkService.
   setupLinkHash      String?
   setupLinkExpiresAt DateTime?
+  // When they last opened Requests (website or app). The Requests badge counts
+  // requests someone else made or changed after this. null = never opened.
+  requestsSeenAt     DateTime?
+  // The newest "What's new" entry they closed (src/lib/changelog.ts id), on
+  // any device. null = none yet: entries dated after they joined still show.
+  changelogSeen      String?
   // Audit: which user provisioned this member (plain id, no relation).
   createdById   String?
   householdId   String?
@@ -744,11 +750,22 @@ model TaskSubmission {
   dueDate        DateTime?
   // Steps ticked when it was sent, for the reviewer.
   stepIds        String[]  @default([])
+  // Whether the task asked for a photo when this was made (a "steps" check:
+  // true once any entry was added while it did). Settle reads this, never the
+  // task's current value, so turning "Ask for a photo" off can't pay it.
+  // Null on rows from before it existed: the task's current value is used.
+  photoProof     Boolean?
   // kind "steps": JSON list of {subtaskId, title, pointsCenti, checkedAt,
   // awardKind, completionId?}, computed on the server.
   entries        String?
   // "waiting" | "approved" | "sent_back" | "auto_approved" | "withdrawn"
   status         String    @default("waiting")
+  // Keeps one waiting check per task ("task:<taskId>") and one waiting
+  // "steps" check per task and child ("steps:<taskId>:<userId>") even when
+  // two arrive at once; the check's own id once it stops waiting. Never null:
+  // a Mongo unique index counts every null as the same value (see the note
+  // on RecurrenceRule's owners).
+  waitingKey     String    @unique
   // auto_approved only: "cycle_end" | "unsupervised"
   autoReason     String?
   decidedById    String?
@@ -1191,6 +1208,11 @@ model Request {
   // (a decline's optional reason).
   decidedById String?
   reply       String?
+  // Who last made or changed it, so the Requests badge counts only what
+  // someone else did. Null on rows untouched since the badge was added; the
+  // badge leaves those out. A plain id (no relation), so a removed member
+  // only leaves a stale id behind.
+  changedById String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 

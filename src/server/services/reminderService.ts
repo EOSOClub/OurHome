@@ -13,7 +13,8 @@ import { listOccurrences } from '@/server/services/calendarService';
 import { addDays, daysBetween, localDateOf, localTimeAt, startOfLocalDate } from '@/lib/taskCycles';
 
 // Turns current household state (overdue tasks, low / soon-depleted inventory,
-// upcoming/overdue unpaid bills, calendar events whose reminder time came) into
+// upcoming/overdue unpaid bills, free trials about to end, calendar events
+// whose reminder time came) into
 // notifications. The *selection* logic is
 // kept as pure functions so it can be unit-tested without a database (see
 // reminderService.test.ts); only `generateReminders` touches Prisma.
@@ -35,6 +36,7 @@ export const MANAGED_TYPES: NotificationType[] = [
   'reminder',
   'bill_due',
   'event_reminder',
+  'subscription_trial',
 ];
 
 export interface ReminderCandidate {
@@ -188,6 +190,52 @@ export function buildBillReminders(
       subjectId: b.id,
       audienceUserIds: tiedUsers(b.assignedUserId, b.createdById),
     }));
+}
+
+export interface TrialLike {
+  id: string;
+  name: string;
+  trialEndsAt: Date;
+  assignedUserId?: string | null;
+  createdById?: string | null;
+}
+
+/** A free trial ending is said this many days ahead. */
+export const TRIAL_NOTICE_DAYS = 3;
+
+/**
+ * A subscription whose free trial ends soon becomes a `subscription_trial`:
+ * from 3 days before the day it ends until that day is over (household zone),
+ * so there's time to cancel before it charges. One per subscription; the
+ * text counts down each sweep.
+ */
+export function buildTrialReminders(
+  subscriptions: TrialLike[],
+  now: Date,
+  timeZone: string,
+): ReminderCandidate[] {
+  const today = localDateOf(now, timeZone);
+  const out: ReminderCandidate[] = [];
+  for (const s of subscriptions) {
+    const day = localDateOf(s.trialEndsAt, timeZone);
+    const from = startOfLocalDate(addDays(day, -TRIAL_NOTICE_DAYS), timeZone);
+    const until = startOfLocalDate(addDays(day, 1), timeZone);
+    if (now < from || now >= until) continue;
+    const left = daysBetween(today, day);
+    out.push({
+      dedupeKey: `subscription_trial:bill:${s.id}`,
+      type: 'subscription_trial',
+      title: s.name,
+      body:
+        left <= 0
+          ? "Its free trial ends today. Cancel today if you don't want to pay for it."
+          : `Its free trial ends ${left === 1 ? 'tomorrow' : `in ${left} days`}. Cancel before then if you don't want to pay for it.`,
+      subjectType: 'bill',
+      subjectId: s.id,
+      audienceUserIds: tiedUsers(s.assignedUserId, s.createdById),
+    });
+  }
+  return out;
 }
 
 export interface EventReminderLike {
@@ -370,7 +418,7 @@ export async function generateReminders(
   const features = await getHouseholdFeatures(householdId);
   const none = Promise.resolve([]);
 
-  const [tasks, items, bills] = await Promise.all([
+  const [tasks, items, bills, trials] = await Promise.all([
     !features.includes('tasks') ? none : prisma.task.findMany({
       where: {
         householdId,
@@ -416,6 +464,24 @@ export async function generateReminders(
         createdById: true,
       },
     }),
+    // Trials ending from yesterday (still today somewhere) to the notice ahead.
+    !features.includes('bills') ? none : prisma.bill.findMany({
+      where: {
+        householdId,
+        kind: 'subscription',
+        trialEndsAt: {
+          gte: new Date(now.getTime() - EVENT_LOOKBACK_MS),
+          lte: new Date(now.getTime() + (TRIAL_NOTICE_DAYS + 1) * 86_400_000),
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        trialEndsAt: true,
+        assignedUserId: true,
+        createdById: true,
+      },
+    }),
   ]);
 
   const [taskManagers, billManagers, stockManagers, settings, occurrences] = await Promise.all([
@@ -447,7 +513,14 @@ export async function generateReminders(
       createdById: o.createdById,
     }));
   const candidates = [
-    ...withManagers(buildReminders(tasks, items, bills, now, REORDER_WINDOW_DAYS, settings.timezone), {
+    ...withManagers([
+      ...buildReminders(tasks, items, bills, now, REORDER_WINDOW_DAYS, settings.timezone),
+      ...buildTrialReminders(
+        trials.map((t) => ({ ...t, trialEndsAt: t.trialEndsAt! })),
+        now,
+        settings.timezone,
+      ),
+    ], {
       tasks: taskManagers,
       bills: billManagers,
       inventory: stockManagers,

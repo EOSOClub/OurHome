@@ -59,6 +59,8 @@ export default async function CalendarPage({
       initialOccurrences={occurrences}
       initialChores={chores}
       choresOn={features.includes('tasks')}
+      billsOn={features.includes('bills')}
+      canAddBills={access.bills.create}
       members={members}
       access={access.calendar}
       userId={user.id}

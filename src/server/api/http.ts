@@ -22,7 +22,7 @@ import {
   isHouseholdDisabled,
   isServerAdmin,
 } from '@/server/services/serverAdminService';
-import { FEATURE_LABELS, featureForPath } from '@/lib/features';
+import { FEATURE_LABELS, featureForPath, type Feature } from '@/lib/features';
 import { fieldErrors, validationMessage } from '@/lib/validation/messages';
 
 // Thin, reusable HTTP layer so route handlers contain no business logic:
@@ -178,6 +178,16 @@ export async function requireAnyAccess(
   const access = await getAccess(ctx);
   if (!hasAnyAccess(access[page])) {
     throw new ForbiddenError(`You don't have access to ${ACCESS_PAGE_LABELS[page]}.`);
+  }
+}
+
+/**
+ * Require a feature other than the one the route's path belongs to (a bill
+ * put on the calendar also needs Calendar on).
+ */
+export async function requireFeatureOn(ctx: AuthedContext, feature: Feature): Promise<void> {
+  if (!(await isFeatureEnabled(ctx.user.householdId!, feature))) {
+    throw new ForbiddenError(`${FEATURE_LABELS[feature]} is turned off for this household.`);
   }
 }
 

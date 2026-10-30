@@ -6,10 +6,13 @@ import { useRouter } from 'next/navigation';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
+  CalendarCheck,
   CalendarClock,
   CalendarPlus,
+  CalendarX,
   CheckCircle2,
   Copy,
+  CreditCard,
   ExternalLink,
   Loader2,
   Pencil,
@@ -19,7 +22,7 @@ import {
 import type { BillDTO, BillDetailDTO, BillPaymentDTO, MemberDTO } from '@/lib/types';
 import { canModify, type PageAccess } from '@/lib/permissions';
 import { BILL_STATUS_LABELS, type BillStatus } from '@/lib/enums';
-import { formatDate, formatDueDate, formatMoney, isOverdue, safeHref } from '@/lib/format';
+import { dateKey, formatDate, formatDueDate, formatMoney, isOverdue, safeHref } from '@/lib/format';
 import { apiFetch } from '@/lib/api';
 import { toast } from '@/components/ui/toast';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -32,10 +35,6 @@ import { PaymentDialog } from '@/components/bills/payment-dialog';
 import { useHouseholdZone } from '@/components/household-zone';
 
 const KEY = ['bills'];
-
-const pad = (n: number) => String(n).padStart(2, '0');
-const dateValue = (d: Date) =>
-  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
 function sourceLabel(source: string): string {
   return source === 'email'
@@ -71,7 +70,6 @@ export function BillDetailView({
   const [editing, setEditing] = useState(false);
   const [paying, setPaying] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [addedToCalendar, setAddedToCalendar] = useState(false);
 
   // Re-render the server component and drop the stale list cache.
   const refresh = () => {
@@ -105,27 +103,25 @@ export function BillDetailView({
     },
   });
 
-  // All-day calendar event on the due date, titled after the bill. Errors
-  // surface via the global mutation toast; success swaps the button for a link.
-  const addToCalendar = useMutation({
-    mutationFn: () => {
-      // Local midnight on the due date - the calendar's all-day convention.
-      const due = dateValue(new Date(bill.dueDate!));
-      return apiFetch('/api/calendar/events', {
+  // The bill's entry on the calendar, on its due date: it follows the bill
+  // (a new date, a payment). Errors surface via the global mutation toast;
+  // the page re-renders with bill.onCalendar.
+  const calendar = useMutation({
+    mutationFn: (put: boolean) =>
+      apiFetch(put ? '/api/bills/calendar' : '/api/bills/calendar/remove', {
         method: 'POST',
-        body: JSON.stringify({
-          title: bill.name,
-          startAt: new Date(`${due}T00:00`).toISOString(),
-          allDay: true,
-        }),
-      });
-    },
-    onSuccess: () => {
-      setAddedToCalendar(true);
+        body: JSON.stringify({ id: bill.id }),
+      }),
+    onSuccess: (_, put) => {
       void queryClient.invalidateQueries({ queryKey: ['calendar'] });
-      toast.success('Added to calendar');
+      refresh();
+      toast.success(put ? 'Put on the calendar' : 'Taken off the calendar');
     },
   });
+  // The month the bill is in, for "Show".
+  const calendarHref = bill.dueDate
+    ? `/calendar?ym=${dateKey(bill.dueDate, timeZone).slice(0, 7)}`
+    : '/calendar';
 
   const overdue = bill.status === 'unpaid' && isOverdue(bill.dueDate, timeZone);
   const partial =
@@ -158,20 +154,30 @@ export function BillDetailView({
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="flex items-center gap-2">
+                {bill.kind === 'subscription' ? (
+                  <CreditCard className="size-5 shrink-0 text-muted-foreground" aria-label="Subscription" />
+                ) : null}
                 <h1 className="text-2xl font-semibold">{bill.name}</h1>
                 {bill.recurrence ? (
                   <Repeat className="size-4 text-muted-foreground" />
                 ) : null}
                 {bill.autoPay ? (
                   <Badge variant="secondary" className="text-[10px]">
-                    Auto-pay
+                    {bill.kind === 'subscription' ? 'Renews' : 'Auto-pay'}
                   </Badge>
                 ) : null}
               </div>
               <p className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
                 <CalendarClock className="size-4" />
-                {bill.dueDate ? formatDueDate(bill.dueDate, timeZone) : 'No due date'}
+                {bill.dueDate
+                  ? `${bill.kind === 'subscription' ? 'Next charge ' : ''}${formatDueDate(bill.dueDate, timeZone)}`
+                  : 'No due date'}
               </p>
+              {bill.trialEndsAt ? (
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Free trial ends {formatDate(bill.trialEndsAt, timeZone)}
+                </p>
+              ) : null}
             </div>
             <div className="text-right">
               <div className="text-3xl font-semibold tabular-nums">
@@ -234,17 +240,31 @@ export function BillDetailView({
                 </Button>
               ) : null}
               {bill.dueDate && canAddToCalendar ? (
-                addedToCalendar ? (
-                  <Link href="/calendar" className={buttonVariants({ variant: 'outline' })}>
-                    <CalendarPlus /> Open calendar
-                  </Link>
+                bill.onCalendar ? (
+                  <div className="flex flex-wrap items-center gap-1 rounded-md border border-border py-0.5 pl-3 pr-0.5 text-sm">
+                    <CalendarCheck className="size-4 text-success" aria-hidden />
+                    <span className="mr-1">On the calendar</span>
+                    <Link href={calendarHref} className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
+                      Show
+                    </Link>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-muted-foreground hover:text-destructive"
+                      disabled={calendar.isPending}
+                      onClick={() => calendar.mutate(false)}
+                    >
+                      {calendar.isPending ? <Loader2 className="animate-spin" /> : <CalendarX />}
+                      Remove
+                    </Button>
+                  </div>
                 ) : (
                   <Button
                     variant="outline"
-                    disabled={addToCalendar.isPending}
-                    onClick={() => addToCalendar.mutate()}
+                    disabled={calendar.isPending}
+                    onClick={() => calendar.mutate(true)}
                   >
-                    {addToCalendar.isPending ? (
+                    {calendar.isPending ? (
                       <Loader2 className="animate-spin" />
                     ) : (
                       <CalendarPlus />
@@ -275,7 +295,8 @@ export function BillDetailView({
         </CardHeader>
         <CardContent className="pt-0">
           <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
-            <Detail label="Category" value={bill.category} />
+            <Detail label="Kind" value={bill.kind === 'subscription' ? 'Subscription' : 'Bill'} />
+            <Detail label="Type" value={bill.category} />
             <Detail label="Responsible" value={bill.assignee?.name} />
             <Detail label="Currency" value={bill.currency} />
             {bill.currentCharges != null ? (
@@ -291,6 +312,17 @@ export function BillDetailView({
             <Detail label="Reference" value={bill.reference} />
             <Detail label="Biller email" value={bill.billerEmail} />
           </dl>
+          {safeHref(bill.website) ? (
+            <a
+              href={safeHref(bill.website)}
+              target="_blank"
+              rel="noreferrer"
+              className="mr-4 mt-4 inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+            >
+              <ExternalLink className="size-4" />
+              {bill.kind === 'subscription' ? 'Manage or cancel' : 'Pay online'}
+            </a>
+          ) : null}
           {safeHref(bill.sourceUrl) ? (
             <a
               href={safeHref(bill.sourceUrl)}

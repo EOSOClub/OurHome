@@ -1,6 +1,7 @@
 // Plain serializable shapes shared between the API responses and the client.
 // (Dates are ISO strings, matching JSON serialization.)
 
+import type { BillKind, EventKind } from '@/lib/enums';
 import type { AccessMatrix, EditableRole } from '@/lib/permissions';
 import type { Feature } from '@/lib/features';
 import type { BatteryReading, LocationSharing } from '@/lib/location';
@@ -449,6 +450,16 @@ export interface EventOccurrenceDTO {
   originalStart: string | null;
   /** Minutes before the start the reminder goes out; null = no reminder. */
   reminderMinutes: number | null;
+  /** What it is (EVENT_KINDS); fixed once made. */
+  kind: EventKind;
+  /** A bill's own entry (it follows the bill): the bill, and who it's for. */
+  billId: string | null;
+  billAssigneeId: string | null;
+  /** Birthday / anniversary: the year born or married. */
+  sinceYear: number | null;
+  /** Appointment: who it's with, and their phone. */
+  provider: string | null;
+  phone: string | null;
 }
 
 /** A chore's current due date, shown on the calendar (read-only; opens the task). */
@@ -465,6 +476,15 @@ export interface CalendarChoreDTO {
 
 export interface BillDTO {
   id: string;
+  /** A service to the home ("bill") or an extra ("subscription"). */
+  kind: BillKind;
+  /** Where to pay online, or where to manage or cancel a subscription. */
+  website: string | null;
+  accountNo: string | null;
+  /** Subscription: when its free trial ends (the last day to cancel). */
+  trialEndsAt: string | null;
+  /** It has an entry on the calendar (billCalendarService). */
+  onCalendar: boolean;
   /** Who created it (user id); null = nobody recorded. Drives own vs. others' access. */
   createdById: string | null;
   name: string;
@@ -509,7 +529,6 @@ export interface BillPaymentDTO {
 // list DTO omits, the full payment history, and derived totals.
 export interface BillDetailDTO extends BillDTO {
   invoiceNo: string | null;
-  accountNo: string | null;
   confirmationNo: string | null;
   billerEmail: string | null;
   /** The original document (Paperless), for "Open in Paperless". */

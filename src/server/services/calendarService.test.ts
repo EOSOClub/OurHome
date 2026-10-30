@@ -54,6 +54,10 @@ const EVENT_DEFAULTS = {
   seriesId: null,
   originalStart: null,
   reminderMinutes: null,
+  kind: 'event',
+  sinceYear: null,
+  provider: null,
+  phone: null,
   createdById: null,
 };
 
@@ -144,6 +148,7 @@ const NOV = { start: at('2026-11-01T00:00:00Z'), end: at('2026-11-30T23:59:59Z')
 /** A weekly series every Monday at 15:00 for an hour, created by u1. */
 async function weeklySeries(extra: Record<string, unknown> = {}) {
   const dto = await createEvent(HH, 'u1', {
+    kind: 'event',
     title: 'Piano',
     startAt: MON,
     endAt: new Date(MON.getTime() + 3_600_000),
@@ -404,8 +409,71 @@ describe('deleting', () => {
   });
 
   it('a one-off event is deleted as before', async () => {
-    const dto = await createEvent(HH, 'u1', { title: 'Dentist', startAt: MON, allDay: false });
+    const dto = await createEvent(HH, 'u1', { kind: 'event', title: 'Dentist', startAt: MON, allDay: false });
     await deleteEvent(HH, 'u1', { id: dto.eventId, scope: 'all' });
     expect(db.event).toHaveLength(0);
+  });
+});
+
+describe('event kinds', () => {
+  const NOV10 = at('2026-11-10T00:00:00.000Z');
+  const birthday = (extra: Record<string, unknown> = {}) =>
+    createEvent(HH, 'u1', {
+      kind: 'birthday',
+      title: "Jordan's birthday",
+      startAt: NOV10,
+      allDay: true,
+      recurrence: { kind: 'yearly', interval: 1, timezone: 'UTC' },
+      sinceYear: 2014,
+      // Not a birthday's: left out.
+      provider: 'Dr. Patel',
+      ...extra,
+    });
+
+  it('keeps a birthday’s year and drops what isn’t a birthday’s', async () => {
+    await birthday();
+    const [o] = await listOccurrences(HH, NOV.start, NOV.end);
+    expect(o).toMatchObject({ kind: 'birthday', sinceYear: 2014, provider: null, phone: null });
+  });
+
+  it('a date changed on its own keeps the kind and year', async () => {
+    const dto = await birthday();
+    await updateEvent(HH, 'u1', {
+      id: dto.eventId,
+      scope: 'this',
+      occurrenceStart: NOV10,
+      title: 'Party',
+    });
+    const override = db.event.find((e) => e.seriesId === dto.eventId)!;
+    expect(override).toMatchObject({ kind: 'birthday', sinceYear: 2014, title: 'Party' });
+  });
+
+  it('a birthday stays all day and yearly', async () => {
+    const dto = await birthday();
+    await expect(
+      updateEvent(HH, 'u1', { id: dto.eventId, scope: 'all', allDay: false }),
+    ).rejects.toThrow('lasts all day');
+    await expect(
+      updateEvent(HH, 'u1', { id: dto.eventId, scope: 'all', recurrence: null }),
+    ).rejects.toThrow('repeats every year');
+    // The year can change.
+    await updateEvent(HH, 'u1', { id: dto.eventId, scope: 'all', sinceYear: 2015 });
+    expect(db.event[0].sinceYear).toBe(2015);
+  });
+
+  it('a reminder can’t get an end', async () => {
+    const dto = await createEvent(HH, 'u1', { kind: 'reminder', title: 'Recycling out', startAt: MON, allDay: false });
+    await expect(
+      updateEvent(HH, 'u1', { id: dto.eventId, scope: 'all', endAt: new Date(MON.getTime() + 60_000) }),
+    ).rejects.toThrow('one moment');
+  });
+
+  it('an appointment’s who and phone carry into "This and following"', async () => {
+    const id = await weeklySeries({ kind: 'appointment', provider: 'Dr. Patel', phone: '555-0100' });
+    await updateEvent(HH, 'u1', { id, scope: 'following', occurrenceStart: week(2), title: 'Physio' });
+    const later = db.event.find((e) => e.id !== id)!;
+    expect(later).toMatchObject({ kind: 'appointment', provider: 'Dr. Patel', phone: '555-0100', title: 'Physio' });
+    await updateEvent(HH, 'u1', { id: later.id, scope: 'all', phone: null });
+    expect(db.event.find((e) => e.id === later.id)!.phone).toBeNull();
   });
 });

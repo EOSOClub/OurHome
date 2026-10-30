@@ -8,9 +8,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
   CalendarClock,
+  CalendarDays,
   CheckCircle2,
   ChevronDown,
   Copy,
+  CreditCard,
   Loader2,
   Plus,
   Receipt,
@@ -19,7 +21,7 @@ import {
 } from 'lucide-react';
 import type { BillDTO, MemberDTO } from '@/lib/types';
 import { canModify, type PageAccess } from '@/lib/permissions';
-import { BILL_STATUS_LABELS, type BillStatus } from '@/lib/enums';
+import { BILL_STATUS_LABELS, type BillKind, type BillStatus } from '@/lib/enums';
 import { formatDueDate, formatMoney, isDueWithinDays, isOverdue } from '@/lib/format';
 import { apiFetch, ApiError } from '@/lib/api';
 import { useFieldErrors } from '@/lib/use-field-errors';
@@ -40,7 +42,14 @@ import { useHouseholdZone } from '@/components/household-zone';
 
 const KEY = ['bills'];
 // 'interval' = every N days (the API allows it; imported bills can use it).
-type Repeat = 'none' | 'daily' | 'weekly' | 'monthly' | 'interval';
+type Repeat = 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'interval';
+
+// Suggestions for a bill's or subscription's type (the category; anything
+// else can still be typed).
+const CATEGORY_SUGGESTIONS: Record<BillKind, string[]> = {
+  bill: ['Electric', 'Gas', 'Water', 'Sewer and trash', 'Internet and cable', 'Phone', 'Rent or mortgage', 'Insurance', 'Other'],
+  subscription: ['Streaming', 'Music', 'Software', 'AI', 'Gaming', 'Membership', 'News', 'Cloud storage', 'Other'],
+};
 
 // How many paid bills the disclosure shows before "Show all (N)".
 const PAID_PREVIEW = 12;
@@ -88,6 +97,8 @@ export function duplicateBillPayload(bill: BillDTO) {
         }
       : undefined;
   return {
+    kind: bill.kind,
+    website: bill.website,
     name: `${bill.name} (copy)`.slice(0, 160),
     amount: bill.amount,
     currency: bill.currency,
@@ -98,6 +109,29 @@ export function duplicateBillPayload(bill: BillDTO) {
     assignedUserId: bill.assignee?.id ?? null,
     recurrence,
   };
+}
+
+/**
+ * What a repeating bill costs a month on average: yearly / 12, every 2 months
+ * / 2, weekly x 52 / 12. A one-off counts nothing.
+ */
+export function monthlyCost(b: Pick<BillDTO, 'amount' | 'recurrence'>): number {
+  const r = b.recurrence;
+  if (!r) return 0;
+  const every = Math.max(1, r.interval);
+  switch (r.kind) {
+    case 'yearly':
+      return b.amount / (12 * every);
+    case 'monthly':
+      return b.amount / every;
+    case 'weekly':
+      return (b.amount * 52) / 12 / every;
+    case 'daily':
+    case 'interval':
+      return (b.amount * 365) / 12 / every;
+    default:
+      return 0;
+  }
 }
 
 /** Amount still owed on a bill (balance minus payments already applied). */
@@ -126,6 +160,7 @@ export function BillsView({
   const [showAllPaid, setShowAllPaid] = useState(false);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
+  const [shownKind, setShownKind] = useState<BillKind | 'all'>('all');
 
   const { data: bills = [] } = useQuery({
     queryKey: KEY,
@@ -148,11 +183,14 @@ export function BillsView({
   const categories = [...new Set(bills.map((b) => b.category))]
     .filter((c): c is string => !!c)
     .sort();
+  const subscriptions = bills.filter((b) => b.kind === 'subscription');
+  const subscriptionsMonthly = sum(subscriptions, monthlyCost);
   const query = search.trim().toLowerCase();
-  const filtersActive = query !== '' || category !== '';
+  const filtersActive = query !== '' || category !== '' || shownKind !== 'all';
   const matchesFilters = (b: BillDTO) =>
     (!query || b.name.toLowerCase().includes(query)) &&
-    (!category || b.category === category);
+    (!category || b.category === category) &&
+    (shownKind === 'all' || b.kind === shownKind);
   const shownOverdue = overdue.filter(matchesFilters);
   const shownUpcoming = upcoming.filter(matchesFilters);
   const shownPaid = paid.filter(matchesFilters);
@@ -169,6 +207,9 @@ export function BillsView({
           <h1 className="text-2xl font-semibold">Bills &amp; expenses</h1>
           <p className="text-sm text-muted-foreground">
             {unpaid.length} unpaid · {formatMoney(totalDue)} outstanding
+            {subscriptions.length > 0
+              ? ` · subscriptions ${formatMoney(subscriptionsMonthly)} a month`
+              : ''}
           </p>
         </div>
         {access.create ? (
@@ -209,6 +250,23 @@ export function BillsView({
       ) : (
         <div className="space-y-6">
           <div className="flex flex-wrap items-center gap-2">
+            <div role="group" aria-label="Show" className="flex rounded-md border border-border p-0.5">
+              {(['all', 'bill', 'subscription'] as const).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  aria-pressed={shownKind === k}
+                  onClick={() => setShownKind(k)}
+                  className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                    shownKind === k
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {k === 'all' ? 'All' : k === 'bill' ? 'Bills' : 'Subscriptions'}
+                </button>
+              ))}
+            </div>
             <Input
               type="search"
               value={search}
@@ -416,9 +474,15 @@ function BillRow({
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
+          {bill.kind === 'subscription' ? (
+            <CreditCard className="size-3.5 shrink-0 text-muted-foreground" aria-label="Subscription" />
+          ) : null}
           <p className="truncate font-medium">{bill.name}</p>
           {bill.recurrence ? (
             <Repeat className="size-3.5 shrink-0 text-muted-foreground" />
+          ) : null}
+          {bill.onCalendar ? (
+            <CalendarDays className="size-3.5 shrink-0 text-muted-foreground" aria-label="On the calendar" />
           ) : null}
           {bill.source === 'email' || bill.source === 'paperless' ? (
             <Badge variant="secondary" className="text-[10px]">
@@ -517,23 +581,46 @@ export function BillDialog({
   members,
   onClose,
   onSaved,
+  kind: newKind = 'bill',
+  defaultDate,
+  onCalendar,
+  typePicker,
 }: {
   bill: BillDTO | null;
   members: MemberDTO[];
   onClose: () => void;
   onSaved: () => void;
+  /** A new one's kind (the calendar's type picker chooses it). */
+  kind?: BillKind;
+  /** A new one's due date (YYYY-MM-DD), the calendar day it was made on. */
+  defaultDate?: string;
+  /** Made on the calendar: it goes on the calendar as it's saved. */
+  onCalendar?: boolean;
+  /** The calendar's type picker, in place of the Bill / Subscription switch;
+   *  it switches this form's kind, or leaves it for an event. */
+  typePicker?: (kind: BillKind, setKind: (kind: BillKind) => void) => React.ReactNode;
 }) {
+  // A service to the home or an extra; an existing one can be switched.
+  const [kind, setKind] = useState<BillKind>(bill?.kind ?? newKind);
+  const sub = kind === 'subscription';
   const [name, setName] = useState(bill?.name ?? '');
   const [amount, setAmount] = useState(bill ? String(bill.amount) : '');
   const [dueDate, setDueDate] = useState(
-    bill?.dueDate ? dateValue(new Date(bill.dueDate)) : '',
+    bill?.dueDate ? dateValue(new Date(bill.dueDate)) : (defaultDate ?? ''),
+  );
+  const [website, setWebsite] = useState(bill?.website ?? '');
+  const [accountNo, setAccountNo] = useState(bill?.accountNo ?? '');
+  const [trialEndsAt, setTrialEndsAt] = useState(
+    bill?.trialEndsAt ? dateValue(new Date(bill.trialEndsAt)) : '',
   );
   const [category, setCategory] = useState(bill?.category ?? '');
-  const [autoPay, setAutoPay] = useState(bill?.autoPay ?? false);
+  // A subscription renews by itself unless it's cancelled.
+  const [autoPay, setAutoPay] = useState(bill?.autoPay ?? newKind === 'subscription');
   const [assignedUserId, setAssignedUserId] = useState(bill?.assignee?.id ?? '');
   const [notes, setNotes] = useState(bill?.notes ?? '');
+  // Bills and subscriptions mostly come every month.
   const [repeat, setRepeat] = useState<Repeat>(
-    (bill?.recurrence?.kind as Repeat) ?? 'none',
+    bill ? ((bill.recurrence?.kind as Repeat) ?? 'none') : 'monthly',
   );
   const [interval, setInterval] = useState(bill?.recurrence?.interval ?? 1);
   const [weekdays, setWeekdays] = useState<number[]>(
@@ -561,14 +648,21 @@ export function BillDialog({
               interval,
               timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
               until: until ? new Date(`${until}T12:00:00`).toISOString() : null,
-              ...(repeat === 'weekly' && weekdays.length > 0
+              // Day picks only count for a bill (a subscription doesn't show them).
+              ...(repeat === 'weekly' && !sub && weekdays.length > 0
                 ? { byWeekday: weekdays }
                 : {}),
-              ...(repeat === 'monthly' && monthdays.length > 0
+              ...(repeat === 'monthly' && !sub && monthdays.length > 0
                 ? { byMonthday: monthdays }
                 : {}),
             };
       const payload = {
+        kind,
+        website: website.trim() || null,
+        // A bill's account number; a subscription's free trial.
+        ...(sub ? {} : { accountNo: accountNo.trim() || null }),
+        trialEndsAt: sub && trialEndsAt ? new Date(`${trialEndsAt}T12:00`).toISOString() : null,
+        ...(bill || !onCalendar ? {} : { onCalendar: true }),
         name: name.trim(),
         amount: Number(amount) || 0,
         dueDate: dueDate ? new Date(`${dueDate}T12:00`).toISOString() : null,
@@ -601,7 +695,7 @@ export function BillDialog({
     <Dialog
       open
       onClose={onClose}
-      title={bill ? 'Edit bill' : 'New bill'}
+      title={bill ? (sub ? 'Edit subscription' : 'Edit bill') : sub ? 'New subscription' : 'New bill'}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
@@ -633,21 +727,53 @@ export function BillDialog({
             {error}
           </p>
         ) : null}
+        {typePicker ? typePicker(kind, setKind) : (
+          <div className="space-y-1.5" data-field="kind">
+            <div role="radiogroup" aria-label="What it is" className="flex rounded-md border border-border p-0.5">
+              {(['bill', 'subscription'] as const).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  role="radio"
+                  aria-checked={kind === k}
+                  onClick={() => setKind(k)}
+                  className={`flex flex-1 items-center justify-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                    kind === k
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {k === 'bill' ? <Receipt className="size-3.5" /> : <CreditCard className="size-3.5" />}
+                  {k === 'bill' ? 'Bill' : 'Subscription'}
+                </button>
+              ))}
+            </div>
+            <FieldNote
+              id={fe.noteId('kind')}
+              error={fe.get('kind')}
+              hint={
+                sub
+                  ? 'Something extra: streaming, software, a membership.'
+                  : 'A service to the home: power, gas, water, internet.'
+              }
+            />
+          </div>
+        )}
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5" data-field="name">
-            <Label htmlFor="bill-name">Name</Label>
+            <Label htmlFor="bill-name">{sub ? 'Service' : 'Provider'}</Label>
             <Input
               id="bill-name"
               autoFocus
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Electric"
+              placeholder={sub ? 'e.g. Netflix' : 'e.g. Prairie Power & Light'}
               {...fe.invalid('name')}
             />
             <FieldNote id={fe.noteId('name')} error={fe.get('name')} />
           </div>
           <div className="space-y-1.5" data-field="amount">
-            <Label htmlFor="bill-amount">Amount</Label>
+            <Label htmlFor="bill-amount">{sub ? 'Price' : 'Amount due'}</Label>
             <Input
               id="bill-amount"
               type="number"
@@ -658,10 +784,14 @@ export function BillDialog({
               placeholder="0.00"
               {...fe.invalid('amount')}
             />
-            <FieldNote id={fe.noteId('amount')} error={fe.get('amount')} />
+            <FieldNote
+              id={fe.noteId('amount')}
+              error={fe.get('amount')}
+              hint={sub ? undefined : 'Changes each time? Put the usual amount and update it when the bill comes.'}
+            />
           </div>
           <div className="space-y-1.5" data-field="dueDate">
-            <Label htmlFor="bill-due">Due date</Label>
+            <Label htmlFor="bill-due">{sub ? 'Next charge' : 'Due date'}</Label>
             <Input
               id="bill-due"
               type="date"
@@ -672,15 +802,64 @@ export function BillDialog({
             <FieldNote id={fe.noteId('dueDate')} error={fe.get('dueDate')} />
           </div>
           <div className="space-y-1.5" data-field="category">
-            <Label htmlFor="bill-category">Category</Label>
+            <Label htmlFor="bill-category">Type</Label>
             <Input
               id="bill-category"
+              list="bill-category-options"
               value={category}
               onChange={(e) => setCategory(e.target.value)}
-              placeholder="e.g. Utilities"
+              placeholder={sub ? 'e.g. Streaming' : 'e.g. Electric'}
               {...fe.invalid('category')}
             />
+            <datalist id="bill-category-options">
+              {CATEGORY_SUGGESTIONS[kind].map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
             <FieldNote id={fe.noteId('category')} error={fe.get('category')} />
+          </div>
+          {sub ? (
+            <div className="space-y-1.5" data-field="trialEndsAt">
+              <Label htmlFor="bill-trial">Free trial ends (optional)</Label>
+              <Input
+                id="bill-trial"
+                type="date"
+                value={trialEndsAt}
+                onChange={(e) => setTrialEndsAt(e.target.value)}
+                {...fe.invalid('trialEndsAt')}
+              />
+              <FieldNote
+                id={fe.noteId('trialEndsAt')}
+                error={fe.get('trialEndsAt')}
+                hint="The last day to cancel before it charges. You get a reminder 3 days before."
+              />
+            </div>
+          ) : (
+            <div className="space-y-1.5" data-field="accountNo">
+              <Label htmlFor="bill-account">Account number (optional)</Label>
+              <Input
+                id="bill-account"
+                value={accountNo}
+                onChange={(e) => setAccountNo(e.target.value)}
+                {...fe.invalid('accountNo')}
+              />
+              <FieldNote id={fe.noteId('accountNo')} error={fe.get('accountNo')} />
+            </div>
+          )}
+          <div className="space-y-1.5" data-field="website">
+            <Label htmlFor="bill-website">
+              {sub ? 'Manage or cancel (link, optional)' : 'Pay online (link, optional)'}
+            </Label>
+            <Input
+              id="bill-website"
+              type="url"
+              inputMode="url"
+              value={website}
+              onChange={(e) => setWebsite(e.target.value)}
+              placeholder="https://"
+              {...fe.invalid('website')}
+            />
+            <FieldNote id={fe.noteId('website')} error={fe.get('website')} />
           </div>
           <div className="space-y-1.5" data-field="assignedUserId">
             <Label htmlFor="bill-assignee">Responsible</Label>
@@ -702,7 +881,7 @@ export function BillDialog({
           {/* Every repeat field comes back as "recurrence"; editing any of them clears it. */}
           <div className="space-y-1.5" data-field="recurrence">
             <Label htmlFor="bill-repeat" className="flex items-center gap-1.5">
-              <Repeat className="size-3.5" /> Repeats
+              <Repeat className="size-3.5" /> {sub ? 'Billing cycle' : 'Repeats'}
             </Label>
             <Select
               id="bill-repeat"
@@ -714,6 +893,7 @@ export function BillDialog({
               <option value="daily">Daily</option>
               <option value="weekly">Weekly</option>
               <option value="monthly">Monthly</option>
+              <option value="yearly">Yearly</option>
               <option value="interval">Every N days</option>
             </Select>
             <FieldNote id={fe.noteId('recurrence')} error={fe.get('recurrence')} />
@@ -721,7 +901,13 @@ export function BillDialog({
           {repeat !== 'none' ? (
             <div className="space-y-1.5" data-field="recurrence">
               <Label htmlFor="bill-interval">
-                {repeat === 'weekly' ? 'Every N weeks' : repeat === 'monthly' ? 'Every N months' : 'Every N days'}
+                {repeat === 'weekly'
+                  ? 'Every N weeks'
+                  : repeat === 'monthly'
+                    ? 'Every N months'
+                    : repeat === 'yearly'
+                      ? 'Every N years'
+                      : 'Every N days'}
               </Label>
               <Input
                 id="bill-interval"
@@ -734,7 +920,8 @@ export function BillDialog({
               />
             </div>
           ) : null}
-          {repeat === 'weekly' ? (
+          {/* A subscription charges on its date; the day pickers are for bills. */}
+          {repeat === 'weekly' && !sub ? (
             <div className="space-y-1.5 sm:col-span-2" data-field="recurrence">
               <Label>On days (optional)</Label>
               <div className="flex flex-wrap items-center gap-1.5">
@@ -755,7 +942,7 @@ export function BillDialog({
               </div>
             </div>
           ) : null}
-          {repeat === 'monthly' ? (
+          {repeat === 'monthly' && !sub ? (
             <div className="space-y-1.5 sm:col-span-2" data-field="recurrence">
               <Label>On days of month (optional)</Label>
               <div className="grid grid-cols-7 gap-1.5 sm:grid-cols-10">
@@ -797,7 +984,7 @@ export function BillDialog({
             checked={autoPay}
             onChange={(e) => setAutoPay(e.target.checked)}
           />
-          Auto-pay enabled
+          {sub ? 'Renews automatically' : 'Auto-pay enabled'}
         </label>
         <FieldNote id={fe.noteId('autoPay')} error={fe.get('autoPay')} />
 

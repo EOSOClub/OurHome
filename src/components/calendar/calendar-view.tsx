@@ -14,17 +14,21 @@ import {
   CalendarPlus,
   ChevronLeft,
   ChevronRight,
+  CreditCard,
   ListChecks,
   Loader2,
   MapPin,
+  Phone as PhoneIcon,
+  Receipt,
   Repeat,
   Trash2,
   Users,
 } from 'lucide-react';
 import type { CalendarChoreDTO, EventOccurrenceDTO, MemberDTO } from '@/lib/types';
+import type { PickedEventKind } from '@/lib/enums';
 import { canModify, type PageAccess } from '@/lib/permissions';
 import { apiFetch, ApiError } from '@/lib/api';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
@@ -35,9 +39,20 @@ import { Dialog } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { toast } from '@/components/ui/toast';
 import { useHouseholdZone } from '@/components/household-zone';
-import { dateKey, timeKey, zonedInstant } from '@/lib/format';
+import { dateKey, formatDate, timeKey, zonedInstant } from '@/lib/format';
 import { ALL_DAY_REMINDERS, TIMED_REMINDERS } from '@/lib/validation/calendar';
 import { MONTHS, MonthPicker } from '@/components/calendar/month-picker';
+import { BillDialog } from '@/components/bills/bills-view';
+import {
+  KIND_ICONS,
+  KIND_LABELS,
+  TypePicker,
+  entryTitle,
+  pickerKind,
+  whoseOf,
+  yearlyTitle,
+  type NewKind,
+} from '@/components/calendar/item-types';
 
 type YearMonth = { year: number; month: number };
 type Repeat = 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly';
@@ -132,7 +147,7 @@ type Entry =
   | { kind: 'event'; at: string; allDay: boolean; o: EventOccurrenceDTO }
   | { kind: 'chore'; at: string; allDay: boolean; c: CalendarChoreDTO };
 type Who = 'everyone' | 'mine';
-type Kind = 'events' | 'chores';
+type Kind = 'events' | 'chores' | 'bills';
 /** A range's events and chores, fetched together so they show up together. */
 type RangeData = { events: EventOccurrenceDTO[]; chores: CalendarChoreDTO[] };
 
@@ -170,6 +185,8 @@ export function CalendarView({
   initialOccurrences,
   initialChores,
   choresOn,
+  billsOn,
+  canAddBills,
   members,
   access,
   userId,
@@ -180,6 +197,10 @@ export function CalendarView({
   initialChores: CalendarChoreDTO[];
   /** Tasks is on for the household, so chores can show. */
   choresOn: boolean;
+  /** Bills is on for the household, so bills can be on the calendar. */
+  billsOn: boolean;
+  /** The viewer may add bills (Bills Add access): New offers Bill and Subscription. */
+  canAddBills: boolean;
   members: MemberDTO[];
   /** The viewer's Calendar access (Members → Permissions). */
   access: PageAccess;
@@ -211,11 +232,13 @@ export function CalendarView({
       new Set(
         (searchParams.get('hide') ?? '')
           .split(',')
-          .filter((k): k is Kind => k === 'events' || k === 'chores'),
+          .filter((k): k is Kind => k === 'events' || k === 'chores' || k === 'bills'),
       ),
   );
   const [editing, setEditing] = useState<EventOccurrenceDTO | null>(null);
   const [creatingDate, setCreatingDate] = useState<string | null>(null);
+  // What the new item is; each one starts as a plain event.
+  const [newKind, setNewKind] = useState<NewKind>('event');
   const [viewingDay, setViewingDay] = useState<string | null>(null);
 
   const isInitial = ym.year === initialMonth.year && ym.month === initialMonth.month;
@@ -267,13 +290,15 @@ export function CalendarView({
   });
 
   // What the filters let through, as day entries.
+  // A bill's entry counts as a bill (Bills button; Mine = assigned to me).
   const toEntries = (events: EventOccurrenceDTO[], choreList: CalendarChoreDTO[]): Entry[] => [
-    ...(hidden.has('events') ? [] : events)
-      .filter(
-        (o) =>
-          who === 'everyone' ||
-          o.createdById === userId ||
-          o.attendees.some((a) => a.id === userId),
+    ...events
+      .filter((o) => (o.billId ? billsOn && !hidden.has('bills') : !hidden.has('events')))
+      .filter((o) =>
+        who === 'everyone' ||
+        (o.billId
+          ? o.billAssigneeId === userId
+          : o.createdById === userId || o.attendees.some((a) => a.id === userId)),
       )
       .map((o): Entry => ({ kind: 'event', at: o.start, allDay: o.allDay, o })),
     ...(hidden.has('chores') || !choresOn ? [] : choreList)
@@ -386,6 +411,7 @@ export function CalendarView({
   const closeDialogs = () => {
     setEditing(null);
     setCreatingDate(null);
+    setNewKind('event');
   };
   const onSaved = () => {
     void queryClient.invalidateQueries({ queryKey: ['calendar'] });
@@ -403,7 +429,7 @@ export function CalendarView({
         </div>
         {canWrite ? (
           <Button onClick={() => setCreatingDate(dateKey(new Date(), timeZone))}>
-            <CalendarPlus /> New event
+            <CalendarPlus /> New
           </Button>
         ) : null}
       </div>
@@ -496,9 +522,11 @@ export function CalendarView({
             </button>
           ))}
         </div>
-        {choresOn ? (
-          <div role="group" aria-label="Show" className="flex gap-1">
-            {(['events', 'chores'] as const).map((k) => {
+        {choresOn || billsOn ? (
+          <div role="group" aria-label="Show" className="flex flex-wrap gap-1">
+            {(['events', 'chores', 'bills'] as const)
+              .filter((k) => k === 'events' || (k === 'chores' ? choresOn : billsOn))
+              .map((k) => {
               const shown = !hidden.has(k);
               return (
                 <button
@@ -515,10 +543,10 @@ export function CalendarView({
                   <span
                     aria-hidden
                     className={`size-2 rounded-full ${
-                      k === 'events' ? 'bg-primary' : 'bg-success'
+                      k === 'events' ? 'bg-primary' : k === 'chores' ? 'bg-success' : 'bg-warning'
                     } ${shown ? '' : 'opacity-40'}`}
                   />
-                  {k === 'events' ? 'Events' : 'Chores'}
+                  {k === 'events' ? 'Events' : k === 'chores' ? 'Chores' : 'Bills'}
                 </button>
               );
             })}
@@ -676,9 +704,7 @@ export function CalendarView({
       >
         {agendaDays.length === 0 ? (
           <p className="rounded-lg border border-border px-4 py-6 text-center text-sm text-muted-foreground">
-            {choresOn && !hidden.has('chores')
-              ? 'No events or chores this month.'
-              : 'No events this month.'}
+            Nothing on the calendar this month.
           </p>
         ) : (
           agendaDays.map(([key, entries]) => {
@@ -719,11 +745,43 @@ export function CalendarView({
         />
       )}
 
-      {(editing || creatingDate) && (
+      {creatingDate && !editing && (newKind === 'bill' || newKind === 'subscription') ? (
+        // A bill or subscription made here is a real bill, on the calendar from the start.
+        <BillDialog
+          key={`bill-${creatingDate}`}
+          bill={null}
+          members={members}
+          kind={newKind}
+          defaultDate={creatingDate}
+          onCalendar
+          typePicker={(kind, setKind) => (
+            <TypePicker
+              value={kind}
+              bills
+              onPick={(k) => (k === 'bill' || k === 'subscription' ? setKind(k) : setNewKind(k))}
+            />
+          )}
+          onClose={closeDialogs}
+          onSaved={() => {
+            void queryClient.invalidateQueries({ queryKey: ['bills'] });
+            onSaved();
+          }}
+        />
+      ) : editing?.billId ? (
+        <BillEntryDialog
+          occurrence={editing}
+          canRemove={access.create}
+          onClose={closeDialogs}
+          onRemoved={onSaved}
+        />
+      ) : (editing || creatingDate) && (
         <EventDialog
           key={editing ? `${editing.eventId}-${editing.start}` : `new-${creatingDate}`}
           occurrence={editing}
           defaultDate={creatingDate}
+          initialKind={newKind}
+          bills={billsOn && canAddBills}
+          onPickKind={setNewKind}
           members={members}
           access={access}
           userId={userId}
@@ -734,6 +792,10 @@ export function CalendarView({
     </div>
   );
 }
+
+// A bill's entry from before kinds (email and Paperless bills) still shows as a bill.
+const shownKind = (o: EventOccurrenceDTO) =>
+  o.billId && o.kind !== 'subscription' ? 'bill' : o.kind;
 
 const entryKey = (entry: Entry, i: number) =>
   entry.kind === 'event' ? `${entry.o.eventId}-${i}` : `chore-${entry.c.id}`;
@@ -776,6 +838,7 @@ function EntryChip({
     );
   }
   const { o } = entry;
+  const KindIcon = KIND_ICONS[shownKind(o)];
   return (
     <button
       type="button"
@@ -783,12 +846,23 @@ function EntryChip({
         e.stopPropagation();
         onOpen(o);
       }}
-      className="flex w-full items-center gap-1 truncate rounded bg-primary/15 px-1.5 py-0.5 text-left text-xs text-primary hover:bg-primary/25"
+      className={`flex w-full items-center gap-1 truncate rounded px-1.5 py-0.5 text-left text-xs ${
+        o.billId
+          ? 'bg-warning/15 text-foreground hover:bg-warning/25'
+          : 'bg-primary/15 text-primary hover:bg-primary/25'
+      }`}
     >
-      {o.recurring ? <Repeat className="size-2.5 shrink-0" /> : null}
+      {KindIcon ? (
+        <KindIcon
+          className={`size-2.5 shrink-0 ${o.billId ? 'text-warning' : ''}`}
+          aria-label={KIND_LABELS[shownKind(o)]}
+        />
+      ) : o.recurring ? (
+        <Repeat className="size-2.5 shrink-0" />
+      ) : null}
       <span className="truncate">
         {time}
-        {o.title}
+        {entryTitle(o, timeZone)}
       </span>
     </button>
   );
@@ -833,13 +907,22 @@ function EntryRow({
     );
   }
   const { o } = entry;
+  const KindIcon = KIND_ICONS[shownKind(o)];
   return (
     <button type="button" onClick={() => onOpen(o)} className={rowClass}>
       {when}
-      {o.recurring ? (
+      {KindIcon ? (
+        <KindIcon
+          className={`size-3 shrink-0 ${o.billId ? 'text-warning' : 'text-muted-foreground'}`}
+          aria-label={KIND_LABELS[shownKind(o)]}
+        />
+      ) : o.recurring ? (
         <Repeat className="size-3 shrink-0 text-muted-foreground" />
       ) : null}
-      <span className="truncate">{o.title}</span>
+      <span className="truncate">{entryTitle(o, timeZone)}</span>
+      {o.provider ? (
+        <span className="shrink-0 text-xs text-muted-foreground">with {o.provider}</span>
+      ) : null}
       {o.location ? (
         <span className="ml-auto flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
           <MapPin className="size-3 shrink-0" />
@@ -881,9 +964,79 @@ function DayDialog({
   );
 }
 
+/**
+ * A bill's entry: it follows the bill, so it opens the bill rather than
+ * editing here. Taking it off the calendar leaves the bill as it is.
+ */
+function BillEntryDialog({
+  occurrence: o,
+  canRemove,
+  onClose,
+  onRemoved,
+}: {
+  occurrence: EventOccurrenceDTO;
+  /** Calendar Add access, the same that puts a bill on it. */
+  canRemove: boolean;
+  onClose: () => void;
+  onRemoved: () => void;
+}) {
+  const timeZone = useHouseholdZone();
+  const queryClient = useQueryClient();
+  const sub = o.kind === 'subscription';
+  const remove = useMutation({
+    mutationFn: () =>
+      apiFetch('/api/bills/calendar/remove', {
+        method: 'POST',
+        body: JSON.stringify({ id: o.billId }),
+      }),
+    onSuccess: () => {
+      toast.success('Taken off the calendar');
+      void queryClient.invalidateQueries({ queryKey: ['bills'] });
+      onRemoved();
+    },
+  });
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={o.title}
+      description={`${sub ? 'Renews' : 'Due'} ${formatDate(o.start, timeZone)}${o.description ? ` · ${o.description}` : ''}`}
+      footer={
+        <>
+          {canRemove ? (
+            <Button
+              variant="ghost"
+              className="mr-auto text-muted-foreground hover:text-destructive"
+              disabled={remove.isPending}
+              onClick={() => remove.mutate()}
+            >
+              {remove.isPending ? <Loader2 className="animate-spin" /> : <Trash2 />}
+              Take off calendar
+            </Button>
+          ) : null}
+          <Button variant="ghost" onClick={onClose}>
+            Close
+          </Button>
+          <Link href={`/bills/${o.billId}`} className={buttonVariants()}>
+            {sub ? <CreditCard /> : <Receipt />} Open {sub ? 'subscription' : 'bill'}
+          </Link>
+        </>
+      }
+    >
+      <p className="text-sm text-muted-foreground">
+        Its date follows the {sub ? 'subscription' : 'bill'}: change it there, and paying moves it to
+        the next due date.
+      </p>
+    </Dialog>
+  );
+}
+
 function EventDialog({
   occurrence,
   defaultDate,
+  initialKind,
+  bills,
+  onPickKind,
   members,
   access,
   userId,
@@ -892,6 +1045,11 @@ function EventDialog({
 }: {
   occurrence: EventOccurrenceDTO | null;
   defaultDate: string | null;
+  /** A new item's type, from the picker (Bill and Subscription open the bill form). */
+  initialKind: NewKind;
+  /** The picker offers Bill and Subscription. */
+  bills: boolean;
+  onPickKind: (kind: NewKind) => void;
   members: MemberDTO[];
   access: PageAccess;
   userId: string;
@@ -911,7 +1069,23 @@ function EventDialog({
   const baseStart = occurrence ? new Date(occurrence.start) : null;
   const baseEnd = occurrence?.end ? new Date(occurrence.end) : null;
 
+  // What it is: picked when making one, fixed after.
+  const [kind, setKind] = useState<PickedEventKind>(
+    occurrence ? (occurrence.kind as PickedEventKind) : (initialKind as PickedEventKind),
+  );
+  const yearly = kind === 'birthday' || kind === 'anniversary';
   const [title, setTitle] = useState(occurrence?.title ?? '');
+  // Birthday / anniversary: whose it is makes the title ("Jordan's birthday").
+  // An existing one whose title was typed another way keeps a plain title.
+  const [whose, setWhose] = useState(
+    occurrence && yearly ? (whoseOf(occurrence.title, kind) ?? '') : '',
+  );
+  const byWhose = yearly && (!occurrence || whoseOf(occurrence.title, kind) !== null);
+  const [sinceYear, setSinceYear] = useState(
+    occurrence?.sinceYear != null ? String(occurrence.sinceYear) : '',
+  );
+  const [provider, setProvider] = useState(occurrence?.provider ?? '');
+  const [phone, setPhone] = useState(occurrence?.phone ?? '');
   const [description, setDescription] = useState(occurrence?.description ?? '');
   const [location, setLocation] = useState(occurrence?.location ?? '');
   const [allDay, setAllDay] = useState(occurrence?.allDay ?? false);
@@ -956,7 +1130,37 @@ function EventDialog({
     ? zonedInstant(endDate, allDay ? '23:59' : endTime, timeZone)
     : null;
   const endBeforeStart = Boolean(startAt && endAt && endAt < startAt);
-  const canSave = Boolean(title.trim() && startDate && !endBeforeStart);
+  const canSave = Boolean((byWhose ? whose : title).trim() && startDate && !endBeforeStart);
+
+  // A type's starting point: a birthday is all day every year with a week's
+  // notice, an appointment reminds the day before, a reminder goes off at
+  // its time.
+  const pickKind = (next: NewKind) => {
+    if (next === 'bill' || next === 'subscription') {
+      onPickKind(next);
+      return;
+    }
+    if (yearly && next !== 'birthday') {
+      setRepeat('none');
+      setAllDay(false);
+    }
+    setKind(next);
+    if (next === 'birthday') {
+      setAllDay(true);
+      setRepeat('yearly');
+      setInterval(1);
+      setEndDate('');
+      setReminder('10080');
+    } else if (next === 'appointment') {
+      setAllDay(false);
+      setReminder('1440');
+    } else if (next === 'reminder') {
+      setEndDate('');
+      setReminder('0');
+    } else {
+      setReminder('');
+    }
+  };
 
   // For the "which dates?" choice on a repeating event: a new repeat can't
   // apply to one date, and a moved time or new repeat resets the dates that
@@ -987,7 +1191,8 @@ function EventDialog({
 
   const buildPayload = () => {
     const startAt = zonedInstant(startDate, allDay ? '00:00' : startTime, timeZone);
-    const endAt = endDate
+    // A birthday and a reminder have no end.
+    const endAt = endDate && !yearly && kind !== 'reminder'
       ? zonedInstant(endDate, allDay ? '23:59' : endTime, timeZone)
       : null;
     const recurrence =
@@ -1010,16 +1215,24 @@ function EventDialog({
               ? { byMonthday: monthdays }
               : {}),
           };
+    const placeless = yearly || kind === 'reminder';
     return {
-      title: title.trim(),
-      description: description.trim() || null,
-      location: location.trim() || null,
+      // The type is only sent when making one; it's fixed after.
+      ...(occurrence ? {} : { kind }),
+      title: byWhose ? yearlyTitle(whose, kind as 'birthday' | 'anniversary') : title.trim(),
+      description: kind === 'reminder' ? null : description.trim() || null,
+      location: placeless ? null : location.trim() || null,
       startAt: startAt.toISOString(),
       endAt: endAt ? endAt.toISOString() : null,
       allDay,
       attendeeIds: [...attendees],
       recurrence,
-      reminderMinutes: reminder === '' ? null : Number(reminder),
+      // A reminder goes off at its time.
+      reminderMinutes: kind === 'reminder' ? 0 : reminder === '' ? null : Number(reminder),
+      ...(yearly ? { sinceYear: sinceYear ? Number(sinceYear) : null } : {}),
+      ...(kind === 'appointment'
+        ? { provider: provider.trim() || null, phone: phone.trim() || null }
+        : {}),
     };
   };
 
@@ -1040,7 +1253,7 @@ function EventDialog({
           });
     },
     onSuccess: () => {
-      toast.success(occurrence ? 'Event updated' : 'Event created');
+      toast.success(`${KIND_LABELS[kind]} ${occurrence ? 'updated' : 'added'}`);
       onSaved();
     },
     onError: (err) => {
@@ -1056,7 +1269,7 @@ function EventDialog({
         body: JSON.stringify({ id: occurrence!.eventId, ...scopeFields(scope) }),
       }),
     onSuccess: () => {
-      toast.success('Event deleted');
+      toast.success(`${KIND_LABELS[kind]} deleted`);
       void invalidate();
       onSaved();
     },
@@ -1079,7 +1292,7 @@ function EventDialog({
     <Dialog
       open
       onClose={onClose}
-      title={occurrence ? 'Event' : 'New event'}
+      title={occurrence ? KIND_LABELS[kind] : 'New'}
       description={
         occurrence?.recurring
           ? 'This event repeats. When you save or delete, you pick which dates it applies to.'
@@ -1138,19 +1351,110 @@ function EventDialog({
           </p>
         ) : null}
 
-        <div className="space-y-1.5" data-field="title">
-          <Label htmlFor="ev-title">Title</Label>
-          <Input
-            id="ev-title"
-            autoFocus
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="e.g. Dentist appointment"
-            {...fe.invalid('title')}
-          />
-          <FieldNote id={fe.noteId('title')} error={fe.get('title')} />
-        </div>
+        {occurrence ? null : (
+          <TypePicker value={pickerKind(kind)} bills={bills} onPick={pickKind} />
+        )}
 
+        {yearly && !occurrence ? (
+          <div role="radiogroup" aria-label="Which" className="flex rounded-md border border-border p-0.5">
+            {(['birthday', 'anniversary'] as const).map((k) => (
+              <button
+                key={k}
+                type="button"
+                role="radio"
+                aria-checked={kind === k}
+                onClick={() => setKind(k)}
+                className={`flex-1 rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                  kind === k
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {k === 'birthday' ? 'Birthday' : 'Anniversary'}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        {byWhose ? (
+          <div className="space-y-1.5" data-field="title">
+            <Label htmlFor="ev-whose">
+              {kind === 'birthday' ? 'Whose birthday' : 'Whose anniversary'}
+            </Label>
+            <Input
+              id="ev-whose"
+              autoFocus
+              value={whose}
+              onChange={(e) => setWhose(e.target.value)}
+              placeholder={kind === 'birthday' ? 'e.g. Jordan' : 'e.g. Mom and Dad'}
+              {...fe.invalid('title')}
+            />
+            <FieldNote
+              id={fe.noteId('title')}
+              error={fe.get('title')}
+              hint={whose.trim() ? `Shows as "${yearlyTitle(whose, kind as 'birthday' | 'anniversary')}".` : undefined}
+            />
+          </div>
+        ) : (
+          <div className="space-y-1.5" data-field="title">
+            <Label htmlFor="ev-title">{kind === 'event' ? 'Title' : 'What'}</Label>
+            <Input
+              id="ev-title"
+              autoFocus
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder={
+                kind === 'appointment'
+                  ? 'e.g. Dentist checkup'
+                  : kind === 'reminder'
+                    ? 'e.g. Take the recycling out'
+                    : 'e.g. Family movie night'
+              }
+              {...fe.invalid('title')}
+            />
+            <FieldNote id={fe.noteId('title')} error={fe.get('title')} />
+          </div>
+        )}
+
+        {kind === 'appointment' ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5" data-field="provider">
+              <Label htmlFor="ev-provider">With</Label>
+              <Input
+                id="ev-provider"
+                value={provider}
+                onChange={(e) => setProvider(e.target.value)}
+                placeholder="e.g. Dr. Patel"
+                {...fe.invalid('provider')}
+              />
+              <FieldNote id={fe.noteId('provider')} error={fe.get('provider')} />
+            </div>
+            <div className="space-y-1.5" data-field="phone">
+              <Label htmlFor="ev-phone" className="flex items-center justify-between gap-2">
+                Phone
+                {phone.trim() ? (
+                  <a
+                    href={`tel:${phone.replace(/[^\d+]/g, '')}`}
+                    className="flex items-center gap-1 text-xs font-normal text-primary hover:underline"
+                  >
+                    <PhoneIcon className="size-3" /> Call
+                  </a>
+                ) : null}
+              </Label>
+              <Input
+                id="ev-phone"
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="optional"
+                {...fe.invalid('phone')}
+              />
+              <FieldNote id={fe.noteId('phone')} error={fe.get('phone')} />
+            </div>
+          </div>
+        ) : null}
+
+        {yearly ? null : (
         <label className="flex items-center gap-2 text-sm" data-field="allDay">
           <input
             type="checkbox"
@@ -1165,8 +1469,9 @@ function EventDialog({
           />
           All day
         </label>
+        )}
         <FieldNote id={fe.noteId('allDay')} error={fe.get('allDay')} />
-        {allDay ? (
+        {allDay && !yearly ? (
           <p className="text-xs text-muted-foreground">
             Times are set automatically - starts at 00:00
             {endDate ? ' and ends at 23:59' : ''}.
@@ -1175,7 +1480,9 @@ function EventDialog({
 
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5" data-field="startAt">
-            <Label htmlFor="ev-start-date">Starts</Label>
+            <Label htmlFor="ev-start-date">
+              {yearly || kind === 'reminder' ? 'Date' : 'Starts'}
+            </Label>
             <Input
               id="ev-start-date"
               type="date"
@@ -1187,7 +1494,7 @@ function EventDialog({
           </div>
           {!allDay ? (
             <div className="space-y-1.5" data-field="startAt">
-              <Label htmlFor="ev-start-time">Start time</Label>
+              <Label htmlFor="ev-start-time">{kind === 'reminder' ? 'Time' : 'Start time'}</Label>
               <Input
                 id="ev-start-time"
                 type="time"
@@ -1197,6 +1504,30 @@ function EventDialog({
               />
             </div>
           ) : null}
+          {yearly ? (
+            <div className="space-y-1.5" data-field="sinceYear">
+              <Label htmlFor="ev-year">
+                {kind === 'birthday' ? 'Year born (optional)' : 'Year it began (optional)'}
+              </Label>
+              <Input
+                id="ev-year"
+                type="number"
+                inputMode="numeric"
+                min={1900}
+                max={new Date().getFullYear()}
+                value={sinceYear}
+                onChange={(e) => setSinceYear(e.target.value)}
+                placeholder="e.g. 2014"
+                {...fe.invalid('sinceYear')}
+              />
+              <FieldNote
+                id={fe.noteId('sinceYear')}
+                error={fe.get('sinceYear')}
+                hint={kind === 'birthday' ? 'Shows the age it turns.' : 'Shows how many years.'}
+              />
+            </div>
+          ) : null}
+          {yearly || kind === 'reminder' ? null : (
           <div className="space-y-1.5" data-field="endAt">
             <Label htmlFor="ev-end-date">Ends (optional)</Label>
             <Input
@@ -1208,7 +1539,8 @@ function EventDialog({
             />
             <FieldNote id={fe.noteId('endAt')} error={fe.get('endAt')} />
           </div>
-          {!allDay && endDate ? (
+          )}
+          {!allDay && endDate && !yearly && kind !== 'reminder' ? (
             <div className="space-y-1.5" data-field="endAt">
               <Label htmlFor="ev-end-time">End time</Label>
               <Input
@@ -1227,6 +1559,7 @@ function EventDialog({
           ) : null}
         </div>
 
+        {yearly || kind === 'reminder' ? null : (
         <div className="space-y-1.5" data-field="location">
           <Label htmlFor="ev-location" className="flex items-center gap-1.5">
             <MapPin className="size-3.5" /> Location
@@ -1240,7 +1573,15 @@ function EventDialog({
           />
           <FieldNote id={fe.noteId('location')} error={fe.get('location')} />
         </div>
+        )}
 
+        {kind === 'reminder' ? (
+          <p className="flex items-start gap-1.5 text-xs text-muted-foreground" data-field="reminderMinutes">
+            <BellRing className="mt-0.5 size-3.5 shrink-0" />
+            Goes off at this time for the people picked below and for whoever made it,
+            up to 15 minutes late.
+          </p>
+        ) : (
         <div className="space-y-1.5" data-field="reminderMinutes">
           <Label htmlFor="ev-reminder" className="flex items-center gap-1.5">
             <BellRing className="size-3.5" /> Remind
@@ -1263,13 +1604,19 @@ function EventDialog({
             error={fe.get('reminderMinutes')}
             hint={
               reminder
-                ? 'Goes to the attendees and whoever made the event. It can arrive up to 15 minutes late.'
+                ? 'Goes to the people picked below and whoever made it. It can arrive up to 15 minutes late.'
                 : undefined
             }
           />
         </div>
+        )}
 
         {/* Every repeat field comes back as "recurrence"; editing any of them clears it. */}
+        {yearly ? (
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground" data-field="recurrence">
+            <Repeat className="size-3.5" /> Repeats every year on this date.
+          </p>
+        ) : (
         <div className="grid gap-3 sm:grid-cols-2" data-field="recurrence">
           <div className="space-y-1.5">
             <Label htmlFor="ev-repeat" className="flex items-center gap-1.5">
@@ -1358,11 +1705,20 @@ function EventDialog({
             </div>
           ) : null}
         </div>
+        )}
+        {yearly ? <FieldNote id={fe.noteId('recurrence')} error={fe.get('recurrence')} /> : null}
 
         {members.length > 0 ? (
           <div className="space-y-1.5" data-field="attendeeIds">
             <Label className="flex items-center gap-1.5">
-              <Users className="size-3.5" /> Attendees
+              <Users className="size-3.5" />
+              {kind === 'appointment'
+                ? 'For'
+                : yearly
+                  ? 'Who to tell'
+                  : kind === 'reminder'
+                    ? 'Who to remind'
+                    : 'Attendees'}
             </Label>
             <FieldNote id={fe.noteId('attendeeIds')} error={fe.get('attendeeIds')} />
             <div className="flex flex-wrap gap-2">
@@ -1387,17 +1743,19 @@ function EventDialog({
           </div>
         ) : null}
 
+        {kind === 'reminder' ? null : (
         <div className="space-y-1.5" data-field="description">
-          <Label htmlFor="ev-desc">Notes</Label>
+          <Label htmlFor="ev-desc">{kind === 'appointment' ? 'Bring or notes' : 'Notes'}</Label>
           <Textarea
             id="ev-desc"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="optional"
+            placeholder={kind === 'appointment' ? 'e.g. insurance card, list of questions' : 'optional'}
             {...fe.invalid('description')}
           />
           <FieldNote id={fe.noteId('description')} error={fe.get('description')} />
         </div>
+        )}
       </fieldset>
       </form>
     </Dialog>
@@ -1409,8 +1767,8 @@ function EventDialog({
         setConfirmDelete(false);
         remove.mutate(undefined);
       }}
-      title="Delete event"
-      description="Delete this event?"
+      title={`Delete ${KIND_LABELS[kind].toLowerCase()}`}
+      description={`Delete "${occurrence?.title ?? ''}"?`}
       confirmLabel="Delete"
       destructive
     />

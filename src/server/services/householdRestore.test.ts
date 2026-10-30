@@ -245,6 +245,34 @@ describe('planRestore', () => {
     expect(old).not.toHaveProperty('seriesId');
   });
 
+  it('keeps event and bill kinds, their own fields, and a bill’s calendar entry', () => {
+    const BILL = id(25);
+    const bills = [
+      {
+        id: BILL,
+        householdId: H,
+        name: 'Netflix',
+        amount: 15.49,
+        kind: 'subscription',
+        website: 'https://netflix.com/account',
+        accountNo: 'A-1',
+        trialEndsAt: '2026-11-15T18:00:00.000Z',
+      },
+    ];
+    const calendar = [
+      { id: id(26), householdId: H, title: "Jordan's birthday", startAt: '2026-11-10T06:00:00.000Z', kind: 'birthday', sinceYear: 2014, attendees: [] },
+      { id: id(27), householdId: H, title: 'Checkup', startAt: '2026-11-11T15:00:00.000Z', kind: 'appointment', provider: 'Dr. Patel', phone: '555-0100', attendees: [] },
+      { id: id(28), householdId: H, title: 'Netflix renews', startAt: '2026-11-20T18:00:00.000Z', kind: 'subscription', billId: BILL, attendees: [] },
+    ];
+    const restored = planRestore({ ...sampleExport(), bills, calendar }, { newId: newIds() });
+    const [bill] = restored.rows.Bill;
+    expect(bill).toMatchObject({ kind: 'subscription', website: 'https://netflix.com/account', accountNo: 'A-1', trialEndsAt: '2026-11-15T18:00:00.000Z' });
+    const [birthday, checkup, renews] = restored.rows.Event;
+    expect(birthday).toMatchObject({ kind: 'birthday', sinceYear: 2014 });
+    expect(checkup).toMatchObject({ kind: 'appointment', provider: 'Dr. Patel', phone: '555-0100' });
+    expect(renews.billId).toBe(bill.id);
+  });
+
   it('can restore under a new name', () => {
     expect(planRestore(sampleExport(), { name: 'Smiths (restored)', newId: newIds(), fields }).rows.Household[0].name).toBe(
       'Smiths (restored)',

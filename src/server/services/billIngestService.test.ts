@@ -22,7 +22,8 @@ const prisma = {
     create: vi.fn<(args: { data: Record<string, unknown> }) => Promise<{ id: string }>>(async () => ({ id: 'pay1' })),
   },
   recurrenceRule: { update: vi.fn() },
-  event: { findFirst: vi.fn(async () => null), create: vi.fn(async () => ({ id: 'ev1' })), update: vi.fn() },
+  // count: the bill already has its calendar entry, so a payment moves it along.
+  event: { findFirst: vi.fn(async () => null), create: vi.fn(async () => ({ id: 'ev1' })), update: vi.fn(), count: vi.fn(async () => 1) },
   $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(prisma)),
 };
 vi.mock('@/server/db/prisma', () => ({ prisma }));

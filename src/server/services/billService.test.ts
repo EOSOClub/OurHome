@@ -28,7 +28,7 @@ const prisma = {
     }),
   },
   recurrenceRule: { update: vi.fn() },
-  event: { updateMany: vi.fn() },
+  event: { updateMany: vi.fn(), findMany: vi.fn(async () => []) },
   $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(prisma)),
 };
 vi.mock('@/server/db/prisma', () => ({ prisma }));

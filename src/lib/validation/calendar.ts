@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { recordId } from '@/lib/validation/ids';
 import { recurrenceInputSchema } from '@/lib/validation/task';
+import { PICKED_EVENT_KINDS } from '@/lib/enums';
 
 /**
  * Reminder choices, in minutes before the start. A timed event counts back
@@ -16,8 +17,44 @@ const reminderMinutes = z
   .optional()
   .nullable();
 
+// Birthday / anniversary year, appointment details. Fields that don't belong
+// to an event's kind are stored empty (calendarService.kindFields).
+const sinceYear = z
+  .number()
+  .int()
+  .min(1900)
+  .refine((y) => y <= new Date().getUTCFullYear(), { message: 'That year hasn’t come yet.' })
+  .optional()
+  .nullable();
+const provider = z.string().trim().max(120).optional().nullable();
+const phone = z.string().trim().max(40).optional().nullable();
+
+/**
+ * What a kind needs of its dates: a birthday or anniversary lasts all day and
+ * repeats every year; a reminder is one moment, with no end. Null when it
+ * fits. Shared by the create schema and calendarService's edits; `repeat`
+ * undefined = the repeat isn't being changed, so it isn't checked.
+ */
+export function kindProblem(
+  kind: string,
+  e: { allDay: boolean; repeat: string | null | undefined; hasEnd: boolean },
+): { message: string; field: string } | null {
+  if (kind === 'birthday' || kind === 'anniversary') {
+    if (!e.allDay) return { message: 'A birthday or anniversary lasts all day.', field: 'allDay' };
+    if (e.repeat !== undefined && e.repeat !== 'yearly') {
+      return { message: 'A birthday or anniversary repeats every year.', field: 'recurrence' };
+    }
+  }
+  if (kind === 'reminder' && e.hasEnd) {
+    return { message: 'A reminder is one moment, with no end.', field: 'endAt' };
+  }
+  return null;
+}
+
 export const createEventSchema = z
   .object({
+    // Fixed once made.
+    kind: z.enum(PICKED_EVENT_KINDS).default('event'),
     title: z.string().trim().min(1).max(200),
     description: z.string().trim().max(2000).optional().nullable(),
     location: z.string().trim().max(200).optional().nullable(),
@@ -27,10 +64,21 @@ export const createEventSchema = z
     attendeeIds: z.array(recordId).max(50).optional(),
     recurrence: recurrenceInputSchema.optional().nullable(),
     reminderMinutes,
+    sinceYear,
+    provider,
+    phone,
   })
   .refine((e) => !e.endAt || e.endAt >= e.startAt, {
     message: 'The end time must be after the start time.',
     path: ['endAt'],
+  })
+  .superRefine((e, ctx) => {
+    const problem = kindProblem(e.kind, {
+      allDay: e.allDay,
+      repeat: e.recurrence?.kind ?? null,
+      hasEnd: !!e.endAt,
+    });
+    if (problem) ctx.addIssue({ code: 'custom', message: problem.message, path: [problem.field] });
   });
 export type CreateEventInput = z.infer<typeof createEventSchema>;
 
@@ -70,6 +118,9 @@ export const updateEventSchema = z
     recurrence: recurrenceInputSchema.optional().nullable(),
     // `null` turns the reminder off.
     reminderMinutes,
+    sinceYear,
+    provider,
+    phone,
   })
   .refine((e) => !e.startAt || !e.endAt || e.endAt >= e.startAt, {
     message: 'The end time must be after the start time.',

@@ -7,6 +7,7 @@ import {
   type EventReminderLike,
   buildOverdueReminders,
   buildReminders,
+  buildTrialReminders,
   reminderRecipients,
   selectNewReminders,
   withManagers,
@@ -356,5 +357,41 @@ describe('reminder audience', () => {
     const c = candidate({ audienceUserIds: ['kid1', 'h'] });
     const members = [{ id: 'h' }, { id: 'm' }, { id: 'kid1' }, { id: 'kid2' }];
     expect(reminderRecipients(c, members).map((m) => m.id)).toEqual(['h', 'kid1']);
+  });
+});
+
+describe('buildTrialReminders', () => {
+  // Chicago is UTC-5 in June. The trial ends Saturday Jun 27 (noon local).
+  const tz = 'America/Chicago';
+  const sub = { id: 's1', name: 'Netflix', trialEndsAt: iso('2026-06-27T17:00:00.000Z'), assignedUserId: 'u2', createdById: 'u1' };
+
+  it('says nothing more than 3 days ahead', () => {
+    // Jun 23, 11 PM local: 4 days left.
+    expect(buildTrialReminders([sub], iso('2026-06-24T04:00:00.000Z'), tz)).toEqual([]);
+  });
+
+  it('counts down from 3 days before, for the responsible person and maker', () => {
+    // Jun 24 from midnight local.
+    const [c] = buildTrialReminders([sub], iso('2026-06-24T05:00:00.000Z'), tz);
+    expect(c).toMatchObject({
+      dedupeKey: 'subscription_trial:bill:s1',
+      type: 'subscription_trial',
+      title: 'Netflix',
+      subjectType: 'bill',
+      subjectId: 's1',
+      audienceUserIds: ['u2', 'u1'],
+    });
+    expect(c.body).toContain('ends in 3 days');
+    expect(buildTrialReminders([sub], iso('2026-06-26T15:00:00.000Z'), tz)[0].body).toContain('ends tomorrow');
+  });
+
+  it('says today on the day, and is gone once the day is over', () => {
+    expect(buildTrialReminders([sub], iso('2026-06-28T04:59:00.000Z'), tz)[0].body).toContain('ends today');
+    expect(buildTrialReminders([sub], iso('2026-06-28T05:00:00.000Z'), tz)).toEqual([]);
+  });
+
+  it('adds the Bills managers like a bill reminder', () => {
+    const [c] = withManagers(buildTrialReminders([sub], iso('2026-06-26T15:00:00.000Z'), tz), { bills: ['u9'] });
+    expect(c.audienceUserIds).toEqual(['u2', 'u1', 'u9']);
   });
 });

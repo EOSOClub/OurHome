@@ -2,7 +2,8 @@ import { Prisma } from '@prisma/client';
 import { getPointsSettings } from '@/server/services/pointsService';
 import { prisma } from '@/server/db/prisma';
 import { logActivity } from '@/server/services/activityService';
-import { NotFoundError } from '@/server/services/errors';
+import { billIdsOnCalendar, syncBillEvent } from '@/server/services/billCalendarService';
+import { ConflictError, NotFoundError } from '@/server/services/errors';
 import {
   nextAfterOccurrence,
   formatIntList,
@@ -116,10 +117,16 @@ function recurrenceData(recurrence: RecurrenceInput, anchor: Date) {
 export function billToDTO(
   b: BillWithRelations,
   stats: BillStats = ZERO_STATS,
+  onCalendar = false,
 ): BillDTO {
   return {
     id: b.id,
+    kind: b.kind === 'subscription' ? 'subscription' : 'bill',
     name: b.name,
+    website: b.website ?? null,
+    accountNo: b.accountNo ?? null,
+    trialEndsAt: b.trialEndsAt?.toISOString() ?? null,
+    onCalendar,
     amount: b.amount,
     currentCharges: b.currentCharges,
     currency: b.currency,
@@ -183,7 +190,8 @@ export async function listBills(householdId: string): Promise<BillDTO[]> {
     }
     return b.createdAt.getTime() - a.createdAt.getTime();
   });
-  return rows.map((r) => billToDTO(r, statsByBill.get(r.id) ?? ZERO_STATS));
+  const onCalendar = await billIdsOnCalendar(householdId, rows);
+  return rows.map((r) => billToDTO(r, statsByBill.get(r.id) ?? ZERO_STATS, onCalendar.has(r.id)));
 }
 
 /** A single bill with its email-linkage fields, payment history, and totals. */
@@ -197,20 +205,22 @@ export async function getBillDetail(
   });
   if (!bill) throw new NotFoundError(`Bill ${id} not found.`);
 
-  const payments = await prisma.billPayment.findMany({
-    where: { householdId, billId: id },
-    include: paymentInclude,
-    orderBy: { paidAt: 'desc' },
-  });
+  const [payments, onCalendar] = await Promise.all([
+    prisma.billPayment.findMany({
+      where: { householdId, billId: id },
+      include: paymentInclude,
+      orderBy: { paidAt: 'desc' },
+    }),
+    billIdsOnCalendar(householdId, [bill]),
+  ]);
   // Totals for the current balance; the history below still lists every payment.
   const current = payments.filter((p) => countsTowardBalance(bill, p.cycleDueDate));
   const paidTotal = current.reduce((sum, p) => sum + p.amount, 0);
   const feeTotal = current.reduce((sum, p) => sum + (p.fee ?? 0), 0);
 
   return {
-    ...billToDTO(bill, { paidTotal, paymentCount: payments.length }),
+    ...billToDTO(bill, { paidTotal, paymentCount: payments.length }, onCalendar.has(bill.id)),
     invoiceNo: bill.invoiceNo,
-    accountNo: bill.accountNo,
     confirmationNo: bill.confirmationNo,
     billerEmail: bill.billerEmail,
     sourceUrl: bill.sourceUrl,
@@ -250,6 +260,10 @@ export async function createBill(
     const created = await tx.bill.create({
       data: {
         householdId,
+        kind: input.kind,
+        website: input.website ?? null,
+        accountNo: input.accountNo ?? null,
+        trialEndsAt: input.kind === 'subscription' ? (input.trialEndsAt ?? null) : null,
         name: input.name.trim(),
         amount: input.amount,
         // Omitted ⇒ the schema default ("USD") applies.
@@ -272,14 +286,16 @@ export async function createBill(
         verb: 'created',
         subjectType: 'bill',
         subjectId: created.id,
-        message: `added bill “${created.name}”`,
+        message: `added ${created.kind === 'subscription' ? 'subscription' : 'bill'} “${created.name}”`,
       },
       tx,
     );
-    return created;
+    // Made on the calendar: on the calendar from the start.
+    const onCalendar = !!input.onCalendar && !!(await syncBillEvent(tx, householdId, created, 'manual'));
+    return { created, onCalendar };
   });
 
-  return billToDTO(bill);
+  return billToDTO(bill.created, ZERO_STATS, bill.onCalendar);
 }
 
 export async function updateBill(
@@ -292,9 +308,14 @@ export async function updateBill(
   const bill = await prisma.$transaction(async (tx) => {
     const existing = await tx.bill.findFirst({
       where: { id, householdId },
-      select: { id: true, recurrenceId: true, dueDate: true },
+      select: { id: true, recurrenceId: true, dueDate: true, kind: true },
     });
     if (!existing) throw new NotFoundError(`Bill ${id} not found.`);
+    // Only a subscription has a free trial; one switched to a bill loses it.
+    const kind = rest.kind ?? existing.kind;
+    if (kind !== 'subscription' && rest.trialEndsAt) {
+      throw new ConflictError('Only a subscription has a free trial.', 'trialEndsAt');
+    }
 
     let recurrenceId: string | null | undefined;
     if (recurrence === null) {
@@ -329,6 +350,10 @@ export async function updateBill(
       where: { id },
       data: {
         name: rest.name?.trim(),
+        kind: rest.kind,
+        website: rest.website,
+        accountNo: rest.accountNo,
+        trialEndsAt: kind === 'subscription' ? rest.trialEndsAt : null,
         amount: rest.amount,
         dueDate: rest.dueDate,
         status,
@@ -345,17 +370,12 @@ export async function updateBill(
       await tx.recurrenceRule.delete({ where: { id: existing.recurrenceId } });
     }
 
-    // Keep the linked due-date calendar event (source="email") in step with the
-    // bill. No-op for manually entered bills, which have no linked event.
-    if (rest.dueDate !== undefined) {
-      if (updated.dueDate) {
-        await tx.event.updateMany({
-          where: { householdId, billId: id },
-          data: { startAt: updated.dueDate },
-        });
-      } else {
-        await tx.event.deleteMany({ where: { householdId, billId: id } });
-      }
+    // Keep the bill's calendar entry (if it has one) in step: its date, and
+    // its title and amount when those changed. No date takes it off.
+    const onCalendar = (await tx.event.count({ where: { householdId, billId: id } })) > 0;
+    if (onCalendar) {
+      if (updated.dueDate) await syncBillEvent(tx, householdId, updated, 'manual');
+      else await tx.event.deleteMany({ where: { householdId, billId: id } });
     }
 
     await logActivity(
@@ -373,7 +393,8 @@ export async function updateBill(
     return { updated, stats };
   });
 
-  return billToDTO(bill.updated, bill.stats);
+  const onCalendar = await billIdsOnCalendar(householdId, [bill.updated]);
+  return billToDTO(bill.updated, bill.stats, onCalendar.has(id));
 }
 
 /**

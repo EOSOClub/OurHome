@@ -843,6 +843,14 @@ model Event {
   // Remind the attendees and creator this many minutes before the start (an
   // all-day event counts back from 9:00 on the day). null = no reminder.
   reminderMinutes Int?
+  // kind: "event" | "appointment" | "birthday" | "anniversary" | "reminder",
+  // or "bill" | "subscription" for a bill's own entry (billId). Fixed once made.
+  kind          String    @default("event")
+  // Birthday / anniversary: the year born or married, to show the age or years.
+  sinceYear     Int?
+  // Appointment: who it's with, and their phone number.
+  provider      String?
+  phone         String?
   createdById  String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -910,6 +918,14 @@ model Bill {
   billerKey       String?
   // Link to the original document (Paperless), shown as "Open in Paperless".
   sourceUrl       String?
+  // kind: "bill" (a service to the home: power, water, internet) |
+  // "subscription" (an extra: streaming, software, a membership).
+  kind            String    @default("bill")
+  // Where to pay online, or for a subscription where to manage or cancel it.
+  website         String?
+  // Subscription: when its free trial ends, the last day to cancel before it
+  // charges (a subscription_trial reminder comes 3 days before).
+  trialEndsAt     DateTime?
   // Optional recurrence for repeating bills (anchorDate is the due date).
   recurrenceId   String?
   assignedUserId String?

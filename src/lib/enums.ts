@@ -79,6 +79,31 @@ export const RECURRENCE_KINDS = [
 ] as const;
 export type RecurrenceKind = (typeof RECURRENCE_KINDS)[number];
 
+// --- Calendar -------------------------------------------------------------
+
+/**
+ * What a calendar event is. The first five are picked when making one; "bill"
+ * and "subscription" mark a bill's own entry on the calendar (billService).
+ */
+export const EVENT_KINDS = [
+  'event',
+  'appointment',
+  'birthday',
+  'anniversary',
+  'reminder',
+  'bill',
+  'subscription',
+] as const;
+export type EventKind = (typeof EVENT_KINDS)[number];
+export const PICKED_EVENT_KINDS = [
+  'event',
+  'appointment',
+  'birthday',
+  'anniversary',
+  'reminder',
+] as const satisfies readonly EventKind[];
+export type PickedEventKind = (typeof PICKED_EVENT_KINDS)[number];
+
 // --- Shopping & grocery ---------------------------------------------------
 
 export const SHOPPING_LIST_KINDS = [
@@ -237,6 +262,9 @@ export const NOTIFICATION_TYPES = [
   // Sent to an event's attendees and creator at the reminder time they picked,
   // one per date; gone once that date's event is over (reminderService).
   'event_reminder',
+  // Sent to a subscription's responsible person and Bills managers from 3 days
+  // before its free trial ends until that day is over (reminderService).
+  'subscription_trial',
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
@@ -255,6 +283,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   parent_pin: 'Parent PIN',
   request_update: 'Request',
   event_reminder: 'Event',
+  subscription_trial: 'Subscription',
 };
 
 // --- Bug reports ----------------------------------------------------------
@@ -264,6 +293,9 @@ export const BUG_REPORT_SOURCES = ['web', 'android'] as const;
 // --- Bills & expenses -----------------------------------------------------
 
 export const BILL_STATUSES = ['unpaid', 'paid'] as const;
+/** A bill is a service to the home (power, water, internet); a subscription is an extra. */
+export const BILL_KINDS = ['bill', 'subscription'] as const;
+export type BillKind = (typeof BILL_KINDS)[number];
 export type BillStatus = (typeof BILL_STATUSES)[number];
 
 export const BILL_STATUS_LABELS: Record<BillStatus, string> = {

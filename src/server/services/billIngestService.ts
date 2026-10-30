@@ -4,6 +4,7 @@ import { getPointsSettings } from '@/server/services/pointsService';
 import { prisma } from '@/server/db/prisma';
 import { logActivity } from '@/server/services/activityService';
 import { cyclePaymentsWhere } from '@/server/services/billService';
+import { syncBillEvent } from '@/server/services/billCalendarService';
 import {
   nextAfterOccurrence,
   parseIntList,
@@ -114,45 +115,6 @@ function normalizeRule(
   };
 }
 
-type Tx = Prisma.TransactionClient;
-
-/** Create or move the bill's due-date calendar event. Keyed on billId. */
-async function syncBillEvent(
-  tx: Tx,
-  householdId: string,
-  bill: { id: string; name: string; reference: string | null; dueDate: Date | null; amount: number; currency: string | null },
-  source: string = 'email',
-): Promise<string | undefined> {
-  if (!bill.dueDate) return undefined;
-  const title = `Bill due: ${bill.name}`.slice(0, 200);
-  const description = `${bill.currency ?? 'USD'} ${bill.amount.toFixed(2)} due`;
-  const existing = await tx.event.findFirst({
-    where: { householdId, billId: bill.id },
-    select: { id: true },
-  });
-  if (existing) {
-    await tx.event.update({
-      where: { id: existing.id },
-      data: { title, description, startAt: bill.dueDate, allDay: true, sourceRef: bill.reference },
-    });
-    return existing.id;
-  }
-  const created = await tx.event.create({
-    data: {
-      householdId,
-      title,
-      description,
-      startAt: bill.dueDate,
-      allDay: true,
-      source,
-      sourceRef: bill.reference,
-      billId: bill.id,
-    },
-    select: { id: true },
-  });
-  return created.id;
-}
-
 export async function ingestFinancialDoc(
   householdId: string,
   doc: BillIngestInput,
@@ -246,6 +208,7 @@ const billSel = {
   dueDate: true,
   amount: true,
   currency: true,
+  kind: true,
 } satisfies Prisma.BillSelect;
 
 async function ingestReceipt(
@@ -377,7 +340,10 @@ async function ingestReceipt(
           data: { status: 'unpaid', dueDate: next ?? match.dueDate },
           select: billSel,
         });
-        await syncBillEvent(tx, householdId, rolled, opts.source);
+        // Moves its calendar entry along; a bill nobody put on the calendar stays off it.
+        if (await tx.event.count({ where: { householdId, billId: rolled.id } })) {
+          await syncBillEvent(tx, householdId, rolled, opts.source);
+        }
       } else if (fullyPaid) {
         await tx.bill.update({ where: { id: match.id }, data: { status: 'paid' } });
       } else {

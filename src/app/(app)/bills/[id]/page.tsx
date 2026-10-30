@@ -3,6 +3,7 @@ import { requireFeature } from '@/server/auth/session';
 import { prisma } from '@/server/db/prisma';
 import { getUserAccess } from '@/server/services/permissionService';
 import { getBillDetail } from '@/server/services/billService';
+import { getHouseholdFeatures } from '@/server/services/serverAdminService';
 import { NotFoundError } from '@/server/services/errors';
 import { BillDetailView } from '@/components/bills/bill-detail-view';
 
@@ -25,11 +26,14 @@ export default async function BillDetailPage({
     throw err;
   }
 
-  const members = await prisma.user.findMany({
-    where: { householdId },
-    select: { id: true, name: true },
-    orderBy: { name: 'asc' },
-  });
+  const [members, features] = await Promise.all([
+    prisma.user.findMany({
+      where: { householdId },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    }),
+    getHouseholdFeatures(householdId),
+  ]);
 
   return (
     <BillDetailView
@@ -37,7 +41,8 @@ export default async function BillDetailPage({
       members={members}
       access={access.bills}
       userId={user.id}
-      canAddToCalendar={access.calendar.create}
+      // Putting it on the calendar needs Calendar on and its Add access.
+      canAddToCalendar={features.includes('calendar') && access.calendar.create}
     />
   );
 }

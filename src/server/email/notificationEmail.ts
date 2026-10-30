@@ -23,6 +23,7 @@ const SUBJECT_PREFIX: Record<string, string> = {
   reminder: 'Reminder',
   bill_due: 'Bill due',
   event_reminder: 'Coming up',
+  subscription_trial: 'Trial ending',
 };
 
 /** App section to deep-link per subject type; falls back to the inbox. */

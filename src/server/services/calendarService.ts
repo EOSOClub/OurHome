@@ -9,13 +9,14 @@ import {
   parseIntList,
   type NormalizedRule,
 } from '@/server/services/recurrenceService';
-import type { RecurrenceKind } from '@/lib/enums';
+import type { EventKind, RecurrenceKind } from '@/lib/enums';
 import type { EventOccurrenceDTO } from '@/lib/types';
 import type { RecurrenceInput } from '@/lib/validation/task';
-import type {
-  CreateEventInput,
-  DeleteEventInput,
-  UpdateEventInput,
+import {
+  kindProblem,
+  type CreateEventInput,
+  type DeleteEventInput,
+  type UpdateEventInput,
 } from '@/lib/validation/calendar';
 
 const eventInclude = {
@@ -138,6 +139,30 @@ function occurrence(
     seriesId: e.seriesId ?? null,
     originalStart: e.originalStart?.toISOString() ?? null,
     reminderMinutes: e.reminderMinutes ?? null,
+    kind: e.kind as EventKind,
+    billId: e.billId ?? null,
+    billAssigneeId: null,
+    sinceYear: e.sinceYear ?? null,
+    provider: e.provider ?? null,
+    phone: e.phone ?? null,
+  };
+}
+
+const hasYear = (kind: string) => kind === 'birthday' || kind === 'anniversary';
+
+/**
+ * The kind's own fields from an input, the rest left out: a year only on a
+ * birthday or anniversary, who and phone only on an appointment. `undefined`
+ * = not given (an edit leaves the stored value).
+ */
+function kindFields(
+  kind: string,
+  input: { sinceYear?: number | null; provider?: string | null; phone?: string | null },
+) {
+  return {
+    sinceYear: hasYear(kind) ? input.sinceYear : undefined,
+    provider: kind === 'appointment' ? input.provider : undefined,
+    phone: kind === 'appointment' ? input.phone : undefined,
   };
 }
 
@@ -195,13 +220,27 @@ export async function listOccurrences(
     getPointsSettings(householdId),
   ]);
   const byId = new Map(events.map((e) => [e.id, e]));
+  // Who each bill on the calendar is for, so "Mine" can count it.
+  const billIds = [...new Set(events.map((e) => e.billId).filter((id): id is string => !!id))];
+  const billAssignee = new Map(
+    billIds.length
+      ? (
+          await prisma.bill.findMany({
+            where: { householdId, id: { in: billIds } },
+            select: { id: true, assignedUserId: true },
+          })
+        ).map((b) => [b.id, b.assignedUserId])
+      : [],
+  );
 
   const out: EventOccurrenceDTO[] = [];
   for (const e of events) {
     const rule = buildRule(e.recurrence, timezone);
     const repeat = e.recurrence ?? (e.seriesId ? byId.get(e.seriesId)?.recurrence : null) ?? null;
     for (const start of expandEvent(e, rule, rangeStart, rangeEnd)) {
-      out.push(occurrence(e, start, repeat));
+      const o = occurrence(e, start, repeat);
+      if (e.billId) o.billAssigneeId = billAssignee.get(e.billId) ?? null;
+      out.push(o);
     }
   }
 
@@ -229,6 +268,7 @@ export async function createEvent(
 ): Promise<EventOccurrenceDTO> {
   const attendeeIds = await validAttendeeIds(householdId, input.attendeeIds);
 
+  const own = kindFields(input.kind, input);
   const event = await prisma.$transaction(async (tx) => {
     let recurrenceId: string | undefined;
     if (input.recurrence) {
@@ -240,6 +280,10 @@ export async function createEvent(
     const created = await tx.event.create({
       data: {
         householdId,
+        kind: input.kind,
+        sinceYear: own.sinceYear ?? null,
+        provider: own.provider ?? null,
+        phone: own.phone ?? null,
         title: input.title.trim(),
         description: input.description ?? null,
         location: input.location ?? null,
@@ -298,7 +342,12 @@ function cutFrom(source: EventWithRelations, start: Date, changes: EventChanges)
       : durationMs != null
         ? new Date(startAt.getTime() + durationMs)
         : null;
+  const own = kindFields(source.kind, changes);
   return {
+    kind: source.kind,
+    sinceYear: own.sinceYear !== undefined ? own.sinceYear : source.sinceYear,
+    provider: own.provider !== undefined ? own.provider : source.provider,
+    phone: own.phone !== undefined ? own.phone : source.phone,
     title: (changes.title ?? source.title).trim(),
     description: changes.description !== undefined ? changes.description : source.description,
     location: changes.location !== undefined ? changes.location : source.location,
@@ -371,6 +420,7 @@ async function updateRow(
       endAt: changes.endAt,
       allDay: changes.allDay,
       reminderMinutes: changes.reminderMinutes,
+      ...kindFields(existing.kind, changes),
       recurrenceId,
       ...(dropExceptions ? { excludedStarts: { set: [] } } : {}),
     },
@@ -435,6 +485,18 @@ export async function updateEvent(
       include: eventInclude,
     });
     if (!existing) throw new NotFoundError(`Event ${id} not found.`);
+    // A bill's entry follows the bill (billCalendarService).
+    if (existing.billId) {
+      throw new ConflictError('This is a bill’s due date. Change it on the bill.', 'startAt');
+    }
+
+    // A birthday stays all-day and yearly, a reminder stays a moment.
+    const problem = kindProblem(existing.kind, {
+      allDay: changes.allDay ?? existing.allDay,
+      repeat: recurrence === undefined ? undefined : (recurrence?.kind ?? null),
+      hasEnd: changes.endAt !== undefined ? !!changes.endAt : !!existing.endAt,
+    });
+    if (problem) throw new ConflictError(problem.message, problem.field);
 
     // A date changed on its own: "This event" edits that row (it doesn't
     // repeat); the wider choices act on its series from its original date.

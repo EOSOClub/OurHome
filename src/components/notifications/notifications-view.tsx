@@ -8,6 +8,7 @@ import {
   Bug,
   CalendarClock,
   CheckCheck,
+  CreditCard,
   Inbox,
   Info,
   Loader2,
@@ -56,6 +57,7 @@ const TYPE_ICON: Record<NotificationType, LucideIcon> = {
   parent_pin: KeyRound,
   request_update: Inbox,
   event_reminder: CalendarClock,
+  subscription_trial: CreditCard,
 };
 
 const TYPE_VARIANT: Record<
@@ -76,6 +78,7 @@ const TYPE_VARIANT: Record<
   parent_pin: 'warning',
   request_update: 'default',
   event_reminder: 'default',
+  subscription_trial: 'warning',
 };
 
 type ReadFilter = 'all' | 'unread' | 'read';

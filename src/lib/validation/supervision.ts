@@ -44,6 +44,13 @@ export const setWebFilterSchema = z.object({
 });
 export type SetWebFilterInput = z.infer<typeof setWebFilterSchema>;
 
+/** Turn "Check their tasks before points" on or off for a supervised child. */
+export const setReviewTasksSchema = z.object({
+  supervisedId: z.string().min(1),
+  on: z.boolean(),
+});
+export type SetReviewTasksInput = z.infer<typeof setReviewTasksSchema>;
+
 /** Block an app on a supervised child's phone (app: its package name), or unblock it. */
 export const setAppBlockedSchema = z.object({
   supervisedId: z.string().min(1),

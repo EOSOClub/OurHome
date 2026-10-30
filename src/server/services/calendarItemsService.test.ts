@@ -30,7 +30,11 @@ describe('listChoreItems', () => {
     const out = await listChoreItems('hh', START, END, NOW);
     expect(findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { householdId: 'hh', status: { in: ['pending', 'in_progress'] }, dueDate: { gte: START, lte: END } },
+        where: {
+          householdId: 'hh',
+          status: { in: ['pending', 'in_progress', 'awaiting_review'] },
+          dueDate: { gte: START, lte: END },
+        },
         orderBy: { dueDate: 'asc' },
       }),
     );
@@ -53,6 +57,18 @@ describe('listChoreItems', () => {
         assigneeName: null,
         overdue: false,
       },
+    ]);
+  });
+
+  it('keeps a chore waiting for an OK on the calendar, never as overdue', async () => {
+    findMany.mockResolvedValue([
+      { id: 't1', title: 'Bins', dueDate: new Date('2026-11-09T18:00:00.000Z'), status: 'awaiting_review', assigneeId: 'u1', assignee: { name: 'Sam' } },
+      { id: 't2', title: 'Dishes', dueDate: new Date('2026-11-09T18:00:00.000Z'), status: 'pending', assigneeId: 'u1', assignee: { name: 'Sam' } },
+    ]);
+    const out = await listChoreItems('hh', START, END, NOW);
+    expect(out.map((c) => [c.id, c.overdue])).toEqual([
+      ['t1', false],
+      ['t2', true],
     ]);
   });
 

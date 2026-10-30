@@ -25,4 +25,11 @@ describe('household export / delete coverage', () => {
       expect(exportFn).not.toContain(secret);
     }
   });
+
+  it('never exports the photos sent with a check', () => {
+    const exportFn = service.slice(service.indexOf('export async function exportHousehold'), service.indexOf('// --- Delete'));
+    expect(exportFn).toContain('submissions: true');
+    expect(exportFn).not.toContain('prisma.taskPhoto');
+    expect(exportFn).not.toMatch(/photo: (true|\{)/);
+  });
 });

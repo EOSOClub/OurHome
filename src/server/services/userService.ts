@@ -6,8 +6,11 @@ import {
   dropBrokenSupervision,
   linkNewSupervisors,
   newMemberSupervisors,
+  releaseIfUnsupervised,
 } from '@/server/services/supervisionService';
 import { refreshPhoneAlerts } from '@/server/services/phoneStatusService';
+import { pushSync } from '@/server/services/pushService';
+import { settleOrphanedSubmissions } from '@/server/services/taskSubmissionService';
 import { ConflictError, ForbiddenError, NotFoundError } from '@/server/services/errors';
 import { ROLE_RANK, USER_ROLE_LABELS, isUserRole, type UserRole } from '@/lib/enums';
 import { can, canAssignRole, canManageMember } from '@/lib/permissions';
@@ -273,8 +276,17 @@ export async function setMemberRole(
   });
   // Supervision may have changed with the role, so who gets phone alerts may too.
   await refreshPhoneAlerts(householdId);
+  // And task checks nobody can decide any more are settled.
+  await settleChecks(householdId);
 
   return memberToDTO(updated);
+}
+
+/** Settles task checks nobody can decide any more, after the change is saved; the sweep retries a failure. */
+async function settleChecks(householdId: string): Promise<void> {
+  await settleOrphanedSubmissions(householdId).catch((err) => {
+    console.error('[tasks] settling checks failed; the sweep will retry', err);
+  });
 }
 
 /**
@@ -353,9 +365,18 @@ export async function removeMember(
     throw new ForbiddenError('You cannot remove this member.');
   }
 
-  await prisma.$transaction(async (tx) => {
+  const released = await prisma.$transaction(async (tx) => {
+    // The children and teens they supervised. Their links go first (the
+    // cascade below would remove them too), so the check after the delete
+    // sees who is still left to supervise each one.
+    const theirs = await tx.supervision.findMany({ where: { supervisorId: target.id }, select: { supervisedId: true } });
+    if (theirs.length) await tx.supervision.deleteMany({ where: { supervisorId: target.id } });
     // Cascades remove sessions/accounts; assigned tasks are set null by schema.
     await tx.user.delete({ where: { id: target.id } });
+    // Nobody left to supervise them: their controls are theirs again
+    // (required sharing, app rules, task checks), as when the Head of House
+    // removes their last supervisor.
+    if (theirs.length) await releaseIfUnsupervised(tx, theirs.map((l) => l.supervisedId));
     await logActivity(
       {
         householdId,
@@ -367,9 +388,15 @@ export async function removeMember(
       },
       tx,
     );
+    return theirs.map((l) => l.supervisedId);
   });
   // Alerts about their phone (or to them) have nobody left to be about.
   await refreshPhoneAlerts(householdId);
+  // The children they supervised: their phones check in at once and learn
+  // what is required of them now, as when the Head of House changes supervisors.
+  if (released.length) pushSync(householdId, { userIds: [...new Set(released)] }, 'supervision');
+  // A removed child's checks, and checks nobody is left to decide, are settled.
+  await settleChecks(householdId);
 }
 
 /** The household's display name (shown on the members page). */
@@ -459,6 +486,7 @@ export async function transferHeadship(
     return u;
   });
   await refreshPhoneAlerts(householdId);
+  await settleChecks(householdId);
 
   return memberToDTO(updated);
 }

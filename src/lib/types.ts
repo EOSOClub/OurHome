@@ -320,6 +320,71 @@ export interface TaskDTO {
   nextAssignee: MemberDTO | null;
   recurrence: RecurrenceDTO | null;
   subtasks: SubtaskDTO[];
+  /** "Ask for a photo": a supervised child or teen sends it for a check with a photo. */
+  photoProof: boolean;
+  /** Its check, while one waits (status "awaiting_review"), as everyone may see it. */
+  review: TaskReviewDTO;
+}
+
+/**
+ * A task's waiting check, for everyone who can see the task. waiting: false
+ * means nothing waits (the other fields are null). decideBy: when its cycle
+ * ends, after which it counts as done (null: no cycles, waits with no limit).
+ * The note, photo and steps are only in GET /api/tasks/submissions.
+ */
+export interface TaskReviewDTO {
+  waiting: boolean;
+  submittedBy: MemberDTO | null;
+  submittedAt: string | null;
+  decideBy: string | null;
+}
+
+/** What an adult (or the child) may do with a check now (POST /api/tasks/submissions/decide or /withdraw). */
+export type TaskSubmissionAction = 'approve' | 'send_back' | 'withdraw';
+
+/**
+ * One line of a "steps" check: points for a step that would otherwise be paid
+ * without a check. awardKind "step_repeat": ticked again after its own reset;
+ * "step": ticked before someone else finished the task (completedBy, at the
+ * completion completionId).
+ */
+export interface TaskSubmissionEntryDTO {
+  subtaskId: string;
+  title: string;
+  points: number;
+  checkedAt: string;
+  awardKind: 'step' | 'step_repeat';
+  completionId: string | null;
+  completedBy: MemberDTO | null;
+}
+
+/**
+ * GET /api/tasks/submissions: a check in To check (the viewer looks after the
+ * child) or the viewer's own. kind "task": the whole task sent for a check;
+ * "steps": step points waiting (entries). status "waiting", or
+ * "auto_approved" with autoReason "cycle_end" for the 3 days its points can
+ * still be taken back. points: what approving pays (waiting), or what the
+ * child was paid (cycle_end). decideBy: when a waiting check counts as done,
+ * or when a cycle_end item leaves To check.
+ */
+export interface TaskSubmissionDTO {
+  id: string;
+  kind: 'task' | 'steps';
+  status: string;
+  autoReason: string | null;
+  task: { id: string; title: string };
+  child: MemberDTO;
+  submittedAt: string;
+  note: string | null;
+  /** Load it from GET /api/tasks/submissions/photo?id= when the item is opened. */
+  hasPhoto: boolean;
+  points: number;
+  /** Every step of the task in order, ticked when it was sent. */
+  steps: { id: string; title: string; ticked: boolean }[];
+  stepsTicked: number;
+  decideBy: string | null;
+  entries: TaskSubmissionEntryDTO[];
+  actions: TaskSubmissionAction[];
 }
 
 export interface ShoppingItemDTO {
@@ -773,6 +838,8 @@ export interface LookAfterDTO {
     /** The viewer's own last ring of their phone and how it went (lib/ring.ts),
      *  for RING_SHOWN_MS; null when they haven't rung it lately. */
     ring: RingDTO | null;
+    /** "Check their tasks before points" (POST /api/supervision/review-tasks). */
+    reviewTasks: boolean;
   }[];
 }
 

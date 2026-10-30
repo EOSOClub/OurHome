@@ -4,7 +4,9 @@ import { useState } from 'react';
 import Link from 'next/link';
 import {
   AlertTriangle,
+  BadgeCheck,
   Bell,
+  Camera,
   Bug,
   CalendarClock,
   CheckCheck,
@@ -58,6 +60,8 @@ const TYPE_ICON: Record<NotificationType, LucideIcon> = {
   request_update: Inbox,
   event_reminder: CalendarClock,
   subscription_trial: CreditCard,
+  task_review: Camera,
+  task_reviewed: BadgeCheck,
 };
 
 const TYPE_VARIANT: Record<
@@ -79,6 +83,8 @@ const TYPE_VARIANT: Record<
   request_update: 'default',
   event_reminder: 'default',
   subscription_trial: 'warning',
+  task_review: 'default',
+  task_reviewed: 'default',
 };
 
 type ReadFilter = 'all' | 'unread' | 'read';

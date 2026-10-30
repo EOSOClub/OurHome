@@ -15,6 +15,8 @@ import {
   ConflictError,
   ForbiddenError,
   NotFoundError,
+  PayloadTooLargeError,
+  UnprocessableError,
 } from '@/server/services/errors';
 import {
   HOUSEHOLD_DISABLED_MESSAGE,
@@ -200,6 +202,44 @@ export async function parseBody<T>(
   return schema.parse(raw);
 }
 
+/**
+ * Read a JSON body of at most [maxBytes] bytes, for a route that takes more
+ * than a form (a photo sent with a check). Refused with 413 as soon as it's
+ * known to be too big: from Content-Length before anything is read, or while
+ * reading when the header is missing or wrong, so memory stays bounded. Not
+ * built on parseBody: its catch-all would turn that refusal into an empty
+ * body. A body that isn't JSON (or a dropped connection) still reads as {},
+ * as in parseBody, so the route's schema says what's missing.
+ */
+export async function readJsonCapped(req: Request, maxBytes: number): Promise<unknown> {
+  const declared = Number(req.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > maxBytes) throw new PayloadTooLargeError();
+  if (!req.body) return {};
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    let chunk: ReadableStreamReadResult<Uint8Array>;
+    try {
+      chunk = await reader.read();
+    } catch {
+      return {};
+    }
+    if (chunk.done) break;
+    size += chunk.value.byteLength;
+    if (size > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw new PayloadTooLargeError();
+    }
+    chunks.push(chunk.value);
+  }
+  try {
+    return JSON.parse(new TextDecoder().decode(Buffer.concat(chunks)));
+  } catch {
+    return {};
+  }
+}
+
 /** Parse and validate the query string, throwing ZodError on failure. */
 export function parseQuery<T>(req: NextRequest, schema: z.ZodType<T>): T {
   const params = Object.fromEntries(new URL(req.url).searchParams.entries());
@@ -234,6 +274,12 @@ function handleError(err: unknown, user: AuthUser, req: NextRequest): Response {
   }
   if (err instanceof ConflictError) {
     return fail(err.message, 409, fieldDetails(err.field, err.message));
+  }
+  if (err instanceof UnprocessableError) {
+    return fail(err.message, 422, fieldDetails(err.field, err.message));
+  }
+  if (err instanceof PayloadTooLargeError) {
+    return fail(err.message, 413);
   }
   console.error('[api] unhandled error', {
     path: new URL(req.url).pathname,

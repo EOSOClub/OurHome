@@ -12,7 +12,10 @@ import { loadPlaceIndex, resolveTaskPlaces, type PlaceIndex } from '@/server/ser
 import { getHouseholdFeatures } from '@/server/services/serverAdminService';
 import { getRequestHandling, type RequestHandling } from '@/server/services/requestModuleService';
 import { REQUEST_MODULE_WORKFLOWS } from '@/lib/requestModules';
+import { countTasksToCheck } from '@/server/services/taskSubmissionService';
 
+// Not awaiting_review: a task sent for a check is done on the child's side,
+// so it is never overdue, due or open here while it waits for an adult's OK.
 const ACTIVE_STATUSES = ['pending', 'in_progress'];
 
 const taskSelect = {
@@ -166,6 +169,7 @@ export async function getDashboard(
     doneToday,
     doneTodayByMe,
     places,
+    tasksToCheck,
   ] = await Promise.all([
     prisma.task.findMany({
       where: { householdId, status: { in: ACTIVE_STATUSES }, dueDate: dateBefore(now) },
@@ -245,6 +249,7 @@ export async function getDashboard(
     prisma.taskCompletion.count({ where: completedToday }),
     prisma.taskCompletion.count({ where: { ...completedToday, userId: user.id } }),
     loadPlaceIndex(prisma, householdId),
+    countTasksToCheck(householdId, user.id, now),
   ]);
 
   // The query finds anything due before now; date-only due dates (12:00
@@ -288,6 +293,8 @@ export async function getDashboard(
             return reason ? [{ ...r, reason: reason satisfies RequestAttentionReason }] : [];
           })
         : [],
+      /** Task checks waiting in their To check (children they look after). */
+      tasksToCheck: tasksOn ? tasksToCheck : 0,
       points: {
         week: on('points') ? (myRow?.points ?? 0) : 0,
         queued: on('points') ? (myRow?.queued ?? 0) : 0,

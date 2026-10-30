@@ -67,6 +67,8 @@ model Household {
   floors         Floor[]
   rooms          Room[]
   tasks          Task[]
+  taskSubmissions TaskSubmission[]
+  taskPhotos     TaskPhoto[]
   activity       ActivityEntry[]
   shoppingLists  ShoppingList[]
   inventoryItems InventoryItem[]
@@ -136,6 +138,12 @@ model User {
   // usage (screen time per app) with their supervisors; the child can't turn
   // it off. null = off. See appUsageService.
   shareAppUsage   Boolean?
+  // Parental controls: "Check their tasks before points", set by a
+  // supervising adult on People you look after. Their tasks wait for a
+  // supervisor's OK before points are paid (taskReviewService needsCheck).
+  // null = off. Cleared when nobody supervises them any more. Never in a
+  // self-profile schema.
+  reviewTasks     Boolean?
   // Parental controls: what a supervised child's phone must have on, chosen
   // by a supervising adult on People you look after (src/lib/phoneHealth.ts
   // PHONE_RULES). null = required, the default, so a child supervised before
@@ -583,7 +591,9 @@ model Task {
   type        String    @default("one_time")
   // priority: "low" | "medium" | "high" | "urgent"
   priority    String    @default("medium")
-  // status: "pending" | "in_progress" | "completed" | "archived"
+  // status: "pending" | "in_progress" | "completed" | "archived" |
+  // "awaiting_review" (only while a "task" TaskSubmission waits for an
+  // adult's OK; never written by an edit, see validation/task.ts)
   status      String    @default("pending")
   dueDate     DateTime?
   completedAt DateTime?
@@ -606,6 +616,9 @@ model Task {
   // be completed again before this instant (recurrenceService
   // completeOccurrence). null = open.
   opensAt          DateTime?
+  // "Ask for a photo": a supervised teen or child sends it for a check, with
+  // a photo, before its points are paid (TaskSubmission). null = no.
+  photoProof       Boolean?
   categoryId  String?
   // Where it's done. The first place: one room, or a whole floor (never
   // both; neither = the whole house).
@@ -638,6 +651,7 @@ model Task {
   recurrence  RecurrenceRule?  @relation(fields: [recurrenceId], references: [id], onDelete: SetNull)
   completions TaskCompletion[]
   subtasks    Subtask[]
+  submissions TaskSubmission[]
 
   @@index([householdId, status])
   @@index([householdId, dueDate])
@@ -693,12 +707,91 @@ model TaskCompletion {
   snapshot    String?
   undoneAt    DateTime?
   undoneById  String?
+  // When the row was written. Differs from completedAt only for a check an
+  // adult approved later (completedAt = when it was sent). null = completedAt.
+  recordedAt   DateTime?
+  // The TaskSubmission whose approval made this completion (plain id).
+  submissionId String?
 
   task Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([taskId])
   @@index([userId])
+}
+
+// A child or teen sending work for a check by their supervisors before its
+// points are paid (taskReviewService). kind "task": the whole task, with a
+// note and maybe a photo; the task waits as "awaiting_review". kind "steps":
+// step points that would otherwise be paid without a check, as frozen
+// entries (JSON); the task's status is left alone. Ids are plain strings,
+// like the ledger's, so the history outlives the child's account.
+model TaskSubmission {
+  id             String    @id @default(cuid()) @map("_id")
+  householdId    String
+  taskId         String
+  // The child or teen who sent it.
+  userId         String
+  // "task" | "steps"
+  kind           String
+  note           String?
+  submittedAt    DateTime  @default(now())
+  // The task as it was when sent ("task" only), to put it back on a send
+  // back, a take back or a withdraw.
+  prevStatus     String?
+  cycleStartedAt DateTime?
+  cycleEndsAt    DateTime?
+  dueDate        DateTime?
+  // Steps ticked when it was sent, for the reviewer.
+  stepIds        String[]  @default([])
+  // kind "steps": JSON list of {subtaskId, title, pointsCenti, checkedAt,
+  // awardKind, completionId?}, computed on the server.
+  entries        String?
+  // "waiting" | "approved" | "sent_back" | "auto_approved" | "withdrawn"
+  status         String    @default("waiting")
+  // auto_approved only: "cycle_end" | "unsupervised"
+  autoReason     String?
+  decidedById    String?
+  decidedAt      DateTime?
+  reviewNote     String?
+  // Steps a send back asked to be done again.
+  redoStepIds    String[]  @default([])
+  // The TaskCompletion an approval made (plain id).
+  completionId   String?
+  // A cycle-end approval whose points a supervisor took back.
+  takenBackAt    DateTime?
+  takenBackById  String?
+  // When the photo goes (14 days after the decision).
+  photoDeleteAt  DateTime?
+
+  household Household  @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  task      Task       @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  photo     TaskPhoto?
+
+  @@index([taskId])
+  @@index([householdId, status])
+  @@index([userId])
+}
+
+// The one photo of a "task" submission: a JPEG rebuilt on the server with
+// every metadata segment dropped (src/server/security/jpeg.ts). Never
+// exported; deleted with its submission.
+model TaskPhoto {
+  id           String   @id @default(cuid()) @map("_id")
+  householdId  String
+  submissionId String   @unique
+  // Who took it (the child or teen who sent it).
+  userId       String
+  jpeg         Bytes
+  width        Int
+  height       Int
+  bytes        Int
+  createdAt    DateTime @default(now())
+
+  household  Household      @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  submission TaskSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@index([householdId])
 }
 
 model Subtask {

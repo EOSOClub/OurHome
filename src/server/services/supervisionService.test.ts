@@ -121,6 +121,9 @@ const points = {
 vi.mock('@/server/services/pointsService', () => points);
 const admin = { isFeatureEnabled: vi.fn(async () => true) };
 vi.mock('@/server/services/serverAdminService', () => admin);
+// Task checks nobody can decide any more (Task Photo Proof), settled after a change.
+const checks = { settleOrphanedSubmissions: vi.fn(async () => 0) };
+vi.mock('@/server/services/taskSubmissionService', () => checks);
 
 const {
   dropBrokenSupervision,
@@ -144,6 +147,7 @@ const {
   setSupervisors,
   setUsageSharing,
   setWebFilter,
+  setReviewTasks,
   supervisedUsageHistory,
   usageIcon,
 } = await import('./supervisionService');
@@ -314,6 +318,20 @@ describe('setSupervisors', () => {
     );
   });
 
+  it('keeps their controls when one supervisor is swapped for another in one save', async () => {
+    prisma.user.findFirst.mockResolvedValueOnce(sam);
+    prisma.user.findMany.mockResolvedValueOnce([gran]);
+    prisma.supervision.findMany.mockResolvedValueOnce([{ supervisorId: 'alex', supervisedId: 'sam' }]);
+    tx.user.findMany.mockResolvedValueOnce([{ id: 'sam', role: 'child', locationSharing: 'required', webFilter: 'family' }]);
+    // The link check sees Gran, added in the same save.
+    tx.supervision.findMany.mockResolvedValueOnce([{ supervisor: { role: 'manager' } }]);
+    await setSupervisors(H, head, { supervisedId: 'sam', supervisorIds: ['gran'] });
+    expect(tx.supervision.createMany.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.supervision.findMany.mock.invocationCallOrder[0],
+    );
+    expect(tx.user.update).not.toHaveBeenCalled();
+  });
+
   it('writes nothing when nothing changed', async () => {
     prisma.user.findFirst.mockResolvedValueOnce(sam);
     prisma.user.findMany.mockResolvedValueOnce([alex]);
@@ -358,7 +376,13 @@ describe('dropBrokenSupervision', () => {
       expect.objectContaining({
         where: {
           id: { in: ['sam', 'jo'] },
-          OR: [{ locationSharing: 'required' }, { shareAppUsage: true }, { webFilter: { not: null } }, { id: { in: [] } }],
+          OR: [
+            { locationSharing: 'required' },
+            { shareAppUsage: true },
+            { webFilter: { not: null } },
+            { reviewTasks: true },
+            { id: { in: [] } },
+          ],
         },
       }),
     );
@@ -407,7 +431,13 @@ describe('releaseIfUnsupervised', () => {
       expect.objectContaining({
         where: {
           id: { in: ['sam'] },
-          OR: [{ locationSharing: 'required' }, { shareAppUsage: true }, { webFilter: { not: null } }, { id: { in: ['sam'] } }],
+          OR: [
+            { locationSharing: 'required' },
+            { shareAppUsage: true },
+            { webFilter: { not: null } },
+            { reviewTasks: true },
+            { id: { in: ['sam'] } },
+          ],
         },
       }),
     );
@@ -427,7 +457,13 @@ describe('releaseIfUnsupervised', () => {
       expect.objectContaining({
         where: {
           id: { in: ['sam'] },
-          OR: [{ locationSharing: 'required' }, { shareAppUsage: true }, { webFilter: { not: null } }, { id: { in: ['sam'] } }],
+          OR: [
+            { locationSharing: 'required' },
+            { shareAppUsage: true },
+            { webFilter: { not: null } },
+            { reviewTasks: true },
+            { id: { in: ['sam'] } },
+          ],
         },
       }),
     );
@@ -444,7 +480,13 @@ describe('releaseIfUnsupervised', () => {
       expect.objectContaining({
         where: {
           id: { in: ['sam'] },
-          OR: [{ locationSharing: 'required' }, { shareAppUsage: true }, { webFilter: { not: null } }, { id: { in: ['sam'] } }],
+          OR: [
+            { locationSharing: 'required' },
+            { shareAppUsage: true },
+            { webFilter: { not: null } },
+            { reviewTasks: true },
+            { id: { in: ['sam'] } },
+          ],
         },
       }),
     );
@@ -494,6 +536,30 @@ describe('releaseIfUnsupervised', () => {
     await releaseIfUnsupervised(tx as never, ['sam']);
     expect(tx.blockedApp.deleteMany).not.toHaveBeenCalled();
   });
+
+  it('turns task checks off when nobody is left to supervise them, and keeps them otherwise', async () => {
+    tx.user.findMany.mockResolvedValueOnce([{ id: 'sam', role: 'child', locationSharing: 'on', reviewTasks: true }]);
+    tx.supervision.findMany.mockResolvedValueOnce([]);
+    await releaseIfUnsupervised(tx as never, ['sam']);
+    // Someone whose only control is task checks counts as controlled.
+    expect(tx.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ OR: expect.arrayContaining([{ reviewTasks: true }]) }) }),
+    );
+    expect(tx.user.update).toHaveBeenCalledTimes(1);
+    expect(tx.user.update).toHaveBeenCalledWith({ where: { id: 'sam' }, data: { reviewTasks: null } });
+
+    vi.clearAllMocks();
+    tx.user.findMany.mockResolvedValueOnce([{ id: 'sam', role: 'child', locationSharing: 'on', reviewTasks: true }]);
+    tx.supervision.findMany.mockResolvedValueOnce([{ supervisor: { role: 'manager' } }]);
+    await releaseIfUnsupervised(tx as never, ['sam']);
+    expect(tx.user.update).not.toHaveBeenCalled();
+  });
+
+  it('turns task checks off for a child who grew into an adult', async () => {
+    tx.user.findMany.mockResolvedValueOnce([{ id: 'sam', role: 'adult', locationSharing: 'on', reviewTasks: true }]);
+    await dropBrokenSupervision(tx as never, 'sam', 'adult');
+    expect(tx.user.update).toHaveBeenCalledWith({ where: { id: 'sam' }, data: { reviewTasks: null } });
+  });
 });
 
 describe('required sharing', () => {
@@ -533,6 +599,7 @@ describe('required sharing', () => {
           pointsTime: NO_POINTS_TIME,
           setup: waiting('notifications', 'batteryUnrestricted', 'preventUninstall', 'keepRunning'),
           ring: null,
+          reviewTasks: false,
         },
         {
           id: 'sam',
@@ -549,6 +616,7 @@ describe('required sharing', () => {
           pointsTime: NO_POINTS_TIME,
           setup: waiting('notifications', 'location', 'batteryUnrestricted', 'preventUninstall', 'keepRunning'),
           ring: null,
+          reviewTasks: false,
         },
       ],
     });
@@ -670,6 +738,7 @@ describe('required sharing', () => {
           })),
         },
         ring: null,
+        reviewTasks: false,
       },
       {
         id: 'sam',
@@ -708,6 +777,7 @@ describe('required sharing', () => {
           ],
         },
         ring: null,
+        reviewTasks: false,
       },
     ]);
   });
@@ -1425,5 +1495,93 @@ describe('fresh app usage when a supervisor looks', () => {
     findLinks.mockResolvedValueOnce(sharing(sam, null));
     await expect(supervisedUsageHistory(H, { id: 'alex' }, 'sam')).rejects.toThrow(/Sam’s app usage isn’t shared/);
     expect(usage.usageHistory).not.toHaveBeenCalled();
+  });
+});
+
+describe('Check their tasks before points (Task Photo Proof)', () => {
+  const findLinks = prisma.supervision.findMany as unknown as ReturnType<typeof vi.fn>;
+  const linkTo = (reviewTasks: boolean | null) => [
+    { supervisor: { role: 'adult' }, supervised: { ...sam, locationSharing: 'on', reviewTasks } },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    findLinks.mockReset();
+    findLinks.mockResolvedValue([]);
+  });
+
+  it('a supervisor turns it on: stored, logged, nothing woken, nothing settled', async () => {
+    findLinks.mockResolvedValueOnce(linkTo(null));
+    await setReviewTasks(H, { id: 'alex' }, { supervisedId: 'sam', on: true });
+    expect(tx.user.update).toHaveBeenCalledWith({ where: { id: 'sam' }, data: { reviewTasks: true } });
+    expect(logActivity).toHaveBeenCalledWith(
+      expect.objectContaining({ actorId: 'alex', subjectId: 'sam', message: 'turned on checking Sam’s tasks before points' }),
+      tx,
+    );
+    expect(push.pushSync).not.toHaveBeenCalled();
+    expect(checks.settleOrphanedSubmissions).not.toHaveBeenCalled();
+  });
+
+  it('turning it off stores null and settles the checks left waiting', async () => {
+    findLinks.mockResolvedValueOnce(linkTo(true));
+    await setReviewTasks(H, { id: 'alex' }, { supervisedId: 'sam', on: false });
+    expect(tx.user.update).toHaveBeenCalledWith({ where: { id: 'sam' }, data: { reviewTasks: null } });
+    expect(logActivity).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'turned off checking Sam’s tasks before points' }),
+      tx,
+    );
+    expect(checks.settleOrphanedSubmissions).toHaveBeenCalledWith(H);
+    // Settled after the switch is saved.
+    expect(checks.settleOrphanedSubmissions.mock.invocationCallOrder[0]).toBeGreaterThan(
+      tx.user.update.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('does nothing when it is already as asked', async () => {
+    findLinks.mockResolvedValueOnce(linkTo(true));
+    await setReviewTasks(H, { id: 'alex' }, { supervisedId: 'sam', on: true });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(checks.settleOrphanedSubmissions).not.toHaveBeenCalled();
+  });
+
+  it('is only for an adult who supervises them right now', async () => {
+    await expect(setReviewTasks(H, { id: 'gran' }, { supervisedId: 'sam', on: true })).rejects.toThrow(
+      /Only an adult who supervises them/,
+    );
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('shows the switch on People you look after', async () => {
+    findLinks.mockResolvedValueOnce(linkTo(true));
+    const { people } = await lookAfterOverview(H, 'alex');
+    expect(people[0].reviewTasks).toBe(true);
+  });
+
+  it('settles checks after a supervisor save, once the links are in', async () => {
+    prisma.user.findFirst.mockResolvedValueOnce(sam);
+    prisma.user.findMany.mockResolvedValueOnce([gran]);
+    findLinks.mockResolvedValueOnce([{ supervisorId: 'alex', supervisedId: 'sam' }]);
+    await setSupervisors(H, head, { supervisedId: 'sam', supervisorIds: ['gran'] });
+    expect(checks.settleOrphanedSubmissions).toHaveBeenCalledWith(H);
+    expect(checks.settleOrphanedSubmissions.mock.invocationCallOrder[0]).toBeGreaterThan(
+      tx.supervision.createMany.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('settles nothing when a save changes nothing', async () => {
+    prisma.user.findFirst.mockResolvedValueOnce(sam);
+    prisma.user.findMany.mockResolvedValueOnce([alex]);
+    findLinks.mockResolvedValueOnce([{ supervisorId: 'alex', supervisedId: 'sam' }]);
+    await setSupervisors(H, head, { supervisedId: 'sam', supervisorIds: ['alex'] });
+    expect(checks.settleOrphanedSubmissions).not.toHaveBeenCalled();
+  });
+
+  it('a failed settle never fails the save: the sweep tries again', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    checks.settleOrphanedSubmissions.mockRejectedValueOnce(new Error('db down'));
+    findLinks.mockResolvedValueOnce(linkTo(true));
+    await expect(setReviewTasks(H, { id: 'alex' }, { supervisedId: 'sam', on: false })).resolves.toBeDefined();
+    expect(error).toHaveBeenCalled();
+    error.mockRestore();
   });
 });

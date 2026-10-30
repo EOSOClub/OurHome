@@ -21,6 +21,7 @@ export interface ProfileOverview {
   };
 }
 
+// Not awaiting_review: a task sent for a check isn't open work for them.
 const ACTIVE_STATUSES = ['pending', 'in_progress'];
 
 /**

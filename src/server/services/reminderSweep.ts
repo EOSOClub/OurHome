@@ -1,6 +1,7 @@
 import { prisma } from '@/server/db/prisma';
 import { generateReminders } from '@/server/services/reminderService';
 import { resetDueSubtasks, rollTaskCycles } from '@/server/services/taskService';
+import { deleteExpiredPhotos, settleOrphanedSubmissions } from '@/server/services/taskSubmissionService';
 import { runPaperlessSync } from '@/server/services/paperlessSync';
 import { announceAppRelease } from '@/server/services/appReleaseService';
 import { isFeatureEnabled } from '@/server/services/serverAdminService';
@@ -44,6 +45,9 @@ export async function runReminderSweep(): Promise<{ households: number }> {
         ? ([
             ['task cycles', () => rollTaskCycles(id)],
             ['step resets', () => resetDueSubtasks(id)],
+            // Task checks nobody can decide any more, and photos kept long enough.
+            ['task checks', () => settleOrphanedSubmissions(id)],
+            ['check photos', () => deleteExpiredPhotos(id)],
           ] as const)
         : []),
       ['reminders', () => generateReminders(id)],

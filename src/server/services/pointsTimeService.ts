@@ -73,8 +73,8 @@ export async function minutesOn(db: Db, userId: string, day: string): Promise<{ 
   };
 }
 
-/** The adults who look after [userId] right now (both roles still fit). */
-async function supervisorsOf(db: Db, householdId: string, userId: string): Promise<string[]> {
+/** The adults who look after [userId] right now (both roles still fit). Also who checks their tasks (taskReviewService). */
+export async function supervisorsOf(db: Db, householdId: string, userId: string): Promise<string[]> {
   const links = await db.supervision.findMany({
     where: { householdId, supervisedId: userId },
     select: { supervisorId: true, supervisor: { select: { role: true } }, supervised: { select: { role: true } } },

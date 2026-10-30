@@ -273,6 +273,47 @@ describe('planRestore', () => {
     expect(renews.billId).toBe(bill.id);
   });
 
+  it('brings a check that was waiting back withdrawn, with its task as it was before it was sent', () => {
+    const WAITING = id(30);
+    const STEPS = id(31);
+    const DECIDED = id(32);
+    const OTHER = id(33);
+    const sample = sampleExport();
+    const tasks = [
+      {
+        ...sample.tasks[0],
+        status: 'awaiting_review',
+        submissions: [
+          { id: WAITING, householdId: H, taskId: TASK, userId: KID, kind: 'task', status: 'waiting', prevStatus: 'in_progress', note: 'All done', stepIds: [STEP] },
+          {
+            id: STEPS,
+            householdId: H,
+            taskId: TASK,
+            userId: KID,
+            kind: 'steps',
+            status: 'waiting',
+            entries: JSON.stringify([{ subtaskId: STEP, title: 'Take out', pointsCenti: 100, awardKind: 'step_repeat' }]),
+          },
+          { id: DECIDED, householdId: H, taskId: TASK, userId: KID, kind: 'task', status: 'approved', completionId: DONE },
+        ],
+      },
+      // Waiting with nothing to wait for (an export taken mid-way): opens again.
+      { id: OTHER, householdId: H, title: 'Dishes', status: 'awaiting_review', subtasks: [], completions: [], submissions: [] },
+    ];
+    // The real schema's fields: proves TaskSubmission and Task.status are there.
+    const restored = planRestore({ ...sample, tasks }, { newId: newIds() });
+    const [task, other] = restored.rows.Task;
+    const [waiting, steps, decided] = restored.rows.TaskSubmission;
+    expect(task.status).toBe('in_progress');
+    expect(other.status).toBe('pending');
+    expect(waiting).toMatchObject({ status: 'withdrawn', taskId: task.id, userId: restored.rows.User[1].id, note: 'All done' });
+    expect(waiting.stepIds).toEqual([restored.rows.Subtask[0].id]);
+    expect(steps.status).toBe('withdrawn');
+    expect(JSON.parse(steps.entries as string)[0].subtaskId).toBe(restored.rows.Subtask[0].id);
+    expect(decided).toMatchObject({ status: 'approved', completionId: restored.rows.TaskCompletion[0].id });
+    for (const row of [task, other]) expect(row).not.toHaveProperty('submissions');
+  });
+
   it('can restore under a new name', () => {
     expect(planRestore(sampleExport(), { name: 'Smiths (restored)', newId: newIds(), fields }).rows.Household[0].name).toBe(
       'Smiths (restored)',

@@ -65,8 +65,14 @@ export const TASK_STATUSES = [
   'in_progress',
   'completed',
   'archived',
+  // Sent for a check: waits for a supervisor's OK (Task Photo Proof). Only
+  // the server sets it, so it is readable but never writable.
+  'awaiting_review',
 ] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
+
+/** The statuses an edit may set: all but awaiting_review, which only sending for a check does. */
+export const WRITABLE_TASK_STATUSES = ['pending', 'in_progress', 'completed', 'archived'] as const satisfies readonly TaskStatus[];
 
 export const RECURRENCE_KINDS = [
   'daily',
@@ -265,6 +271,12 @@ export const NOTIFICATION_TYPES = [
   // Sent to a subscription's responsible person and Bills managers from 3 days
   // before its free trial ends until that day is over (reminderService).
   'subscription_trial',
+  // Sent to a child's supervisors when the child sends a task for a check
+  // (Task Photo Proof); removed once it is decided or taken back.
+  'task_review',
+  // Sent to the child when their check is approved, sent back, counted as
+  // done when the day ended, or has its points taken back.
+  'task_reviewed',
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
@@ -284,6 +296,8 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   request_update: 'Request',
   event_reminder: 'Event',
   subscription_trial: 'Subscription',
+  task_review: 'To check',
+  task_reviewed: 'Checked',
 };
 
 // --- Bug reports ----------------------------------------------------------
@@ -315,6 +329,7 @@ export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   in_progress: 'In progress',
   completed: 'Completed',
   archived: 'Archived',
+  awaiting_review: 'Waiting for an OK',
 };
 
 export const TASK_TYPE_LABELS: Record<TaskType, string> = {

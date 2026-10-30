@@ -45,6 +45,7 @@ export const RESTORE_ORDER = [
   'Task',
   'Subtask',
   'TaskCompletion',
+  'TaskSubmission',
   'PointAward',
   'PendingCredit',
   'ExtraTime',
@@ -152,6 +153,8 @@ export function planRestore(
     Task: tasks,
     Subtask: tasks.flatMap((t) => asArray(t.subtasks)),
     TaskCompletion: tasks.flatMap((t) => asArray(t.completions)),
+    // Tasks sent for a check (exports from before have none; photos are never exported).
+    TaskSubmission: tasks.flatMap((t) => asArray(t.submissions)),
     PointAward: asArray(points.awards),
     PendingCredit: asArray(points.pending),
     // Minutes bought with points (exports from before have none).
@@ -196,6 +199,24 @@ export function planRestore(
       }
       return out;
     });
+  }
+
+  // A check still waiting can't be decided after a restore: its photo isn't
+  // in the export and nobody was told about it here. It comes back withdrawn,
+  // and its task as it was before it was sent. A task left waiting with
+  // nothing to wait for opens again (the same rule as the self-heal,
+  // taskReviewService.healAwaitingReview).
+  const putBack = new Map<unknown, string>(); // task id → status before it was sent
+  for (const sub of rows.TaskSubmission) {
+    if (sub.status !== 'waiting') continue;
+    sub.status = 'withdrawn';
+    if (sub.kind === 'task') {
+      const prev = typeof sub.prevStatus === 'string' && sub.prevStatus !== 'awaiting_review' ? sub.prevStatus : 'pending';
+      putBack.set(sub.taskId, prev);
+    }
+  }
+  for (const task of rows.Task) {
+    if (task.status === 'awaiting_review') task.status = putBack.get(task.id) ?? 'pending';
   }
 
   // The household and its members as a fresh start on this server.

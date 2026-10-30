@@ -8,7 +8,9 @@ import type { CalendarChoreDTO } from '@/lib/types';
 // their current due date only. A repeating chore's later dates aren't shown,
 // because finishing it (or finishing it late) is what sets the next one.
 
-const ACTIVE_STATUSES = ['pending', 'in_progress'];
+// A chore sent for a check (awaiting_review) stays on the calendar until an
+// adult decides, but it isn't overdue: the child has done their part.
+const ACTIVE_STATUSES = ['pending', 'in_progress', 'awaiting_review'];
 
 /** Open chores due within [start, end]; none when Tasks is turned off. */
 export async function listChoreItems(
@@ -26,6 +28,7 @@ export async function listChoreItems(
         id: true,
         title: true,
         dueDate: true,
+        status: true,
         assigneeId: true,
         assignee: { select: { name: true } },
       },
@@ -42,6 +45,6 @@ export async function listChoreItems(
       allDay: isDateOnly(t.dueDate, timezone),
       assigneeId: t.assigneeId,
       assigneeName: t.assignee?.name ?? null,
-      overdue: isOverdue(t.dueDate, timezone, now),
+      overdue: t.status !== 'awaiting_review' && isOverdue(t.dueDate, timezone, now),
     }));
 }

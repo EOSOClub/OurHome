@@ -6,6 +6,7 @@ import {
   TASK_PRIORITIES,
   TASK_STATUSES,
   TASK_TYPES,
+  WRITABLE_TASK_STATUSES,
 } from '@/lib/enums';
 
 // Shared by tasks, bills and calendar events (see validation/bills.ts and
@@ -112,6 +113,9 @@ export const createTaskSchema = z.object({
   rotationUserIds: rotationSchema.optional().nullable(),
   recurrence: recurrenceInputSchema.optional(),
   subtasks: checklistSchema.optional(),
+  // "Ask for a photo": a supervised child or teen sends it for a check with a
+  // photo. Never changed by a supervised child or teen (403).
+  photoProof: z.boolean().optional(),
 });
 
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;
@@ -131,7 +135,8 @@ export const updateTaskSchema = z.object({
   notes: z.string().trim().max(2000).optional().nullable(),
   type: z.enum(TASK_TYPES).optional(),
   priority: z.enum(TASK_PRIORITIES).optional(),
-  status: z.enum(TASK_STATUSES).optional(),
+  // Never awaiting_review: only sending a task for a check sets that.
+  status: z.enum(WRITABLE_TASK_STATUSES).optional(),
   dueDate: z.coerce.date().optional().nullable(),
   // Base time/points (see createTaskSchema). Without `subtasks`, a changed
   // base is redistributed over the steps on the server (older clients).
@@ -156,22 +161,74 @@ export const updateTaskSchema = z.object({
   // When present, the whole checklist as the editor left it: items with an
   // `id` are updated, new ones created, missing ones deleted, order = array.
   subtasks: checklistSchema.optional(),
+  // "Ask for a photo" (see createTaskSchema).
+  photoProof: z.boolean().optional(),
 });
 
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
 
 export const undoCompletionSchema = z.object({ completionId: recordId });
 
-export const completeTaskSchema = z.object({
-  taskId: recordId,
-  note: z.string().trim().max(500).optional(),
-});
+/**
+ * Longest `photo` accepted: base64 of the largest photo the server keeps
+ * (PHOTO_MAX_BYTES in src/server/security/jpeg.ts, 1.5 MiB, is 2,097,152
+ * characters), plus room for a "data:image/jpeg;base64," prefix.
+ */
+export const PHOTO_BASE64_MAX = 2_097_152 + 32;
+
+/**
+ * Most bytes POST /api/tasks/complete reads (readJsonCapped): a full-size
+ * photo as base64 plus the other fields. Every other route keeps the
+ * ordinary body limit.
+ */
+export const COMPLETE_BODY_MAX_BYTES = Math.floor(2.3 * 1024 * 1024);
+
+export const completeTaskSchema = z
+  .object({
+    taskId: recordId,
+    note: z.string().trim().max(500).optional(),
+    // Task Photo Proof. `checks`: this app can send a task for a check (new
+    // builds send 1 on every complete call). `forCheck`: send it for a check
+    // now. `photo`: one JPEG as base64, only with forCheck.
+    checks: z.number().int().min(0).max(100).optional(),
+    forCheck: z.boolean().optional(),
+    photo: z.string().min(1).max(PHOTO_BASE64_MAX).optional(),
+  })
+  .refine((i) => i.photo === undefined || i.forCheck === true, {
+    message: 'A photo is only sent with a check.',
+    path: ['photo'],
+  });
 
 export type CompleteTaskInput = z.infer<typeof completeTaskSchema>;
+
+// --- Checks (Task Photo Proof) --------------------------------------------
+
+/** An adult's decision on a check: approve it, or send it back saying what needs fixing. */
+export const decideSubmissionSchema = z
+  .object({
+    submissionId: recordId,
+    decision: z.enum(['approve', 'send_back']),
+    reviewNote: z.string().trim().min(1).max(300).optional(),
+    // Steps to do again (a "task" check only); the rest stay done.
+    redoStepIds: z.array(recordId).max(50).optional(),
+  })
+  .refine((d) => d.decision !== 'send_back' || !!d.reviewNote, {
+    message: 'Say what needs fixing.',
+    path: ['reviewNote'],
+  });
+
+export type DecideSubmissionInput = z.infer<typeof decideSubmissionSchema>;
+
+/** The child taking back their own waiting check. */
+export const withdrawSubmissionSchema = z.object({ submissionId: recordId });
+
+/** GET /api/tasks/submissions/photo?id= */
+export const submissionPhotoQuerySchema = z.object({ id: recordId });
 
 export const deleteTaskSchema = z.object({ taskId: recordId });
 
 export const listTasksQuerySchema = z.object({
+  // A filter, so every status (awaiting_review included) is fine here.
   status: z.enum(TASK_STATUSES).optional(),
   type: z.enum(TASK_TYPES).optional(),
   assigneeId: recordId.optional(),

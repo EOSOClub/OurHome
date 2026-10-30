@@ -23,6 +23,8 @@ export const HOUSEHOLD_MODELS = [
   'RecurrenceRule',
   'TaskCompletion',
   'Subtask',
+  'TaskSubmission',
+  'TaskPhoto',
   'PendingCredit',
   'PointAward',
   'ActivityEntry',
@@ -81,7 +83,9 @@ export const EXPORT_VERSION = 1;
  * (AppSchedule) and points-for-time rate (PointsForTime) stay out like the
  * other phone rules, and so does extra time an adult gave (ExtraTime without
  * points). Minutes bought with points go with the ledger of points
- * (points.spent), so a restored balance stays right.
+ * (points.spent), so a restored balance stays right. Tasks sent for a check
+ * (TaskSubmission) go with their task, notes included, but never their
+ * photos (TaskPhoto): a child's pictures stay on the server.
  */
 export async function exportHousehold(householdId: string) {
   const where = { householdId };
@@ -133,7 +137,11 @@ export async function exportHousehold(householdId: string) {
     prisma.category.findMany({ where }),
     prisma.floor.findMany({ where }),
     prisma.room.findMany({ where }),
-    prisma.task.findMany({ where, include: { subtasks: true, completions: true, recurrence: true } }),
+    prisma.task.findMany({
+      where,
+      // `submissions: true` brings each submission's own fields only, not its photo.
+      include: { subtasks: true, completions: true, recurrence: true, submissions: true },
+    }),
     prisma.pendingCredit.findMany({ where }),
     prisma.pointAward.findMany({ where }),
     prisma.extraTime.findMany({ where: { ...where, pointsCenti: { gt: 0 } } }),
@@ -246,6 +254,9 @@ export async function deleteHousehold(adminId: string, householdId: string, conf
       // Children first, so nothing is left pointing at a deleted parent.
       count('Subtask', await tx.subtask.deleteMany({ where: { taskId: { in: taskIds } } }));
       count('TaskCompletion', await tx.taskCompletion.deleteMany({ where: { taskId: { in: taskIds } } }));
+      // A photo hangs off its submission, which hangs off its task.
+      count('TaskPhoto', await tx.taskPhoto.deleteMany({ where }));
+      count('TaskSubmission', await tx.taskSubmission.deleteMany({ where }));
       count('PendingCredit', await tx.pendingCredit.deleteMany({ where }));
       count('PointAward', await tx.pointAward.deleteMany({ where }));
       count('Task', await tx.task.deleteMany({ where }));

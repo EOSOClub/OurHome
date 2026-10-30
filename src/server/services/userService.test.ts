@@ -6,6 +6,11 @@ const prisma = {
     create: vi.fn(),
     update: vi.fn(),
     updateMany: vi.fn(),
+    delete: vi.fn(),
+  },
+  supervision: {
+    findMany: vi.fn(async (): Promise<{ supervisedId: string }[]> => []),
+    deleteMany: vi.fn(),
   },
   account: { create: vi.fn() },
   $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(prisma)),
@@ -19,15 +24,22 @@ vi.mock('@/server/services/activityService', () => ({ logActivity }));
 const dropBrokenSupervision = vi.fn();
 const newMemberSupervisors = vi.fn(async (): Promise<{ id: string; name: string; role: string }[]> => []);
 const linkNewSupervisors = vi.fn();
+const releaseIfUnsupervised = vi.fn();
 vi.mock('@/server/services/supervisionService', () => ({
   dropBrokenSupervision,
   newMemberSupervisors,
   linkNewSupervisors,
+  releaseIfUnsupervised,
 }));
 const refreshPhoneAlerts = vi.fn();
 vi.mock('@/server/services/phoneStatusService', () => ({ refreshPhoneAlerts }));
+const pushSync = vi.fn();
+vi.mock('@/server/services/pushService', () => ({ pushSync }));
+// Task checks nobody can decide any more (Task Photo Proof), settled after a change.
+const settleOrphanedSubmissions = vi.fn(async () => 0);
+vi.mock('@/server/services/taskSubmissionService', () => ({ settleOrphanedSubmissions }));
 
-const { createMember, setMemberRole, transferHeadship, updateMember } = await import('./userService');
+const { createMember, removeMember, setMemberRole, transferHeadship, updateMember } = await import('./userService');
 
 const HOUSEHOLD = 'household1';
 const head = { id: 'cmhead00000000000000000001', role: 'head' };
@@ -226,5 +238,85 @@ describe('role changes and supervision', () => {
     await transferHeadship(HOUSEHOLD, head, kid);
     expect(dropBrokenSupervision).toHaveBeenCalledWith(prisma, kid, 'head');
     expect(refreshPhoneAlerts).toHaveBeenCalledWith(HOUSEHOLD);
+  });
+});
+
+describe('removeMember and supervision', () => {
+  const alex = 'cmalex00000000000000000001';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('gives the children they supervised their controls back once nobody is left to supervise them', async () => {
+    prisma.user.findFirst.mockResolvedValueOnce(row({ id: alex, name: 'Alex', role: 'adult' }));
+    prisma.supervision.findMany.mockResolvedValueOnce([{ supervisedId: 'sam' }, { supervisedId: 'jo' }]);
+    await removeMember(HOUSEHOLD, head, alex);
+    expect(prisma.supervision.findMany).toHaveBeenCalledWith({ where: { supervisorId: alex }, select: { supervisedId: true } });
+    expect(prisma.supervision.deleteMany).toHaveBeenCalledWith({ where: { supervisorId: alex } });
+    expect(prisma.user.delete).toHaveBeenCalledWith({ where: { id: alex } });
+    // Checked in the same transaction, after their links and their account are gone.
+    expect(releaseIfUnsupervised).toHaveBeenCalledWith(prisma, ['sam', 'jo']);
+    expect(prisma.supervision.deleteMany.mock.invocationCallOrder[0]).toBeLessThan(
+      releaseIfUnsupervised.mock.invocationCallOrder[0],
+    );
+    expect(prisma.user.delete.mock.invocationCallOrder[0]).toBeLessThan(releaseIfUnsupervised.mock.invocationCallOrder[0]);
+    expect(refreshPhoneAlerts).toHaveBeenCalledWith(HOUSEHOLD);
+    // Their phones learn at once what is required of them now.
+    expect(pushSync).toHaveBeenCalledWith(HOUSEHOLD, { userIds: ['sam', 'jo'] }, 'supervision');
+    // Checks nobody is left to decide are settled, after it all is saved.
+    expect(settleOrphanedSubmissions).toHaveBeenCalledWith(HOUSEHOLD);
+    expect(settleOrphanedSubmissions.mock.invocationCallOrder[0]).toBeGreaterThan(prisma.user.delete.mock.invocationCallOrder[0]);
+  });
+
+  it('checks nobody when they supervised nobody', async () => {
+    prisma.user.findFirst.mockResolvedValueOnce(row({ id: alex, name: 'Alex', role: 'adult' }));
+    await removeMember(HOUSEHOLD, head, alex);
+    expect(prisma.user.delete).toHaveBeenCalledWith({ where: { id: alex } });
+    expect(prisma.supervision.deleteMany).not.toHaveBeenCalled();
+    expect(releaseIfUnsupervised).not.toHaveBeenCalled();
+    expect(pushSync).not.toHaveBeenCalled();
+    // A removed child's own checks are still settled (withdrawn).
+    expect(settleOrphanedSubmissions).toHaveBeenCalledWith(HOUSEHOLD);
+  });
+});
+
+describe('task checks after member changes', () => {
+  const kid = 'cmkid000000000000000000001';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('settles them after a role change is saved', async () => {
+    prisma.user.findFirst.mockResolvedValueOnce(row({ id: kid, role: 'teen' }));
+    prisma.user.update.mockResolvedValueOnce(row({ id: kid, role: 'adult' }));
+    await setMemberRole(HOUSEHOLD, head, { id: kid, role: 'adult' });
+    expect(settleOrphanedSubmissions).toHaveBeenCalledWith(HOUSEHOLD);
+    expect(settleOrphanedSubmissions.mock.invocationCallOrder[0]).toBeGreaterThan(dropBrokenSupervision.mock.invocationCallOrder[0]);
+  });
+
+  it('settles them after headship moves', async () => {
+    prisma.user.findFirst.mockResolvedValueOnce(row({ id: kid, role: 'teen' }));
+    prisma.user.update.mockResolvedValueOnce(row({ id: kid, role: 'head' }));
+    await transferHeadship(HOUSEHOLD, head, kid);
+    expect(settleOrphanedSubmissions).toHaveBeenCalledWith(HOUSEHOLD);
+  });
+
+  it('a failed settle never fails the change: the sweep tries again', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    settleOrphanedSubmissions.mockRejectedValueOnce(new Error('db down'));
+    prisma.user.findFirst.mockResolvedValueOnce(row({ id: kid, role: 'teen' }));
+    prisma.user.update.mockResolvedValueOnce(row({ id: kid, role: 'child' }));
+    await expect(setMemberRole(HOUSEHOLD, head, { id: kid, role: 'child' })).resolves.toMatchObject({ id: kid });
+    expect(error).toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  it('never settles for a profile edit', async () => {
+    prisma.user.findFirst.mockResolvedValueOnce(row({})).mockResolvedValueOnce(null);
+    prisma.user.update.mockResolvedValueOnce(row({ name: 'Samantha' }));
+    await updateMember(HOUSEHOLD, head, { id: head.id, name: 'Samantha' });
+    expect(settleOrphanedSubmissions).not.toHaveBeenCalled();
   });
 });

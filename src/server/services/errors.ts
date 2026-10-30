@@ -34,3 +34,25 @@ export class ConflictError extends Error {
     this.field = field;
   }
 }
+
+/**
+ * Thrown when something sent can't be used though it passed the schema (a
+ * photo that isn't a JPEG we accept). Answered 422, like a failed form.
+ * [field]: the form field it's about, so the form can mark it.
+ */
+export class UnprocessableError extends Error {
+  readonly field?: string;
+  constructor(message: string, field?: string) {
+    super(message);
+    this.name = 'UnprocessableError';
+    this.field = field;
+  }
+}
+
+/** Thrown when a request body is bigger than its route allows (413). */
+export class PayloadTooLargeError extends Error {
+  constructor(message = 'That’s too big to send.') {
+    super(message);
+    this.name = 'PayloadTooLargeError';
+  }
+}

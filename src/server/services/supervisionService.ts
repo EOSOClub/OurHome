@@ -20,6 +20,7 @@ import {
   type PhoneRuleColumns,
 } from '@/lib/phoneHealth';
 import { isFeatureEnabled } from '@/server/services/serverAdminService';
+import { settleOrphanedSubmissions } from '@/server/services/taskSubmissionService';
 import {
   findIcon,
   forgetUsage,
@@ -63,6 +64,7 @@ import type {
   SetAppLimitInput,
   SetPhoneRuleInput,
   SetRequiredSharingInput,
+  SetReviewTasksInput,
   SetSupervisorsInput,
   SetUsageSharingInput,
   SetWebFilterInput,
@@ -151,8 +153,6 @@ export async function setSupervisors(
         await tx.supervision.deleteMany({
           where: { supervisedId: supervised.id, supervisorId: { in: removed } },
         });
-        // Nobody left to supervise them: required sharing is theirs again.
-        await releaseIfUnsupervised(tx, [supervised.id]);
       }
       if (added.length) {
         await tx.supervision.createMany({
@@ -164,6 +164,10 @@ export async function setSupervisors(
           })),
         });
       }
+      // Nobody left to supervise them: required sharing is theirs again. Only
+      // after the new links are in, so swapping one supervisor for another in
+      // one save keeps their controls.
+      if (removed.length) await releaseIfUnsupervised(tx, [supervised.id]);
       await logActivity(
         {
           householdId,
@@ -182,6 +186,8 @@ export async function setSupervisors(
     await refreshPhoneAlerts(householdId, new Date(), [supervised.id]);
     // Their phone checks in at once and learns whether it must Stay connected.
     pushSync(householdId, { userIds: [supervised.id] }, 'supervision');
+    // A check nobody is left to decide is settled.
+    await settleChecks(householdId);
   }
 
   return getSupervision(householdId);
@@ -302,6 +308,7 @@ async function supervisedBy(
     shareAppUsage: boolean | null;
     webFilter: string | null;
     mustChangePassword: boolean;
+    reviewTasks: boolean | null;
   } & PhoneRuleColumns)[]
 > {
   const links = await prisma.supervision.findMany({
@@ -309,7 +316,7 @@ async function supervisedBy(
     select: {
       supervisor: { select: { role: true } },
       supervised: {
-        select: { id: true, name: true, role: true, mustChangePassword: true, ...SUPERVISED_SELECT },
+        select: { id: true, name: true, role: true, mustChangePassword: true, reviewTasks: true, ...SUPERVISED_SELECT },
       },
     },
   });
@@ -416,9 +423,58 @@ export async function lookAfterOverview(
           ),
         },
         ring: ringFor(k.id, actorId, now),
+        reviewTasks: k.reviewTasks === true,
       };
     }),
   };
+}
+
+/**
+ * Turn "Check their tasks before points" on or off for a supervised child
+ * (Task Photo Proof): when on, the tasks they finish wait for one of their
+ * supervisors before points are paid. Logged in Activity. Turning it off
+ * settles their waiting checks (a task that asks for a photo still waits).
+ * Their phone needn't be woken: the server answers its next Complete.
+ */
+export async function setReviewTasks(
+  householdId: string,
+  actor: { id: string },
+  input: SetReviewTasksInput,
+): Promise<LookAfterDTO> {
+  const kid = (await supervisedBy(householdId, actor.id)).find((k) => k.id === input.supervisedId);
+  if (!kid) {
+    throw new ForbiddenError(
+      'Only an adult who supervises them can change this. The Head of House chooses that on the Members page.',
+    );
+  }
+  if ((kid.reviewTasks === true) !== input.on) {
+    await prisma.$transaction(async (tx) => {
+      // Off is stored as null, like the other switches.
+      await tx.user.update({ where: { id: kid.id }, data: { reviewTasks: input.on ? true : null } });
+      await logActivity(
+        {
+          householdId,
+          actorId: actor.id,
+          verb: 'updated',
+          subjectType: 'member',
+          subjectId: kid.id,
+          message: input.on
+            ? `turned on checking ${kid.name}’s tasks before points`
+            : `turned off checking ${kid.name}’s tasks before points`,
+        },
+        tx,
+      );
+    });
+    if (!input.on) await settleChecks(householdId);
+  }
+  return lookAfterOverview(householdId, actor.id);
+}
+
+/** Settles checks nobody can decide any more, after the change is saved; the sweep retries a failure. */
+async function settleChecks(householdId: string): Promise<void> {
+  await settleOrphanedSubmissions(householdId).catch((err) => {
+    console.error('[tasks] settling checks failed; the sweep will retry', err);
+  });
 }
 
 /**
@@ -1127,8 +1183,9 @@ export async function dropBrokenSupervision(db: Db, userId: string, role: string
  * required sharing back as "on" (they may turn it off again), app usage
  * sharing off with what was stored deleted (nobody is left to see it), the
  * web filter off (their phone's Private DNS stays as it is, theirs to
- * change), and every app unblocked, every limit and schedule removed, and
- * buying screen time with points stopped (what they spent stays spent).
+ * change), "Check their tasks before points" off, and every app unblocked,
+ * every limit and schedule removed, and buying screen time with points
+ * stopped (what they spent stays spent).
  */
 export async function releaseIfUnsupervised(db: Db, userIds: string[]): Promise<void> {
   const ids = [...new Set(userIds)];
@@ -1147,10 +1204,19 @@ export async function releaseIfUnsupervised(db: Db, userIds: string[]): Promise<
         { locationSharing: 'required' },
         { shareAppUsage: true },
         { webFilter: { not: null } },
+        { reviewTasks: true },
         { id: { in: [...new Set([...withBlocks, ...withLimits, ...withSchedules, ...withBuying])] } },
       ],
     },
-    select: { id: true, role: true, householdId: true, locationSharing: true, shareAppUsage: true, webFilter: true },
+    select: {
+      id: true,
+      role: true,
+      householdId: true,
+      locationSharing: true,
+      shareAppUsage: true,
+      webFilter: true,
+      reviewTasks: true,
+    },
   });
   for (const user of controlled) {
     const links = canBeSupervised(user.role)
@@ -1164,6 +1230,7 @@ export async function releaseIfUnsupervised(db: Db, userIds: string[]): Promise<
       await db.user.update({ where: { id: user.id }, data: { locationSharing: 'on' } });
     }
     if (user.webFilter != null) await db.user.update({ where: { id: user.id }, data: { webFilter: null } });
+    if (user.reviewTasks != null) await db.user.update({ where: { id: user.id }, data: { reviewTasks: null } });
     // Before forgetting their usage, so pruning icons no longer keeps these apps'.
     if (withBlocks.has(user.id)) await db.blockedApp.deleteMany({ where: { userId: user.id } });
     if (withLimits.has(user.id)) await db.appLimit.deleteMany({ where: { userId: user.id } });

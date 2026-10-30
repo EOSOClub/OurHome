@@ -22,6 +22,8 @@ import { addDays, daysBetween, localDateOf, localTimeAt, startOfLocalDate } from
 /** Days of look-ahead: an item predicted to run out within this many days gets a reminder. */
 export const REORDER_WINDOW_DAYS = 3;
 
+// Not awaiting_review: a task sent for a check gets no overdue reminder while
+// it waits for an adult's OK.
 const ACTIVE_STATUSES = ['pending', 'in_progress'];
 
 /** How far back and ahead the sweep looks for event dates with a reminder. */

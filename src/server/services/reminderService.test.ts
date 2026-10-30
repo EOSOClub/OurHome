@@ -151,6 +151,14 @@ describe('buildOverdueReminders', () => {
     );
     expect(out).toHaveLength(0);
   });
+
+  it('never reminds about a task waiting for an adult’s OK', () => {
+    const out = buildOverdueReminders(
+      [task({ id: 'sent', status: 'awaiting_review', dueDate: iso('2026-06-01T00:00:00.000Z') })],
+      NOW,
+    );
+    expect(out).toHaveLength(0);
+  });
 });
 
 describe('buildInventoryReminders', () => {

@@ -1,6 +1,6 @@
 name: Suggest an idea
 description: Something OurHome could do, or do better.
-labels: ["enhancement"]
+labels: ["enhancement", "needs triage"]
 body:
   - type: markdown
     attributes:

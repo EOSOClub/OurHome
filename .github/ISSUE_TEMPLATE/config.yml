@@ -3,6 +3,9 @@ contact_links:
   - name: Report a security problem
     url: https://github.com/EOSOClub/OurHome/security/advisories/new
     about: Please report security problems privately here, not in a public issue.
+  - name: Ask a question
+    url: https://github.com/EOSOClub/OurHome/discussions/categories/q-a
+    about: How do I...? Ask in Discussions, where the answer stays easy to find for the next person.
   - name: Help and how-to guides
     url: https://github.com/EOSOClub/OurHome/wiki
     about: Setup, everyday use and answers to common questions.

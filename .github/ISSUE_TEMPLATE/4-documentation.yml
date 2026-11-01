@@ -1,0 +1,40 @@
+name: Fix or add to the wiki
+description: A wiki page is wrong, out of date, missing something or hard to follow.
+labels: ["documentation", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping the wiki. It's written for everyone in the house, not just whoever set up the server, so "I didn't understand this page" is a good reason to report.
+  - type: input
+    id: page
+    attributes:
+      label: Which page?
+      description: Paste the link, or type the page name.
+      placeholder: https://github.com/EOSOClub/OurHome/wiki/Installation
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What's wrong with it?
+      options:
+        - It's wrong or out of date
+        - Something is missing
+        - It's hard to follow
+        - A link or picture is broken
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Tell us more
+      description: Which part of the page, and what it says now.
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: How should it read?
+      description: Optional. Your own wording is welcome, rough is fine.

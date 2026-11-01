@@ -1,0 +1,62 @@
+# Adds labels from the answers on a new issue form. A form's own labels are
+# fixed, so this reads the dropdown answers instead:
+#   "Where is the problem?" / "Which part of OurHome?"
+#     Website -> OurHomeWeb, Android app -> OurHomeApp,
+#     Server setup -> OurHomeServices, Wiki -> documentation
+#   "Did this work before?" Yes -> regression
+# Only ever adds labels, never removes them. The issue text is treated as data:
+# it is read in JavaScript and never passed to a shell.
+name: Label new issues
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add labels from the form answers
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const body = context.payload.issue.body || "";
+
+            // Issue forms post each answer under a "### <question>" heading.
+            const answer = (question) => {
+              for (const section of body.split(/^### /m)) {
+                const lineEnd = section.indexOf("\n");
+                if (lineEnd === -1) continue;
+                if (section.slice(0, lineEnd).trim() === question) {
+                  return section.slice(lineEnd + 1).trim();
+                }
+              }
+              return "";
+            };
+
+            const labels = [];
+            const area = answer("Where is the problem?") || answer("Which part of OurHome?");
+            core.info(`Area answer: ${area || "(none)"}`);
+            if (area === "Website") labels.push("OurHomeWeb");
+            else if (area === "Android app") labels.push("OurHomeApp");
+            else if (area.startsWith("Server setup")) labels.push("OurHomeServices");
+            else if (area === "Wiki") labels.push("documentation");
+
+            const workedBefore = answer("Did this work before?");
+            core.info(`Worked before answer: ${workedBefore || "(none)"}`);
+            if (workedBefore.startsWith("Yes")) labels.push("regression");
+
+            if (labels.length === 0) {
+              core.info("No labels to add");
+              return;
+            }
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              labels,
+            });
+            core.info(`Added: ${labels.join(", ")}`);

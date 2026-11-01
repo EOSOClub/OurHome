@@ -1,0 +1,63 @@
+name: Report an accessibility barrier
+description: Something in OurHome is hard or impossible to use with a screen reader, keyboard, larger text or another assistive setting.
+labels: ["accessibility", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for telling us. OurHome should work for everyone in the house.
+
+        **Live in a home that uses OurHome?** You can also use **Report a bug** in your account menu. It goes to your Head of House, who can bring it here.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where is the problem?
+      options:
+        - Website
+        - Android app
+        - Wiki
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: page
+    attributes:
+      label: Which page or screen?
+      placeholder: The Shopping page, the Add item box
+    validations:
+      required: true
+  - type: dropdown
+    id: tools
+    attributes:
+      label: What do you use?
+      description: Pick all that apply.
+      multiple: true
+      options:
+        - Screen reader (TalkBack, NVDA, JAWS, VoiceOver)
+        - Keyboard only, no mouse
+        - Larger text or zoom
+        - High contrast or dark mode
+        - Color blindness
+        - Voice control
+        - Switch access
+        - Something else
+  - type: textarea
+    id: barrier
+    attributes:
+      label: What gets in the way?
+      description: What you were trying to do, and what stopped you or made it hard. For example a button the screen reader doesn't name, or text cut off at a larger size.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Your setup
+      description: Browser and device, Android version, and the screen reader or setting you use (with its version if you know it).
+      placeholder: |
+        Firefox on Windows 11 with NVDA
+        TalkBack on a Pixel 8, Android 15
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Screenshots or a short recording help. Make sure they don't show private household details.

@@ -1,6 +1,6 @@
 name: Report a bug
 description: Something in OurHome is broken or not working the way it should.
-labels: ["bug"]
+labels: ["bug", "needs triage"]
 body:
   - type: markdown
     attributes:
@@ -19,6 +19,17 @@ body:
         - Android app
         - Server setup (MongoDB, Paperless-ngx, Proton Mail Bridge)
         - Wiki
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: worked-before
+    attributes:
+      label: Did this work before?
+      description: For example, before you updated OurHome or the app.
+      options:
+        - Yes, it worked in an earlier version
+        - No, it has never worked for me
         - Not sure
     validations:
       required: true

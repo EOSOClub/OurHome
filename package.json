@@ -17,6 +17,7 @@
     "db:studio": "prisma studio",
     "paperless:preview": "tsx scripts/paperless-preview.ts",
     "paperless:setup": "tsx scripts/paperless-setup.ts",
+    "inbox:preview": "tsx scripts/inbox-preview.ts",
     "settings:migrate": "tsx scripts/env-to-settings.ts",
     "prebuild": "prisma generate"
   },

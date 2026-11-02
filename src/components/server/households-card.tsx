@@ -78,8 +78,8 @@ export function HouseholdsCard({ initial }: { initial: HouseholdSummaryDTO[] }) 
     onSuccess: (_d, vars) => {
       toast.success(
         vars.allowed
-          ? 'Its Paperless may now be on this server’s network'
-          : 'Its Paperless must now be a public address',
+          ? 'Its bill imports may now be on this server’s network'
+          : 'Its bill imports must now be public addresses',
       );
       void invalidate();
     },
@@ -132,7 +132,7 @@ export function HouseholdsCard({ initial }: { initial: HouseholdSummaryDTO[] }) 
                         .map((f) => FEATURE_LABELS[f])
                         .join(', ')}`}
                 </p>
-                {/* Paperless only feeds Bills: nothing to show (or import) without it. */}
+                {/* The bill imports only feed Bills: nothing to show (or import) without it. */}
                 {h.features.includes('bills') ? (
                   <p className="text-xs text-muted-foreground">
                     Paperless:{' '}
@@ -141,8 +141,8 @@ export function HouseholdsCard({ initial }: { initial: HouseholdSummaryDTO[] }) 
                       : h.paperless === 'server'
                         ? 'connected (server settings)'
                         : 'not connected'}{' '}
-                    ·{' '}
-                    {h.paperlessPrivateNetwork ? 'may use this server’s network' : 'public addresses only'}
+                    · OurHomeInbox: {h.inbox ? 'connected' : 'not connected'} ·{' '}
+                    {h.paperlessPrivateNetwork ? 'imports may use this server’s network' : 'imports: public addresses only'}
                   </p>
                 ) : null}
               </div>
@@ -158,10 +158,10 @@ export function HouseholdsCard({ initial }: { initial: HouseholdSummaryDTO[] }) 
                       variant="ghost"
                       size="sm"
                       disabled={setPaperlessNetwork.isPending}
-                      title="Whether this household's Paperless may be on this server's private network (Docker, LAN). Only allow households you trust."
+                      title="Whether this household's bill imports (Paperless, OurHomeInbox) may be on this server's private network (Docker, LAN). Only allow households you trust."
                       onClick={() => setPaperlessNetwork.mutate({ id: h.id, allowed: !h.paperlessPrivateNetwork })}
                     >
-                      <Network /> {h.paperlessPrivateNetwork ? 'Paperless: public only' : 'Paperless: allow local'}
+                      <Network /> {h.paperlessPrivateNetwork ? 'Imports: public only' : 'Imports: allow local'}
                     </Button>
                   ) : null}
                   {h.head ? (

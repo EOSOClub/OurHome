@@ -11,14 +11,14 @@ import {
   type PaperlessDocument,
 } from '@/server/paperless/mapping';
 import { paperlessNames } from '@/server/paperless/names';
-import { ingestFinancialDoc } from '@/server/services/billIngestService';
+import { ingestFinancialDoc } from '@/server/billIngest/ingest';
 import type { PaperlessStatusDTO, PaperlessSyncResultDTO } from '@/lib/types';
 
 // Imports bills and bill payments from Paperless-ngx.
 //
 // Each run asks Paperless for documents tagged `bill` / `bill-payment` that
 // have changed since the last run (the stored cursor) and hands each finished
-// one to billIngestService. Runs from the in-app reminder sweep (every 15
+// one to the bill importer (billIngest/). Runs from the in-app reminder sweep (every 15
 // minutes) and from Settings → "Check now". Read-only towards Paperless. Each
 // household has its own Paperless, cursor and status (see "Which Paperless"
 // below).

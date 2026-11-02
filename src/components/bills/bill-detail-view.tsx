@@ -330,7 +330,7 @@ export function BillDetailView({
               rel="noreferrer"
               className="mt-4 inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
             >
-              <ExternalLink className="size-4" /> Open in Paperless
+              <ExternalLink className="size-4" /> {bill.source === 'email' ? 'Open the email' : 'Open in Paperless'}
             </a>
           ) : null}
           {bill.notes ? (
@@ -475,6 +475,12 @@ function PaymentRow({
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-2">
+        {/* OurHomeInbox judged this payment late (it came after a later bill, or after the due date). */}
+        {payment.paidLate ? (
+          <Badge variant="warning" className="text-[10px]">
+            Paid late
+          </Badge>
+        ) : null}
         <Badge
           variant={payment.source === 'manual' ? 'outline' : 'secondary'}
           className="text-[10px]"

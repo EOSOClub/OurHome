@@ -19,7 +19,7 @@ import { assertServerAdmin } from '@/server/services/serverAdminService';
 //   admin chose (changed at first sign-in); everyone else comes back without
 //   one, and the head sets theirs from Members → Reset password.
 // - Not restored, because their tokens were never exported: the Home
-//   Assistant and Paperless connections.
+//   Assistant, Paperless and OurHomeInbox connections.
 
 /** The export's id format: Prisma cuid() - "c" + 24 lowercase letters/digits. */
 const ID_PATTERN = /\bc[a-z0-9]{24}\b/g;
@@ -239,6 +239,7 @@ export function planRestore(
   const notes: string[] = [];
   if (asArray(doc.homeAssistant).length) notes.push('Home Assistant: reconnect it in Settings (its token isn’t in exports).');
   if (doc.paperless) notes.push('Paperless: the Head of House reconnects it in Settings (its token isn’t in exports).');
+  if (doc.inbox) notes.push('OurHomeInbox: the Head of House reconnects it in Settings with a new token from OurHomeInbox.');
   const others = rows.User.length - 1;
   if (others > 0) {
     notes.push(

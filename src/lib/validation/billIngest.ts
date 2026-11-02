@@ -1,7 +1,8 @@
 import { z } from 'zod';
 
-// Contract for a single parsed financial document handed to billIngestService.
-// The Paperless import (paperless/mapping.ts) builds these. Field names are camelCase.
+// Contract for a single parsed financial document handed to the bill importer (src/server/billIngest/).
+// The Paperless import (paperless/mapping.ts) and the OurHomeInbox import
+// (inbox/mapping.ts) build these. Field names are camelCase.
 //
 // Everything except kind/messageId is optional because the parser omits fields it
 // couldn't extract (the document model has no schema to satisfy). `reference` is
@@ -17,10 +18,13 @@ export const billIngestSchema = z.object({
   amount: z.number().nonnegative().max(10_000_000).optional().nullable(),
   totalDue: z.number().nonnegative().max(10_000_000).optional().nullable(),
   // Optional split of a receipt's `amount` when the parser can extract it: the
-  // base charge vs. the card/convenience fee. When absent, billIngestService
+  // base charge vs. the card/convenience fee. When absent, the importer
   // infers the fee from the matched bill's balance.
   fee: z.number().nonnegative().max(10_000_000).optional().nullable(),
   baseAmount: z.number().nonnegative().max(10_000_000).optional().nullable(),
+  // OurHomeInbox (contract v2): true when it judged the payment late. Kept on
+  // the payment; the bill page shows "Paid late".
+  paidLate: z.boolean().optional().nullable(),
   currency: z.string().trim().max(8).optional().nullable(),
   dueDate: z.coerce.date().optional().nullable(),
   paidDate: z.coerce.date().optional().nullable(),

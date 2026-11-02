@@ -17,6 +17,7 @@ const checks = { settleOrphanedSubmissions: step('settle'), deleteExpiredPhotos:
 vi.mock('@/server/services/taskSubmissionService', () => checks);
 vi.mock('@/server/services/reminderService', () => ({ generateReminders: step('reminders') }));
 vi.mock('@/server/services/paperlessSync', () => ({ runPaperlessSync: vi.fn(async () => undefined) }));
+vi.mock('@/server/inbox/sync', () => ({ runInboxSync: vi.fn(async () => undefined) }));
 vi.mock('@/server/services/appReleaseService', () => ({ announceAppRelease: vi.fn(async () => undefined) }));
 const admin = { isFeatureEnabled: vi.fn(async () => true) };
 vi.mock('@/server/services/serverAdminService', () => admin);

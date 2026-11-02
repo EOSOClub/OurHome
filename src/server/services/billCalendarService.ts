@@ -8,7 +8,7 @@ import { dateKey } from '@/lib/format';
 // A bill on the calendar: one all-day Event linked by `billId`, on the bill's
 // due date. billService keeps it in step (a new due date, paying a repeating
 // bill, deleting the bill); a bill is only on the calendar once someone puts
-// it there, or when it came in by email or Paperless (billIngestService).
+// it there, or when it came in by email or Paperless (src/server/billIngest/).
 
 type Tx = Prisma.TransactionClient;
 type Db = Tx | typeof prisma;

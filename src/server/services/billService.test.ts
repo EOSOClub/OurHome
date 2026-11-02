@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // A tiny in-memory payments table, so the tests exercise the real `where`
 // clauses the service builds rather than canned totals.
-type Payment = { id: string; billId: string; amount: number; fee: number | null; cycleDueDate: Date | null };
+type Payment = { id: string; billId: string; amount: number; fee: number | null; cycleDueDate: Date | null; paidLate?: boolean | null };
 let payments: Payment[] = [];
 
 const matches = (p: Payment, where: { billId?: string; cycleDueDate?: Date | null }) =>
@@ -11,7 +11,7 @@ const matches = (p: Payment, where: { billId?: string; cycleDueDate?: Date | nul
     (p.cycleDueDate?.getTime() ?? null) === (where.cycleDueDate?.getTime() ?? null));
 
 const prisma = {
-  bill: { findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn() },
+  bill: { findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn(), delete: vi.fn() },
   billPayment: {
     aggregate: vi.fn(async ({ where }) => ({
       _sum: { amount: payments.filter((p) => matches(p, where)).reduce((s, p) => s + p.amount, 0) },
@@ -27,15 +27,18 @@ const prisma = {
       return {};
     }),
   },
-  recurrenceRule: { update: vi.fn() },
-  event: { updateMany: vi.fn(), findMany: vi.fn(async () => []) },
+  recurrenceRule: { update: vi.fn(), delete: vi.fn() },
+  event: { updateMany: vi.fn(), findMany: vi.fn(async () => []), deleteMany: vi.fn() },
+  // The household's OurHomeInbox (1 = connected) and the queue of changes to report to it.
+  inboxConnection: { count: vi.fn(async () => 1) },
+  inboxChange: { create: vi.fn() },
   $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(prisma)),
 };
 vi.mock('@/server/db/prisma', () => ({ prisma }));
 vi.mock('@/server/services/activityService', () => ({ logActivity: vi.fn() }));
 vi.mock('@/server/services/pointsService', () => ({ getPointsSettings: vi.fn(async () => ({ timezone: 'UTC' })) }));
 
-const { listBills, getBillDetail, markBillPaid, countsTowardBalance } = await import('./billService');
+const { listBills, getBillDetail, markBillPaid, deleteBill, countsTowardBalance } = await import('./billService');
 
 const OCT_1 = new Date('2026-10-01T12:00:00Z');
 const NOV_1 = new Date('2026-11-01T12:00:00Z');
@@ -126,5 +129,75 @@ describe('recurring bill balance', () => {
     const created = prisma.billPayment.create.mock.calls[0][0].data;
     expect(created.amount).toBeCloseTo(5.55);
     expect(prisma.bill.update.mock.calls[0][0].data).toEqual({ status: 'paid' });
+  });
+});
+
+describe('reporting to OurHomeInbox (contract v2)', () => {
+  // A one-off bill imported from OurHomeInbox: source "email" with the email's Message-ID.
+  const emailBill = bill({ id: 'b3', name: 'City Water', amount: 80, recurrenceId: null, recurrence: null, autoPay: false, source: 'email', sourceMessageId: '<bill3@city.example>' });
+  const paperlessBill = bill({ id: 'b4', name: 'Power', amount: 80, recurrenceId: null, recurrence: null, autoPay: false, source: 'paperless', sourceMessageId: 'paperless:41' });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    payments = [];
+    prisma.bill.update.mockImplementation(async ({ data }) => ({ ...emailBill, ...data }));
+  });
+
+  it('queues paid when a payment by hand leaves an email bill fully paid', async () => {
+    prisma.bill.findFirst.mockResolvedValueOnce(emailBill);
+    await markBillPaid('h1', 'u1', { id: 'b3' } as never);
+    expect(prisma.inboxChange.create).toHaveBeenCalledOnce();
+    expect(prisma.inboxChange.create.mock.calls[0][0].data).toMatchObject({
+      householdId: 'h1',
+      messageId: '<bill3@city.example>',
+      change: 'paid',
+      sentAt: null,
+    });
+    expect(prisma.inboxChange.create.mock.calls[0][0].data.at).toBeInstanceOf(Date);
+  });
+
+  it('queues nothing for a part payment', async () => {
+    prisma.bill.findFirst.mockResolvedValueOnce(emailBill);
+    await markBillPaid('h1', 'u1', { id: 'b3', amount: 30 } as never);
+    expect(prisma.inboxChange.create).not.toHaveBeenCalled();
+  });
+
+  it('queues nothing for a Paperless bill or a bill made by hand', async () => {
+    prisma.bill.findFirst.mockResolvedValueOnce(paperlessBill);
+    await markBillPaid('h1', 'u1', { id: 'b4' } as never);
+    prisma.bill.findFirst.mockResolvedValueOnce(water);
+    await markBillPaid('h1', 'u1', { id: 'b2' } as never);
+    expect(prisma.inboxChange.create).not.toHaveBeenCalled();
+  });
+
+  it('queues nothing when the household has no OurHomeInbox connected', async () => {
+    prisma.inboxConnection.count.mockResolvedValueOnce(0);
+    prisma.bill.findFirst.mockResolvedValueOnce(emailBill);
+    await markBillPaid('h1', 'u1', { id: 'b3' } as never);
+    expect(prisma.inboxChange.create).not.toHaveBeenCalled();
+  });
+
+  it('queues removed when a person deletes an email bill, but not a Paperless one', async () => {
+    prisma.bill.findFirst.mockResolvedValueOnce(emailBill);
+    await deleteBill('h1', 'u1', 'b3');
+    expect(prisma.bill.delete).toHaveBeenCalledWith({ where: { id: 'b3' } });
+    expect(prisma.inboxChange.create).toHaveBeenCalledOnce();
+    expect(prisma.inboxChange.create.mock.calls[0][0].data).toMatchObject({ messageId: '<bill3@city.example>', change: 'removed' });
+
+    vi.clearAllMocks();
+    prisma.bill.findFirst.mockResolvedValueOnce(paperlessBill);
+    await deleteBill('h1', 'u1', 'b4');
+    expect(prisma.inboxChange.create).not.toHaveBeenCalled();
+  });
+
+  it('shows Paid late on the payments OurHomeInbox judged late', async () => {
+    payments = [
+      { id: 'p1', billId: 'b3', amount: 80, fee: 3.2, cycleDueDate: null, paidLate: true },
+      // Recorded before the field existed.
+      { id: 'p2', billId: 'b3', amount: 0, fee: null, cycleDueDate: null, paidLate: null },
+    ];
+    prisma.bill.findFirst.mockResolvedValueOnce(emailBill);
+    const detail = await getBillDetail('h1', 'b3');
+    expect(detail.payments.map((p) => p.paidLate)).toEqual([true, false]);
   });
 });

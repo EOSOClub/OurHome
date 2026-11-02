@@ -596,6 +596,8 @@ export interface BillPaymentDTO {
   notes: string | null;
   source: string;
   confirmationNo: string | null;
+  /** OurHomeInbox judged it late; the bill page says "Paid late". */
+  paidLate: boolean;
   paidBy: MemberDTO | null;
 }
 
@@ -645,6 +647,53 @@ export interface PaperlessStatusDTO {
   lastRunAt: string | null;
   lastError: string | null;
   lastResult: PaperlessSyncResultDTO | null;
+}
+
+// OurHomeInbox bill import status (inboxSync), for the Settings card.
+export interface InboxSkippedDTO {
+  /** OurHomeInbox's id for the email. */
+  id: string;
+  title: string;
+  reason: string;
+  /**
+   * Link to the email in OurHomeInbox (when its public address is set), or,
+   * for a withdrawn email whose bill was kept, to that bill here ("/bills/...").
+   */
+  url: string | null;
+}
+
+/**
+ * The importer's outcomes, plus for withdrawn emails: removed (its bill is
+ * gone), kept (left for a person), withdrawn (it had made nothing here).
+ */
+export type InboxOutcome = 'created' | 'updated' | 'linked' | 'duplicate' | 'skipped' | 'removed' | 'kept' | 'withdrawn';
+
+export interface InboxSyncResultDTO {
+  /** Documents OurHomeInbox sent in the last check. */
+  checked: number;
+  /** Count per outcome: the importer's, plus removed / kept for withdrawn emails. */
+  imported: Partial<Record<InboxOutcome, number>>;
+  /** Recent skipped emails, newest first (kept across runs). */
+  skipped: InboxSkippedDTO[];
+}
+
+export interface InboxStatusDTO {
+  configured: boolean;
+  /** The household's OurHomeInbox; the token is never sent. */
+  connection: { url: string; publicUrl: string | null; remoteHousehold: string | null } | null;
+  /** The viewer may change the connection (Head of House). */
+  canEdit: boolean;
+  /** Its OurHomeInbox may be on the server's private network (else public addresses only). */
+  privateNetworkAllowed: boolean;
+  /** Paperless is connected too: both reading the same bills email brings bills in twice. */
+  paperlessConnected: boolean;
+  /** When the connection was made. */
+  since: string | null;
+  /** OurHomeInbox's document number handled so far. */
+  handled: number;
+  lastRunAt: string | null;
+  lastError: string | null;
+  lastResult: InboxSyncResultDTO | null;
 }
 
 // A stored contact-form submission (global, not household-scoped).

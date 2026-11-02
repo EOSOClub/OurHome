@@ -35,10 +35,11 @@ model Household {
   // Set by the server admin to shut the household out (its members can't use
   // the site or app) without deleting anything. null = active.
   disabledAt       DateTime?
-  // Set by the server admin: this household's Paperless may be on the
-  // server's private network (Docker, LAN). Without it only public addresses
-  // are allowed, so a household can't make the server probe its own network.
-  // The server admin's household is always allowed.
+  // Set by the server admin: this household's bill imports (Paperless and
+  // OurHomeInbox) may be on the server's private network (Docker, LAN).
+  // Without it only public addresses are allowed, so a household can't make
+  // the server probe its own network. The server admin's household is always
+  // allowed. (Named for Paperless, the first import; kept to avoid a rename.)
   paperlessPrivateNetwork Boolean?
   // Set by the server admin: features this household doesn't use (Feature in
   // src/lib/features.ts). Empty = everything on.
@@ -97,6 +98,9 @@ model Household {
   pushDevices    PushDevice[]
   paperlessSync  PaperlessSync?
   paperless      PaperlessConnection?
+  inboxSync      InboxSync?
+  inbox          InboxConnection?
+  inboxChanges   InboxChange[]
 }
 
 model User {
@@ -1010,7 +1014,8 @@ model Bill {
   autoPay        Boolean   @default(false)
   notes          String?
   // source: "manual" | "email" | "paperless" | "import". "email" / "paperless"
-  // are written by billIngestService (paperless via paperlessSync).
+  // are written by the bill importer, src/server/billIngest/ (email via
+  // inbox/sync.ts from OurHomeInbox, paperless via paperlessSync).
   source         String    @default("manual")
   // Email-ingestion linkage (source="email"). `reference` is the cross-document
   // link key (invoice # > confirmation # > generated) shared with the matching
@@ -1026,7 +1031,8 @@ model Bill {
   // reference or account number. Paperless: "paperless-correspondent:<id>"
   // (Paperless has no sender email). Email bills match on billerEmail instead.
   billerKey       String?
-  // Link to the original document (Paperless), shown as "Open in Paperless".
+  // Link to the original: the Paperless document ("Open in Paperless") or the
+  // email in OurHomeInbox ("Open the email").
   sourceUrl       String?
   // kind: "bill" (a service to the home: power, water, internet) |
   // "subscription" (an extra: streaming, software, a membership).
@@ -1076,6 +1082,10 @@ model BillPayment {
   reference       String?
   confirmationNo  String?
   sourceMessageId String?
+  // OurHomeInbox judged this payment late (contract v2, docs/ourhomeinbox-import.md);
+  // the bill page says "Paid late". Optional so payments recorded before this
+  // field existed read as null, which means not late, like false.
+  paidLate        Boolean? @default(false)
   // Who recorded it (plain user id) - may differ from paidByUserId. Decides
   // "own" vs "others'" for page access; null for imported payments.
   createdById  String?
@@ -1376,6 +1386,75 @@ model PaperlessConnection {
   updatedAt   DateTime @updatedAt
 
   household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+}
+
+// A household's OurHomeInbox, the email bill reader (one per household;
+// Settings → OurHomeInbox, set by its Head of House). The contract between the
+// two is in docs/ourhomeinbox-import.md.
+model InboxConnection {
+  id          String   @id @default(cuid()) @map("_id")
+  householdId String   @unique
+  // How this server reaches it, e.g. http://ourhome_inbox:8080 on ourhome_net.
+  url         String
+  // How people open it in a browser, for "Open the email" links; null = no links.
+  publicUrl   String?
+  // The ohi_ token made in OurHomeInbox, encrypted (security/secrets.ts).
+  tokenEnc    String
+  // The household name OurHomeInbox gave when the connection was tested, so a
+  // token for a different OurHomeInbox household starts the import fresh.
+  remoteHousehold String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+}
+
+// Progress of the OurHomeInbox bill import (inboxSync), one per household.
+// `after` is OurHomeInbox's document number: everything up to it is handled.
+// It starts at 0; OurHomeInbox's own start date keeps older emails out.
+model InboxSync {
+  id          String    @id @default(cuid()) @map("_id")
+  householdId String    @unique
+  after       Int       @default(0)
+  lastRunAt   DateTime?
+  // Outcome of the last run as JSON text: counts plus the emails skipped and
+  // why (InboxSyncResultDTO in src/lib/types.ts).
+  lastResult  String?
+  lastError   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+}
+
+// What a person did in OurHome to a bill imported from OurHomeInbox, waiting
+// to be reported back to it (contract v2: POST /api/handoff/changes, sent by
+// src/server/inbox/changes.ts at the start of every import run). Kept until
+// OurHomeInbox accepts it; `sentAt` then records when. Rows stay after
+// sending (and survive a disconnect): a "removed" row also keeps that email
+// from making its bill again when OurHomeInbox offers it again (inbox/sync.ts).
+model InboxChange {
+  id          String    @id @default(cuid()) @map("_id")
+  householdId String
+  // The bill's sourceMessageId: the Message-ID of the email that made it.
+  messageId   String
+  // change: "paid" (a payment recorded by hand left the bill fully paid, or
+  // any hand payment on a recurring bill, which closes its cycle) |
+  // "removed" (a person deleted the bill).
+  change      String
+  // When the person did it.
+  at          DateTime
+  // When OurHomeInbox accepted it, or refused it for good (`rejected`);
+  // null = still waiting to be sent.
+  sentAt      DateTime?
+  // OurHomeInbox refused this one change on its own (a 400): its reason. It
+  // is marked sent so it never holds up the rest of the queue again.
+  rejected    String?
+  createdAt   DateTime  @default(now())
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@index([householdId, sentAt])
 }
 
 // A phone that receives Firebase Cloud Messaging pushes for a signed-in user

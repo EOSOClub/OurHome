@@ -253,9 +253,11 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
   task/shopping/inventory category) are checked to belong to the household
   (`householdRefs.ts`); Mongo has no foreign keys.
 - **Bills.** `billService` owns bills, payments (partial payments, card fees),
-  and recurrence; `billIngestService` turns a parsed bill document into
+  and recurrence; the bill importer (`server/billIngest/`, entry point
+  `ingestFinancialDoc` in `ingest.ts`) turns a parsed bill document into
   bills/payments, matching by reference, account number, then biller
-  (`billerKey` / `billerEmail`) + amount within a card-fee band.
+  (`billerKey` / `billerEmail`) + amount within a card-fee band
+  (`matching.ts`).
   - *Paperless import* (`paperlessSync`, `server/paperless/`): each reminder
     sweep (and Settings → *Check now*) lists Paperless documents tagged
     `bill` / `bill-payment` modified since `PaperlessSync.cursor` and older

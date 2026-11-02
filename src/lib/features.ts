@@ -105,9 +105,10 @@ const SEGMENT_FEATURE: Record<string, Feature> = {
 };
 
 // Deeper paths that belong to a feature even though they sit inside an
-// always-on area: the Paperless connection (Settings) only feeds Bills.
+// always-on area: the Paperless and OurHomeInbox connections (Settings) only feed Bills.
 const NESTED_FEATURE: Record<string, Feature> = {
   'integrations/paperless': 'bills',
+  'integrations/inbox': 'bills',
 };
 
 /** The feature a page or API path belongs to, or null when it's always on. */

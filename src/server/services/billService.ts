@@ -4,6 +4,7 @@ import { prisma } from '@/server/db/prisma';
 import { logActivity } from '@/server/services/activityService';
 import { billIdsOnCalendar, syncBillEvent } from '@/server/services/billCalendarService';
 import { ConflictError, NotFoundError } from '@/server/services/errors';
+import { queueInboxChange } from '@/server/inbox/changes';
 import {
   nextAfterOccurrence,
   formatIntList,
@@ -80,6 +81,7 @@ function paymentToDTO(p: PaymentWithRelations): BillPaymentDTO {
     notes: p.notes,
     source: p.source,
     confirmationNo: p.confirmationNo,
+    paidLate: p.paidLate === true,
     paidBy: p.paidBy ? { id: p.paidBy.id, name: p.paidBy.name } : null,
     createdById: p.createdById,
   };
@@ -452,6 +454,13 @@ export async function markBillPaid(
     });
 
     const fullyPaid = recurs || priorPaid + amount + 0.005 >= existing.amount;
+    // A bill from OurHomeInbox now paid by hand: tell it (contract v2), so it
+    // doesn't pair a later payment email with this bill. "Fully paid" is the
+    // one-off bill's balance covered, or any hand payment on a recurring bill
+    // (it closes the cycle, even when less than the amount). Queued only while
+    // an OurHomeInbox is connected. A bill made from a "Paid on its own"
+    // receipt reports under that receipt's Message-ID; OurHomeInbox ignores it.
+    if (fullyPaid) await queueInboxChange(tx, householdId, existing, 'paid');
 
     let updated: BillWithRelations;
     if (recurs) {
@@ -617,11 +626,15 @@ export async function deleteBill(
   await prisma.$transaction(async (tx) => {
     const existing = await tx.bill.findFirst({
       where: { id, householdId },
-      select: { id: true, name: true, recurrenceId: true },
+      select: { id: true, name: true, recurrenceId: true, source: true, sourceMessageId: true },
     });
     if (!existing) throw new NotFoundError(`Bill ${id} not found.`);
 
     await tx.bill.delete({ where: { id: existing.id } });
+    // A person deleted a bill from OurHomeInbox: tell it (contract v2). An
+    // email OurHomeInbox withdrew deletes its bill elsewhere (inbox/withdraw.ts)
+    // and is not reported.
+    await queueInboxChange(tx, householdId, existing, 'removed');
     if (existing.recurrenceId) {
       await tx.recurrenceRule.delete({ where: { id: existing.recurrenceId } });
     }

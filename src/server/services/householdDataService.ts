@@ -41,6 +41,9 @@ export const HOUSEHOLD_MODELS = [
   'Notification',
   'PaperlessSync',
   'PaperlessConnection',
+  'InboxSync',
+  'InboxConnection',
+  'InboxChange',
   'PushDevice',
   'EventLog',
   'NfcTag',
@@ -68,8 +71,8 @@ export const EXPORT_VERSION = 1;
 
 /**
  * The household's data as one JSON document (Head of House, Settings →
- * Export). Credentials are left out: passwords, sessions, the Home Assistant
- * and Paperless tokens, phone push tokens. The request log (EventLog) is left
+ * Export). Credentials are left out: passwords, sessions, the Home Assistant,
+ * Paperless and OurHomeInbox tokens, phone push tokens. The request log (EventLog) is left
  * out too: it's operational, not the household's records. So is each member's
  * location consent and last known location (MemberLocation): a restored
  * household starts with everyone's sharing off, and each person turns it back
@@ -85,7 +88,10 @@ export const EXPORT_VERSION = 1;
  * points). Minutes bought with points go with the ledger of points
  * (points.spent), so a restored balance stays right. Tasks sent for a check
  * (TaskSubmission) go with their task, notes included, but never their
- * photos (TaskPhoto): a child's pictures stay on the server.
+ * photos (TaskPhoto): a child's pictures stay on the server. The OurHomeInbox
+ * import's progress (InboxSync) and its queue of changes to report back
+ * (InboxChange) stay out too: they belong to that connection, which isn't
+ * restored either.
  */
 export async function exportHousehold(householdId: string) {
   const where = { householdId };
@@ -116,6 +122,7 @@ export async function exportHousehold(householdId: string) {
     supervision,
     integrations,
     paperless,
+    inbox,
   ] = await Promise.all([
     prisma.user.findMany({
       where,
@@ -163,6 +170,7 @@ export async function exportHousehold(householdId: string) {
       select: { id: true, name: true, active: true, createdAt: true },
     }),
     prisma.paperlessConnection.findUnique({ where, select: { url: true, publicUrl: true, createdAt: true } }),
+    prisma.inboxConnection.findUnique({ where, select: { url: true, publicUrl: true, createdAt: true } }),
   ]);
 
   return {
@@ -200,6 +208,7 @@ export async function exportHousehold(householdId: string) {
     supervision,
     homeAssistant: integrations,
     paperless,
+    inbox,
   };
 }
 
@@ -290,6 +299,9 @@ export async function deleteHousehold(adminId: string, householdId: string, conf
       count('HomeAssistantIntegration', await tx.homeAssistantIntegration.deleteMany({ where }));
       count('PaperlessSync', await tx.paperlessSync.deleteMany({ where }));
       count('PaperlessConnection', await tx.paperlessConnection.deleteMany({ where }));
+      count('InboxSync', await tx.inboxSync.deleteMany({ where }));
+      count('InboxConnection', await tx.inboxConnection.deleteMany({ where }));
+      count('InboxChange', await tx.inboxChange.deleteMany({ where }));
       count('PushDevice', await tx.pushDevice.deleteMany({ where }));
       count('Category', await tx.category.deleteMany({ where }));
       count('Room', await tx.room.deleteMany({ where }));

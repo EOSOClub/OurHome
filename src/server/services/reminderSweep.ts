@@ -3,6 +3,7 @@ import { generateReminders } from '@/server/services/reminderService';
 import { resetDueSubtasks, rollTaskCycles } from '@/server/services/taskService';
 import { deleteExpiredPhotos, settleOrphanedSubmissions } from '@/server/services/taskSubmissionService';
 import { runPaperlessSync } from '@/server/services/paperlessSync';
+import { runInboxSync } from '@/server/inbox/sync';
 import { announceAppRelease } from '@/server/services/appReleaseService';
 import { isFeatureEnabled } from '@/server/services/serverAdminService';
 import { refreshPhoneAlerts } from '@/server/services/phoneStatusService';
@@ -17,6 +18,10 @@ export async function runReminderSweep(): Promise<{ households: number }> {
   // logged (and shown in Settings) but never stops the reminders.
   await runPaperlessSync().catch((err) => {
     console.warn('[paperless] import failed; retrying next sweep:', err instanceof Error ? err.message : err);
+  });
+  // The same for bills from OurHomeInbox, the email bill reader.
+  await runInboxSync().catch((err) => {
+    console.warn('[inbox] import failed; retrying next sweep:', err instanceof Error ? err.message : err);
   });
 
   // A new Android app build (from the deployment) → tell everyone, once per version.

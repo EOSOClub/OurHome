@@ -17,6 +17,7 @@ import {
 import { apiFetch } from '@/lib/api';
 import { CategoriesCard } from '@/components/settings/categories-card';
 import { PaperlessCard } from '@/components/settings/paperless-card';
+import { InboxCard } from '@/components/settings/inbox-card';
 import { useHouseholdFeatures } from '@/components/household-features';
 import { PLACES_KEY, PlacesCard } from '@/components/settings/places-card';
 import { LocationSelect } from '@/components/location-select';
@@ -151,6 +152,7 @@ export function SettingsView({
           <CategoriesCard initialCategories={initialCategories} />
         </div>
         <div className="space-y-6">
+          {features.includes('bills') ? <InboxCard /> : null}
           {features.includes('bills') ? <PaperlessCard /> : null}
           <HomeAssistantCard initialIntegrations={initialIntegrations} />
           {features.includes('inventory') ? (

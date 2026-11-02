@@ -157,17 +157,19 @@ export interface HouseholdSummaryDTO {
   lastActivityAt: string | null;
   /** The server admin's own household (can't be turned off). */
   isOwn: boolean;
-  /** Its Paperless may be on the server's private network (own household: always). */
+  /** Its bill imports (Paperless, OurHomeInbox) may be on the server's private network (own household: always). */
   paperlessPrivateNetwork: boolean;
   /** Where its Paperless import comes from: its own connection (Settings), the
    *  server-wide settings.yml one, or none. */
   paperless: 'household' | 'server' | null;
+  /** It has an OurHomeInbox connected (Settings). */
+  inbox: boolean;
   /** The features it has on (Points is off whenever Tasks is). */
   features: Feature[];
 }
 
 export async function listHouseholds(adminId: string): Promise<HouseholdSummaryDTO[]> {
-  const [households, users, activity, admin, paperless] = await Promise.all([
+  const [households, users, activity, admin, paperless, inbox] = await Promise.all([
     prisma.household.findMany({ orderBy: { createdAt: 'asc' } }),
     prisma.user.findMany({
       select: { id: true, name: true, displayUsername: true, username: true, role: true, householdId: true, createdAt: true },
@@ -177,6 +179,7 @@ export async function listHouseholds(adminId: string): Promise<HouseholdSummaryD
     prisma.user.findUnique({ where: { id: adminId }, select: { householdId: true } }),
     // Imported here, not at the top: paperlessSync itself uses this module.
     import('@/server/services/paperlessSync').then((m) => m.paperlessSources()),
+    import('@/server/inbox/sync').then((m) => m.inboxHouseholds()),
   ]);
   const last = new Map(activity.map((a) => [a.householdId, a._max.createdAt]));
   return households.map((h) => {
@@ -193,6 +196,7 @@ export async function listHouseholds(adminId: string): Promise<HouseholdSummaryD
       isOwn: h.id === admin?.householdId,
       paperlessPrivateNetwork: h.id === admin?.householdId || h.paperlessPrivateNetwork === true,
       paperless: paperless.get(h.id) ?? null,
+      inbox: inbox.has(h.id),
       features: enabledFeatures(h.disabledFeatures ?? []),
     };
   });
@@ -327,9 +331,9 @@ export async function resetHeadPassword(adminId: string, input: ResetHeadPasswor
 }
 
 /**
- * Let a household's Paperless be on the server's private network (Docker,
- * LAN), or take that back. Off, its Paperless must be a public address - the
- * server won't connect to its own network on that household's say-so.
+ * Let a household's bill imports (Paperless, OurHomeInbox) be on the server's
+ * private network (Docker, LAN), or take that back. Off, they must be public
+ * addresses - the server won't connect to its own network on that household's say-so.
  */
 export async function setPaperlessPrivateNetwork(adminId: string, householdId: string, allowed: boolean): Promise<void> {
   await assertServerAdmin(adminId);

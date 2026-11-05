@@ -58,6 +58,8 @@ export interface TaskFormPayload {
   estimatedMinutes?: number | null;
   points?: number | null;
   pointsFollowTime: boolean;
+  // Steps share the task's time (held total) or add up to it.
+  stepsShareTime: boolean;
   categoryId?: string | null;
   // Where: any rooms and whole floors; both [] = the whole house.
   roomIds: string[];
@@ -217,6 +219,7 @@ export function CreateTaskForm({
       estimatedMinutes: points.task.baseMinutes || null,
       points: points.task.pointsFollowTime || points.task.basePointsCenti === null ? null : points.task.basePointsCenti / 100,
       pointsFollowTime: points.task.pointsFollowTime,
+      stepsShareTime: points.task.stepsShareTime ?? false,
       categoryId: categoryId || null,
       ...placeIdLists(locations),
       assigneeId: currentTurn || null,

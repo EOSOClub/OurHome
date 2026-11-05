@@ -19,6 +19,17 @@ export interface ChangelogEntry {
 /** Newest first. */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: '2026-11-05',
+    date: '2026-11-05',
+    title: 'Chore steps and movie requests',
+    changes: [
+      'A chore with steps can now keep its total time: change one step and the others make room, so the chore stays as long as you set it.',
+      'A new switch, Steps share the task\'s time, turns that off if you want each step to add to the total instead.',
+      'Points stay matched to time when you turn Points follow time off and back on, and a new step gets the points its time is worth.',
+      'Movie and TV requests are now accepted first, so you can see someone is on it, then marked added once it\'s there.',
+    ],
+  },
+  {
     id: '2026-10-29',
     date: '2026-10-29',
     title: 'Calendar, notifications and requests',

@@ -263,8 +263,9 @@ export function RequestsView({
     onError: (e: Error) => toast.error(e.message),
   });
 
-  // Maintenance only: the assignee picks a done-by date (or none, where the
-  // head made it optional). Media is marked added in one step (completeMutation).
+  // Maintenance: the assignee picks a done-by date (or none, where the head
+  // made it optional). Media: a handler accepts it as is, and marks it added
+  // later (completeMutation).
   const acceptMutation = useMutation({
     mutationFn: (input: { id: string; dueAt?: string }) => post<RequestDTO>('/api/requests/accept', input),
     onSuccess: (r) => {
@@ -339,6 +340,7 @@ export function RequestsView({
       canDecline={mod.handles && mod.allowDecline}
       currentUserId={currentUserId}
       busy={busyId === r.id}
+      onAccept={() => acceptMutation.mutate({ id: r.id })}
       onComplete={() => completeMutation.mutate({ id: r.id })}
       onDecline={() => {
         declineForm.clear();
@@ -631,7 +633,6 @@ function OwnerActions({ title, onEdit, onDelete }: { title: string; onEdit: () =
   );
 }
 
-// `accepted` is never shown for media (folded into pending) but keeps the Record total.
 const MEDIA_STATUS_BADGE: Record<RequestStatus, 'secondary' | 'default' | 'success' | 'destructive'> = {
   pending: 'secondary',
   accepted: 'default',
@@ -646,6 +647,7 @@ function MediaRow({
   canDecline,
   currentUserId,
   busy,
+  onAccept,
   onComplete,
   onDecline,
   onEdit,
@@ -653,21 +655,23 @@ function MediaRow({
 }: {
   request: RequestDTO;
   isOwn: boolean;
-  /** Handles media requests, so may mark it added. */
+  /** Handles media requests, so may accept it and mark it added. */
   canManage: boolean;
   /** Handles media and the head allows declining. */
   canDecline: boolean;
   currentUserId: string;
   busy: boolean;
+  onAccept: () => void;
   onComplete: () => void;
   onDecline: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
   const timeZone = useHouseholdZone();
-  // Requests from before statuses existed have none, and "accepted" is left
-  // over from the older accept → available flow: both are still waiting.
-  const status: RequestStatus = r.status === 'completed' || r.status === 'declined' ? r.status : 'pending';
+  // Requests from before statuses existed have none: still waiting.
+  const status: RequestStatus = (r.status as RequestStatus | null) ?? 'pending';
+  const open = status === 'pending' || status === 'accepted';
+  // Who accepted it, while accepted; who added or declined it after.
   const decider = r.decidedBy ? (r.decidedBy.id === currentUserId ? 'you' : r.decidedBy.name) : null;
   // Problems are listed together, so each says what kind of media it is.
   const Icon = r.issue ? (MEDIA_ICONS[r.mediaType as MediaType] ?? null) : null;
@@ -692,6 +696,11 @@ function MediaRow({
           </Badge>
         </p>
         {r.issue && r.details ? <p className="text-sm text-muted-foreground">{r.details}</p> : null}
+        {status === 'accepted' ? (
+          <p className="text-sm text-muted-foreground">
+            {decider ? `Accepted by ${decider}` : 'Accepted'}, waiting to be {r.issue ? 'fixed' : 'added'}
+          </p>
+        ) : null}
         {status === 'declined' ? (
           <p className="text-sm text-muted-foreground">
             {decider ? `Declined by ${decider}` : 'Declined'}
@@ -703,12 +712,17 @@ function MediaRow({
         </p>
       </div>
       <div className="flex shrink-0 flex-wrap items-center gap-1">
-        {canDecline && status === 'pending' ? (
+        {canDecline && open ? (
           <Button size="sm" variant="ghost" onClick={onDecline} disabled={busy}>
             <X /> Decline
           </Button>
         ) : null}
         {canManage && status === 'pending' ? (
+          <Button size="sm" onClick={onAccept} disabled={busy}>
+            {busy ? <Loader2 className="animate-spin" /> : <Check />} Accept
+          </Button>
+        ) : null}
+        {canManage && status === 'accepted' ? (
           <Button size="sm" onClick={onComplete} disabled={busy}>
             {busy ? <Loader2 className="animate-spin" /> : <Check />} {r.issue ? 'Mark fixed' : 'Mark as added'}
           </Button>

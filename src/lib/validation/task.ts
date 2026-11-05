@@ -101,6 +101,9 @@ export const createTaskSchema = z.object({
   estimatedMinutes: estimatedMinutesSchema.optional().nullable(),
   points: pointsSchema.optional().nullable(),
   pointsFollowTime: z.boolean().optional(),
+  // Steps share the task's time instead of adding up. Omitted (older app
+  // builds): on when the steps sent add up to the task's time.
+  stepsShareTime: z.boolean().optional(),
   categoryId: recordId.optional().nullable(),
   // Where: any rooms and whole floors (neither = the whole house). App
   // builds from before several places send one roomId or floorId instead (a
@@ -143,6 +146,9 @@ export const updateTaskSchema = z.object({
   estimatedMinutes: estimatedMinutesSchema.optional().nullable(),
   points: pointsSchema.optional().nullable(),
   pointsFollowTime: z.boolean().optional(),
+  // See createTaskSchema. Omitted with a checklist: kept while the steps sent
+  // still add up to the task's time, else off (an older app let them drift).
+  stepsShareTime: z.boolean().optional(),
   categoryId: recordId.optional().nullable(),
   // When either list is present, all the task's places are replaced (a
   // missing list counts as []; both lists empty = the whole house).

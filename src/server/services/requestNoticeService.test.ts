@@ -62,6 +62,17 @@ describe('requestNoticeText', () => {
     });
   });
 
+  it('says accepted media is on its way to being added, or fixed', () => {
+    const media = { ...base, category: 'media', title: 'Dune', year: 2021 };
+    expect(requestNoticeText(media, 'accepted', 'Alex')).toEqual({
+      title: 'Accepted: Dune (2021)',
+      body: 'Alex accepted it. You’ll hear when it’s added.',
+    });
+    expect(requestNoticeText({ ...media, issue: true }, 'accepted', 'Alex').body).toBe(
+      'Alex accepted it. You’ll hear when it’s fixed.',
+    );
+  });
+
   it('gives maintenance its done-by day in the household zone, and done', () => {
     const job = { ...base, category: 'maintenance', title: 'Fix the faucet' };
     expect(

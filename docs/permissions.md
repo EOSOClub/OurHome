@@ -44,7 +44,7 @@ five switches; Requests has two, Add and Approve (`PAGE_ACTIONS`):
 | Add                           | create records on the page                                                                                                                                                                                      |
 | Edit own / Delete own         | change / remove records **you created**                                                                                                                                                                         |
 | Edit others' / Delete others' | change / remove records **someone else created**, or that have no creator (imported bills, email calendar events, inventory categories)                                                                         |
-| Approve                       | Requests only: mark media (movie/TV) requests **added** (or decline them, where allowed); approvers get the app's media reminders. The head can hand media to chosen people instead in Settings → Request types |
+| Approve                       | Requests only: accept media (movie/TV) requests, then mark them **added** (or decline them, where allowed); approvers get the app's media reminders until they accept. The head can hand media to chosen people instead in Settings → Request types |
 
 **Resolution** (`resolveAccess` in `src/lib/permissions.ts`):
 
@@ -169,6 +169,11 @@ its page, API, reminders or bell notifications, and its grid rows are hidden.
 Nothing is deleted; turning it back on restores everything as it was.
 
 ## Changelog
+
+- **2026-11-05** - Media is two steps again: whoever handles it **accepts**
+  it (the requester sees it's accepted and waiting to be added), then marks it
+  **added**. It stops waiting on them once accepted. Marking a pending one
+  added still works, for app builds from before this.
 
 - **2026-10-11** - The **member** role is now **adult** (stored value and
   label). Existing users and the `member` key in `Household.roleAccess` were

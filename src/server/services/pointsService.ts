@@ -83,6 +83,7 @@ interface TaskPointsRow {
   baseMinutes: number | null;
   basePointsCenti: number | null;
   pointsFollowTime: boolean | null;
+  stepsShareTime: boolean | null;
   subtasks: {
     minutes: number | null;
     pointsCenti: number | null;
@@ -98,6 +99,7 @@ export function effectivePoints<T extends TaskPointsRow>(task: T, minutesPerPoin
       baseMinutes: task.baseMinutes,
       basePointsCenti: task.basePointsCenti,
       pointsFollowTime: task.pointsFollowTime ?? true,
+      stepsShareTime: task.stepsShareTime ?? undefined,
       legacyMinutes: task.estimatedMinutes,
     },
     task.subtasks.map((s) => ({

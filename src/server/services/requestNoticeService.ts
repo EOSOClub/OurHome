@@ -1,7 +1,7 @@
 import type { Prisma } from '@prisma/client';
 
 // Answers to a request: when someone else approves it, declines it, accepts it
-// (maintenance) or marks it done or added, the requester gets a bell row
+// (maintenance, media) or marks it done or added, the requester gets a bell row
 // (addressed to them alone) and a phone alert. The push is the request
 // change's own: requestService.pushRequestChange always wakes the requester.
 // At most one per request: a newer answer replaces it, and withdrawing the
@@ -49,6 +49,12 @@ export function requestNoticeText(
     return { title: `Declined: ${name}`, body: reply ? `${actorName} said no: ${reply}` : `${actorName} said no.` };
   }
   if (answer === 'accepted') {
+    if (r.category === 'media') {
+      return {
+        title: `Accepted: ${name}`,
+        body: `${actorName} accepted it. You’ll hear when it’s ${r.issue ? 'fixed' : 'added'}.`,
+      };
+    }
     if (!r.dueAt) return { title: `Accepted: ${name}`, body: `${actorName} said they’ll do it.` };
     const due = r.dueAt.toLocaleDateString('en-US', {
       weekday: 'short',

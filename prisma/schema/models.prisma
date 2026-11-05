@@ -617,6 +617,10 @@ model Task {
   basePointsCenti  Int?
   // Points recalculate from time when it changes (null = true, the default).
   pointsFollowTime Boolean?
+  // Steps share baseMinutes (a step edit moves time between steps) instead of
+  // adding up. null = saved before the switch: on when the steps add up to
+  // baseMinutes, off when they had drifted (withDefaults in taskPoints.ts).
+  stepsShareTime   Boolean?
   // Recurring tasks with a cycle (RecurrenceRule.rollover): the current
   // window [cycleStartedAt, cycleEndsAt). Reaching cycleEndsAt rolls the task
   // over (recorded as missed if it wasn't done).

@@ -167,7 +167,6 @@ function NeedsYouCard({ me, timeZone }: { me: Me; timeZone: string }) {
                     <RequestBadge
                       reason={r.reason}
                       category={r.category}
-                      issue={r.issue === true}
                       dueAt={r.dueAt}
                       timeZone={timeZone}
                     />
@@ -242,22 +241,20 @@ function requestTitle(r: Me['requests'][number]): string {
 function RequestBadge({
   reason,
   category,
-  issue,
   dueAt,
   timeZone,
 }: {
   reason: Me['requests'][number]['reason'];
   category: string;
-  /** A media problem report: handling it means fixing it. */
-  issue: boolean;
   dueAt: Date | null;
   timeZone: string;
 }) {
   switch (reason) {
     case 'approve':
-      // Purchase and permission: a yes or a no.
+      // Purchase and permission: a yes or a no. Media only waits on them until
+      // accepted (requestAttention), then it's added from the Requests page.
       if (category === 'purchase' || category === 'permission') return <Badge>Decide</Badge>;
-      return <Badge>{issue ? 'Fix it' : 'Mark added'}</Badge>;
+      return <Badge>Accept</Badge>;
     case 'accept':
       return <Badge>Accept</Badge>;
     case 'due':

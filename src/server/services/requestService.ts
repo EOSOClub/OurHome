@@ -49,14 +49,16 @@ import type {
 //   media:
 //                only the requester may edit or delete it. Whoever handles media
 //                (the people the head chose, or by default anyone with the
-//                Requests "Approve" switch - head and managers) marks it added,
-//                which completes it, or declines it when the head allows that.
-//                Rows from before statuses existed have no status; treat that
-//                as pending. "accepted" rows from the older two-step flow
-//                (accepted, then available) still count as waiting. A media
-//                request with `issue` reports a problem with something the
-//                household already has; it works the same way, and marking it
-//                done means fixed.
+//                Requests "Approve" switch - head and managers) accepts it
+//                (the requester sees it's accepted and waiting to be added),
+//                then marks it added, which completes it, or declines it,
+//                before or after accepting, when the head allows that.
+//                Marking a pending one added still works, for app builds from
+//                before the accept step. Rows from before statuses existed
+//                have no status; treat that as pending. A media request with
+//                `issue` reports a problem with something the household
+//                already has; it works the same way, and marking it done
+//                means fixed.
 //   maintenance: the requester asks another member (the assignee), one of the
 //                people the head lets be asked. The assignee accepts with a
 //                done-by date (`dueAt`, the deadline; optional when the head
@@ -467,7 +469,7 @@ async function getHandledRequest(
     const members = new Set(memberIds);
     const requesterSupervisorIds = supervisors.get(existing.requesterId) ?? [];
     if (!decidesRequest(approve, actor.id, access.requests.approve, members, requesterSupervisorIds)) {
-      if (category === 'media') throw new ForbiddenError("You can't mark media requests added.");
+      if (category === 'media') throw new ForbiddenError("You can't accept or add media requests.");
       throw new ForbiddenError(
         approve.bySupervisors && requesterSupervisorIds.some((s) => members.has(s))
           ? 'Only their supervisors can decide this.'
@@ -639,9 +641,9 @@ export async function reassignRequest(
 /**
  * Maintenance: the assignee accepts, committing to (or moving) a done-by date
  * - the deadline. When the head made the date optional, accepting without one
- * is fine too (and saving no date clears it). The approval workflow has no
- * step for accepting; app builds from before the one-step media flow still
- * call this, so it marks the request done instead.
+ * is fine too (and saving no date clears it). Media: a handler accepts it (no
+ * date), and marks it added later. Purchase and permission have no step for
+ * accepting; old app builds that call this for them approve instead.
  */
 export async function acceptRequest(
   householdId: string,
@@ -651,6 +653,7 @@ export async function acceptRequest(
   const modules = await getRequestModules(householdId);
   const existing = await getHandledRequest(householdId, modules, input.id, actor);
   assertStillOpen(existing);
+  if (existing.category === 'media') return acceptMedia(householdId, modules, existing, actor);
   if (isRequestCategory(existing.category) && approveSettings(modules, existing.category)) {
     return completeRequest(householdId, actor, { id: input.id });
   }
@@ -695,6 +698,41 @@ export async function acceptRequest(
 }
 
 /**
+ * Media: a handler takes it on. The requester is told it's accepted and
+ * waiting to be added (or fixed); `decidedBy` names who accepted it until
+ * someone marks it added or declines it.
+ */
+async function acceptMedia(
+  householdId: string,
+  modules: RequestModuleSettings,
+  existing: { id: string; status: string | null },
+  actor: RequestActor,
+): Promise<RequestWithPeople> {
+  if (existing.status === 'accepted') throw new ConflictError('This request is already accepted.');
+  const request = await prisma.request.update({
+    where: { id: existing.id },
+    data: {
+      status: 'accepted',
+      acceptedAt: new Date(),
+      decidedBy: { connect: { id: actor.id } },
+      changedById: actor.id,
+    },
+    include: requestInclude,
+  });
+  await logActivity({
+    householdId,
+    actorId: actor.id,
+    verb: 'updated',
+    subjectType: 'request',
+    subjectId: request.id,
+    message: request.issue ? `took on ${describe(request)}` : `accepted ${describe(request)}`,
+  });
+  await tellRequester(householdId, request, 'accepted', actor.id);
+  await pushRequestChange(householdId, modules, request);
+  return request;
+}
+
+/**
  * Purchase approved with a list: puts it on that shopping list as the
  * approver, who needs Shopping "Add" (and the Shopping feature on). Returns
  * the list's name.
@@ -731,8 +769,9 @@ async function addPurchaseToList(
 }
 
 /**
- * Maintenance: the assignee marks it done. Media: a handler marks it added.
- * Purchase and permission: whoever decides approves it; a purchase with
+ * Maintenance: the assignee marks it done. Media: a handler marks it added
+ * (normally once accepted; a pending one too, for app builds from before the
+ * accept step). Purchase and permission: whoever decides approves it; a purchase with
  * `listId` also goes on that shopping list.
  */
 export async function completeRequest(

@@ -196,15 +196,14 @@ export const MAINTENANCE_STATUS_LABELS: Record<MaintenanceStatus, string> = {
 export const REQUEST_STATUSES = MAINTENANCE_STATUSES;
 export type RequestStatus = (typeof REQUEST_STATUSES)[number];
 
-// Media requests are one step: whoever approves them (Settings → Request
-// types; by default the Requests "Approve" switch in the page-access grid)
-// marks them added (which completes them) or declines them where allowed.
-// "accepted" only exists on rows from the older two-step flow (accepted, then
-// available) and still counts as waiting. Requests made before statuses
-// existed have none - treat a missing status as pending.
+// Media requests: whoever handles them (Settings → Request types; by default
+// the Requests "Approve" switch in the page-access grid) accepts them, then
+// marks them added (which completes them), or declines them where allowed.
+// Requests made before statuses existed have none - treat a missing status as
+// pending.
 export const MEDIA_STATUS_LABELS: Record<RequestStatus, string> = {
   pending: 'Waiting',
-  accepted: 'Waiting',
+  accepted: 'Accepted',
   completed: 'Added',
   declined: 'Declined',
 };

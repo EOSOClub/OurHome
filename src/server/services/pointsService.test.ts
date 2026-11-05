@@ -104,6 +104,7 @@ describe('settings and legacy rows', () => {
         baseMinutes: null,
         basePointsCenti: null,
         pointsFollowTime: null,
+        stepsShareTime: null,
         subtasks: [
           { minutes: null, pointsCenti: null, minutesCustom: null, pointsFollowTime: null },
           { minutes: null, pointsCenti: null, minutesCustom: null, pointsFollowTime: null },

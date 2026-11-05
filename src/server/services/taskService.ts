@@ -79,6 +79,7 @@ import {
   formatPoints,
   liveTotals,
   removeStep,
+  setStepsShareTime,
   setTaskFollow,
   setTaskMinutes,
   setTaskPoints,
@@ -271,6 +272,7 @@ export function taskToDTO(task: TaskWithRelations, ctx: TaskContext): TaskDTO {
     baseMinutes: state.task.baseMinutes,
     basePoints: state.task.basePointsCenti === null ? null : state.task.basePointsCenti / 100,
     pointsFollowTime: state.task.pointsFollowTime,
+    stepsShareTime: state.task.stepsShareTime ?? false,
     minutesPerPoint: ctx.settings.minutesPerPoint,
     cycleStartedAt: task.cycleStartedAt?.toISOString() ?? null,
     cycleEndsAt: task.cycleEndsAt?.toISOString() ?? null,
@@ -679,7 +681,7 @@ type EditorStep = StepPoints & { title: string; resetIntervalDays: number | null
 
 /** The points state an editor save describes, with missing values filled in. */
 function stateFromInput(
-  base: { estimatedMinutes?: number | null; points?: number | null; pointsFollowTime?: boolean },
+  base: { estimatedMinutes?: number | null; points?: number | null; pointsFollowTime?: boolean; stepsShareTime?: boolean },
   steps: SubtaskInput[],
   minutesPerPoint: number,
 ): PointsState<EditorStep> {
@@ -690,6 +692,8 @@ function stateFromInput(
       baseMinutes,
       basePointsCenti: follow || base.points == null ? null : toCenti(base.points),
       pointsFollowTime: follow,
+      // Unsent: on when the steps add up to the task's time (withDefaults).
+      stepsShareTime: base.stepsShareTime,
     },
     steps.map((s) => ({
       id: s.id,
@@ -709,7 +713,7 @@ function stateFromInput(
 }
 
 type TaskWithSteps = Prisma.TaskGetPayload<{ include: { subtasks: true } }>;
-type PointsEdit = Pick<UpdateTaskInput, 'estimatedMinutes' | 'points' | 'pointsFollowTime'>;
+type PointsEdit = Pick<UpdateTaskInput, 'estimatedMinutes' | 'points' | 'pointsFollowTime' | 'stepsShareTime'>;
 
 /** The points state an editor save with its full checklist describes (updateTask); unsent base values stay. */
 function checklistState(existing: TaskWithSteps, edit: PointsEdit, subtasks: SubtaskInput[], minutesPerPoint: number) {
@@ -723,6 +727,9 @@ function checklistState(existing: TaskWithSteps, edit: PointsEdit, subtasks: Sub
             ? null
             : existing.basePointsCenti / 100,
       pointsFollowTime: edit.pointsFollowTime ?? existing.pointsFollowTime ?? true,
+      // Unsent (older app): an off task stays off; otherwise it stays on only
+      // while the steps sent still add up to the task's time.
+      stepsShareTime: edit.stepsShareTime ?? (existing.stepsShareTime === false ? false : undefined),
     },
     subtasks,
     minutesPerPoint,
@@ -750,6 +757,10 @@ function baseEditState(existing: TaskWithSteps, edit: PointsEdit, minutesPerPoin
     state = setTaskPoints(state, toCenti(edit.points), { confirm: true }).state;
     changed = true;
   }
+  if (edit.stepsShareTime !== undefined && edit.stepsShareTime !== state.task.stepsShareTime) {
+    state = setStepsShareTime(state, edit.stepsShareTime, minutesPerPoint);
+    changed = true;
+  }
   return { state, changed };
 }
 
@@ -767,6 +778,7 @@ function taskPointsColumns(state: PointsState) {
     baseMinutes: state.task.baseMinutes,
     basePointsCenti: state.task.basePointsCenti,
     pointsFollowTime: state.task.pointsFollowTime,
+    stepsShareTime: state.task.stepsShareTime ?? false,
     estimatedMinutes: state.task.baseMinutes === null && live.minutes === 0 ? null : live.minutes,
     pointsCenti: live.pointsCenti,
   };
@@ -2105,7 +2117,7 @@ export async function addSubtask(
     );
     // A new step would change what the adult is checking.
     if (task.status === 'awaiting_review') throw checkConflict(WAITING_FOR_OK, 'check_waiting');
-    const state = addStep(effectivePoints(task, settings.minutesPerPoint), {});
+    const state = addStep(effectivePoints(task, settings.minutesPerPoint), {}, settings.minutesPerPoint);
     const created = await tx.subtask.create({
       data: {
         taskId: input.taskId,

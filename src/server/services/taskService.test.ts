@@ -158,7 +158,9 @@ function rowsBefore(task: ReturnType<typeof oneTimeTask>, completer: string, at:
     ['pendingCredit.deleteMany', { where: { taskId: 't1' } }],
     ['subtask.update', { where: { id: 'a' }, data: { minutes: 10, pointsCenti: 100, minutesCustom: false, pointsFollowTime: true } }],
     ['subtask.update', { where: { id: 'b' }, data: { minutes: 10, pointsCenti: 100, minutesCustom: false, pointsFollowTime: true } }],
-    ['task.update', { where: { id: 't1' }, data: { baseMinutes: 20, basePointsCenti: 200, pointsFollowTime: true, estimatedMinutes: 20, pointsCenti: 200 } }],
+    // stepsShareTime: added with the "Steps share the task's time" switch (the
+    // row has none, and its steps add up to its time, so it is stored on).
+    ['task.update', { where: { id: 't1' }, data: { baseMinutes: 20, basePointsCenti: 200, pointsFollowTime: true, stepsShareTime: true, estimatedMinutes: 20, pointsCenti: 200 } }],
     ['subtask.updateMany', {
       where: { taskId: 't1', done: false },
       data: { done: true, doneAt: at, doneById: completer, checkAwardId: null, autoResetAt: null },

@@ -5,7 +5,7 @@
 import { REQUEST_MODULE_WORKFLOWS, isRequestCategory } from '@/lib/requestModules';
 
 export type RequestAttentionReason =
-  /** An open request of a kind they decide (approve workflow: media, purchase, permission). */
+  /** An open request of a kind they decide (approve workflow: media waiting to be accepted, purchase, permission). */
   | 'approve'
   /** A maintenance request assigned to them, waiting for them to accept. */
   | 'accept'
@@ -35,10 +35,11 @@ export interface RequestDeciding {
 /**
  * Why `userId` should act on `r` now, or null. The caller leaves out requests
  * of kinds that are turned off.
- * Media made before statuses existed has none (still waiting); "accepted"
- * media from the older two-step flow also still waits to be added; declined
- * and completed requests wait on nobody. `endOfToday` is the start of tomorrow
- * in the household's time zone.
+ * Media made before statuses existed has none (still waiting). Accepted media
+ * waits on nobody, like accepted maintenance without a due date: the handler
+ * took it on and adds it from the Requests page. Declined and completed
+ * requests wait on nobody. `endOfToday` is the start of tomorrow in the
+ * household's time zone.
  */
 export function attentionReason(
   r: AttentionRequest,
@@ -48,6 +49,7 @@ export function attentionReason(
 ): RequestAttentionReason | null {
   if (!isRequestCategory(r.category)) return null;
   if (r.status === 'completed' || r.status === 'declined') return null;
+  if (r.category === 'media' && r.status === 'accepted') return null;
   if (REQUEST_MODULE_WORKFLOWS[r.category] === 'approve') {
     const decides =
       deciding.bySupervisors.has(r.category) && deciding.supervised.has(r.requesterId)

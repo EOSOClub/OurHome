@@ -23,18 +23,38 @@ Sunday). Changing the rate doesn't touch existing tasks; their values are stored
   rate is base points ÷ base minutes (the household rate without time).
 - **Points follow time** (saved per task and per step, on by default): a TTC
   change recalculates points. Typing points by hand turns it off. Changing
-  points never changes time.
+  points never changes time. A step whose points follow time is always worth
+  its own minutes at the task's rate; turning the task's switch back on gives
+  every step that, and only asks first if a step's points were set by hand.
 - A task with steps shows live totals, the sum of its steps.
-- Editing a step's TTC marks it customized and recalculates its points at the
-  task's rate (unless its points are hand-set). Editing a step's points marks
-  them customized. Either way, other steps and the task base are left alone, so
-  nothing recalculates in a circle.
+- **Steps share the task's time** (`Task.stepsShareTime`, on for new tasks):
+  while the task has a time, that time is held. The steps not set by hand
+  split what the hand-set ones leave. Editing a step's TTC marks it customized
+  and takes the difference from the other steps, or gives it back, in
+  proportion to their time: the ones not set by hand first, all of them when
+  every other one was. A step can't take more than the task's time minus what
+  the hand-set steps that don't move keep. Adding or removing a step re-splits
+  the same way. A lone step set below the task's time leaves the rest
+  unassigned (the editor says so) until another step takes it. Minutes stay
+  whole, so 25 over two steps is 12 + 13. A task with no time has nothing to
+  hold, so its steps add up.
+- **Off** (the old behaviour): editing a step's TTC changes only that step,
+  recalculating its points at the task's rate unless they're hand-set. The
+  task base is left alone, so the live totals float. Adding/removing a step
+  re-splits the base while no step is customized; once one is, a new step gets
+  the average time, with its points following that time.
+- Editing a step's points marks them customized and changes only that step, in
+  both modes.
+- Tasks saved before the switch existed (`stepsShareTime` null) count as on
+  when their steps add up to their time and off when they had drifted, so no
+  stored number moves. An older app that saves a checklist without the field
+  keeps it on only while the steps it sends still add up. Turning the switch on
+  holds what the task shows: drifted steps make their sum the task's time.
 - Editing a task total redistributes that dimension (both, when points follow
-  time) across the steps in proportion to their current values. If any step is
-  customized, the editor warns first; confirming rescales everything and clears
-  the customization; cancelling changes nothing.
-- Adding/removing a step re-splits the base while no step is customized; once
-  one is, totals float (a new step gets the average values).
+  time) across the steps in proportion to their time. If that would overwrite
+  a hand-set value in the dimension being changed, the editor warns first;
+  confirming rescales everything and clears that customization; cancelling
+  changes nothing.
 - Points are stored as integer hundredths; splits use largest-remainder
   rounding, so parts always add up exactly (10 over 3 steps = 3.33 / 3.33 / 3.34).
 - Tasks from before points: base TTC = their old estimate, points follow time,

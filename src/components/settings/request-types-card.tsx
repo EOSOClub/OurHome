@@ -339,7 +339,7 @@ export function RequestTypesCard({
                     />
                   </fieldset>
                   <div className="space-y-2">
-                    <Label htmlFor="rt-media-handlers">Who marks them added</Label>
+                    <Label htmlFor="rt-media-handlers">Who accepts and adds them</Label>
                     <Select
                       id="rt-media-handlers"
                       value={mediaChosen ? 'chosen' : 'switch'}

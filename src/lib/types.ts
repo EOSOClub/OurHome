@@ -301,6 +301,9 @@ export interface TaskDTO {
   baseMinutes: number | null;
   basePoints: number | null;
   pointsFollowTime: boolean;
+  /** Steps share the task's time: a step edit moves time between steps, so
+   *  the base time is held. Off: the steps' times add up (src/lib/taskPoints.ts). */
+  stepsShareTime: boolean;
   /** Household rate, so editors can compute live. */
   minutesPerPoint: number;
   /** Current cycle window (rollover tasks). Completed inside it = done this cycle. */

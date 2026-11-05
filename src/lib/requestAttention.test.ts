@@ -14,10 +14,11 @@ const handlesMedia = deciding({ handles: new Set(['media']) });
 const handlesNothing = deciding();
 
 describe('attentionReason', () => {
-  it('media waits on those who handle it only, until added', () => {
+  it('media waits on those who handle it only, until accepted', () => {
     const media = { ...base, category: 'media', status: null, assigneeId: null };
     expect(attentionReason(media, 'me', handlesMedia, tomorrow)).toBe('approve');
-    expect(attentionReason({ ...media, status: 'accepted' }, 'me', handlesMedia, tomorrow)).toBe('approve');
+    expect(attentionReason({ ...media, status: 'pending' }, 'me', handlesMedia, tomorrow)).toBe('approve');
+    expect(attentionReason({ ...media, status: 'accepted' }, 'me', handlesMedia, tomorrow)).toBeNull();
     expect(attentionReason(media, 'me', handlesNothing, tomorrow)).toBeNull();
     expect(attentionReason({ ...media, status: 'completed' }, 'me', handlesMedia, tomorrow)).toBeNull();
   });

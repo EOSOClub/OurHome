@@ -27,12 +27,14 @@ const modules = {
   supervisorsByMember: vi.fn(async () => new Map<string, string[]>()),
 };
 vi.mock('@/server/services/requestModuleService', () => modules);
-vi.mock('@/server/services/permissionService', () => ({ getUserAccess: vi.fn() }));
+const permissions = { getUserAccess: vi.fn() };
+vi.mock('@/server/services/permissionService', () => permissions);
 vi.mock('@/server/services/pointsService', () => ({ getPointsSettings: vi.fn() }));
 vi.mock('@/server/services/shoppingService', () => ({ addShoppingItem: vi.fn() }));
 vi.mock('@/server/services/serverAdminService', () => ({ isFeatureEnabled: vi.fn() }));
 
-const { countNewRequests, deleteRequest, markRequestsSeen, reassignRequest } = await import('./requestService');
+const { acceptRequest, completeRequest, countNewRequests, deleteRequest, markRequestsSeen, reassignRequest } =
+  await import('./requestService');
 
 const H = 'h1';
 const HEAD = { id: 'head', role: 'head' };
@@ -108,6 +110,54 @@ describe('the head reassigns a maintenance request', () => {
     prisma.request.findFirst.mockResolvedValueOnce({ ...ROW, category: 'purchase' });
     await expect(reassignRequest(H, HEAD, { id: ID, assigneeId: 'alex' })).rejects.toThrow('Only maintenance');
     expect(prisma.request.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('media is accepted, then marked added', () => {
+  const MEDIA = { ...ROW, category: 'media', title: 'Dune', mediaType: 'movie', year: 2021, assigneeId: null, status: 'pending' };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    prisma.request.findFirst.mockResolvedValue({ ...MEDIA });
+    prisma.request.update.mockImplementation(async (args: { data: Record<string, unknown> }) => ({ ...MEDIA, ...args.data }));
+    permissions.getUserAccess.mockResolvedValue({ requests: { approve: true } });
+    modules.getRequestModules.mockResolvedValue(DEFAULT_REQUEST_MODULES);
+  });
+
+  it('accepting records who took it on and tells the requester', async () => {
+    await acceptRequest(H, HEAD, { id: ID });
+    expect(savedData()).toEqual({
+      status: 'accepted',
+      acceptedAt: expect.any(Date),
+      decidedBy: { connect: { id: 'head' } },
+      changedById: 'head',
+    });
+    expect(notices.announceRequestAnswer).toHaveBeenCalledWith(
+      prisma,
+      H,
+      expect.objectContaining({ status: 'accepted' }),
+      'accepted',
+      expect.objectContaining({ id: 'head' }),
+      expect.anything(),
+    );
+    expect(activity.logActivity).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'accepted the movie “Dune (2021)”' }),
+    );
+  });
+
+  it('not twice, and not by someone who does not handle media', async () => {
+    prisma.request.findFirst.mockResolvedValueOnce({ ...MEDIA, status: 'accepted' });
+    await expect(acceptRequest(H, HEAD, { id: ID })).rejects.toThrow('already accepted');
+    permissions.getUserAccess.mockResolvedValue({ requests: { approve: false } });
+    await expect(acceptRequest(H, ADULT, { id: ID })).rejects.toThrow('accept or add media');
+    expect(prisma.request.update).not.toHaveBeenCalled();
+  });
+
+  it('marking an accepted one added completes it', async () => {
+    prisma.request.findFirst.mockResolvedValueOnce({ ...MEDIA, status: 'accepted' });
+    await completeRequest(H, HEAD, { id: ID });
+    expect(savedData()).toEqual(expect.objectContaining({ status: 'completed', decidedBy: { connect: { id: 'head' } } }));
+    expect(activity.logActivity).toHaveBeenCalledWith(expect.objectContaining({ message: 'added the movie “Dune (2021)”' }));
   });
 });
 

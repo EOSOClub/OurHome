@@ -8,11 +8,13 @@ import {
   addStep,
   customisedCount,
   formatPoints,
+  holdsTime,
   liveTotals,
   removeStep,
   setStepFollow,
   setStepMinutes,
   setStepPoints,
+  setStepsShareTime,
   setTaskFollow,
   setTaskMinutes,
   setTaskPoints,
@@ -47,12 +49,18 @@ const newKey = () => `new-${++keySeq}`;
 
 /** The editor's starting state for a task (or an empty new task). */
 export function draftFromTask(task?: TaskDTO): PointsDraft {
-  if (!task) return { task: { baseMinutes: null, basePointsCenti: null, pointsFollowTime: true }, steps: [] };
+  if (!task) {
+    return {
+      task: { baseMinutes: null, basePointsCenti: null, pointsFollowTime: true, stepsShareTime: true },
+      steps: [],
+    };
+  }
   return {
     task: {
       baseMinutes: task.baseMinutes,
       basePointsCenti: task.basePoints === null ? null : toCenti(task.basePoints),
       pointsFollowTime: task.pointsFollowTime,
+      stepsShareTime: task.stepsShareTime,
     },
     steps: [...task.subtasks]
       .sort((a, b) => a.position - b.position)
@@ -161,6 +169,13 @@ export function PointsEditor({
   const live = liveTotals(value);
   const custom = customisedCount(value.steps);
   const base = snapshot ?? value;
+  // Steps sharing a held time: the field shows the held time, not the sum.
+  const held = value.steps.length > 0 && holdsTime(value.task);
+  const shownMinutes = held
+    ? value.task.baseMinutes
+    : value.steps.length || value.task.baseMinutes !== null
+      ? live.minutes
+      : null;
 
   /** Apply a total edit: live while nothing is customized; otherwise ask on commit. */
   function totalLive(run: (confirm: boolean) => EditResult<DraftStep>) {
@@ -190,7 +205,7 @@ export function PointsEditor({
   function addDraftStep() {
     const title = draftTitle.trim();
     if (!title) return;
-    onChange(addStep(value, { key: newKey(), title, resetIntervalDays: null }));
+    onChange(addStep(value, { key: newKey(), title, resetIntervalDays: null }, minutesPerPoint));
     setDraftTitle('');
   }
 
@@ -205,13 +220,13 @@ export function PointsEditor({
           <NumberField
             id="ttc"
             disabled={locked}
-            value={value.steps.length || value.task.baseMinutes !== null ? live.minutes : null}
+            value={shownMinutes}
             placeholder="e.g. 15"
             marked={custom > 0}
             onFocus={() => setSnapshot(value)}
             onValue={(v) => (custom > 0 ? undefined : totalLive(minutesRun(v)))}
             onCommit={(v) => {
-              if (v === (value.steps.length ? live.minutes : value.task.baseMinutes)) return setSnapshot(null);
+              if (v === (value.steps.length ? shownMinutes : value.task.baseMinutes)) return setSnapshot(null);
               totalCommit(minutesRun(v), 'time to complete');
             }}
           />
@@ -255,7 +270,12 @@ export function PointsEditor({
         ) : null}
       </div>
 
-      {custom > 0 ? (
+      {custom > 0 && held ? (
+        <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
+          {custom} step{custom === 1 ? '' : 's'} set by hand. Changing a total rescales every step and clears
+          their custom values.
+        </p>
+      ) : custom > 0 ? (
         <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
           Totals influenced by {custom} customised step{custom === 1 ? '' : 's'}
           {value.task.baseMinutes !== null || value.task.basePointsCenti !== null
@@ -267,8 +287,37 @@ export function PointsEditor({
         </p>
       ) : null}
 
+      {held && live.minutes !== value.task.baseMinutes ? (
+        <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs">
+          The steps add up to {formatMinutes(live.minutes)} of the task&apos;s{' '}
+          {formatMinutes(value.task.baseMinutes ?? 0)}. Add a step to give it the rest, or change the
+          task&apos;s time.
+        </p>
+      ) : null}
+
       <div className="space-y-2">
         <Label>Checklist{value.steps.length ? '' : ' (optional)'}</Label>
+        {value.steps.length > 0 ? (
+          <label className={cn('flex items-start gap-2 text-sm', locked && 'opacity-60')}>
+            <input
+              type="checkbox"
+              className="mt-0.5 size-4"
+              disabled={locked}
+              checked={value.task.stepsShareTime ?? false}
+              onChange={(e) => onChange(setStepsShareTime(value, e.target.checked, minutesPerPoint))}
+            />
+            <span>
+              Steps share the task&apos;s time
+              <span className="block text-xs text-muted-foreground">
+                {!value.task.stepsShareTime
+                  ? "Each step's time adds to the task's time."
+                  : held
+                    ? "Changing a step's time takes it from the other steps or gives it back, so the task's time stays the same."
+                    : "Set the task's time above to share it out between the steps."}
+              </span>
+            </span>
+          </label>
+        ) : null}
         {value.steps.length > 0 ? (
           <div className="space-y-2">
             <div
@@ -306,7 +355,11 @@ export function PointsEditor({
                   className="h-9"
                   value={s.minutes}
                   marked={s.minutesCustom}
-                  onValue={(v) => v !== null && onChange(setStepMinutes(value, i, v, minutesPerPoint))}
+                  // Typed against the checklist from when the field was focused,
+                  // so "1" on the way to "15" doesn't reshape the other steps.
+                  onFocus={() => setSnapshot(value)}
+                  onValue={(v) => v !== null && onChange(setStepMinutes(base, i, v, minutesPerPoint))}
+                  onCommit={() => setSnapshot(null)}
                 />
                 {showPoints ? (
                 <div className="flex items-center gap-1">

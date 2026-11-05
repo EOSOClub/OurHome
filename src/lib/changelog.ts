@@ -19,6 +19,15 @@ export interface ChangelogEntry {
 /** Newest first. */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: '2026-11-05b',
+    date: '2026-11-05',
+    title: 'Notes on requests',
+    changes: [
+      'You can add a note to any request, waiting or done, and everyone in the house can read it. Whoever asked and whoever is handling it get a notification.',
+      'Requests that are done or declined fold up to one line, so the ones still waiting stand out. Tap the arrow to open one again.',
+    ],
+  },
+  {
     id: '2026-11-05',
     date: '2026-11-05',
     title: 'Chore steps and movie requests',

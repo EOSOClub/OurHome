@@ -264,6 +264,10 @@ export const NOTIFICATION_TYPES = [
   // Sent to a requester when someone else approves, declines, accepts or
   // finishes their request (requestNoticeService).
   'request_update',
+  // Sent to a request's requester and whoever handles it when someone else
+  // adds a note; one per request and person, the newest note's
+  // (requestNoticeService).
+  'request_note',
   // Sent to an event's attendees and creator at the reminder time they picked,
   // one per date; gone once that date's event is over (reminderService).
   'event_reminder',
@@ -293,6 +297,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   extra_time: 'Extra time',
   parent_pin: 'Parent PIN',
   request_update: 'Request',
+  request_note: 'Note',
   event_reminder: 'Event',
   subscription_trial: 'Subscription',
   task_review: 'To check',

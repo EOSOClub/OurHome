@@ -23,7 +23,8 @@ export const PERMISSIONS = [
   // narrower scope is enforced in taskService.completeTask, not here.
   'tasks:complete',
   // Work with requests: edit/delete your own (requestService), accept and
-  // finish ones assigned to you. Everyone. *Submitting* a new request is the
+  // finish ones assigned to you, add notes to any and remove your own notes.
+  // Everyone. *Submitting* a new request is the
   // Requests "Add" switch in the page-access grid below, and marking media
   // requests added is its "Approve" switch.
   'requests:write',

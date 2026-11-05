@@ -35,6 +35,7 @@ export const HOUSEHOLD_MODELS = [
   'ShoppingList',
   'ShoppingItem',
   'Request',
+  'RequestNote',
   'BugReport',
   'InventoryItem',
   'Purchase',
@@ -157,7 +158,8 @@ export async function exportHousehold(householdId: string) {
     prisma.bill.findMany({ where, include: { recurrence: true } }),
     prisma.billPayment.findMany({ where }),
     prisma.shoppingList.findMany({ where, include: { items: true } }),
-    prisma.request.findMany({ where }),
+    // Each request with its notes.
+    prisma.request.findMany({ where, include: { notes: true } }),
     prisma.bugReport.findMany({ where }),
     prisma.inventoryItem.findMany({ where }),
     prisma.purchase.findMany({ where }),
@@ -278,6 +280,7 @@ export async function deleteHousehold(adminId: string, householdId: string, conf
       count('ShoppingList', await tx.shoppingList.deleteMany({ where }));
       count('Purchase', await tx.purchase.deleteMany({ where }));
       count('InventoryItem', await tx.inventoryItem.deleteMany({ where }));
+      count('RequestNote', await tx.requestNote.deleteMany({ where }));
       count('Request', await tx.request.deleteMany({ where }));
       count('BugReport', await tx.bugReport.deleteMany({ where }));
       count('Notification', await tx.notification.deleteMany({ where }));

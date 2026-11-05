@@ -7,10 +7,13 @@ import {
   ForbiddenError,
   NotFoundError,
 } from '@/server/services/errors';
-import { getUserAccess } from '@/server/services/permissionService';
+import { getUserAccess, membersWithAccess } from '@/server/services/permissionService';
 import { getPointsSettings } from '@/server/services/pointsService';
 import {
   announceRequestAnswer,
+  announceRequestNote,
+  clearNoteNotices,
+  clearRequestNoteNotices,
   clearRequestNotice,
   type RequestAnswer,
 } from '@/server/services/requestNoticeService';
@@ -36,6 +39,7 @@ import {
 import type { RequestDTO } from '@/lib/types';
 import type {
   AcceptRequestInput,
+  AddRequestNoteInput,
   CompleteRequestInput,
   CreateRequestInput,
   DeclineRequestInput,
@@ -73,11 +77,17 @@ import type {
 //                completes it, or declines it. Approving a purchase may put it
 //                on a shopping list. The requester may edit it until it's
 //                 decided and delete it any time.
+// Notes: anyone who works with requests may add a note to any request of a
+// kind that's on, open or finished, and everyone reads them. A note counts as
+// a change for the Requests badge, and the requester and whoever handles it
+// are told (noteRecipients). Its author may remove it, and so may the head;
+// removing one doesn't count, and takes its notices with it.
 
 const requestInclude = {
   requester: { select: { id: true, name: true } },
   assignee: { select: { id: true, name: true } },
   decidedBy: { select: { id: true, name: true } },
+  notes: { include: { author: { select: { id: true, name: true } } }, orderBy: { createdAt: 'asc' } },
 } satisfies Prisma.RequestInclude;
 
 type RequestWithPeople = Prisma.RequestGetPayload<{
@@ -111,6 +121,12 @@ export function requestToDTO(r: RequestWithPeople): RequestDTO {
     decidedBy: r.decidedBy ? { id: r.decidedBy.id, name: r.decidedBy.name } : null,
     reply: r.reply,
     requester: { id: r.requester.id, name: r.requester.name },
+    notes: r.notes.map((n) => ({
+      id: n.id,
+      body: n.body,
+      author: n.author ? { id: n.author.id, name: n.author.name } : null,
+      createdAt: n.createdAt.toISOString(),
+    })),
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
   };
@@ -213,6 +229,50 @@ async function forgetAnswer(householdId: string, requestId: string) {
   } catch (err) {
     console.error('[requests] clearing answer notice failed', err);
   }
+}
+
+/** Removes a request's note notices; a failure leaves stale bell rows, nothing worse. */
+async function forgetNotes(householdId: string, requestId: string) {
+  try {
+    await clearRequestNoteNotices(prisma, householdId, requestId);
+  } catch (err) {
+    console.error('[requests] clearing note notices failed', err);
+  }
+}
+
+/**
+ * Who is told about a new note: the requester and whoever handles the
+ * request, never its author. Maintenance: the assignee. Media, purchase and
+ * permission: whoever accepted or decided it (`decidedById`), or while nobody
+ * has, everyone who decides it (as getHandledRequest checks).
+ */
+async function noteRecipients(
+  householdId: string,
+  modules: RequestModuleSettings,
+  r: { category: string; requesterId: string; assigneeId: string | null; decidedById: string | null },
+  authorId: string,
+): Promise<string[]> {
+  const ids = new Set<string>([r.requesterId]);
+  const approve = isRequestCategory(r.category) ? approveSettings(modules, r.category) : null;
+  if (!approve) {
+    if (r.assigneeId) ids.add(r.assigneeId);
+  } else if (r.decidedById) {
+    ids.add(r.decidedById);
+  } else {
+    const [memberIds, approvers, supervisors] = await Promise.all([
+      householdMemberIds(householdId),
+      membersWithAccess(householdId, 'requests', 'approve'),
+      approve.bySupervisors ? supervisorsByMember(householdId) : new Map<string, string[]>(),
+    ]);
+    const members = new Set(memberIds);
+    const holders = new Set(approvers);
+    const requesterSupervisorIds = supervisors.get(r.requesterId) ?? [];
+    for (const id of memberIds) {
+      if (decidesRequest(approve, id, holders.has(id), members, requesterSupervisorIds)) ids.add(id);
+    }
+  }
+  ids.delete(authorId);
+  return [...ids];
 }
 
 /** For activity messages: "“LEGO set”", "2 × “AA batteries”". */
@@ -891,6 +951,7 @@ export async function deleteRequest(
     : await prisma.user.findUnique({ where: { id: existing.requesterId }, select: { name: true } });
   await prisma.request.delete({ where: { id } });
   await forgetAnswer(householdId, id);
+  await forgetNotes(householdId, id);
 
   await logActivity({
     householdId,
@@ -905,4 +966,81 @@ export async function deleteRequest(
       : `removed ${requester ? `${requester.name}’s` : 'a'} request ${describe(existing)}`,
   });
   await pushRequestChange(householdId, await getRequestModules(householdId), existing);
+}
+
+/**
+ * Anyone who works with requests adds a note to a request of a kind that's
+ * on, open or finished, for the whole household to read. It counts as a
+ * change (`changedById`), so the Requests badge shows it to everyone else,
+ * and the requester and whoever handles it are told (noteRecipients).
+ */
+export async function addRequestNote(
+  householdId: string,
+  actor: RequestActor,
+  input: AddRequestNoteInput,
+): Promise<RequestWithPeople> {
+  const modules = await getRequestModules(householdId);
+  const existing = await getRequest(householdId, input.id);
+  assertModuleOn(modules, existing.category);
+
+  const note = await prisma.requestNote.create({
+    data: { householdId, requestId: existing.id, authorId: actor.id, body: input.body },
+  });
+  const request = await prisma.request.update({
+    where: { id: existing.id },
+    data: { changedById: actor.id },
+    include: requestInclude,
+  });
+
+  await logActivity({
+    householdId,
+    actorId: actor.id,
+    verb: 'updated',
+    subjectType: 'request',
+    subjectId: request.id,
+    message: `added a note to ${request.category === 'purchase' ? describePurchase(request) : describe(request)}`,
+  });
+  // Before the push, so their phones find the notice when they wake.
+  let told: string[] = [];
+  try {
+    told = await noteRecipients(householdId, modules, request, actor.id);
+    const name = request.notes.find((n) => n.id === note.id)?.author?.name ?? 'Someone';
+    await announceRequestNote(prisma, householdId, request, note, { id: actor.id, name }, told);
+  } catch (err) {
+    // No notice, nothing worse: the note itself is saved.
+    console.error('[requests] note notice failed', err);
+  }
+  await pushRequestChange(householdId, modules, request, told);
+
+  return request;
+}
+
+/** Its author removes a note, or the head removes anyone's. Returns the request without it. */
+export async function deleteRequestNote(
+  householdId: string,
+  actor: RequestActor,
+  noteId: string,
+): Promise<RequestWithPeople> {
+  const note = await prisma.requestNote.findFirst({ where: { id: noteId, householdId } });
+  if (!note) throw new NotFoundError('Note not found.');
+  if (note.authorId !== actor.id && actor.role !== 'head') {
+    throw new ForbiddenError('You can only remove your own notes.');
+  }
+  const modules = await getRequestModules(householdId);
+  const existing = await getRequest(householdId, note.requestId);
+  assertModuleOn(modules, existing.category);
+
+  await prisma.requestNote.delete({ where: { id: note.id } });
+  try {
+    await clearNoteNotices(prisma, householdId, note.id);
+  } catch (err) {
+    console.error('[requests] clearing note notices failed', err);
+  }
+  const request = await prisma.request.findFirstOrThrow({
+    where: { id: existing.id, householdId },
+    include: requestInclude,
+  });
+  await pushRequestChange(householdId, modules, request);
+
+  return request;
 }

@@ -1,14 +1,17 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   CalendarClock,
   Check,
+  ChevronDown,
   Film,
   Hand,
   Inbox,
   Loader2,
+  MessageSquare,
+  MessageSquarePlus,
   Pencil,
   ShoppingCart,
   Trash2,
@@ -339,6 +342,7 @@ export function RequestsView({
       canManage={mod.handles}
       canDecline={mod.handles && mod.allowDecline}
       currentUserId={currentUserId}
+      isHead={isHead}
       busy={busyId === r.id}
       onAccept={() => acceptMutation.mutate({ id: r.id })}
       onComplete={() => completeMutation.mutate({ id: r.id })}
@@ -359,6 +363,7 @@ export function RequestsView({
       key={r.id}
       request={r}
       currentUserId={currentUserId}
+      isHead={isHead}
       decides={viewDecides(mod, r.requester.id)}
       busy={busyId === r.id}
       onApprove={() =>
@@ -633,6 +638,207 @@ function OwnerActions({ title, onEdit, onDelete }: { title: string; onEdit: () =
   );
 }
 
+/** Done, added, fixed, approved or declined: nothing left to do on it. */
+const isFinished = (r: RequestDTO) => r.status === 'completed' || r.status === 'declined';
+
+/**
+ * One request in a list. Its title line always shows; the rest (details, who
+ * and when, the buttons and the notes) while it's open. A finished request
+ * starts closed, anything still open starts open, and the arrow switches it.
+ * Closed, the title line says how many notes it has.
+ */
+function RequestItem({
+  request: r,
+  currentUserId,
+  isHead,
+  highlight,
+  leading,
+  title,
+  body,
+  actions,
+}: {
+  request: RequestDTO;
+  currentUserId: string;
+  /** May remove anyone's note. */
+  isHead: boolean;
+  /** Waiting on this member: tinted. */
+  highlight: boolean;
+  /** Before the text while open: a purchase's picture. */
+  leading?: ReactNode;
+  /** The title line's contents: the name and its badges. */
+  title: ReactNode;
+  body: ReactNode;
+  actions: ReactNode;
+}) {
+  const [open, setOpen] = useState(() => !isFinished(r));
+  const notes = r.notes.length;
+  return (
+    <li className={cn('px-3 py-2.5', highlight && 'bg-primary/5')}>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        {open ? leading : null}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start gap-1">
+            <button
+              type="button"
+              aria-expanded={open}
+              aria-label={`${open ? 'Hide' : 'Show'} details of ${r.title}`}
+              onClick={() => setOpen((o) => !o)}
+              className="-my-1 -ml-2 flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <ChevronDown className={cn('size-4 transition-transform', !open && '-rotate-90')} />
+            </button>
+            <p className="flex min-w-0 flex-1 flex-wrap items-center gap-2 font-medium">
+              {title}
+              {!open && notes > 0 ? (
+                <span
+                  className="flex items-center gap-1 text-sm font-normal text-muted-foreground"
+                  aria-label={`${notes} ${notes === 1 ? 'note' : 'notes'}`}
+                >
+                  <MessageSquare className="size-3.5" aria-hidden /> {notes}
+                </span>
+              ) : null}
+            </p>
+          </div>
+          {open ? <div className="pl-7">{body}</div> : null}
+        </div>
+        {open ? <div className="flex shrink-0 flex-wrap items-center gap-1">{actions}</div> : null}
+      </div>
+      {open ? <RequestNotes request={r} currentUserId={currentUserId} isHead={isHead} /> : null}
+    </li>
+  );
+}
+
+/**
+ * A request's notes, oldest first, and a box to add one. The whole household
+ * reads them and anyone may add one; its author may remove a note, and so may
+ * the head.
+ */
+function RequestNotes({ request: r, currentUserId, isHead }: { request: RequestDTO; currentUserId: string; isHead: boolean }) {
+  const timeZone = useHouseholdZone();
+  const queryClient = useQueryClient();
+  const [writing, setWriting] = useState(false);
+  const [body, setBody] = useState('');
+  const [removing, setRemoving] = useState<RequestDTO['notes'][number] | null>(null);
+  const form = useFieldErrors(`request-note-${r.id}`);
+  // The answer is the request with its notes as they are now: shown at once, no refetch.
+  const put = (updated: RequestDTO) =>
+    queryClient.setQueryData<RequestDTO[]>(['requests'], (list) =>
+      list?.map((x) => (x.id === updated.id ? updated : x)),
+    );
+  const post = (path: string, payload: unknown) =>
+    apiFetch<RequestDTO>(path, { method: 'POST', body: JSON.stringify(payload) });
+
+  const addMutation = useMutation({
+    mutationFn: (text: string) => post('/api/requests/notes', { id: r.id, body: text }),
+    onSuccess: (updated) => {
+      put(updated);
+      setBody('');
+      setWriting(false);
+    },
+    onError: form.fail,
+  });
+  const removeMutation = useMutation({
+    mutationFn: (noteId: string) => post('/api/requests/notes/delete', { id: noteId }),
+    onSuccess: (updated) => {
+      put(updated);
+      setRemoving(null);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const cancel = () => {
+    setBody('');
+    form.clear();
+    setWriting(false);
+  };
+  const fieldId = `request-note-${r.id}`;
+
+  return (
+    <div className="mt-2 space-y-1.5 pl-7">
+      {r.notes.length > 0 ? (
+        <ul className="space-y-1.5" aria-label={`Notes on ${r.title}`}>
+          {r.notes.map((n) => {
+            const mine = n.author?.id === currentUserId;
+            return (
+              <li key={n.id} className="flex items-start gap-2 rounded-md bg-muted/60 px-2.5 py-1.5 text-sm">
+                <div className="min-w-0 flex-1">
+                  <p className="whitespace-pre-wrap break-words">{n.body}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {mine ? 'You' : (n.author?.name ?? 'Someone')} · {shortDateTime(n.createdAt, timeZone)}
+                  </p>
+                </div>
+                {mine || isHead ? (
+                  <button
+                    type="button"
+                    onClick={() => setRemoving(n)}
+                    aria-label="Remove this note"
+                    className="-mr-1 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+      {writing ? (
+        <form
+          className="space-y-1.5"
+          data-field="body"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (body.trim()) addMutation.mutate(body.trim());
+          }}
+          {...form.formProps}
+        >
+          <Label htmlFor={fieldId} className="sr-only">
+            Note
+          </Label>
+          <Textarea
+            id={fieldId}
+            rows={2}
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            placeholder="Add a note for the household"
+            maxLength={1000}
+            // They just asked to write one.
+            autoFocus
+            {...form.invalid('body')}
+          />
+          <FieldNote id={form.noteId('body')} error={form.get('body')} hint="Everyone in the household sees it." />
+          <div className="flex justify-end gap-1">
+            <Button type="button" size="sm" variant="ghost" onClick={cancel} disabled={addMutation.isPending}>
+              Cancel
+            </Button>
+            <Button type="submit" size="sm" disabled={!body.trim() || addMutation.isPending}>
+              {addMutation.isPending ? <Loader2 className="animate-spin" /> : null}
+              Add note
+            </Button>
+          </div>
+        </form>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setWriting(true)}
+          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <MessageSquarePlus className="size-4" /> Add a note
+        </button>
+      )}
+      <ConfirmDialog
+        open={removing !== null}
+        onClose={() => setRemoving(null)}
+        onConfirm={() => removing && removeMutation.mutate(removing.id)}
+        title="Remove this note?"
+        description={removing ? `“${removing.body}” will be removed for everyone.` : undefined}
+        confirmLabel="Remove"
+        destructive
+        pending={removeMutation.isPending}
+      />
+    </div>
+  );
+}
+
 const MEDIA_STATUS_BADGE: Record<RequestStatus, 'secondary' | 'default' | 'success' | 'destructive'> = {
   pending: 'secondary',
   accepted: 'default',
@@ -646,6 +852,7 @@ function MediaRow({
   canManage,
   canDecline,
   currentUserId,
+  isHead,
   busy,
   onAccept,
   onComplete,
@@ -660,6 +867,8 @@ function MediaRow({
   /** Handles media and the head allows declining. */
   canDecline: boolean;
   currentUserId: string;
+  /** May remove anyone's note. */
+  isHead: boolean;
   busy: boolean;
   onAccept: () => void;
   onComplete: () => void;
@@ -676,9 +885,13 @@ function MediaRow({
   // Problems are listed together, so each says what kind of media it is.
   const Icon = r.issue ? (MEDIA_ICONS[r.mediaType as MediaType] ?? null) : null;
   return (
-    <li className={cn('flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center', canManage && status === 'pending' && 'bg-primary/5')}>
-      <div className="min-w-0 flex-1">
-        <p className="flex flex-wrap items-center gap-2 font-medium">
+    <RequestItem
+      request={r}
+      currentUserId={currentUserId}
+      isHead={isHead}
+      highlight={canManage && status === 'pending'}
+      title={
+        <>
           {Icon ? <Icon className="size-4 shrink-0 text-muted-foreground" aria-label={MEDIA_TYPE_LABELS[r.mediaType as MediaType]} /> : null}
           <span className={cn('truncate', status === 'declined' && 'text-muted-foreground')}>
             {r.title} <span className="font-normal text-muted-foreground">({r.year})</span>
@@ -694,49 +907,55 @@ function MediaRow({
           <Badge variant={MEDIA_STATUS_BADGE[status]}>
             {r.issue && status === 'completed' ? 'Fixed' : MEDIA_STATUS_LABELS[status]}
           </Badge>
-        </p>
-        {r.issue && r.details ? <p className="text-sm text-muted-foreground">{r.details}</p> : null}
-        {status === 'accepted' ? (
-          <p className="text-sm text-muted-foreground">
-            {decider ? `Accepted by ${decider}` : 'Accepted'}, waiting to be {r.issue ? 'fixed' : 'added'}
+        </>
+      }
+      body={
+        <>
+          {r.issue && r.details ? <p className="text-sm text-muted-foreground">{r.details}</p> : null}
+          {status === 'accepted' ? (
+            <p className="text-sm text-muted-foreground">
+              {decider ? `Accepted by ${decider}` : 'Accepted'}, waiting to be {r.issue ? 'fixed' : 'added'}
+            </p>
+          ) : null}
+          {status === 'declined' ? (
+            <p className="text-sm text-muted-foreground">
+              {decider ? `Declined by ${decider}` : 'Declined'}
+              {r.reply ? `: ${r.reply}` : null}
+            </p>
+          ) : null}
+          <p className="text-xs text-muted-foreground">
+            {r.issue ? 'Reported' : 'Requested'} by {isOwn ? 'you' : r.requester.name} · {shortDate(r.createdAt, timeZone)}
           </p>
-        ) : null}
-        {status === 'declined' ? (
-          <p className="text-sm text-muted-foreground">
-            {decider ? `Declined by ${decider}` : 'Declined'}
-            {r.reply ? `: ${r.reply}` : null}
-          </p>
-        ) : null}
-        <p className="text-xs text-muted-foreground">
-          {r.issue ? 'Reported' : 'Requested'} by {isOwn ? 'you' : r.requester.name} · {shortDate(r.createdAt, timeZone)}
-        </p>
-      </div>
-      <div className="flex shrink-0 flex-wrap items-center gap-1">
-        {canDecline && open ? (
-          <Button size="sm" variant="ghost" onClick={onDecline} disabled={busy}>
-            <X /> Decline
-          </Button>
-        ) : null}
-        {canManage && status === 'pending' ? (
-          <Button size="sm" onClick={onAccept} disabled={busy}>
-            {busy ? <Loader2 className="animate-spin" /> : <Check />} Accept
-          </Button>
-        ) : null}
-        {canManage && status === 'accepted' ? (
-          <Button size="sm" onClick={onComplete} disabled={busy}>
-            {busy ? <Loader2 className="animate-spin" /> : <Check />} {r.issue ? 'Mark fixed' : 'Mark as added'}
-          </Button>
-        ) : null}
-        {/* A declined request can't be edited, only removed. */}
-        {isOwn && status === 'declined' ? (
-          <Button variant="ghost" size="icon" onClick={onDelete} aria-label={`Remove ${r.title}`}>
-            <Trash2 className="size-4" />
-          </Button>
-        ) : isOwn ? (
-          <OwnerActions title={r.title} onEdit={onEdit} onDelete={onDelete} />
-        ) : null}
-      </div>
-    </li>
+        </>
+      }
+      actions={
+        <>
+          {canDecline && open ? (
+            <Button size="sm" variant="ghost" onClick={onDecline} disabled={busy}>
+              <X /> Decline
+            </Button>
+          ) : null}
+          {canManage && status === 'pending' ? (
+            <Button size="sm" onClick={onAccept} disabled={busy}>
+              {busy ? <Loader2 className="animate-spin" /> : <Check />} Accept
+            </Button>
+          ) : null}
+          {canManage && status === 'accepted' ? (
+            <Button size="sm" onClick={onComplete} disabled={busy}>
+              {busy ? <Loader2 className="animate-spin" /> : <Check />} {r.issue ? 'Mark fixed' : 'Mark as added'}
+            </Button>
+          ) : null}
+          {/* A declined request can't be edited, only removed. */}
+          {isOwn && status === 'declined' ? (
+            <Button variant="ghost" size="icon" onClick={onDelete} aria-label={`Remove ${r.title}`}>
+              <Trash2 className="size-4" />
+            </Button>
+          ) : isOwn ? (
+            <OwnerActions title={r.title} onEdit={onEdit} onDelete={onDelete} />
+          ) : null}
+        </>
+      }
+    />
   );
 }
 
@@ -781,9 +1000,13 @@ function MaintenanceRow({
     !m ? 'someone' : m.id === currentUserId ? 'you' : m.name;
 
   return (
-    <li className={cn('flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center', isAssignee && r.status === 'pending' && 'bg-primary/5')}>
-      <div className="min-w-0 flex-1">
-        <p className="flex flex-wrap items-center gap-2 font-medium">
+    <RequestItem
+      request={r}
+      currentUserId={currentUserId}
+      isHead={isHead}
+      highlight={isAssignee && r.status === 'pending'}
+      title={
+        <>
           <span
             className={cn(
               'truncate',
@@ -802,60 +1025,66 @@ function MaintenanceRow({
           {r.status === 'completed' && r.completedAt ? (
             <Badge variant="success">Done {shortDate(r.completedAt, timeZone)}</Badge>
           ) : null}
-        </p>
-        {r.details ? <p className="text-sm text-muted-foreground">{r.details}</p> : null}
-        {r.status === 'declined' ? (
-          <p className="text-sm text-muted-foreground">
-            {r.decidedBy ? `Declined by ${who(r.decidedBy)}` : 'Declined'}
-            {r.reply ? `: ${r.reply}` : null}
+        </>
+      }
+      body={
+        <>
+          {r.details ? <p className="text-sm text-muted-foreground">{r.details}</p> : null}
+          {r.status === 'declined' ? (
+            <p className="text-sm text-muted-foreground">
+              {r.decidedBy ? `Declined by ${who(r.decidedBy)}` : 'Declined'}
+              {r.reply ? `: ${r.reply}` : null}
+            </p>
+          ) : null}
+          <p className="text-xs text-muted-foreground">
+            {isRequester ? 'You' : who(r.requester)} asked {who(r.assignee)} · {shortDate(r.createdAt, timeZone)}
           </p>
-        ) : null}
-        <p className="text-xs text-muted-foreground">
-          {isRequester ? 'You' : who(r.requester)} asked {who(r.assignee)} · {shortDate(r.createdAt, timeZone)}
-        </p>
-      </div>
-      <div className="flex shrink-0 flex-wrap items-center gap-1">
-        {isAssignee && canDecline && open ? (
-          <Button size="sm" variant="ghost" onClick={onDecline} disabled={busy}>
-            <X /> Decline
-          </Button>
-        ) : null}
-        {isAssignee && r.status === 'pending' ? (
-          <Button size="sm" onClick={onAccept}>
-            Accept
-          </Button>
-        ) : null}
-        {isAssignee && r.status === 'accepted' ? (
-          <>
-            {/* Accepted without a date (the head made it optional): one can still be set. */}
-            <Button size="sm" variant="ghost" onClick={onAccept}>
-              {r.dueAt || requireDueDate ? 'Change date' : 'Set a date'}
+        </>
+      }
+      actions={
+        <>
+          {isAssignee && canDecline && open ? (
+            <Button size="sm" variant="ghost" onClick={onDecline} disabled={busy}>
+              <X /> Decline
             </Button>
-            <Button size="sm" variant="outline" onClick={onComplete} disabled={busy}>
-              {busy ? <Loader2 className="animate-spin" /> : <Check />} Mark done
+          ) : null}
+          {isAssignee && r.status === 'pending' ? (
+            <Button size="sm" onClick={onAccept}>
+              Accept
             </Button>
-          </>
-        ) : null}
-        {/* A declined request can't be edited, only removed. */}
-        {isRequester && r.status === 'declined' ? (
-          <Button variant="ghost" size="icon" onClick={onDelete} aria-label={`Remove ${r.title}`}>
-            <Trash2 className="size-4" />
-          </Button>
-        ) : isRequester ? (
-          <OwnerActions title={r.title} onEdit={onEdit} onDelete={onDelete} />
-        ) : null}
-        {headActions && open ? (
-          <Button size="sm" variant="ghost" onClick={onReassign} disabled={busy}>
-            <UserRoundPen /> Reassign
-          </Button>
-        ) : null}
-        {headActions ? (
-          <Button variant="ghost" size="icon" onClick={onDelete} aria-label={`Remove ${r.title}`}>
-            <Trash2 className="size-4" />
-          </Button>
-        ) : null}
-      </div>
-    </li>
+          ) : null}
+          {isAssignee && r.status === 'accepted' ? (
+            <>
+              {/* Accepted without a date (the head made it optional): one can still be set. */}
+              <Button size="sm" variant="ghost" onClick={onAccept}>
+                {r.dueAt || requireDueDate ? 'Change date' : 'Set a date'}
+              </Button>
+              <Button size="sm" variant="outline" onClick={onComplete} disabled={busy}>
+                {busy ? <Loader2 className="animate-spin" /> : <Check />} Mark done
+              </Button>
+            </>
+          ) : null}
+          {/* A declined request can't be edited, only removed. */}
+          {isRequester && r.status === 'declined' ? (
+            <Button variant="ghost" size="icon" onClick={onDelete} aria-label={`Remove ${r.title}`}>
+              <Trash2 className="size-4" />
+            </Button>
+          ) : isRequester ? (
+            <OwnerActions title={r.title} onEdit={onEdit} onDelete={onDelete} />
+          ) : null}
+          {headActions && open ? (
+            <Button size="sm" variant="ghost" onClick={onReassign} disabled={busy}>
+              <UserRoundPen /> Reassign
+            </Button>
+          ) : null}
+          {headActions ? (
+            <Button variant="ghost" size="icon" onClick={onDelete} aria-label={`Remove ${r.title}`}>
+              <Trash2 className="size-4" />
+            </Button>
+          ) : null}
+        </>
+      }
+    />
   );
 }
 
@@ -938,6 +1167,7 @@ const DECISION_BADGE: Record<RequestStatus, 'secondary' | 'default' | 'success' 
 function DecisionRow({
   request: r,
   currentUserId,
+  isHead,
   decides,
   busy,
   onApprove,
@@ -947,6 +1177,8 @@ function DecisionRow({
 }: {
   request: RequestDTO;
   currentUserId: string;
+  /** May remove anyone's note. */
+  isHead: boolean;
   decides: boolean;
   busy: boolean;
   onApprove: () => void;
@@ -961,18 +1193,24 @@ function DecisionRow({
   const who = (m: { id: string; name: string } | null) => (!m ? 'someone' : m.id === currentUserId ? 'you' : m.name);
   const when = r.category === 'permission' ? whenLabel(r, timeZone) : null;
   return (
-    <li className={cn('flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center', decides && open && 'bg-primary/5')}>
-      {r.imageUrl ? (
-        // Remote product picture from any shop: a plain <img>, as on Shopping.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={r.imageUrl}
-          alt=""
-          className="size-12 shrink-0 rounded border border-border bg-white object-contain"
-        />
-      ) : null}
-      <div className="min-w-0 flex-1">
-        <p className="flex flex-wrap items-center gap-2 font-medium">
+    <RequestItem
+      request={r}
+      currentUserId={currentUserId}
+      isHead={isHead}
+      highlight={decides && open}
+      leading={
+        r.imageUrl ? (
+          // Remote product picture from any shop: a plain <img>, as on Shopping.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={r.imageUrl}
+            alt=""
+            className="size-12 shrink-0 rounded border border-border bg-white object-contain"
+          />
+        ) : null
+      }
+      title={
+        <>
           <span className={cn('min-w-0 break-words', status === 'declined' && 'text-muted-foreground')}>
             {r.quantity && r.quantity > 1 ? `${r.quantity} × ` : null}
             {r.title}
@@ -984,50 +1222,56 @@ function DecisionRow({
             </span>
           ) : null}
           <Badge variant={DECISION_BADGE[status]}>{DECISION_STATUS_LABELS[status]}</Badge>
-        </p>
-        {when ? (
-          <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
-            <CalendarClock className="size-3.5 shrink-0" /> {when}
+        </>
+      }
+      body={
+        <>
+          {when ? (
+            <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+              <CalendarClock className="size-3.5 shrink-0" /> {when}
+            </p>
+          ) : null}
+          {r.url ? <ItemLink url={r.url} /> : null}
+          {r.details ? <p className="text-sm text-muted-foreground">{r.details}</p> : null}
+          {status === 'completed' ? (
+            <p className="text-sm text-muted-foreground">
+              Approved by {who(r.decidedBy)}
+              {r.addedToList ? ` · added to ${r.addedToList}` : null}
+            </p>
+          ) : status === 'declined' ? (
+            <p className="text-sm text-muted-foreground">
+              {r.decidedBy ? `Declined by ${who(r.decidedBy)}` : 'Declined'}
+              {r.reply ? `: ${r.reply}` : null}
+            </p>
+          ) : null}
+          <p className="text-xs text-muted-foreground">
+            Asked by {isOwn ? 'you' : r.requester.name} · {shortDate(r.createdAt, timeZone)}
           </p>
-        ) : null}
-        {r.url ? <ItemLink url={r.url} /> : null}
-        {r.details ? <p className="text-sm text-muted-foreground">{r.details}</p> : null}
-        {status === 'completed' ? (
-          <p className="text-sm text-muted-foreground">
-            Approved by {who(r.decidedBy)}
-            {r.addedToList ? ` · added to ${r.addedToList}` : null}
-          </p>
-        ) : status === 'declined' ? (
-          <p className="text-sm text-muted-foreground">
-            {r.decidedBy ? `Declined by ${who(r.decidedBy)}` : 'Declined'}
-            {r.reply ? `: ${r.reply}` : null}
-          </p>
-        ) : null}
-        <p className="text-xs text-muted-foreground">
-          Asked by {isOwn ? 'you' : r.requester.name} · {shortDate(r.createdAt, timeZone)}
-        </p>
-      </div>
-      <div className="flex shrink-0 flex-wrap items-center gap-1">
-        {decides && open ? (
-          <>
-            <Button size="sm" variant="ghost" onClick={onDecline} disabled={busy}>
-              <X /> Decline
+        </>
+      }
+      actions={
+        <>
+          {decides && open ? (
+            <>
+              <Button size="sm" variant="ghost" onClick={onDecline} disabled={busy}>
+                <X /> Decline
+              </Button>
+              <Button size="sm" onClick={onApprove} disabled={busy}>
+                {busy ? <Loader2 className="animate-spin" /> : <Check />} Approve
+              </Button>
+            </>
+          ) : null}
+          {/* Once decided, it can't be edited, only removed. */}
+          {isOwn && open ? (
+            <OwnerActions title={r.title} onEdit={onEdit} onDelete={onDelete} />
+          ) : isOwn ? (
+            <Button variant="ghost" size="icon" onClick={onDelete} aria-label={`Remove ${r.title}`}>
+              <Trash2 className="size-4" />
             </Button>
-            <Button size="sm" onClick={onApprove} disabled={busy}>
-              {busy ? <Loader2 className="animate-spin" /> : <Check />} Approve
-            </Button>
-          </>
-        ) : null}
-        {/* Once decided, it can't be edited, only removed. */}
-        {isOwn && open ? (
-          <OwnerActions title={r.title} onEdit={onEdit} onDelete={onDelete} />
-        ) : isOwn ? (
-          <Button variant="ghost" size="icon" onClick={onDelete} aria-label={`Remove ${r.title}`}>
-            <Trash2 className="size-4" />
-          </Button>
-        ) : null}
-      </div>
-    </li>
+          ) : null}
+        </>
+      }
+    />
   );
 }
 

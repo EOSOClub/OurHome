@@ -8,6 +8,12 @@ const prisma = {
     update: vi.fn(async (args: { data: Record<string, unknown> }): Promise<unknown> => ({ ...ROW, ...args.data })),
     delete: vi.fn(),
     findMany: vi.fn(async (): Promise<unknown[]> => []),
+    findFirstOrThrow: vi.fn(async (): Promise<unknown> => ({ ...ROW })),
+  },
+  requestNote: {
+    create: vi.fn(),
+    findFirst: vi.fn(async (): Promise<unknown> => null),
+    delete: vi.fn(),
   },
   user: {
     findFirst: vi.fn(async (): Promise<unknown> => null),
@@ -19,7 +25,13 @@ vi.mock('@/server/db/prisma', () => ({ prisma }));
 const activity = { logActivity: vi.fn() };
 vi.mock('@/server/services/activityService', () => activity);
 vi.mock('@/server/services/pushService', () => ({ pushSync: vi.fn() }));
-const notices = { announceRequestAnswer: vi.fn(), clearRequestNotice: vi.fn() };
+const notices = {
+  announceRequestAnswer: vi.fn(),
+  clearRequestNotice: vi.fn(),
+  announceRequestNote: vi.fn(),
+  clearNoteNotices: vi.fn(),
+  clearRequestNoteNotices: vi.fn(),
+};
 vi.mock('@/server/services/requestNoticeService', () => notices);
 const modules = {
   getRequestModules: vi.fn(async (): Promise<RequestModuleSettings> => DEFAULT_REQUEST_MODULES),
@@ -27,14 +39,22 @@ const modules = {
   supervisorsByMember: vi.fn(async () => new Map<string, string[]>()),
 };
 vi.mock('@/server/services/requestModuleService', () => modules);
-const permissions = { getUserAccess: vi.fn() };
+const permissions = { getUserAccess: vi.fn(), membersWithAccess: vi.fn(async (): Promise<string[]> => []) };
 vi.mock('@/server/services/permissionService', () => permissions);
 vi.mock('@/server/services/pointsService', () => ({ getPointsSettings: vi.fn() }));
 vi.mock('@/server/services/shoppingService', () => ({ addShoppingItem: vi.fn() }));
 vi.mock('@/server/services/serverAdminService', () => ({ isFeatureEnabled: vi.fn() }));
 
-const { acceptRequest, completeRequest, countNewRequests, deleteRequest, markRequestsSeen, reassignRequest } =
-  await import('./requestService');
+const {
+  acceptRequest,
+  addRequestNote,
+  completeRequest,
+  countNewRequests,
+  deleteRequest,
+  deleteRequestNote,
+  markRequestsSeen,
+  reassignRequest,
+} = await import('./requestService');
 
 const H = 'h1';
 const HEAD = { id: 'head', role: 'head' };
@@ -170,6 +190,7 @@ describe('removing a request', () => {
   it('the head may remove someone else’s maintenance request', async () => {
     await deleteRequest(H, HEAD, ID);
     expect(prisma.request.delete).toHaveBeenCalledWith({ where: { id: ID } });
+    expect(notices.clearRequestNoteNotices).toHaveBeenCalledWith(prisma, H, ID);
     expect(activity.logActivity).toHaveBeenCalledWith(
       expect.objectContaining({ actorId: 'head', message: 'removed Sam’s request “Fix the faucet”' }),
     );
@@ -188,6 +209,113 @@ describe('removing a request', () => {
     prisma.request.findFirst.mockResolvedValueOnce({ ...ROW, category: 'purchase' });
     await expect(deleteRequest(H, HEAD, ID)).rejects.toThrow('your own requests');
     expect(prisma.request.delete).not.toHaveBeenCalled();
+  });
+});
+
+describe('notes on a request', () => {
+  const NOTE = { id: 'note1', householdId: H, requestId: ID, authorId: 'alex', body: 'Try the shutoff valve first' };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    prisma.request.findFirst.mockResolvedValue({ ...ROW });
+    prisma.requestNote.findFirst.mockResolvedValue({ ...NOTE });
+    prisma.request.update.mockImplementation(async (args: { data: Record<string, unknown> }) => ({
+      ...ROW,
+      decidedById: null,
+      notes: [{ id: 'note1', author: { id: 'alex', name: 'Alex' } }],
+      ...args.data,
+    }));
+    prisma.requestNote.create.mockResolvedValue({ ...NOTE });
+    permissions.membersWithAccess.mockResolvedValue(['head']);
+    modules.getRequestModules.mockResolvedValue(DEFAULT_REQUEST_MODULES);
+  });
+
+  /** Who the last note told. */
+  const told = () => notices.announceRequestNote.mock.calls[0][5];
+
+  it('tells the requester and the person asked, by name, never the author', async () => {
+    await addRequestNote(H, ADULT, { id: ID, body: 'Try the shutoff valve first' });
+    expect(notices.announceRequestNote).toHaveBeenCalledWith(
+      prisma,
+      H,
+      expect.objectContaining({ id: ID }),
+      expect.objectContaining({ id: 'note1' }),
+      { id: 'alex', name: 'Alex' },
+      ['sam', 'tester'],
+    );
+    vi.clearAllMocks();
+    await addRequestNote(H, { id: 'sam', role: 'adult' }, { id: ID, body: 'It drips at night' });
+    expect(told()).toEqual(['tester']);
+  });
+
+  it('media nobody has taken on yet: everyone who handles it; once taken on, whoever did', async () => {
+    const MEDIA = { ...ROW, category: 'media', title: 'Dune', mediaType: 'movie', year: 2021, assigneeId: null, status: 'pending' };
+    prisma.request.update.mockImplementation(async (args: { data: Record<string, unknown> }) => ({
+      ...MEDIA,
+      decidedById: null,
+      notes: [],
+      ...args.data,
+    }));
+    await addRequestNote(H, ADULT, { id: ID, body: 'The 4K one, please' });
+    expect(told()).toEqual(['sam', 'head']);
+
+    vi.clearAllMocks();
+    prisma.request.update.mockImplementation(async (args: { data: Record<string, unknown> }) => ({
+      ...MEDIA,
+      status: 'accepted',
+      decidedById: 'tester',
+      notes: [],
+      ...args.data,
+    }));
+    await addRequestNote(H, ADULT, { id: ID, body: 'The 4K one, please' });
+    expect(told()).toEqual(['sam', 'tester']);
+    expect(permissions.membersWithAccess).not.toHaveBeenCalled();
+  });
+
+  it('a failed notice still saves the note', async () => {
+    notices.announceRequestNote.mockRejectedValueOnce(new Error('down'));
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(addRequestNote(H, ADULT, { id: ID, body: 'Hi' })).resolves.toEqual(expect.objectContaining({ id: ID }));
+    expect(prisma.requestNote.create).toHaveBeenCalled();
+    errors.mockRestore();
+  });
+
+  it('anyone adds one, even to a finished request, and it counts as a change', async () => {
+    prisma.request.findFirst.mockResolvedValueOnce({ ...ROW, status: 'completed' });
+    await addRequestNote(H, ADULT, { id: ID, body: 'Try the shutoff valve first' });
+    expect(prisma.requestNote.create).toHaveBeenCalledWith({
+      data: { householdId: H, requestId: ID, authorId: 'alex', body: 'Try the shutoff valve first' },
+    });
+    expect(savedData()).toEqual({ changedById: 'alex' });
+    expect(activity.logActivity).toHaveBeenCalledWith(
+      expect.objectContaining({ actorId: 'alex', message: 'added a note to “Fix the faucet”' }),
+    );
+  });
+
+  it('not on a kind that is turned off', async () => {
+    modules.getRequestModules.mockResolvedValue({
+      ...DEFAULT_REQUEST_MODULES,
+      maintenance: { ...DEFAULT_REQUEST_MODULES.maintenance, enabled: false },
+    });
+    await expect(addRequestNote(H, ADULT, { id: ID, body: 'Hi' })).rejects.toThrow('turned off');
+    expect(prisma.requestNote.create).not.toHaveBeenCalled();
+  });
+
+  it('its author removes it, and so may the head, without it counting as a change', async () => {
+    await deleteRequestNote(H, ADULT, 'note1');
+    await deleteRequestNote(H, HEAD, 'note1');
+    expect(prisma.requestNote.delete).toHaveBeenCalledTimes(2);
+    expect(prisma.requestNote.delete).toHaveBeenCalledWith({ where: { id: 'note1' } });
+    expect(notices.clearNoteNotices).toHaveBeenCalledWith(prisma, H, 'note1');
+    expect(prisma.request.update).not.toHaveBeenCalled();
+  });
+
+  it('nobody else removes it, and only in their own household', async () => {
+    await expect(deleteRequestNote(H, { id: 'sam', role: 'adult' }, 'note1')).rejects.toThrow('your own notes');
+    prisma.requestNote.findFirst.mockResolvedValueOnce(null);
+    await expect(deleteRequestNote(H, HEAD, 'other')).rejects.toThrow('Note not found');
+    expect(prisma.requestNote.findFirst).toHaveBeenLastCalledWith({ where: { id: 'other', householdId: H } });
+    expect(prisma.requestNote.delete).not.toHaveBeenCalled();
   });
 });
 

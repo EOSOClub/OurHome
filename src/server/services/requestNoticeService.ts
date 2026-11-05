@@ -7,6 +7,12 @@ import type { Prisma } from '@prisma/client';
 // At most one per request: a newer answer replaces it, and withdrawing the
 // request removes it. Nobody is told about their own doing (a head approving
 // their own purchase).
+//
+// Notes: a new note on a request tells the requester and whoever handles it
+// (requestService.noteRecipients), except its author, with a "request_note"
+// bell row and phone alert. Each person keeps one per request: a newer note
+// replaces it, adding a note yourself clears yours (you've seen the request),
+// and removing the note or the request removes it.
 
 type Db = Prisma.TransactionClient;
 
@@ -84,6 +90,69 @@ export function requestNoticeKey(requestId: string): string {
 /** Removes the request's answer notice, if any. */
 export async function clearRequestNotice(db: Db, householdId: string, requestId: string): Promise<void> {
   await db.notification.deleteMany({ where: { householdId, type: 'request_update', subjectId: requestId } });
+}
+
+/** Longest part of a note the notice repeats; the rest is on the request. */
+const NOTE_PREVIEW = 200;
+
+/** The note notice, e.g., title "Note: Fix the faucet", body "Alex: Try the shutoff valve first". */
+export function requestNoteText(r: AnsweredRequest, authorName: string, body: string): { title: string; body: string } {
+  const text = body.replace(/\s+/g, ' ').trim();
+  const preview = text.length > NOTE_PREVIEW ? `${text.slice(0, NOTE_PREVIEW - 1).trimEnd()}…` : text;
+  return { title: `Note: ${requestName(r)}`, body: `${authorName}: ${preview}` };
+}
+
+/** A note notice's dedupeKey: one per note and person, so removing the note finds them. */
+export function requestNoteKey(noteId: string, userId: string): string {
+  return `request_note:note:${noteId}:${userId}`;
+}
+
+/**
+ * Tells [recipientIds] about a new note on [r]: each gets a fresh, unread
+ * notice in place of the one about an earlier note there. The author's own
+ * note notices on [r] go: writing on the request means they've seen it.
+ */
+export async function announceRequestNote(
+  db: Db,
+  householdId: string,
+  r: AnsweredRequest,
+  note: { id: string; body: string },
+  author: { id: string; name: string },
+  recipientIds: string[],
+): Promise<void> {
+  const text = requestNoteText(r, author.name, note.body);
+  await db.notification.deleteMany({
+    where: { householdId, type: 'request_note', subjectId: r.id, userId: { in: [...recipientIds, author.id] } },
+  });
+  for (const userId of recipientIds) {
+    if (userId === author.id) continue;
+    await db.notification.create({
+      data: {
+        householdId,
+        userId,
+        type: 'request_note',
+        ...text,
+        channel: 'in_app',
+        subjectType: 'request',
+        subjectId: r.id,
+        dedupeKey: requestNoteKey(note.id, userId),
+        // Explicit null so unread filters match (see notificationService).
+        readAt: null,
+      },
+    });
+  }
+}
+
+/** Removes the notices about one note (it was removed). */
+export async function clearNoteNotices(db: Db, householdId: string, noteId: string): Promise<void> {
+  await db.notification.deleteMany({
+    where: { householdId, type: 'request_note', dedupeKey: { startsWith: `request_note:note:${noteId}:` } },
+  });
+}
+
+/** Removes every note notice on a request (it was removed). */
+export async function clearRequestNoteNotices(db: Db, householdId: string, requestId: string): Promise<void> {
+  await db.notification.deleteMany({ where: { householdId, type: 'request_note', subjectId: requestId } });
 }
 
 /**

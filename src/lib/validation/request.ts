@@ -168,3 +168,11 @@ export const declineRequestSchema = z.object({
 });
 
 export type DeclineRequestInput = z.infer<typeof declineRequestSchema>;
+
+// A note on a request (`id`), for the whole household to read.
+export const addRequestNoteSchema = z.object({
+  id,
+  body: z.string().trim().min(1, 'Write the note first.').max(1000),
+});
+
+export type AddRequestNoteInput = z.infer<typeof addRequestNoteSchema>;

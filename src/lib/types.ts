@@ -748,8 +748,18 @@ export interface RequestDTO {
   /** Approve workflow: what they said (a decline's reason). */
   reply: string | null;
   requester: MemberDTO;
+  /** Notes anyone in the household added, oldest first. */
+  notes: RequestNoteDTO[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface RequestNoteDTO {
+  id: string;
+  body: string;
+  /** Null once its author has left the household. */
+  author: MemberDTO | null;
+  createdAt: string;
 }
 
 export interface NotificationDTO {

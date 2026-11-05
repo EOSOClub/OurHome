@@ -174,6 +174,9 @@ Nothing is deleted; turning it back on restores everything as it was.
   it (the requester sees it's accepted and waiting to be added), then marks it
   **added**. It stops waiting on them once accepted. Marking a pending one
   added still works, for app builds from before this.
+- **2026-11-05** - Request notes: `requests:write` (everyone) also covers
+  adding a note to any request of a kind that's on, open or finished, and
+  removing your own notes. The head may remove anyone's note.
 
 - **2026-10-11** - The **member** role is now **adult** (stored value and
   label). Existing users and the `member` key in `Household.roleAccess` were

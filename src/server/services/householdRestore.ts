@@ -56,6 +56,7 @@ export const RESTORE_ORDER = [
   'ShoppingList',
   'ShoppingItem',
   'Request',
+  'RequestNote',
   'BugReport',
   'InventoryItem',
   'Purchase',
@@ -166,6 +167,8 @@ export function planRestore(
     ShoppingList: lists,
     ShoppingItem: lists.flatMap((l) => asArray(l.items)),
     Request: asArray(doc.requests),
+    // Exports from before request notes have none.
+    RequestNote: asArray(doc.requests).flatMap((r) => asArray(r.notes)),
     BugReport: asArray(doc.bugReports),
     InventoryItem: asArray(inventory.items),
     Purchase: asArray(inventory.purchases),

@@ -2,6 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Prisma } from '@prisma/client';
 import {
   announceRequestAnswer,
+  announceRequestNote,
+  clearNoteNotices,
+  requestNoteText,
   requestNoticeText,
   type AnsweredRequest,
 } from '@/server/services/requestNoticeService';
@@ -118,6 +121,48 @@ describe('announceRequestAnswer', () => {
     expect(updateMany).toHaveBeenCalledWith({
       where: { householdId: 'h', type: 'request_update', subjectId: 'r1' },
       data: { title: 'Accepted: Fix the faucet', body: 'Alex said they’ll do it.' },
+    });
+  });
+});
+
+describe('note notices', () => {
+  const job = { ...base, category: 'maintenance', title: 'Fix the faucet' };
+
+  it('names the request and who wrote what, cutting a long note short', () => {
+    expect(requestNoteText(job, 'Alex', 'Try the\n shutoff valve first')).toEqual({
+      title: 'Note: Fix the faucet',
+      body: 'Alex: Try the shutoff valve first',
+    });
+    const long = requestNoteText(job, 'Alex', 'x'.repeat(500)).body;
+    expect(long).toHaveLength('Alex: '.length + 200);
+    expect(long.endsWith('…')).toBe(true);
+  });
+
+  it('gives each person one, the newest, and clears the author’s own', async () => {
+    const { db, create, deleteMany } = fakeDb();
+    await announceRequestNote(db, 'h', job, { id: 'n1', body: 'Try the valve' }, { id: 'mom', name: 'Alex' }, ['kid', 'dad']);
+    expect(deleteMany).toHaveBeenCalledWith({
+      where: { householdId: 'h', type: 'request_note', subjectId: 'r1', userId: { in: ['kid', 'dad', 'mom'] } },
+    });
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(create.mock.calls[0][0].data).toMatchObject({
+      householdId: 'h',
+      userId: 'kid',
+      type: 'request_note',
+      title: 'Note: Fix the faucet',
+      body: 'Alex: Try the valve',
+      subjectType: 'request',
+      subjectId: 'r1',
+      dedupeKey: 'request_note:note:n1:kid',
+      readAt: null,
+    });
+  });
+
+  it('a removed note takes its notices with it', async () => {
+    const { db, deleteMany } = fakeDb();
+    await clearNoteNotices(db, 'h', 'n1');
+    expect(deleteMany).toHaveBeenCalledWith({
+      where: { householdId: 'h', type: 'request_note', dedupeKey: { startsWith: 'request_note:note:n1:' } },
     });
   });
 });

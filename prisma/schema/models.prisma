@@ -194,6 +194,7 @@ model User {
   requests        Request[]        @relation("RequestRequester")
   assignedRequests Request[]       @relation("RequestAssignee")
   decidedRequests Request[]        @relation("RequestDecider")
+  requestNotes    RequestNote[]    @relation("RequestNoteAuthor")
   bugReports      BugReport[]
   pushDevices     PushDevice[]
   location        MemberLocation?
@@ -1234,9 +1235,28 @@ model Request {
   requester User      @relation("RequestRequester", fields: [requesterId], references: [id], onDelete: Cascade)
   assignee  User?     @relation("RequestAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   decidedBy User?     @relation("RequestDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+  notes     RequestNote[]
 
   @@index([householdId])
   @@index([assigneeId])
+}
+
+// A note on a request, for the whole household to read (requestService):
+// anyone who can work with requests may add one to any request of a kind
+// that's on, open or finished. Its author may remove it, and so may the head.
+// A removed member's notes stay, without a name.
+model RequestNote {
+  id          String   @id @default(cuid()) @map("_id")
+  householdId String
+  requestId   String
+  authorId    String?
+  body        String
+  createdAt   DateTime @default(now())
+
+  request Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  author  User?   @relation("RequestNoteAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([requestId])
 }
 
 // A bug report filed from the website or the Android app. Stored first, then

@@ -24,7 +24,8 @@ export const CHANGELOG: ChangelogEntry[] = [
     title: 'Notes on requests',
     changes: [
       'You can add a note to any request, waiting or done, and everyone in the house can read it. Whoever asked and whoever is handling it get a notification.',
-      'Requests that are done or declined fold up to one line, so the ones still waiting stand out. Tap the arrow to open one again.',
+      'A request\'s notes fold away behind a "2 notes" line. A finished request starts with them folded; tap the line to show them.',
+      'Tap a heading on the Requests page, like Maintenance, Movies or Done, to fold that group away.',
     ],
   },
   {

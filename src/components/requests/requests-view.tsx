@@ -428,8 +428,7 @@ export function RequestsView({
         const items = mod ? requests.filter((r) => r.category === kind) : [];
         if (!mod || items.length === 0) return null;
         return (
-          <section key={kind} className="space-y-4">
-            <CategoryHeader category={kind} label={mod.label} />
+          <CategorySection key={kind} category={kind} label={mod.label} count={items.length}>
             {DECISION_SECTIONS.map(([status, label]) => {
               // Anything still open (no status, or "accepted" from an older app) waits for a decision.
               const group = items.filter((r) =>
@@ -437,29 +436,26 @@ export function RequestsView({
               );
               if (group.length === 0) return null;
               return (
-                <div key={status} className="space-y-2">
-                  <SectionHeader label={label} count={group.length} />
+                <SectionGroup key={status} label={label} count={group.length}>
                   <ul className="divide-y divide-border rounded-lg border border-border">
                     {group.map((r) => decisionRow(r, mod))}
                   </ul>
-                </div>
+                </SectionGroup>
               );
             })}
-          </section>
+          </CategorySection>
         );
       })}
 
       {maintenanceModule && maintenance.length > 0 ? (
-        <section className="space-y-4">
-          <CategoryHeader category="maintenance" label={maintenanceModule.label} />
+        <CategorySection category="maintenance" label={maintenanceModule.label} count={maintenance.length}>
           {MAINTENANCE_STATUSES.map((status) => {
             const items = maintenance
               .filter((r) => r.status === status)
               .sort(status === 'accepted' ? byDueDate : () => 0);
             if (items.length === 0) return null;
             return (
-              <div key={status} className="space-y-2">
-                <SectionHeader label={MAINTENANCE_STATUS_LABELS[status]} count={items.length} />
+              <SectionGroup key={status} label={MAINTENANCE_STATUS_LABELS[status]} count={items.length}>
                 <ul className="divide-y divide-border rounded-lg border border-border">
                   {items.map((r) => (
                     <MaintenanceRow
@@ -491,22 +487,20 @@ export function RequestsView({
                     />
                   ))}
                 </ul>
-              </div>
+              </SectionGroup>
             );
           })}
-        </section>
+        </CategorySection>
       ) : null}
 
       {mediaModule && media.length > 0 ? (
-        <section className="space-y-4">
-          <CategoryHeader category="media" label={mediaModule.label} />
+        <CategorySection category="media" label={mediaModule.label} count={media.length}>
           {mediaIssues.length > 0 ? (
-            <div className="space-y-2">
-              <SectionHeader label="Problems" count={mediaIssues.length} icon={TriangleAlert} />
+            <SectionGroup label="Problems" count={mediaIssues.length} icon={TriangleAlert}>
               <ul className="divide-y divide-border rounded-lg border border-border">
                 {mediaIssues.map((r) => mediaRow(r, mediaModule))}
               </ul>
-            </div>
+            </SectionGroup>
           ) : null}
           {MEDIA_TYPES.map((type) => {
             const items = media.filter((r) => r.mediaType === type && !r.issue);
@@ -514,8 +508,7 @@ export function RequestsView({
             if (items.length === 0 && !mediaModule.mediaTypes.includes(type)) return null;
             const Icon = MEDIA_ICONS[type];
             return (
-              <div key={type} className="space-y-2">
-                <SectionHeader label={MEDIA_TYPE_SECTION_LABELS[type]} count={items.length} icon={Icon} />
+              <SectionGroup key={type} label={MEDIA_TYPE_SECTION_LABELS[type]} count={items.length} icon={Icon}>
                 {items.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
                     No {MEDIA_TYPE_SECTION_LABELS[type].toLowerCase()} requested yet.
@@ -525,10 +518,10 @@ export function RequestsView({
                     {items.map((r) => mediaRow(r, mediaModule))}
                   </ul>
                 )}
-              </div>
+              </SectionGroup>
             );
           })}
-        </section>
+        </CategorySection>
       ) : null}
 
       <Dialog open={editing !== null} onClose={() => setEditing(null)} title="Edit request">
@@ -606,22 +599,72 @@ function byDueDate(a: RequestDTO, b: RequestDTO) {
   return (a.dueAt ?? '').localeCompare(b.dueAt ?? '');
 }
 
-/** `label`: the head's name for it (Settings → Request types). */
-function CategoryHeader({ category, label }: { category: RequestCategory; label: string }) {
+/**
+ * One kind of request (Maintenance, Media, ...), folded away by its heading.
+ * `label`: the head's name for it (Settings → Request types); `count`: its
+ * requests, shown while folded.
+ */
+function CategorySection({
+  category,
+  label,
+  count,
+  children,
+}: {
+  category: RequestCategory;
+  label: string;
+  count: number;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(true);
   const Icon = CATEGORY_ICONS[category];
   return (
-    <h2 className="flex items-center gap-2 border-b border-border pb-1 text-lg font-semibold">
-      <Icon className="size-5" /> {label}
-    </h2>
+    <section className="space-y-4">
+      <h2 className="border-b border-border pb-1 text-lg font-semibold">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+          className="flex w-full items-center gap-2 text-left"
+        >
+          <ChevronDown className={cn('size-4 shrink-0 text-muted-foreground transition-transform', !open && '-rotate-90')} />
+          <Icon className="size-5" /> {label}
+          {open ? null : <span className="text-sm font-normal text-muted-foreground">({count})</span>}
+        </button>
+      </h2>
+      {open ? children : null}
+    </section>
   );
 }
 
-function SectionHeader({ label, count, icon: Icon }: { label: string; count: number; icon?: typeof Film }) {
+/** A group inside a kind (Waiting, Done, Movies, TV shows, ...), folded away by its heading. */
+function SectionGroup({
+  label,
+  count,
+  icon: Icon,
+  children,
+}: {
+  label: string;
+  count: number;
+  icon?: typeof Film;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(true);
   return (
-    <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-      {Icon ? <Icon className="size-4" /> : null} {label}
-      <span className="font-normal normal-case">({count})</span>
-    </h3>
+    <div className="space-y-2">
+      <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+          className="flex items-center gap-2 text-left uppercase hover:text-foreground"
+        >
+          <ChevronDown className={cn('size-4 shrink-0 transition-transform', !open && '-rotate-90')} />
+          {Icon ? <Icon className="size-4" /> : null} {label}
+          <span className="font-normal normal-case">({count})</span>
+        </button>
+      </h3>
+      {open ? children : null}
+    </div>
   );
 }
 
@@ -642,10 +685,8 @@ function OwnerActions({ title, onEdit, onDelete }: { title: string; onEdit: () =
 const isFinished = (r: RequestDTO) => r.status === 'completed' || r.status === 'declined';
 
 /**
- * One request in a list. Its title line always shows; the rest (details, who
- * and when, the buttons and the notes) while it's open. A finished request
- * starts closed, anything still open starts open, and the arrow switches it.
- * Closed, the title line says how many notes it has.
+ * One request in a list: its title line, details, who asked and when, and its
+ * buttons always show. Only its notes fold away (RequestNotes).
  */
 function RequestItem({
   request: r,
@@ -663,47 +704,24 @@ function RequestItem({
   isHead: boolean;
   /** Waiting on this member: tinted. */
   highlight: boolean;
-  /** Before the text while open: a purchase's picture. */
+  /** Before the text: a purchase's picture. */
   leading?: ReactNode;
   /** The title line's contents: the name and its badges. */
   title: ReactNode;
   body: ReactNode;
   actions: ReactNode;
 }) {
-  const [open, setOpen] = useState(() => !isFinished(r));
-  const notes = r.notes.length;
   return (
     <li className={cn('px-3 py-2.5', highlight && 'bg-primary/5')}>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        {open ? leading : null}
+        {leading}
         <div className="min-w-0 flex-1">
-          <div className="flex items-start gap-1">
-            <button
-              type="button"
-              aria-expanded={open}
-              aria-label={`${open ? 'Hide' : 'Show'} details of ${r.title}`}
-              onClick={() => setOpen((o) => !o)}
-              className="-my-1 -ml-2 flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-            >
-              <ChevronDown className={cn('size-4 transition-transform', !open && '-rotate-90')} />
-            </button>
-            <p className="flex min-w-0 flex-1 flex-wrap items-center gap-2 font-medium">
-              {title}
-              {!open && notes > 0 ? (
-                <span
-                  className="flex items-center gap-1 text-sm font-normal text-muted-foreground"
-                  aria-label={`${notes} ${notes === 1 ? 'note' : 'notes'}`}
-                >
-                  <MessageSquare className="size-3.5" aria-hidden /> {notes}
-                </span>
-              ) : null}
-            </p>
-          </div>
-          {open ? <div className="pl-7">{body}</div> : null}
+          <p className="flex flex-wrap items-center gap-2 font-medium">{title}</p>
+          {body}
         </div>
-        {open ? <div className="flex shrink-0 flex-wrap items-center gap-1">{actions}</div> : null}
+        <div className="flex shrink-0 flex-wrap items-center gap-1">{actions}</div>
       </div>
-      {open ? <RequestNotes request={r} currentUserId={currentUserId} isHead={isHead} /> : null}
+      <RequestNotes request={r} currentUserId={currentUserId} isHead={isHead} />
     </li>
   );
 }
@@ -711,11 +729,13 @@ function RequestItem({
 /**
  * A request's notes, oldest first, and a box to add one. The whole household
  * reads them and anyone may add one; its author may remove a note, and so may
- * the head.
+ * the head. The notes fold behind "N notes": a finished request's start
+ * folded, an open one's start shown.
  */
 function RequestNotes({ request: r, currentUserId, isHead }: { request: RequestDTO; currentUserId: string; isHead: boolean }) {
   const timeZone = useHouseholdZone();
   const queryClient = useQueryClient();
+  const [shown, setShown] = useState(() => !isFinished(r));
   const [writing, setWriting] = useState(false);
   const [body, setBody] = useState('');
   const [removing, setRemoving] = useState<RequestDTO['notes'][number] | null>(null);
@@ -751,10 +771,25 @@ function RequestNotes({ request: r, currentUserId, isHead }: { request: RequestD
     setWriting(false);
   };
   const fieldId = `request-note-${r.id}`;
+  const count = r.notes.length;
+  // With none there's nothing to fold: just the Add a note button.
+  const open = shown || count === 0;
 
   return (
-    <div className="mt-2 space-y-1.5 pl-7">
-      {r.notes.length > 0 ? (
+    <div className="mt-2 space-y-1.5">
+      {count > 0 ? (
+        <button
+          type="button"
+          aria-expanded={shown}
+          aria-label={`${shown ? 'Hide' : 'Show'} ${count} ${count === 1 ? 'note' : 'notes'} on ${r.title}`}
+          onClick={() => setShown((s) => !s)}
+          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ChevronDown className={cn('size-4 transition-transform', !shown && '-rotate-90')} />
+          <MessageSquare className="size-4" /> {count} {count === 1 ? 'note' : 'notes'}
+        </button>
+      ) : null}
+      {open && count > 0 ? (
         <ul className="space-y-1.5" aria-label={`Notes on ${r.title}`}>
           {r.notes.map((n) => {
             const mine = n.author?.id === currentUserId;
@@ -781,7 +816,7 @@ function RequestNotes({ request: r, currentUserId, isHead }: { request: RequestD
           })}
         </ul>
       ) : null}
-      {writing ? (
+      {!open ? null : writing ? (
         <form
           className="space-y-1.5"
           data-field="body"

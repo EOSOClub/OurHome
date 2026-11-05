@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { appApkPath, getAppRelease, parseRelease } from './appDownloadService';
+import { appApkPath, appBuilding, getAppRelease, parseRelease } from './appDownloadService';
 
 const meta = {
   versionName: '2026.10.07-abc1234',
@@ -52,5 +52,15 @@ describe('getAppRelease', () => {
     writeFileSync(path.join(dir, 'ourhome.apk'), '123'); // a half-copied APK
     expect(getAppRelease()).toBeNull();
     expect(appApkPath()).toBeNull();
+  });
+
+  it('says a new app is being built while deploy.sh leaves its marker, unless it is stale', () => {
+    expect(appBuilding()).toBe(false); // no APP_DOWNLOAD_DIR
+    dir = mkdtempSync(path.join(tmpdir(), 'apk-'));
+    process.env.APP_DOWNLOAD_DIR = dir;
+    expect(appBuilding()).toBe(false);
+    writeFileSync(path.join(dir, 'ourhome.building'), '');
+    expect(appBuilding()).toBe(true);
+    expect(appBuilding(Date.now() + 4 * 60 * 60 * 1000)).toBe(false); // a deploy that died hours ago
   });
 });

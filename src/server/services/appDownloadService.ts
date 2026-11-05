@@ -61,6 +61,26 @@ export function getAppRelease(): AppRelease | null {
   }
 }
 
+// deploy.sh writes this file while it builds a new app (from before the site
+// restarts until the new APK is in place) and removes it after, built or not.
+const BUILDING_FILE = 'ourhome.building';
+/** A marker older than this is left over from a deploy that died; it's ignored. */
+const BUILDING_MAX_MS = 3 * 60 * 60 * 1000;
+
+/**
+ * Whether a new app is being built right now. The app holds "What's new"
+ * meanwhile: the site already runs the new code, but the phone doesn't yet.
+ */
+export function appBuilding(now: number = Date.now()): boolean {
+  const dir = appDownloadDir();
+  if (!dir) return false;
+  try {
+    return now - statSync(path.join(dir, BUILDING_FILE)).mtimeMs < BUILDING_MAX_MS;
+  } catch {
+    return false;
+  }
+}
+
 /** Where the APK is, when one is on offer. */
 export function appApkPath(): string | null {
   const dir = appDownloadDir();

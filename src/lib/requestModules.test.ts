@@ -200,14 +200,16 @@ describe('rules', () => {
     expect(decidesRequest(approve([], false), DAD, true, members, [MOM])).toBe(true);
   });
 
-  it('assigneeChoices: chosen people still here, else everyone, never the requester', () => {
+  it('assigneeChoices: chosen people still here, else everyone; the requester too when they may be asked (owner, 2026-11-08)', () => {
     const members = [MOM, DAD, KID];
-    expect(assigneeChoices(DEFAULT_REQUEST_MODULES.maintenance, members, KID)).toEqual([MOM, DAD]);
+    // Nobody chosen: everyone may be asked, the requester among them.
+    expect(assigneeChoices(DEFAULT_REQUEST_MODULES.maintenance, members)).toEqual([MOM, DAD, KID]);
+    // Chosen people only: the kid isn't on it, so isn't offered to themselves
+    // either; Dad is, so can take on his own request.
     const s = withChanges({ maintenance: { assigneeIds: [DAD, GONE] } });
-    expect(assigneeChoices(s.maintenance, members, KID)).toEqual([DAD]);
-    expect(assigneeChoices(s.maintenance, members, DAD)).toEqual([]);
+    expect(assigneeChoices(s.maintenance, members)).toEqual([DAD]);
     const gone = withChanges({ maintenance: { assigneeIds: [GONE] } });
-    expect(assigneeChoices(gone.maintenance, members, KID)).toEqual([MOM, DAD]);
+    expect(assigneeChoices(gone.maintenance, members)).toEqual([MOM, DAD, KID]);
   });
 });
 
@@ -221,7 +223,8 @@ describe('moduleViews', () => {
       ['maintenance', 'assign', 'Maintenance', true, false],
     ]);
     expect(views[0].mediaTypes).toEqual(['movie', 'tv']);
-    expect(views[1].assigneeIds).toEqual([MOM, DAD]);
+    // Everyone may be asked, so the child may also take it on themselves.
+    expect(views[1].assigneeIds).toEqual([MOM, DAD, KID]);
     expect(views[1].requireDueDate).toBe(true);
   });
 
@@ -234,10 +237,13 @@ describe('moduleViews', () => {
     expect(adultNoAdd[0].canAsk).toBe(false);
   });
 
-  it('the default person only when this member may ask them', () => {
+  it('the default person only when this member may ask them, and never preselects yourself', () => {
     const s = withChanges({ maintenance: { defaultAssigneeId: DAD } });
     expect(moduleViews(s, { id: KID, role: 'child' }, { create: true, approve: false }, members)[1].defaultAssigneeId).toBe(DAD);
-    expect(moduleViews(s, { id: DAD, role: 'adult' }, { create: true, approve: false }, members)[1].defaultAssigneeId).toBeNull();
+    // Dad may pick himself, but his own form doesn't start on him.
+    const dad = moduleViews(s, { id: DAD, role: 'adult' }, { create: true, approve: false }, members)[1];
+    expect(dad.assigneeIds).toContain(DAD);
+    expect(dad.defaultAssigneeId).toBeNull();
   });
 
   it('handles media by chosen people when set', () => {

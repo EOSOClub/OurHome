@@ -38,6 +38,8 @@ export interface HouseholdMemberDTO {
   username: string | null;
   role: string;
   mustChangePassword: boolean;
+  /** The server admin: only they change their login, password and role, and they can't be removed. */
+  runsServer: boolean;
   createdAt: string;
 }
 
@@ -291,6 +293,8 @@ export interface TaskDTO {
   priority: string;
   status: string;
   dueDate: string | null;
+  /** Due all day (no time): the task's own flag, else the 12:00 marker. False without a due date. */
+  dueAllDay: boolean;
   completedAt: string | null;
   createdAt: string;
   /** Live time to complete: the sum of the steps (or the base without steps). */
@@ -843,6 +847,16 @@ export interface LookAfterDTO {
       lastSeenAt: string;
       deviceName: string | null;
       problems: PhoneProblem[];
+      /** While it's quiet: what its last report showed wrong (empty otherwise). */
+      lastKnown: PhoneProblem[];
+      /** Every device they're signed in on, freshest first, each judged on its own. */
+      devices: {
+        installId: string;
+        deviceName: string | null;
+        lastSeenAt: string;
+        problems: PhoneProblem[];
+        lastKnown: PhoneProblem[];
+      }[];
       lastPushAt: string | null;
       stayConnected: boolean;
       connected: boolean;

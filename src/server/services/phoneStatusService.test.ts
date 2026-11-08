@@ -309,15 +309,29 @@ describe('phone alerts', () => {
     expect(stored()).toMatchObject({ uninstallGuard: true, emergencyUnlockStage: null });
 
     // "unlocked" stays while the guard is still off and goes once it's back on.
-    prisma.phoneStatus.findUnique.mockResolvedValue({ emergencyUnlockStage: 'unlocked' });
+    prisma.phoneStatus.findUnique.mockResolvedValue({ userId: 'mia', emergencyUnlockStage: 'unlocked' });
     await checkIn(H, 'mia', { ...base, uninstallGuard: false }, now);
     expect(stored()).not.toHaveProperty('emergencyUnlockStage');
     await checkIn(H, 'mia', { ...base, uninstallGuard: true }, now);
     expect(stored()).toMatchObject({ emergencyUnlockStage: null });
     // Any other milestone with no unlock running is over.
-    prisma.phoneStatus.findUnique.mockResolvedValue({ emergencyUnlockStage: '1h_left' });
+    prisma.phoneStatus.findUnique.mockResolvedValue({ userId: 'mia', emergencyUnlockStage: '1h_left' });
     await checkIn(H, 'mia', { ...base, uninstallGuard: false }, now);
     expect(stored()).toMatchObject({ emergencyUnlockStage: null });
+
+    // A shared tablet: another child signs in where Mia's unlock was. Hers
+    // isn't theirs, so it starts fresh for them (P7, owner 2026-11-08), and
+    // their supervisors aren't told about Mia's unlock.
+    prisma.phoneStatus.findUnique.mockResolvedValue({ userId: 'mia', emergencyUnlockStage: 'unlocked' });
+    await checkIn(H, 'leo', { ...base, uninstallGuard: false }, now);
+    expect(stored()).toMatchObject({ emergencyUnlockStage: null });
+    prisma.phoneStatus.findUnique.mockResolvedValue({ userId: 'mia', emergencyUnlockStage: '2h_elapsed' });
+    await checkIn(H, 'leo', { ...base, uninstallGuard: false, emergencyUnlockReadyAtMs: readyAt }, now);
+    expect(stored()).toMatchObject({ emergencyUnlockStage: null });
+    // A milestone the phone sends now is the phone's word, whoever signed in.
+    await checkIn(H, 'leo', { ...base, uninstallGuard: false, emergencyUnlockStage: '1h_left', emergencyUnlockReadyAtMs: readyAt }, now);
+    expect(stored()).toMatchObject({ emergencyUnlockStage: '1h_left' });
+    prisma.phoneStatus.findUnique.mockResolvedValue(null);
 
     // An older app says nothing about it.
     await checkIn(H, 'mia', base, now);
@@ -434,15 +448,55 @@ describe('alerts that stay put', () => {
     expect(push.pushSync).not.toHaveBeenCalled();
   });
 
-  it('still judges the freshest phone: a long-quiet other phone neither holds nor raises alerts', async () => {
+  it('judges every device (P3, owner 2026-11-08): a quiet tablet beside a fresh phone is said, and keeps what it last had', async () => {
     prisma.phoneStatus.findMany.mockResolvedValue([
       { ...phone, lastSeenAt: now },
       { ...tablet, lastSeenAt: minutesAgo(9 * 60) },
     ]);
     prisma.notification.findMany.mockResolvedValue([{ id: 'n1', dedupeKey: 'phone:notifications_off:mia:alex' }]);
     await refreshPhoneAlerts(H, now, ['mia']);
-    expect(prisma.notification.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ['n1'] } } });
-    expect(prisma.notification.createMany).not.toHaveBeenCalled();
+    // The tablet's notifications alert isn't known to be fixed: it stays.
+    expect(prisma.notification.deleteMany).not.toHaveBeenCalled();
+    expect(prisma.notification.createMany.mock.calls[0][0].data.map((r: { dedupeKey: string }) => r.dedupeKey)).toEqual([
+      'phone:quiet:mia:alex',
+    ]);
+  });
+
+  it('a quiet main phone raises its alert while a tablet keeps checking in', async () => {
+    prisma.phoneStatus.findMany.mockResolvedValue([
+      { ...phone, lastSeenAt: minutesAgo(9 * 60) },
+      { ...tablet, notifications: true, lastSeenAt: now },
+    ]);
+    await refreshPhoneAlerts(H, now, ['mia']);
+    expect(prisma.notification.createMany.mock.calls[0][0].data.map((r: { dedupeKey: string }) => r.dedupeKey)).toEqual([
+      'phone:quiet:mia:alex',
+    ]);
+  });
+
+  it('a problem on a device that is heard from is raised, not only kept', async () => {
+    // The tablet (notifications off) checks in now; the phone did a little earlier and is fine.
+    prisma.phoneStatus.findMany.mockResolvedValue([
+      { ...phone, lastSeenAt: now },
+      { ...tablet, lastSeenAt: minutesAgo(40) },
+    ]);
+    await refreshPhoneAlerts(H, now, ['mia']);
+    expect(prisma.notification.createMany.mock.calls[0][0].data.map((r: { dedupeKey: string }) => r.dedupeKey)).toEqual([
+      'phone:notifications_off:mia:alex',
+    ]);
+  });
+
+  it('the summary lists every device, freshest first, each judged on its own', async () => {
+    prisma.phoneStatus.findMany.mockResolvedValue([
+      { ...phone, lastSeenAt: minutesAgo(9 * 60) },
+      { ...tablet, lastSeenAt: now },
+    ]);
+    const summary = (await phoneSummaries(H, [{ id: 'mia', locationSharing: 'on' }], now)).get('mia');
+    // The card's own line is still the freshest device (older apps read only that).
+    expect(summary?.deviceName).toBe('Tablet');
+    expect(summary?.devices).toEqual([
+      { installId: 'tablet', deviceName: 'Tablet', lastSeenAt: now.toISOString(), problems: ['notifications_off'], lastKnown: [] },
+      { installId: 'phone', deviceName: 'Phone', lastSeenAt: minutesAgo(9 * 60).toISOString(), problems: ['quiet'], lastKnown: [] },
+    ]);
   });
 
   it('keeps the other alerts while the phone is quiet, so none comes back as new when it returns', async () => {
@@ -690,6 +744,26 @@ describe('phone summaries', () => {
       'notifications_off',
       'uninstall_guard_off',
     ]);
+  });
+
+  it('a quiet phone says the silence, and what its last report showed wrong (P5, owner 2026-11-08)', async () => {
+    const phone = { userId: 'mia', installId: 'i1', locationAlways: false, notifications: false, deviceName: null };
+    const kid = { id: 'mia', locationSharing: 'required' };
+    prisma.phoneStatus.findMany.mockResolvedValue([{ ...phone, lastSeenAt: hoursAgo(30) }]);
+    expect((await phoneSummaries(H, [kid], now)).get('mia')).toMatchObject({
+      problems: ['quiet'],
+      lastKnown: ['notifications_off', 'location_off'],
+    });
+    // Under the rules as they are now: sharing no longer required, so location isn't listed.
+    expect((await phoneSummaries(H, [{ ...kid, locationSharing: 'on' }], now)).get('mia')?.lastKnown).toEqual([
+      'notifications_off',
+    ]);
+    // Heard from: its problems are the problems, nothing "last known".
+    prisma.phoneStatus.findMany.mockResolvedValue([{ ...phone, lastSeenAt: hoursAgo(1) }]);
+    expect((await phoneSummaries(H, [kid], now)).get('mia')).toMatchObject({
+      problems: ['notifications_off', 'location_off'],
+      lastKnown: [],
+    });
   });
 });
 

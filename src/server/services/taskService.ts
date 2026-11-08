@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/server/db/prisma';
 import { dateOnOrBefore } from '@/server/db/dateFilters';
+import { dueIsAllDay } from '@/lib/format';
 import type { SubtaskDTO, TaskCompletionDTO, TaskDTO } from '@/lib/types';
 import type {
   CompleteTaskInput,
@@ -270,6 +271,7 @@ export function taskToDTO(task: TaskWithRelations, ctx: TaskContext): TaskDTO {
     priority: task.priority,
     status: task.status,
     dueDate: task.dueDate?.toISOString() ?? null,
+    dueAllDay: dueIsAllDay(task.dueDate, task.dueAllDay, ctx.settings.timezone),
     completedAt: task.completedAt?.toISOString() ?? null,
     createdAt: task.createdAt.toISOString(),
     estimatedMinutes: state.task.baseMinutes === null && live.minutes === 0 ? null : live.minutes,
@@ -645,9 +647,24 @@ async function rollOne(
   // date it was given, rather than this window's last minute.
   if (dueDate !== null && end <= firstDue && task.dueDate) dueDate = task.dueDate;
   if (dueDate === null) {
-    // The rule's end date passed: stop cycling and leave the task as it is.
-    // Its last cycles, if missed, still get their Activity line.
-    await tx.task.update({ where: { id: task.id }, data: { cycleStartedAt: null, cycleEndsAt: null } });
+    // The rule's end date passed: stop cycling. Its last cycles, if missed,
+    // still get their Activity line, and a missed one is cleared like any
+    // other (owner, 2026-11-08): its queued points and ticks go, so they're
+    // never paid for a cycle nobody finished. One done in its last cycle is
+    // left as it is.
+    if (missed > 0) {
+      await tx.pendingCredit.deleteMany({ where: { taskId: task.id } });
+      await tx.subtask.updateMany({ where: { taskId: task.id }, data: UNCHECKED });
+    }
+    await tx.task.update({
+      where: { id: task.id },
+      data: {
+        cycleStartedAt: null,
+        cycleEndsAt: null,
+        // Its ticks are gone, so it's no longer under way.
+        ...(missed > 0 && status === 'in_progress' ? { status: 'pending' } : {}),
+      },
+    });
     await missedLine();
     return null;
   }
@@ -928,6 +945,8 @@ export async function createTask(
         type: input.recurrence ? 'recurring' : input.type,
         priority: input.priority,
         dueDate: input.dueDate ?? null,
+        // Not sent (older app builds): null, so the 12:00 marker decides.
+        dueAllDay: input.dueDate ? (input.dueAllDay ?? null) : null,
         ...taskPointsColumns(state),
         ...cycleWindow(rule, settings.timezone, now),
         categoryId: input.categoryId ?? null,
@@ -1264,6 +1283,13 @@ export async function updateTask(
         priority: rest.priority,
         status: rest.status,
         dueDate: rest.dueDate,
+        // Read with the due date: one sent without the flag (an older app)
+        // goes back to the 12:00 marker, which is what that app means.
+        ...(rest.dueDate !== undefined
+          ? { dueAllDay: rest.dueDate ? (rest.dueAllDay ?? null) : null }
+          : rest.dueAllDay !== undefined && existing.dueDate
+            ? { dueAllDay: rest.dueAllDay }
+            : {}),
         categoryId: rest.categoryId,
         ...(place ?? {}),
         ...(placeChanged ? { position: null } : {}),
@@ -1403,6 +1429,16 @@ async function editWhileWaiting(
   // seconds still counts as sent unchanged (it then stays as stored).
   const minute = (d: Date | null | undefined) => (d ? Math.floor(d.getTime() / 60_000) : null);
   if (input.dueDate !== undefined && minute(input.dueDate) !== minute(existing.dueDate)) throw locked();
+  // All day or not, as it reads (a task from before the flag sent back as it
+  // was is unchanged). Only when it's sent: a client without the flag is held
+  // to the minute above, as before.
+  if (
+    input.dueAllDay !== undefined &&
+    dueIsAllDay(input.dueDate === undefined ? existing.dueDate : input.dueDate, input.dueAllDay, settings.timezone) !==
+      dueIsAllDay(existing.dueDate, existing.dueAllDay, settings.timezone)
+  ) {
+    throw locked();
+  }
   if (input.categoryId !== undefined && (input.categoryId ?? null) !== existing.categoryId) throw locked();
   if (input.photoProof !== undefined && input.photoProof !== (existing.photoProof === true)) throw locked();
   if (input.rotationUserIds !== undefined) {
@@ -2512,7 +2548,20 @@ async function setStepDone(
         autoResetAt = now;
       }
     } else if (pending) {
-      // Unchecked by hand: its queued points are dropped.
+      // Unchecked by hand: its queued points are dropped. Only the person they
+      // are queued for, an adult who looks after them, or the head may do that
+      // (owner, 2026-11-08); anyone else's uncheck is refused, so a sibling
+      // can't wipe someone's points and re-tick the step for themselves.
+      if (
+        actor &&
+        actor.id !== pending.userId &&
+        actor.role !== 'head' &&
+        !(await supervisesNow(tx, householdId, actor.id, pending.userId))
+      ) {
+        throw new ForbiddenError(
+          'Only the person who ticked this step, an adult who looks after them, or the Head of House can untick it.',
+        );
+      }
       await tx.pendingCredit.delete({ where: { id: pending.id } });
     }
     await tx.subtask.update({ where: { id: subtaskId }, data: { ...UNCHECKED, autoResetAt } });

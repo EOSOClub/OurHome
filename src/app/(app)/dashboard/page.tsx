@@ -212,7 +212,9 @@ function TaskList({ tasks, timeZone, muted = false }: { tasks: DashTask[]; timeZ
               </p>
               <p
                 className={
-                  isOverdue(task.dueDate, timeZone) ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'
+                  isOverdue(task.dueDate, timeZone, undefined, task.dueAllDay)
+                    ? 'text-xs text-destructive'
+                    : 'text-xs text-muted-foreground'
                 }
               >
                 {formatDueDate(task.dueDate, timeZone)}

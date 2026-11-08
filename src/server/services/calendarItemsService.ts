@@ -1,7 +1,7 @@
 import { prisma } from '@/server/db/prisma';
 import { getPointsSettings } from '@/server/services/pointsService';
 import { getHouseholdFeatures } from '@/server/services/serverAdminService';
-import { isDateOnly, isOverdue } from '@/lib/format';
+import { dueIsAllDay, isOverdue } from '@/lib/format';
 import type { CalendarChoreDTO } from '@/lib/types';
 
 // Things from other pages shown on the calendar, read-only. Today: chores, at
@@ -28,6 +28,7 @@ export async function listChoreItems(
         id: true,
         title: true,
         dueDate: true,
+        dueAllDay: true,
         status: true,
         assigneeId: true,
         assignee: { select: { name: true } },
@@ -42,9 +43,9 @@ export async function listChoreItems(
       id: t.id,
       title: t.title,
       due: t.dueDate.toISOString(),
-      allDay: isDateOnly(t.dueDate, timezone),
+      allDay: dueIsAllDay(t.dueDate, t.dueAllDay, timezone),
       assigneeId: t.assigneeId,
       assigneeName: t.assignee?.name ?? null,
-      overdue: t.status !== 'awaiting_review' && isOverdue(t.dueDate, timezone, now),
+      overdue: t.status !== 'awaiting_review' && isOverdue(t.dueDate, timezone, now, t.dueAllDay),
     }));
 }

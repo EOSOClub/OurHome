@@ -563,9 +563,13 @@ function MemberRow({
   const isHead = member.role === 'head';
   const manageable = canManageMember(currentUser.role, member.role);
   const roles = assignableRoles(currentUser.role);
-  const canChangeRole = manageable && !isSelf && !isHead && roles.length > 0;
-  const canResetPw = manageable && !isSelf;
-  const canRemove = manageable && !isSelf && !isHead;
+  // The server admin's login, password and role are theirs alone, and they
+  // can't be removed, even by a Head of House they handed it to (the server
+  // refuses those; userService.assertNotServerAdmin).
+  const adminsOwn = member.runsServer && !isSelf;
+  const canChangeRole = manageable && !isSelf && !isHead && roles.length > 0 && !adminsOwn;
+  const canResetPw = manageable && !isSelf && !adminsOwn;
+  const canRemove = manageable && !isSelf && !isHead && !adminsOwn;
   const canTransfer = currentUser.role === 'head' && !isHead && !isSelf;
   const canEdit = isSelf || manageable;
   // A child or teen, as the supervision list has them (built from current roles).
@@ -743,12 +747,17 @@ function MemberRow({
                   autoCapitalize="none"
                   autoCorrect="off"
                   spellCheck={false}
+                  disabled={adminsOwn}
                   onChange={(e) => {
                     setEdit({ ...edit, username: e.target.value });
                     clearError('username');
                   }}
                 />
-                <FieldNote id={`username-${member.id}-hint`} error={errors.username} />
+                <FieldNote
+                  id={`username-${member.id}-hint`}
+                  error={errors.username}
+                  hint={adminsOwn ? 'They run the server, so only they can change this.' : undefined}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor={`email-${member.id}`}>Email</Label>
@@ -759,7 +768,7 @@ function MemberRow({
                   aria-invalid={!!errors.email}
                   aria-describedby={`email-${member.id}-hint`}
                   // Your own email changes on your profile, which asks for your password.
-                  disabled={isSelf}
+                  disabled={isSelf || adminsOwn}
                   onChange={(e) => {
                     setEdit({ ...edit, email: e.target.value });
                     clearError('email');
@@ -768,7 +777,13 @@ function MemberRow({
                 <FieldNote
                   id={`email-${member.id}-hint`}
                   error={errors.email}
-                  hint={isSelf ? 'Change your own email on your profile.' : undefined}
+                  hint={
+                    isSelf
+                      ? 'Change your own email on your profile.'
+                      : adminsOwn
+                        ? 'They run the server, so only they can change this.'
+                        : undefined
+                  }
                 />
               </div>
               <div className="sm:col-span-3">

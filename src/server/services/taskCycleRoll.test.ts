@@ -300,8 +300,48 @@ describe('windows before a task’s first due date', () => {
   });
 });
 
+describe('the rule’s end date passed during the last cycle', () => {
+  // Weekly from Monday; the rule ends Thu Nov 5, so the Nov 2 to Nov 9 window
+  // is the last one. Rolled on Nov 9, the next window has no due date.
+  const lastCycle = (over: Record<string, unknown> = {}) =>
+    task({
+      recurrence: rule({ until: d('2026-11-05T12:00:00.000Z') }),
+      recurrenceId: 'r1',
+      dueDate: d('2026-11-02T18:00:00.000Z'),
+      cycleStartedAt: d('2026-11-02T06:00:00.000Z'),
+      cycleEndsAt: d('2026-11-09T06:00:00.000Z'),
+      ...over,
+    });
+
+  it('missed: its queued points and ticks are cleared like any missed cycle (owner, 2026-11-08)', async () => {
+    await roll(
+      lastCycle({ status: 'in_progress', subtasks: [step('a', { done: true, doneAt: d('2026-11-03T12:00:00.000Z'), doneById: 'sam' }), step('b', { position: 1 })] }),
+      d('2026-11-09T07:00:00.000Z'),
+    );
+    expect(written('taskCompletion.create').map((c) => c.data.outcome)).toEqual(['missed']);
+    expect(written('pendingCredit.deleteMany')).toEqual([{ where: { taskId: 't1' } }]);
+    expect(written('subtask.updateMany')).toEqual([
+      { where: { taskId: 't1' }, data: { done: false, doneAt: null, doneById: null, checkAwardId: null, autoResetAt: null } },
+    ]);
+    // It stops cycling; ticks gone, so no longer "in progress". Nothing rolls on.
+    expect(lastTaskUpdate()).toEqual({ cycleStartedAt: null, cycleEndsAt: null, status: 'pending' });
+    expect(names()).not.toContain('recurrenceRule.update');
+  });
+
+  it('done in its last cycle: left as it is', async () => {
+    await roll(
+      lastCycle({ status: 'completed', completedAt: d('2026-11-04T12:00:00.000Z'), subtasks: [step('a', { done: true, doneAt: d('2026-11-03T12:00:00.000Z'), doneById: 'sam' })] }),
+      d('2026-11-09T07:00:00.000Z'),
+    );
+    expect(names()).not.toContain('taskCompletion.create');
+    expect(names()).not.toContain('pendingCredit.deleteMany');
+    expect(names()).not.toContain('subtask.updateMany');
+    expect(lastTaskUpdate()).toEqual({ cycleStartedAt: null, cycleEndsAt: null });
+  });
+});
+
 describe('every 2 weeks with cycles', () => {
-  const biweekly = (over: Record<string, unknown> = {}) => rule({ interval: 2, ...over });
+  const biweekly =(over: Record<string, unknown> = {}) => rule({ interval: 2, ...over });
 
   it('opens a cycle every other Monday, counted from the rule’s first week', () => {
     const spec = cycleSpecFor(biweekly() as never);

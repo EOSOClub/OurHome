@@ -397,13 +397,28 @@ export function rateLimitBucketCount(): number {
 const UNKNOWN_IP_MULTIPLIER = 10;
 function allowRequest(req: NextRequest): boolean {
   const ip = clientIp(req);
-  const key = `${ip}:${new URL(req.url).pathname}`;
-  return rateLimit(key, WINDOW_MS, ip === 'unknown' ? MAX_PER_WINDOW * UNKNOWN_IP_MULTIPLIER : MAX_PER_WINDOW);
+  const path = new URL(req.url).pathname;
+  const max = budgetFor(path);
+  return rateLimit(`${ip}:${path}`, WINDOW_MS, ip === 'unknown' ? max * UNKNOWN_IP_MULTIPLIER : max);
 }
 
 /** After the session is read: per member and path, whatever the address. */
 function allowUser(user: AuthUser, req: NextRequest): boolean {
-  return rateLimit(`user:${user.id}:${new URL(req.url).pathname}`, WINDOW_MS, MAX_PER_WINDOW);
+  const path = new URL(req.url).pathname;
+  return rateLimit(`user:${user.id}:${path}`, WINDOW_MS, budgetFor(path));
+}
+
+/**
+ * Paths that are asked many times in a row by design. App icons on People you
+ * look after are one request per app (the app is in the query, so they share
+ * one path), up to about 100 a page; at 120 a minute the rest fell back to
+ * letters (A6, owner 2026-11-08). Read-only, signed in, and cached a day.
+ */
+const PATH_BUDGETS: Record<string, number> = {
+  '/api/supervision/usage/icon': 1_200,
+};
+function budgetFor(path: string): number {
+  return PATH_BUDGETS[path] ?? MAX_PER_WINDOW;
 }
 
 // --- Audit logging (hook) -------------------------------------------------

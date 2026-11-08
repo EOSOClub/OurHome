@@ -56,6 +56,8 @@ export interface TaskFormPayload {
   type: string;
   priority: string;
   dueDate?: string | null;
+  /** Due all day (no time picked); null without a due date. */
+  dueAllDay?: boolean | null;
   // Task-level time/points (src/lib/taskPoints.ts "base").
   estimatedMinutes?: number | null;
   points?: number | null;
@@ -145,7 +147,8 @@ export function CreateTaskForm({
   const [type, setType] = useState(initial?.type ?? 'one_time');
   const [priority, setPriority] = useState(initial?.priority ?? 'medium');
   const [dueDate, setDueDate] = useState(initialDue.date);
-  const [dueTime, setDueTime] = useState(initialDue.time);
+  // All day opens with no time; a task really due at 12:00 shows 12:00.
+  const [dueTime, setDueTime] = useState(initial?.dueAllDay ? '' : initialDue.time);
   const [points, setPoints] = useState<PointsDraft>(() => draftFromTask(initial));
   const [categoryId, setCategoryId] = useState(initial?.category?.id ?? '');
   // "room:<id>" / "floor:<id>" for each place; [] = the whole house.
@@ -215,10 +218,12 @@ export function CreateTaskForm({
       type,
       priority,
       notes: notes.trim() || undefined,
-      // No time = 12:00 household time, which is how "no time" is marked.
+      // No time: stored at 12:00 household time and said to be all day, so a
+      // task really due at 12:00 keeps its time (owner, 2026-11-08).
       dueDate: dueDate
         ? zonedInstant(dueDate, dueTime || '12:00', timeZone).toISOString()
         : null,
+      dueAllDay: dueDate ? !dueTime : null,
       estimatedMinutes: points.task.baseMinutes || null,
       points: points.task.pointsFollowTime || points.task.basePointsCenti === null ? null : points.task.basePointsCenti / 100,
       pointsFollowTime: points.task.pointsFollowTime,

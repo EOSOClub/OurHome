@@ -108,14 +108,15 @@ function addMonthsUTC(date: Date, months: number): Date {
 }
 
 /**
- * The occurrence after the current one (`current`, e.g., a bill's or task's
- * due date), when that one is being paid/completed. Counted from the current
- * due date while it's still ahead: picked dates sit at 12:00, so counting
- * from "now" on the morning of (or days before) the due date would land on
- * that same occurrence and nothing would move on.
+ * The occurrence after the current one (`current`, a bill's due date), when
+ * that one is being paid. Always counted from the current due date, early or
+ * late (owner, 2026-11-08): paid late, the bill moves to its next date on its
+ * own schedule, so no cycle is skipped and the schedule doesn't shift to the
+ * day it was paid. Paid more than a cycle late, that next one is still owed
+ * and shows as due. With no due date, counted from `now`.
  */
 export function nextAfterOccurrence(rule: NormalizedRule, current: Date | null, now = new Date()): Date | null {
-  return computeNextRunAt(rule, current && current > now ? current : now);
+  return computeNextRunAt(rule, current ?? now);
 }
 
 /**
@@ -273,10 +274,11 @@ function nextByWeekday(anchor: Date, fromIn: Date, weekdays: number[], interval 
 /**
  * The next listed day of the month after `from`, in months that are a
  * multiple of `interval` from the anchor's month, never before the anchor.
- * Days a month don't have are skipped in that month.
+ * A day a month doesn't have falls on that month's last day (the 31st is
+ * Feb 28), as a plain monthly repeat and task cycles do (B12, owner
+ * 2026-11-08); two picked days landing on the same last day give one date.
  */
 function nextByMonthday(anchor: Date, fromIn: Date, monthdays: number[], interval = 1): Date {
-  const sorted = Array.from(new Set(monthdays)).sort((a, b) => a - b);
   const from = notBefore(anchor, fromIn);
   const anchorMonth = anchor.getUTCFullYear() * 12 + anchor.getUTCMonth();
   let cursor = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), 1));
@@ -285,8 +287,8 @@ function nextByMonthday(anchor: Date, fromIn: Date, monthdays: number[], interva
     const month = cursor.getUTCMonth();
     if ((year * 12 + month - anchorMonth) % interval === 0) {
       const dim = daysInMonthUTC(year, month);
-      for (const day of sorted) {
-        if (day > dim) continue; // skip days that don't exist this month
+      const days = Array.from(new Set(monthdays.map((day) => Math.min(day, dim)))).sort((a, b) => a - b);
+      for (const day of days) {
         const candidate = withAnchorTime(new Date(Date.UTC(year, month, day)), anchor);
         if (candidate > from) return candidate;
       }

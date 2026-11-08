@@ -50,7 +50,15 @@ describe('featureForPath', () => {
     expect(featureForPath('/api/integrations/paperless/sync')).toBe('bills');
     expect(featureForPath('/api/map-places/search')).toBe('location');
     expect(featureForPath('/api/location/consent')).toBe('location');
-    expect(featureForPath('/look-after')).toBe('location');
+  });
+
+  it('People you look after works with Location off; only ringing and required sharing go with it (owner, 2026-11-08)', () => {
+    expect(featureForPath('/look-after')).toBeNull();
+    expect(featureForPath('/api/supervision/mine')).toBeNull();
+    expect(featureForPath('/api/supervision/web-filter')).toBeNull();
+    expect(featureForPath('/api/supervision/review-tasks')).toBeNull();
+    expect(featureForPath('/api/supervision/ring')).toBe('location');
+    expect(featureForPath('/api/supervision/sharing')).toBe('location');
   });
 
   it('leaves always-on areas alone', () => {

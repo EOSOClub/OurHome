@@ -102,6 +102,9 @@ export const createTaskSchema = z.object({
   type: z.enum(TASK_TYPES).default('one_time'),
   priority: z.enum(TASK_PRIORITIES).default('medium'),
   dueDate: z.coerce.date().optional().nullable(),
+  // Due all day (no time). Omitted (app builds from before it): a due date at
+  // exactly 12:00 household time is all day, the older marker.
+  dueAllDay: z.boolean().optional().nullable(),
   // The task-level (base) time to complete and points. Points omitted while
   // they follow time are calculated from the household rate.
   estimatedMinutes: estimatedMinutesSchema.optional().nullable(),
@@ -147,6 +150,9 @@ export const updateTaskSchema = z.object({
   // Never awaiting_review: only sending a task for a check sets that.
   status: z.enum(WRITABLE_TASK_STATUSES).optional(),
   dueDate: z.coerce.date().optional().nullable(),
+  // See createTaskSchema. Read with dueDate: a due date sent without it goes
+  // back to the 12:00 marker (what an older app means by it).
+  dueAllDay: z.boolean().optional().nullable(),
   // Base time/points (see createTaskSchema). Without `subtasks`, a changed
   // base is redistributed over the steps on the server (older clients).
   estimatedMinutes: estimatedMinutesSchema.optional().nullable(),

@@ -124,6 +124,7 @@ const {
   reorderSubtasks,
   resetDueSubtasks,
   rollTaskCycles,
+  taskToDTO,
   undoCompletion,
   updateSubtask,
   updateTask,
@@ -804,6 +805,14 @@ describe('updateTask while a task waits for its check', () => {
     expect(written('task.update')[0].data).toMatchObject({ title: 'Dishes and pans', status: undefined, dueDate: undefined });
   });
 
+  it('all day as it reads: a task from before the flag sent back all day is unchanged; made timed, refused', async () => {
+    // Stored at 12:00 Chicago with no flag: all day by the 12:00 marker.
+    await updateTask(H, 'mum', webSave({ title: 'Dishes and pans', dueAllDay: true }));
+    expect(names()).toEqual(['task.update', 'logActivity']);
+    writes.length = 0;
+    await expect(updateTask(H, 'mum', webSave({ dueAllDay: false }))).rejects.toThrow(LOCKED);
+  });
+
   it('a renamed step is saved on its own; nothing else about the checklist is written', async () => {
     const save = webSave();
     save.subtasks[1].title = 'Dry';
@@ -956,6 +965,42 @@ describe('Ask for a photo (photoProof)', () => {
   it('an adult changes it', async () => {
     await updateTask(H, 'mum', { taskId: 't1', photoProof: true });
     expect(written('task.update').at(-1)!.data).toMatchObject({ photoProof: true });
+  });
+});
+
+describe('due all day (dueAllDay, owner 2026-11-08)', () => {
+  const noon = new Date('2026-10-29T17:00:00.000Z'); // 12:00 Chicago
+
+  it('a new task stores what the form says; an older app that doesn’t send it stores null (the 12:00 marker)', async () => {
+    await createTask(H, 'mum', { title: 'Lunch', type: 'one_time', priority: 'medium', dueDate: noon, dueAllDay: false });
+    expect(written('task.create')[0].data).toMatchObject({ dueDate: noon, dueAllDay: false });
+    writes.length = 0;
+    await createTask(H, 'mum', { title: 'Lunch', type: 'one_time', priority: 'medium', dueDate: noon });
+    expect(written('task.create')[0].data).toMatchObject({ dueAllDay: null });
+    writes.length = 0;
+    // No due date: nothing to be all day.
+    await createTask(H, 'mum', { title: 'Lunch', type: 'one_time', priority: 'medium', dueAllDay: true });
+    expect(written('task.create')[0].data).toMatchObject({ dueDate: null, dueAllDay: null });
+  });
+
+  it('an edit reads it with the due date: sent without it goes back to the marker; a cleared date clears it', async () => {
+    await updateTask(H, 'mum', { taskId: 't1', dueDate: noon, dueAllDay: false });
+    expect(written('task.update').at(-1)!.data).toMatchObject({ dueDate: noon, dueAllDay: false });
+    await updateTask(H, 'mum', { taskId: 't1', dueDate: noon });
+    expect(written('task.update').at(-1)!.data).toMatchObject({ dueAllDay: null });
+    await updateTask(H, 'mum', { taskId: 't1', dueDate: null, dueAllDay: true });
+    expect(written('task.update').at(-1)!.data).toMatchObject({ dueDate: null, dueAllDay: null });
+    // An edit that leaves the date alone leaves the flag alone.
+    await updateTask(H, 'mum', { taskId: 't1', title: 'Lunch' });
+    expect(written('task.update').at(-1)!.data).not.toHaveProperty('dueAllDay');
+  });
+
+  it('the task as the pages get it says whether it’s all day', async () => {
+    const dto = (row: Record<string, unknown>) =>
+      taskToDTO(task({ createdAt: noon, ...row }) as never, { settings: { timezone: 'America/Chicago', weekStartsOn: 0, minutesPerPoint: 10 }, names: new Map(), pending: new Map(), places: { floors: [], rooms: [] }, waiting: new Map(), stepsWaiting: new Set(), viewer: null } as never);
+    expect(dto({ dueDate: noon, dueAllDay: null }).dueAllDay).toBe(true);
+    expect(dto({ dueDate: noon, dueAllDay: false }).dueAllDay).toBe(false);
+    expect(dto({ dueDate: null, dueAllDay: null }).dueAllDay).toBe(false);
   });
 });
 

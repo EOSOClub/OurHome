@@ -38,6 +38,7 @@ export function memberToDTO(u: User): HouseholdMemberDTO {
     username: u.displayUsername ?? u.username ?? null,
     role: u.role,
     mustChangePassword: u.mustChangePassword,
+    runsServer: u.isServerAdmin === true,
     createdAt: u.createdAt.toISOString(),
   };
 }
@@ -281,6 +282,10 @@ export async function setMemberRole(
     throw new ForbiddenError('You cannot change your own role.');
   }
   const target = await loadMember(householdId, input.id);
+  // After handing Head of House on, the server admin's household role is
+  // theirs too (owner, 2026-11-08): made a child, they'd fall under child
+  // rules. The Head can hand Head of House back instead.
+  assertNotServerAdmin(target, actor, 'This member runs the server, so nobody else can change their role.');
   if (target.role === 'head') {
     throw new ConflictError('Transfer headship before changing the head’s role.');
   }

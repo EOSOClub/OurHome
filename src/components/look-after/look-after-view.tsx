@@ -34,6 +34,7 @@ import { apiFetch, ApiError, fieldErrors } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { CollapsibleCard } from '@/components/ui/collapsible-card';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { toast } from '@/components/ui/toast';
@@ -99,6 +100,9 @@ const AFTER_REFRESH_MS = [10_000, 25_000];
 
 export function LookAfterView({ initial }: { initial: LookAfterDTO }) {
   const queryClient = useQueryClient();
+  // People you look after works with Location off (owner, 2026-11-08); only
+  // its location parts (required sharing, Ring) go with the Map.
+  const locationOn = useHouseholdFeatures().includes('location');
   const { data = initial } = useQuery({
     queryKey: LOOK_AFTER_KEY,
     queryFn: () => apiFetch<LookAfterDTO>('/api/supervision/mine'),
@@ -193,7 +197,7 @@ export function LookAfterView({ initial }: { initial: LookAfterDTO }) {
               <PersonCard key={person.id} {...ringProps(person)} canRing={data.canRing} />
             ))}
           </ul>
-          {data.canRing ? null : (
+          {data.canRing || !locationOn ? null : (
             <p className="text-xs text-muted-foreground">
               Ringing needs instant phone alerts. They aren&apos;t set up on this server yet, so turn on Stay connected
               in the Our Home app on their phone, or ask whoever runs the server to set them up.
@@ -253,13 +257,11 @@ function usageSummary(person: Person): string {
  */
 function PersonCard({ person, canRing, until, onRang }: RingButtonProps & { canRing: boolean }) {
   const latest = person.appUsage.latest;
+  const locationOn = useHouseholdFeatures().includes('location');
   return (
     <li>
       <Card
-        className={cn(
-          'flex h-full flex-col overflow-hidden',
-          person.phone?.problems.length ? 'border-destructive/60' : undefined,
-        )}
+        className={cn('flex h-full flex-col overflow-hidden', phoneHasProblems(person.phone) ? 'border-destructive/60' : undefined)}
       >
         <Link
           href={`/look-after?person=${encodeURIComponent(person.id)}`}
@@ -270,7 +272,9 @@ function PersonCard({ person, canRing, until, onRang }: RingButtonProps & { canR
             <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
           </span>
           <PhoneStatus phone={person.phone} />
-          <span className="block text-xs text-muted-foreground">{SHARING_SUMMARY[person.sharing]}</span>
+          {locationOn ? (
+            <span className="block text-xs text-muted-foreground">{SHARING_SUMMARY[person.sharing]}</span>
+          ) : null}
           <span className="block text-xs text-muted-foreground">
             {!person.appUsage.shared
               ? 'App usage not shared'
@@ -286,9 +290,9 @@ function PersonCard({ person, canRing, until, onRang }: RingButtonProps & { canR
             <span className="block text-xs text-muted-foreground">{schedulesSummary(person.schedules)}</span>
           ) : null}
           <span className="block text-xs text-muted-foreground">{setupSummary(person)}</span>
-          {person.ring ? <RingLine ring={person.ring} /> : null}
+          {locationOn && person.ring ? <RingLine ring={person.ring} /> : null}
         </Link>
-        {canRing ? (
+        {locationOn && canRing ? (
           <div className="flex justify-end border-t border-border px-4 py-2">
             <RingButton person={person} until={until} onRang={onRang} />
           </div>
@@ -302,37 +306,132 @@ function PersonCard({ person, canRing, until, onRang }: RingButtonProps & { canR
  * Their phone: what's wrong with it (red), or when it last checked in; then
  * how instant alerts reach it (Stay connected, or when the last one arrived).
  */
-function PhoneLine({ phone }: { phone: LookAfterDTO['people'][number]['phone'] }) {
+function PhoneLine({ phone, forgetFor }: { phone: PhoneInfo | null; forgetFor?: Person }) {
   return (
     <>
-      <PhoneStatus phone={phone} />
+      <PhoneStatus phone={phone} forgetFor={forgetFor} />
       {phone ? <AlertsLine phone={phone} /> : null}
     </>
   );
 }
 
-/** What's wrong with their phone (red), or when it last checked in. */
-function PhoneStatus({ phone }: { phone: LookAfterDTO['people'][number]['phone'] }) {
+type PhoneInfo = NonNullable<Person['phone']>;
+type DeviceInfo = PhoneInfo['devices'][number];
+
+/** Something is wrong with any of their devices (the card goes red). */
+function phoneHasProblems(phone: PhoneInfo | null): boolean {
+  if (!phone) return false;
+  return phone.problems.length > 0 || (phone.devices ?? []).some((d) => d.problems.length > 0);
+}
+
+/**
+ * What's wrong with their phone (red), or when it last checked in. Signed in
+ * on more than one device: a line for each, every one judged on its own (P3).
+ * [forgetFor]: on their page, each device has Forget.
+ */
+function PhoneStatus({ phone, forgetFor }: { phone: PhoneInfo | null; forgetFor?: Person }) {
   if (!phone) {
     return <span className="block text-xs text-muted-foreground">Their phone hasn&apos;t checked in yet</span>;
   }
+  const devices = phone.devices ?? [];
+  if (devices.length <= 1) {
+    return (
+      <span className="flex items-start justify-between gap-2">
+        <span className="min-w-0">
+          <DeviceState device={phone} />
+        </span>
+        {forgetFor && devices[0] ? <ForgetDevice person={forgetFor} device={devices[0]} /> : null}
+      </span>
+    );
+  }
+  return (
+    <span className="block space-y-1">
+      {devices.map((device) => (
+        <span key={device.installId} className="flex items-start justify-between gap-2">
+          <span className="min-w-0">
+            <span className="block truncate text-xs font-medium">{device.deviceName ?? 'A device'}</span>
+            <DeviceState device={device} />
+          </span>
+          {forgetFor ? <ForgetDevice person={forgetFor} device={device} /> : null}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** One device: what's wrong (red), or when it checked in; while it's quiet, what it last said was wrong (P5). */
+function DeviceState({ device }: { device: Pick<DeviceInfo, 'lastSeenAt' | 'problems' | 'lastKnown'> }) {
+  if (device.problems.length === 0) {
+    return (
+      <span className="block text-xs text-muted-foreground">
+        Phone checked in <RelativeTime date={device.lastSeenAt} />
+      </span>
+    );
+  }
   return (
     <>
-      {phone.problems.length > 0 ? (
-        <span className="block text-xs font-medium text-destructive">
-          {phone.problems.map((p) => PHONE_PROBLEM_LABELS[p]).join(' · ')}
-          {phone.problems.some((p) => SILENT_PROBLEMS.has(p)) ? (
-            <>
-              {' '}
-              (last seen <RelativeTime date={phone.lastSeenAt} />)
-            </>
-          ) : null}
+      <span className="block text-xs font-medium text-destructive">
+        {device.problems.map((p) => PHONE_PROBLEM_LABELS[p]).join(' · ')}
+        {device.problems.some((p) => SILENT_PROBLEMS.has(p)) ? (
+          <>
+            {' '}
+            (last seen <RelativeTime date={device.lastSeenAt} />)
+          </>
+        ) : null}
+      </span>
+      {device.lastKnown?.length ? (
+        <span className="block text-xs text-destructive">
+          When last heard: {device.lastKnown.map((p) => PHONE_PROBLEM_LABELS[p]).join(' · ')}
         </span>
-      ) : (
-        <span className="block text-xs text-muted-foreground">
-          Phone checked in <RelativeTime date={phone.lastSeenAt} />
-        </span>
-      )}
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * Forget a device they no longer use, so its silence stops alerting. One
+ * still in use comes back with its next check-in, so a wrong tap costs little.
+ */
+function ForgetDevice({ person, device }: { person: Person; device: DeviceInfo }) {
+  const queryClient = useQueryClient();
+  const [confirm, setConfirm] = useState(false);
+  const name = device.deviceName ?? 'this device';
+  const forget = useMutation({
+    mutationFn: () =>
+      apiFetch<LookAfterDTO>('/api/supervision/devices/forget', {
+        method: 'POST',
+        body: JSON.stringify({ supervisedId: person.id, installId: device.installId }),
+      }),
+    onSuccess: (next) => {
+      queryClient.setQueryData(LOOK_AFTER_KEY, next);
+      toast.success(`Forgot ${person.name}’s ${device.deviceName ?? 'device'}`);
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not forget it.'),
+  });
+  return (
+    <>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="shrink-0"
+        disabled={forget.isPending}
+        onClick={() => setConfirm(true)}
+      >
+        {forget.isPending ? <Loader2 className="animate-spin" /> : null}
+        Forget
+      </Button>
+      <ConfirmDialog
+        open={confirm}
+        onClose={() => setConfirm(false)}
+        onConfirm={() => {
+          setConfirm(false);
+          forget.mutate();
+        }}
+        title="Forget this device"
+        description={`Forget ${name}? Do this for a device ${person.name} no longer uses: it stops counting, and its alerts go. If it's still in use, it comes back the next time it checks in.`}
+        confirmLabel="Forget"
+      />
     </>
   );
 }
@@ -1337,6 +1436,7 @@ function RingButton({ person, until, onRang }: RingButtonProps) {
  */
 function PersonDetail({ person, canRing, until, onRang }: RingButtonProps & { canRing: boolean }) {
   const queryClient = useQueryClient();
+  const locationOn = useHouseholdFeatures().includes('location');
 
   // A fetch already on its way (window focus) mustn't put the old value back.
   const cancelRefetch = () => queryClient.cancelQueries({ queryKey: LOOK_AFTER_KEY });
@@ -1386,30 +1486,32 @@ function PersonDetail({ person, canRing, until, onRang }: RingButtonProps & { ca
     <div className="grid items-start gap-6 sm:landscape:grid-cols-2 lg:grid-cols-2">
       <div className="space-y-6">
         <PhoneCard person={person} canRing={canRing} until={until} onRang={onRang} />
-        <CollapsibleCard
-          icon={<MapPin className="size-4" />}
-          title="Location"
-          description={SHARING_SUMMARY[person.sharing]}
-        >
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="size-4 rounded border-input"
-              checked={required}
-              disabled={require.isPending}
-              onChange={(e) => {
-                requireTap.hold(e.target.checked);
-                require.mutate(e.target.checked);
-              }}
-            />
-            Location required
-            {require.isPending ? <Loader2 className="size-3.5 animate-spin text-muted-foreground" /> : null}
-          </label>
-          <Help className="pl-6 pt-1">
-            Keeps their location sharing on, and lets you check where they are on the Map without them allowing it.
-            They always see when you check.
-          </Help>
-        </CollapsibleCard>
+        {locationOn ? (
+          <CollapsibleCard
+            icon={<MapPin className="size-4" />}
+            title="Location"
+            description={SHARING_SUMMARY[person.sharing]}
+          >
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="size-4 rounded border-input"
+                checked={required}
+                disabled={require.isPending}
+                onChange={(e) => {
+                  requireTap.hold(e.target.checked);
+                  require.mutate(e.target.checked);
+                }}
+              />
+              Location required
+              {require.isPending ? <Loader2 className="size-3.5 animate-spin text-muted-foreground" /> : null}
+            </label>
+            <Help className="pl-6 pt-1">
+              Keeps their location sharing on, and lets you check where they are on the Map without them allowing it.
+              They always see when you check.
+            </Help>
+          </CollapsibleCard>
+        ) : null}
         <CollapsibleCard
           icon={<ChartColumn className="size-4" />}
           title="App usage"
@@ -1565,24 +1667,28 @@ function WebFilterCard({ person }: { person: Person }) {
  * Ring. A red edge while their phone has a problem, as on their summary card.
  */
 function PhoneCard({ person, canRing, until, onRang }: RingButtonProps & { canRing: boolean }) {
+  // Ringing goes with the Location feature (as the Map does).
+  const locationOn = useHouseholdFeatures().includes('location');
   return (
-    <Card className={person.phone?.problems.length ? 'border-destructive/60' : undefined}>
+    <Card className={phoneHasProblems(person.phone) ? 'border-destructive/60' : undefined}>
       <CardContent className="space-y-3 pt-5">
         <div className="flex items-start justify-between gap-3">
           <span className="min-w-0 space-y-0.5">
             <span className="flex items-center gap-2 pb-1 text-base font-semibold leading-none tracking-tight">
               <Smartphone className="size-4" /> Their phone
             </span>
-            <PhoneLine phone={person.phone} />
-            {person.ring ? <RingLine ring={person.ring} /> : null}
+            <PhoneLine phone={person.phone} forgetFor={person} />
+            {locationOn && person.ring ? <RingLine ring={person.ring} /> : null}
           </span>
-          {canRing ? <RingButton person={person} until={until} onRang={onRang} /> : null}
+          {locationOn && canRing ? <RingButton person={person} until={until} onRang={onRang} /> : null}
         </div>
-        <Help>
-          {canRing
-            ? 'Ring rings their phone loudly for up to 30 seconds, even on silent. You see when it starts ringing, and whether someone tapped Stop.'
-            : 'Ringing needs instant phone alerts. They aren’t set up on this server yet, so turn on Stay connected in the Our Home app on their phone, or ask whoever runs the server to set them up.'}
-        </Help>
+        {locationOn ? (
+          <Help>
+            {canRing
+              ? 'Ring rings their phone loudly for up to 30 seconds, even on silent. You see when it starts ringing, and whether someone tapped Stop.'
+              : 'Ringing needs instant phone alerts. They aren’t set up on this server yet, so turn on Stay connected in the Our Home app on their phone, or ask whoever runs the server to set them up.'}
+          </Help>
+        ) : null}
       </CardContent>
     </Card>
   );

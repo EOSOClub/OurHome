@@ -42,6 +42,7 @@ const tx = {
     delete: vi.fn(),
   },
   extraTime: { create: vi.fn() },
+  phoneStatus: { deleteMany: vi.fn() },
 };
 const prisma = {
   user: {
@@ -59,7 +60,10 @@ const prisma = {
     findUnique: vi.fn(async (): Promise<unknown> => null),
   },
   appLimit: { findUnique: vi.fn(async (): Promise<unknown> => null), count: vi.fn(async () => 1) },
-  phoneStatus: { findMany: vi.fn(async (): Promise<unknown[]> => []) },
+  phoneStatus: {
+    findMany: vi.fn(async (): Promise<unknown[]> => []),
+    findFirst: vi.fn(async (): Promise<unknown> => null),
+  },
   $transaction: vi.fn(async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx)),
 };
 vi.mock('@/server/db/prisma', () => ({ prisma }));
@@ -127,6 +131,7 @@ vi.mock('@/server/services/taskSubmissionService', () => checks);
 
 const {
   dropBrokenSupervision,
+  forgetDevice,
   getSupervision,
   isSupervising,
   linkNewSupervisors,
@@ -894,6 +899,32 @@ describe('required sharing', () => {
       /Only an adult who supervises them/,
     );
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('a supervisor forgets a device they no longer use: its record goes, logged, alerts judged again (P3)', async () => {
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    prisma.phoneStatus.findFirst.mockResolvedValueOnce({ id: 'ps1', deviceName: 'Old Pixel' });
+    await forgetDevice(H, { id: 'alex' }, { supervisedId: 'sam', installId: 'old-install' });
+    // Only that child's device, in this household.
+    expect(prisma.phoneStatus.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { householdId: H, userId: 'sam', installId: 'old-install' } }),
+    );
+    expect(tx.phoneStatus.deleteMany).toHaveBeenCalledWith({ where: { id: 'ps1' } });
+    expect(logActivity).toHaveBeenCalledWith(expect.objectContaining({ message: 'forgot Sam’s device “Old Pixel”' }), tx);
+    expect(phones.refreshPhoneAlerts).toHaveBeenCalledWith(H, expect.any(Date), ['sam']);
+  });
+
+  it('refuses forgetting a device from someone who doesn’t supervise them, or one that isn’t theirs', async () => {
+    findLinks.mockResolvedValueOnce([]);
+    await expect(forgetDevice(H, { id: 'gran' }, { supervisedId: 'sam', installId: 'x' })).rejects.toThrow(
+      /Only an adult who supervises them/,
+    );
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    prisma.phoneStatus.findFirst.mockResolvedValueOnce(null);
+    await expect(forgetDevice(H, { id: 'alex' }, { supervisedId: 'sam', installId: 'someone-elses' })).rejects.toThrow(
+      'That device isn’t one of theirs any more.',
+    );
+    expect(tx.phoneStatus.deleteMany).not.toHaveBeenCalled();
   });
 
   it('refuses a phone rule from someone who doesn’t supervise them', async () => {

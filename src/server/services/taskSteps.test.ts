@@ -545,6 +545,30 @@ describe('unticking a step whose current tick waits for an OK', () => {
   });
 });
 
+// --- Unticking a step that holds someone's queued points (owner decision 2026-11-08) ---
+
+describe('unticking a step whose points are queued for someone', () => {
+  beforeEach(() => {
+    stored = task({ subtasks: [step('a', { done: true, doneAt: QUEUED_AT, doneById: 'kid' }), step('b', { position: 1 })] });
+    pendingRow = queued('a');
+  });
+
+  it('the person, an adult who looks after them, or the head: unticked and the queued points dropped', async () => {
+    for (const actor of [kid, mum, boss]) {
+      writes.length = 0;
+      await updateSubtask(H, { subtaskId: 'a', done: false }, actor);
+      expect(written('pendingCredit.delete')).toEqual([{ where: { id: 'pc-a' } }]);
+      expect(written('subtask.update')).toEqual([{ where: { id: 'a' }, data: { ...UNTICKED, autoResetAt: null } }]);
+    }
+  });
+
+  it('anyone else (a sibling): refused, the step stays ticked and the points stay queued', async () => {
+    await expect(updateSubtask(H, { subtaskId: 'a', done: false }, sam)).rejects.toMatchObject({ name: 'ForbiddenError' });
+    expect(names()).not.toContain('pendingCredit.delete');
+    expect(names()).not.toContain('subtask.update');
+  });
+});
+
 // --- Deciding a steps check --------------------------------------------------------------
 
 describe('decideSubmission on a steps check', () => {

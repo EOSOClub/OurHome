@@ -99,16 +99,19 @@ const SEGMENT_FEATURE: Record<string, Feature> = {
   requests: 'requests',
   map: 'location',
   'map-places': 'location',
-  // People you look after: ringing, required sharing and app usage came with the Map.
-  'look-after': 'location',
   location: 'location',
 };
 
 // Deeper paths that belong to a feature even though they sit inside an
-// always-on area: the Paperless and OurHomeInbox connections (Settings) only feed Bills.
+// always-on area: the Paperless and OurHomeInbox connections (Settings) only
+// feed Bills. People you look after (/look-after, /api/supervision) is always
+// on (owner, 2026-11-08: screen time, app limits, web filtering and photo
+// review aren't location); only ringing and required sharing go with Location.
 const NESTED_FEATURE: Record<string, Feature> = {
   'integrations/paperless': 'bills',
   'integrations/inbox': 'bills',
+  'supervision/ring': 'location',
+  'supervision/sharing': 'location',
 };
 
 /** The feature a page or API path belongs to, or null when it's always on. */

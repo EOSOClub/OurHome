@@ -169,7 +169,14 @@ export async function announceRequestAnswer(
   actor: { id: string; name: string },
   opts: { timeZone?: string; quiet?: boolean } = {},
 ): Promise<boolean> {
-  if (r.requesterId === actor.id) return false;
+  if (r.requesterId === actor.id) {
+    // Nobody is told about their own doing. But a requester who can also
+    // answer (marking their own request added, or declining it) settles it,
+    // so an earlier answer's notice ("Accepted") no longer holds (C8, owner
+    // 2026-11-08). A quiet change leaves it, as for anyone.
+    if (!opts.quiet) await clearRequestNotice(db, householdId, r.id);
+    return false;
+  }
   const text = requestNoticeText(r, answer, actor.name, opts.timeZone);
   if (opts.quiet) {
     await db.notification.updateMany({

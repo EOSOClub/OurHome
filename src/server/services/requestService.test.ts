@@ -10,6 +10,7 @@ const prisma = {
     delete: vi.fn(),
     findMany: vi.fn(async (): Promise<unknown[]> => []),
     findFirstOrThrow: vi.fn(async (): Promise<unknown> => ({ ...ROW })),
+    create: vi.fn(async (args: { data: Record<string, unknown> }): Promise<unknown> => ({ ...ROW, ...args.data })),
   },
   requestNote: {
     create: vi.fn(),
@@ -60,6 +61,7 @@ const {
   addRequestNote,
   completeRequest,
   countNewRequests,
+  createRequest,
   declineRequest,
   deleteRequest,
   deleteRequestNote,
@@ -131,8 +133,10 @@ describe('the head reassigns a maintenance request', () => {
     expect(prisma.request.update).not.toHaveBeenCalled();
   });
 
-  it('never to the requester, nor to who has it already', async () => {
-    await expect(reassignRequest(H, HEAD, { id: ID, assigneeId: 'sam' })).rejects.toThrow('Choose someone else');
+  it('to the requester too (anyone may be picked by the head), but not to who has it already', async () => {
+    await reassignRequest(H, HEAD, { id: ID, assigneeId: 'sam' });
+    expect(savedData().assignee).toEqual({ connect: { id: 'sam' } });
+    vi.clearAllMocks();
     await expect(reassignRequest(H, HEAD, { id: ID, assigneeId: 'tester' })).rejects.toThrow('already with them');
     expect(prisma.request.update).not.toHaveBeenCalled();
   });
@@ -511,6 +515,48 @@ describe('the requester edits a finished maintenance request', () => {
     await updateRequest(H, SAM, { id: ID, category: 'maintenance', title: 'Fix the kitchen faucet', assigneeId: 'tester' });
     expect(savedData()).toMatchObject({ title: 'Fix the kitchen faucet' });
     expect(savedData().status).toBeUndefined();
+  });
+});
+
+describe('the requester takes on their own maintenance request (owner, 2026-11-08)', () => {
+  const SAM = { id: 'sam', role: 'adult' };
+  const ask = (assigneeId: string) =>
+    createRequest(H, SAM, { category: 'maintenance', title: 'Fix the faucet', assigneeId } as never);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    prisma.user.findFirst.mockImplementation(async (args?: unknown) => {
+      const id = (args as { where: { id: string } }).where.id;
+      return named[id] ? { id, name: named[id] } : null;
+    });
+    prisma.request.create.mockImplementation(async (args: { data: Record<string, unknown> }) => ({ ...ROW, ...args.data }));
+  });
+
+  it('may pick themselves when they may be asked (nobody chosen: everyone may)', async () => {
+    modules.getRequestModules.mockResolvedValue(DEFAULT_REQUEST_MODULES);
+    await ask('sam');
+    expect(prisma.request.create.mock.calls[0][0].data).toMatchObject({ requesterId: 'sam', assigneeId: 'sam' });
+    expect(activity.logActivity).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'took on “Fix the faucet” themselves' }),
+    );
+  });
+
+  it('may pick themselves when they’re on the list of people who may be asked', async () => {
+    modules.getRequestModules.mockResolvedValue({
+      ...DEFAULT_REQUEST_MODULES,
+      maintenance: { ...DEFAULT_REQUEST_MODULES.maintenance, assigneeIds: ['sam', 'tester'] },
+    });
+    await ask('sam');
+    expect(prisma.request.create).toHaveBeenCalled();
+  });
+
+  it('not when they aren’t on that list, like anyone else', async () => {
+    modules.getRequestModules.mockResolvedValue({
+      ...DEFAULT_REQUEST_MODULES,
+      maintenance: { ...DEFAULT_REQUEST_MODULES.maintenance, assigneeIds: ['tester'] },
+    });
+    await expect(ask('sam')).rejects.toThrow('can’t be asked');
+    expect(prisma.request.create).not.toHaveBeenCalled();
   });
 });
 

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   APP_LOCALE,
   dateKey,
+  dueIsAllDay,
   formatDate,
   formatDueDate,
   formatMoney,
@@ -85,6 +86,29 @@ describe('isOverdue', () => {
 
   it('is false without a date', () => {
     expect(isOverdue(null, tz)).toBe(false);
+  });
+
+  it('a task’s own all-day flag wins over the 12:00 marker (owner, 2026-11-08)', () => {
+    // Really due at 12:00: overdue from 12:00 that day, not the next day.
+    expect(isOverdue(dueNoon, tz, at('2026-03-10T17:30:00Z'), false)).toBe(true);
+    expect(isOverdue(dueNoon, tz, at('2026-03-10T16:30:00Z'), false)).toBe(false);
+    // All day at another stored time still counts by the day.
+    const due9 = at('2026-03-10T14:00:00Z');
+    expect(isOverdue(due9, tz, at('2026-03-10T22:00:00Z'), true)).toBe(false);
+    // No flag (older tasks, older apps): the 12:00 marker, as before.
+    expect(isOverdue(dueNoon, tz, at('2026-03-10T22:00:00Z'), null)).toBe(false);
+  });
+});
+
+describe('dueIsAllDay', () => {
+  it('reads the flag, else the 12:00 marker; nothing is all day without a date', () => {
+    const dueNoon = at('2026-03-10T17:00:00Z');
+    expect(dueIsAllDay(dueNoon, false, tz)).toBe(false);
+    expect(dueIsAllDay(dueNoon, null, tz)).toBe(true);
+    expect(dueIsAllDay(dueNoon, undefined, tz)).toBe(true);
+    expect(dueIsAllDay(at('2026-03-10T14:00:00Z'), true, tz)).toBe(true);
+    expect(dueIsAllDay(at('2026-03-10T14:00:00Z'), null, tz)).toBe(false);
+    expect(dueIsAllDay(null, true, tz)).toBe(false);
   });
 });
 

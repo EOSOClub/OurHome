@@ -103,11 +103,22 @@ describe('announceRequestAnswer', () => {
     });
   });
 
-  it('tells nobody about their own doing', async () => {
+  it('tells nobody about their own doing, and clears an earlier answer’s notice that no longer holds (C8, owner 2026-11-08)', async () => {
+    // Someone accepted it ("Accepted" in their bell), then they marked it added
+    // or declined it themselves.
     const { db, create, deleteMany } = fakeDb();
     expect(await announceRequestAnswer(db, 'h', base, 'approved', { id: 'kid', name: 'Riley' })).toBe(false);
     expect(create).not.toHaveBeenCalled();
+    expect(deleteMany).toHaveBeenCalledWith({ where: { householdId: 'h', type: 'request_update', subjectId: 'r1' } });
+  });
+
+  it('their own quiet change (a moved date) leaves the notice alone', async () => {
+    const { db, deleteMany, updateMany } = fakeDb();
+    expect(await announceRequestAnswer(db, 'h', base, 'accepted', { id: 'kid', name: 'Riley' }, { quiet: true })).toBe(
+      false,
+    );
     expect(deleteMany).not.toHaveBeenCalled();
+    expect(updateMany).not.toHaveBeenCalled();
   });
 
   it('quiet only rewrites a notice that is there, so nothing alerts again', async () => {

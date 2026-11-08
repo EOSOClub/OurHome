@@ -325,15 +325,13 @@ export function viewDecides(
 
 /**
  * The people a maintenance request may go to: the chosen ones still in the
- * household (everyone when none are), never the requester.
+ * household (everyone when none are). The requester among them when they're
+ * one of those people: whoever may be asked may take on their own request
+ * (owner, 2026-11-08).
  */
-export function assigneeChoices(
-  settings: MaintenanceModuleSettings,
-  memberIds: readonly string[],
-  requesterId: string,
-): string[] {
+export function assigneeChoices(settings: MaintenanceModuleSettings, memberIds: readonly string[]): string[] {
   const chosen = settings.assigneeIds.filter((id) => memberIds.includes(id));
-  return (chosen.length > 0 ? chosen : memberIds).filter((id) => id !== requesterId);
+  return chosen.length > 0 ? chosen : [...memberIds];
 }
 
 /**
@@ -424,13 +422,17 @@ export function moduleViews(
     };
     if (id === 'maintenance') {
       const m = settings.maintenance;
-      const choices = assigneeChoices(m, memberIds, viewer.id);
+      const choices = assigneeChoices(m, memberIds);
       return {
         ...common,
         handles: false,
         allowDecline: m.allowDecline,
         assigneeIds: choices,
-        defaultAssigneeId: m.defaultAssigneeId && choices.includes(m.defaultAssigneeId) ? m.defaultAssigneeId : null,
+        // Taking it on yourself is a choice: your own form never starts on you.
+        defaultAssigneeId:
+          m.defaultAssigneeId && m.defaultAssigneeId !== viewer.id && choices.includes(m.defaultAssigneeId)
+            ? m.defaultAssigneeId
+            : null,
         requireDueDate: m.requireDueDate,
       };
     }

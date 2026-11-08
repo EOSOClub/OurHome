@@ -446,14 +446,13 @@ export function AddChildWizard({
             app={app}
             watching={made.supervisorIds.includes(actorId)}
             supervisorNames={supervisorNames(made.supervisorIds)}
-            locationOn={locationOn}
             onNext={() => setStep('progress')}
             onAnother={startOver}
           />
         ) : null}
 
         {step === 'progress' && made ? (
-          <ProgressStep made={made} locationOn={locationOn} onBack={() => setStep('install')} onAnother={startOver} />
+          <ProgressStep made={made} onBack={() => setStep('install')} onAnother={startOver} />
         ) : null}
       </Card>
     </div>
@@ -498,7 +497,6 @@ function InstallStep({
   app,
   watching,
   supervisorNames,
-  locationOn,
   onNext,
   onAnother,
 }: {
@@ -507,7 +505,6 @@ function InstallStep({
   /** The viewer supervises them, so can watch their phone on the next step. */
   watching: boolean;
   supervisorNames: string[];
-  locationOn: boolean;
   onNext: () => void;
   onAnother: () => void;
 }) {
@@ -607,8 +604,7 @@ function InstallStep({
         {watching ? null : (
           <p className="rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
             You don’t supervise {made.name}, so you won’t see their phone here.{' '}
-            {supervisorNames.join(' and ')}{' '}
-            {locationOn ? 'can follow how far it got on People you look after.' : 'are told if anything is turned off later.'}
+            {supervisorNames.join(' and ')} can follow how far it got on People you look after.
           </p>
         )}
         <div className="flex flex-wrap gap-2">
@@ -676,12 +672,10 @@ function SetupLinkBox({ memberId, name }: { memberId: string; name: string }) {
 
 function ProgressStep({
   made,
-  locationOn,
   onBack,
   onAnother,
 }: {
   made: Made;
-  locationOn: boolean;
   onBack: () => void;
   onAnother: () => void;
 }) {
@@ -731,14 +725,12 @@ function ProgressStep({
           <Button variant="ghost" onClick={onBack}>
             <ArrowLeft /> Install steps
           </Button>
-          {locationOn ? (
-            <Link
-              href={`/look-after?person=${encodeURIComponent(made.id)}`}
-              className={buttonVariants({ variant: complete ? 'default' : 'outline' })}
-            >
-              People you look after
-            </Link>
-          ) : null}
+          <Link
+            href={`/look-after?person=${encodeURIComponent(made.id)}`}
+            className={buttonVariants({ variant: complete ? 'default' : 'outline' })}
+          >
+            People you look after
+          </Link>
           <Button variant="ghost" onClick={onAnother}>
             Set up another child
           </Button>

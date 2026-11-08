@@ -61,6 +61,8 @@ export interface TaskLike {
   id: string;
   title: string;
   dueDate: Date | null;
+  /** Due all day (Task.dueAllDay); null or left out: the 12:00 marker decides. */
+  dueAllDay?: boolean | null;
   status: string;
   assigneeId?: string | null;
   createdById?: string | null;
@@ -91,9 +93,10 @@ export function tiedUsers(...ids: (string | null | undefined)[]): string[] {
 }
 
 /**
- * Overdue = active task past its due date: a date-only one (stored at 12:00
- * local) from the next day in the household's zone, a timed one once its
- * time passed - the same rule the pages show (lib/format isOverdue).
+ * Overdue = active task past its due date: an all-day one (its dueAllDay, or
+ * stored at 12:00 local without it) from the next day in the household's
+ * zone, a timed one once its time passed - the same rule the pages show
+ * (lib/format isOverdue).
  */
 export function buildOverdueReminders(
   tasks: TaskLike[],
@@ -105,7 +108,7 @@ export function buildOverdueReminders(
       (t) =>
         ACTIVE_STATUSES.includes(t.status) &&
         t.dueDate !== null &&
-        isOverdue(t.dueDate, timeZone, now),
+        isOverdue(t.dueDate, timeZone, now, t.dueAllDay),
     )
     .map((t) => ({
       dedupeKey: `overdue:task:${t.id}`,
@@ -509,6 +512,7 @@ async function reconcileReminders(
         id: true,
         title: true,
         dueDate: true,
+        dueAllDay: true,
         status: true,
         assigneeId: true,
         createdById: true,

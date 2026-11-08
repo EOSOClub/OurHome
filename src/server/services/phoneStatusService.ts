@@ -97,7 +97,7 @@ export async function checkIn(
     stayConnected: input.stayConnected ?? null,
     closeGuard: input.closeGuard ?? null,
     uninstallGuard: input.uninstallGuard ?? null,
-    ...(await emergencyData(input)),
+    ...(await emergencyData(input, userId)),
     ...statusData(input.status, now),
     // Like the status: sent only while an adult looks after them.
     ...(input.alwaysAllowed ? { alwaysAllowed: [...new Set(input.alwaysAllowed)] } : {}),
@@ -141,18 +141,21 @@ export async function checkIn(
  * once; between them, it sends only the time the unlocking ends, so the last
  * one is kept while that time is sent. "unlocked" is kept while the guard
  * against uninstalling is still off, so the alert stays until a parent has
- * put it back.
+ * put it back. Only for the member it was kept for: on a shared device
+ * someone else signed in on, the last member's milestone isn't theirs, so it
+ * starts fresh (P7, owner 2026-11-08); a milestone the phone sends now still
+ * counts, whoever is signed in.
  */
-async function emergencyData(input: PhoneCheckInInput): Promise<{ emergencyUnlockStage?: string | null }> {
+async function emergencyData(input: PhoneCheckInInput, userId: string): Promise<{ emergencyUnlockStage?: string | null }> {
   if (input.emergencyUnlockStage) return { emergencyUnlockStage: input.emergencyUnlockStage };
+  if (!input.emergencyUnlockReadyAtMs && input.uninstallGuard !== false) return { emergencyUnlockStage: null };
+  const stored = await prisma.phoneStatus.findUnique({
+    where: { installId: input.installId },
+    select: { userId: true, emergencyUnlockStage: true },
+  });
+  if (stored && stored.userId !== userId) return { emergencyUnlockStage: null };
   if (input.emergencyUnlockReadyAtMs) return {};
-  if (input.uninstallGuard === false) {
-    const stored = await prisma.phoneStatus.findUnique({
-      where: { installId: input.installId },
-      select: { emergencyUnlockStage: true },
-    });
-    if (stored?.emergencyUnlockStage === 'unlocked') return {};
-  }
+  if (stored?.emergencyUnlockStage === 'unlocked') return {};
   return { emergencyUnlockStage: null };
 }
 
@@ -308,6 +311,12 @@ export interface PhoneSummary {
   lastSeenAt: string;
   deviceName: string | null;
   problems: PhoneProblem[];
+  /**
+   * While it's quiet: what its last report showed wrong, under the rules as
+   * they are now (P5, owner 2026-11-08), shown after the silence. Empty
+   * while it's heard from: then [problems] says it all.
+   */
+  lastKnown: PhoneProblem[];
   lastPushAt: string | null;
   stayConnected: boolean;
   connected: boolean;
@@ -315,6 +324,22 @@ export interface PhoneSummary {
   checks: PhoneSetupChecks;
   /** The apps it never blocks (package names). */
   alwaysAllowed: string[];
+  /**
+   * Every device they're signed in on, freshest first, each judged on its own
+   * (P3, owner 2026-11-08): a quiet main phone shows beside a tablet that
+   * keeps checking in. A supervisor can forget one they no longer use.
+   */
+  devices: DeviceSummary[];
+}
+
+/** One of a child's devices on their card: when it was last heard from and what's wrong with it. */
+export interface DeviceSummary {
+  installId: string;
+  deviceName: string | null;
+  lastSeenAt: string;
+  problems: PhoneProblem[];
+  /** While it's quiet: what its last report showed wrong (as [PhoneSummary.lastKnown]). */
+  lastKnown: PhoneProblem[];
 }
 
 type SummaryKid = {
@@ -334,20 +359,20 @@ export async function phoneSummaries(
   return new Map([...judged].map(([kidId, j]) => [kidId, j.summary]));
 }
 
-/**
- * What the alerts need besides each child's summary. [others]: what's wrong
- * with their other phones that aren't quiet themselves (a tablet beside the
- * phone). [mayStillStream]: the freshest phone used Stay connected and the
- * server started too recently to tell whether it's reconnecting.
- */
+/** What the alerts need: each child's summary, and each of their devices judged on its own. */
 interface PhoneJudgement {
   summary: PhoneSummary;
-  others: Set<PhoneProblem>;
+  devices: DeviceJudgement[];
+}
+
+interface DeviceJudgement {
+  problems: PhoneProblem[];
+  /** It used Stay connected and the server started too recently to tell whether it's reconnecting. */
   mayStillStream: boolean;
   /**
-   * What the freshest phone's last report shows wrong under the rules as
-   * they are now, its silence aside. While it's quiet only these alerts are
-   * kept: one whose requirement was since turned off still goes.
+   * What its last report shows wrong under the rules as they are now, its
+   * silence aside. While it's quiet only these alerts are kept: one whose
+   * requirement was since turned off still goes.
    */
   lastKnown: Set<PhoneProblem>;
 }
@@ -405,14 +430,23 @@ async function judgePhones(
       rules: phoneRules(kid),
       webFilter,
     };
-    const problemsOf = (p: (typeof phones)[number]) =>
-      phoneProblems({ ...p, connected: connected.has(p.installId) }, expect, now);
-    const others = new Set<PhoneProblem>();
-    for (const other of kidPhones) {
-      if (other === phone) continue;
-      // A quiet one says only that it's quiet, which is never held for it.
-      for (const problem of problemsOf(other)) if (!SILENT_PROBLEMS.has(problem)) others.add(problem);
-    }
+    // Each device on its own, freshest first.
+    const judged = [...kidPhones]
+      .sort((a, b) => lastWordAt(b).getTime() - lastWordAt(a).getTime())
+      .map((p) => {
+        const problems = phoneProblems({ ...p, connected: connected.has(p.installId) }, expect, now);
+        const lastKnown = phoneProblems({ ...p, connected: true }, expect, now).filter((x) => !SILENT_PROBLEMS.has(x));
+        const quiet = problems.some((x) => SILENT_PROBLEMS.has(x));
+        return {
+          row: p,
+          problems,
+          lastKnown,
+          quiet,
+          mayStillStream: justStarted && p.stayConnected === true && p.streamAt != null,
+        };
+      });
+    const own = judged.find((d) => d.row === phone)!;
+    const { problems, lastKnown, quiet } = own;
     out.set(kid.id, {
       summary: {
         // Its stream counts too, so "last seen" matches when the quiet alert counts from.
@@ -423,13 +457,21 @@ async function judgePhones(
         connected: connected.has(phone.installId),
         checks: setupChecks(phone, webFilter),
         alwaysAllowed: phone.alwaysAllowed,
-        problems: problemsOf(phone),
+        problems,
+        lastKnown: quiet ? lastKnown : [],
+        devices: judged.map((d) => ({
+          installId: d.row.installId,
+          deviceName: d.row.deviceName,
+          lastSeenAt: lastWordAt(d.row).toISOString(),
+          problems: d.problems,
+          lastKnown: d.quiet ? d.lastKnown : [],
+        })),
       },
-      others,
-      mayStillStream: justStarted && phone.stayConnected === true && phone.streamAt != null,
-      lastKnown: new Set(
-        phoneProblems({ ...phone, connected: true }, expect, now).filter((p) => !SILENT_PROBLEMS.has(p)),
-      ),
+      devices: judged.map((d) => ({
+        problems: d.problems,
+        mayStillStream: d.mayStillStream,
+        lastKnown: new Set(d.lastKnown),
+      })),
     });
   }
   return out;
@@ -477,30 +519,29 @@ export async function refreshPhoneAlerts(householdId: string, now: Date = new Da
   const kept = new Set<string>();
   for (const link of valid) {
     const kidId = link.supervised.id;
-    const j = judged.get(kidId);
-    const problems = j?.summary.problems ?? [];
     const keep = (problem: PhoneProblem) => kept.add(alertKey(problem, kidId, link.supervisorId));
-    const silent = problems.some((p) => SILENT_PROBLEMS.has(p));
-    if (silent && j?.mayStillStream) {
-      // Just restarted: it may be reconnecting. Nothing raised, nothing
-      // dropped, except an alert whose requirement was turned off.
-      PHONE_PROBLEMS.filter((p) => SILENT_PROBLEMS.has(p) || j.lastKnown.has(p)).forEach(keep);
-      continue;
-    }
-    // While it's quiet only the silence is said; what it said before isn't
-    // known to be fixed, so those alerts stay, as long as the rules still ask
-    // for what they're about (turning a requirement off still clears its alert).
-    if (silent) j?.lastKnown.forEach(keep);
-    // Another of their phones, not quiet itself, still has it (a tablet beside
-    // the phone): judging the freshest one alone would drop and raise it on
-    // every other check-in.
-    j?.others.forEach(keep);
-    for (const problem of problems) {
-      wanted.set(alertKey(problem, kidId, link.supervisorId), {
-        kid: link.supervised,
-        problem,
-        supervisorId: link.supervisorId,
-      });
+    // Every device they're signed in on, each on its own (P3, owner
+    // 2026-11-08): a quiet main phone is said while a tablet checks in. One
+    // alert per problem, whichever devices have it.
+    for (const device of judged.get(kidId)?.devices ?? []) {
+      const silent = device.problems.some((p) => SILENT_PROBLEMS.has(p));
+      if (silent && device.mayStillStream) {
+        // Just restarted: it may be reconnecting. Nothing raised, nothing
+        // dropped, except an alert whose requirement was turned off.
+        PHONE_PROBLEMS.filter((p) => SILENT_PROBLEMS.has(p) || device.lastKnown.has(p)).forEach(keep);
+        continue;
+      }
+      // While it's quiet only the silence is said; what it said before isn't
+      // known to be fixed, so those alerts stay, as long as the rules still ask
+      // for what they're about (turning a requirement off still clears its alert).
+      if (silent) device.lastKnown.forEach(keep);
+      for (const problem of device.problems) {
+        wanted.set(alertKey(problem, kidId, link.supervisorId), {
+          kid: link.supervised,
+          problem,
+          supervisorId: link.supervisorId,
+        });
+      }
     }
   }
 

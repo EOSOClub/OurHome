@@ -607,6 +607,11 @@ model Task {
   // adult's OK; never written by an edit, see validation/task.ts)
   status      String    @default("pending")
   dueDate     DateTime?
+  // Due all day (no time) rather than at dueDate's time (owner, 2026-11-08).
+  // Null (tasks saved before it, or by app builds that don't send it): a due
+  // date at exactly 12:00 household time is all day, the older marker
+  // (lib/format isDateOnly). The date part still sits at 12:00 either way.
+  dueAllDay   Boolean?
   completedAt DateTime?
   // Live time to complete, in minutes: the sum of the steps when there are
   // any, else baseMinutes. Points work the same way (src/lib/taskPoints.ts).

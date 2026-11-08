@@ -107,6 +107,8 @@ export function formatDueDate(date: Date | string | null | undefined, timeZone?:
 /**
  * A due date picked without a time is stored at 12:00 local; such a date is
  * due all day. (A task given an explicit due time keeps that exact time.)
+ * Tasks now say so themselves (Task.dueAllDay, [dueIsAllDay]); this marker
+ * still decides for bills, requests, and tasks saved without the flag.
  */
 export function isDateOnly(date: Date | string, timeZone?: string): boolean {
   const t = zoned(new Date(date), timeZone);
@@ -114,18 +116,34 @@ export function isDateOnly(date: Date | string, timeZone?: string): boolean {
 }
 
 /**
+ * Whether a task's due date is all day: its own flag when it has one (so a
+ * task really due at 12:00 keeps that time, owner 2026-11-08), else the 12:00
+ * marker. Never without a date.
+ */
+export function dueIsAllDay(
+  date: Date | string | null | undefined,
+  allDay: boolean | null | undefined,
+  timeZone?: string,
+): boolean {
+  if (!date) return false;
+  return allDay ?? isDateOnly(date, timeZone);
+}
+
+/**
  * Past due: a date-only due date from the next day on (not from noon on the
  * day itself - that showed "Overdue" next to "Due today"); a timed one once
- * its time has passed.
+ * its time has passed. [allDay]: a task's own flag (Task.dueAllDay); left
+ * out or null, the 12:00 marker decides.
  */
 export function isOverdue(
   date: Date | string | null | undefined,
   timeZone?: string,
   now: Date = new Date(),
+  allDay?: boolean | null,
 ): boolean {
   if (!date) return false;
   const due = new Date(date);
-  if (!isDateOnly(due, timeZone)) return due.getTime() < now.getTime();
+  if (!dueIsAllDay(due, allDay, timeZone)) return due.getTime() < now.getTime();
   return zoned(due, timeZone).day < zoned(now, timeZone).day;
 }
 

@@ -64,6 +64,7 @@ import { WEB_FILTER_INFO, webFilterOf } from '@/lib/webFilter';
 import type { LookAfterDTO, RingDTO, SupervisionDTO, UsageHistoryDTO } from '@/lib/types';
 import type { ReportRingInput } from '@/lib/validation/phone';
 import type {
+  ForgetDeviceInput,
   SetAppBlockedInput,
   GiveExtraTimeInput,
   RemoveScheduleInput,
@@ -592,6 +593,47 @@ export async function setWebFilter(
     // A "web filter off" alert only holds while a filter is chosen.
     await refreshPhoneAlerts(householdId, new Date(), [kid.id]);
   }
+  return lookAfterOverview(householdId, actor.id);
+}
+
+/**
+ * A supervising adult forgets one of a child's devices they no longer use (a
+ * replaced phone in a drawer): with every device judged (P3, owner
+ * 2026-11-08), its silence would otherwise alert for good. Its record and its
+ * alerts go; if it's still in use, its next check-in brings it back.
+ */
+export async function forgetDevice(
+  householdId: string,
+  actor: { id: string },
+  input: ForgetDeviceInput,
+): Promise<LookAfterDTO> {
+  const kid = (await supervisedBy(householdId, actor.id)).find((k) => k.id === input.supervisedId);
+  if (!kid) {
+    throw new ForbiddenError(
+      'Only an adult who supervises them can change this. The Head of House chooses that on the Members page.',
+    );
+  }
+  const device = await prisma.phoneStatus.findFirst({
+    where: { householdId, userId: kid.id, installId: input.installId },
+    select: { id: true, deviceName: true },
+  });
+  if (!device) throw new NotFoundError('That device isn’t one of theirs any more.');
+  await prisma.$transaction(async (tx) => {
+    await tx.phoneStatus.deleteMany({ where: { id: device.id } });
+    await logActivity(
+      {
+        householdId,
+        actorId: actor.id,
+        verb: 'updated',
+        subjectType: 'member',
+        subjectId: kid.id,
+        message: `forgot ${kid.name}’s ${device.deviceName ? `device “${device.deviceName}”` : 'device'}`,
+      },
+      tx,
+    );
+  });
+  // Its alerts were judged on it; the rest stand on the devices left.
+  await refreshPhoneAlerts(householdId, new Date(), [kid.id]);
   return lookAfterOverview(householdId, actor.id);
 }
 

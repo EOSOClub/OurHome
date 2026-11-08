@@ -22,6 +22,13 @@ export const setRequiredSharingSchema = z.object({
 });
 export type SetRequiredSharingInput = z.infer<typeof setRequiredSharingSchema>;
 
+/** Forget one of a supervised child's devices they no longer use (its install id). */
+export const forgetDeviceSchema = z.object({
+  supervisedId: z.string().min(1),
+  installId: z.string().min(1).max(200),
+});
+export type ForgetDeviceInput = z.infer<typeof forgetDeviceSchema>;
+
 /** Turn sharing a supervised child's app usage on or off. */
 export const setUsageSharingSchema = z.object({
   supervisedId: z.string().min(1),

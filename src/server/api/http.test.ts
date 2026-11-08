@@ -116,6 +116,20 @@ describe('rate limiting', () => {
     // Same (unknown) address, another member: not held back by the first.
     expect((await call('other')).status).toBe(200);
   });
+
+  it('app icons have their own bigger budget: one request per app, up to ~100 apps on a page (A6, owner 2026-11-08)', async () => {
+    const route = withAuth(async () => new Response('png'));
+    const icon = (n: number) => {
+      session.getServerSession.mockResolvedValueOnce({ user: { id: 'parent', role: 'adult', householdId: 'hh' } });
+      // Behind Cloudflare: a real address, so the by-address limit applies too.
+      return route({
+        headers: new Headers({ 'cf-connecting-ip': '203.0.113.9' }),
+        url: `http://home.test/api/supervision/usage/icon?app=com.example.app${n}`,
+      } as never);
+    };
+    // A page of 100 icons opened three times in a minute.
+    for (let i = 0; i < 300; i++) expect((await icon(i)).status).toBe(200);
+  });
 });
 
 describe('isCrossSiteWrite', () => {

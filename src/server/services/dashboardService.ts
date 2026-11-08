@@ -26,6 +26,8 @@ const taskSelect = {
   title: true,
   priority: true,
   dueDate: true,
+  // Raw: null (older tasks) leaves it to the 12:00 marker (lib/format isOverdue).
+  dueAllDay: true,
   type: true,
   assignee: { select: { id: true, name: true } },
   roomId: true,
@@ -241,9 +243,9 @@ export async function getDashboard(
     countTasksToCheck(householdId, user.id, now),
   ]);
 
-  // The query finds anything due before now; date-only due dates (12:00
-  // local) only count as overdue from the next day, like everywhere else.
-  const overdueNow = overdue.filter((t) => isOverdue(t.dueDate, timezone, now));
+  // The query finds anything due before now; all-day due dates only count as
+  // overdue from the next day, like everywhere else.
+  const overdueNow = overdue.filter((t) => isOverdue(t.dueDate, timezone, now, t.dueAllDay));
 
   const myRow = points.members.find((m) => m.userId === user.id);
   const myRank = myRow && myRow.points > 0 ? points.members.indexOf(myRow) + 1 : null;

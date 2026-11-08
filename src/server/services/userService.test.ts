@@ -320,6 +320,13 @@ describe('the server admin in their own household', () => {
     expect(prisma.user.delete).not.toHaveBeenCalled();
   });
 
+  it('the new head cannot change their household role (owner, 2026-11-08)', async () => {
+    prisma.user.findFirst.mockResolvedValueOnce(adminRow());
+    await expect(setMemberRole(HOUSEHOLD, head, { id: admin, role: 'child' })).rejects.toThrow(/runs the server/);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
   it('they still change their own username', async () => {
     prisma.user.findFirst.mockResolvedValueOnce(adminRow()).mockResolvedValueOnce(null);
     prisma.user.update.mockResolvedValueOnce(row({ ...adminRow(), username: 'alex2' }));

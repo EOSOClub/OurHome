@@ -115,13 +115,24 @@ describe('computeNextRunAt - monthly', () => {
     expect(next?.toISOString()).toBe('2026-01-15T08:00:00.000Z');
   });
 
-  it('clamps by skipping months without the requested day', () => {
-    // Day 31 from Feb 2026 (non-leap, 28 days) -> next valid is 2026-03-31.
-    const next = computeNextRunAt(
-      rule({ kind: 'monthly', byMonthday: [31] }),
-      iso('2026-02-01T00:00:00.000Z'),
-    );
-    expect(next?.toISOString()).toBe('2026-03-31T08:00:00.000Z');
+  it('a day a month doesn’t have falls on its last day, as plain monthly does (B12, owner 2026-11-08)', () => {
+    // Day 31 from Feb 2026 (non-leap, 28 days) -> Feb 28, then Mar 31, then Apr 30.
+    const r = rule({ kind: 'monthly', byMonthday: [31] });
+    const feb = computeNextRunAt(r, iso('2026-02-01T00:00:00.000Z'));
+    expect(feb?.toISOString()).toBe('2026-02-28T08:00:00.000Z');
+    const mar = computeNextRunAt(r, feb!);
+    expect(mar?.toISOString()).toBe('2026-03-31T08:00:00.000Z');
+    expect(computeNextRunAt(r, mar!)?.toISOString()).toBe('2026-04-30T08:00:00.000Z');
+  });
+
+  it('two picked days that land on the same last day give one date, not two', () => {
+    // The 30th and 31st in February: once, on the 28th; then March 30 and 31.
+    const r = rule({ kind: 'monthly', byMonthday: [30, 31] });
+    const feb = computeNextRunAt(r, iso('2026-02-01T00:00:00.000Z'));
+    expect(feb?.toISOString()).toBe('2026-02-28T08:00:00.000Z');
+    const mar30 = computeNextRunAt(r, feb!);
+    expect(mar30?.toISOString()).toBe('2026-03-30T08:00:00.000Z');
+    expect(computeNextRunAt(r, mar30!)?.toISOString()).toBe('2026-03-31T08:00:00.000Z');
   });
 
   it('keeps an end-of-month anchor after a short month (no drift)', () => {
@@ -270,10 +281,19 @@ describe('nextAfterOccurrence (paying/completing the current one)', () => {
     ).toEqual(iso('2026-04-15T12:00:00.000Z'));
   });
 
-  it('counts from now once the due date has passed', () => {
+  it('paid late, moves to the occurrence after its own due date: no cycle skipped or shifted (owner, 2026-11-08)', () => {
+    // Due Mar 15, paid Apr 2: next due Apr 15, not May 15.
     expect(
-      nextAfterOccurrence(daily, iso('2026-03-01T12:00:00.000Z'), iso('2026-03-10T15:00:00.000Z')),
-    ).toEqual(iso('2026-03-11T12:00:00.000Z'));
+      nextAfterOccurrence(monthly, iso('2026-03-15T12:00:00.000Z'), iso('2026-04-02T15:00:00.000Z')),
+    ).toEqual(iso('2026-04-15T12:00:00.000Z'));
+    // Paid two cycles late: the next one is still owed, so it's due (overdue) next.
+    expect(
+      nextAfterOccurrence(monthly, iso('2026-01-15T12:00:00.000Z'), iso('2026-03-20T15:00:00.000Z')),
+    ).toEqual(iso('2026-02-15T12:00:00.000Z'));
+  });
+
+  it('with no due date, counts from now', () => {
+    expect(nextAfterOccurrence(daily, null, iso('2026-03-10T15:00:00.000Z'))).toEqual(iso('2026-03-11T12:00:00.000Z'));
   });
 });
 

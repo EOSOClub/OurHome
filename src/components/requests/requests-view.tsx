@@ -412,6 +412,7 @@ export function RequestsView({
               key={formKey}
               modules={modules}
               members={members}
+              currentUserId={currentUserId}
               submitLabel="Request"
               pending={createMutation.isPending}
               errors={createForm}
@@ -539,6 +540,7 @@ export function RequestsView({
             initial={editing}
             modules={modules}
             members={members}
+            currentUserId={currentUserId}
             submitLabel="Save changes"
             idPrefix="request-edit"
             pending={updateMutation.isPending}
@@ -1093,7 +1095,10 @@ function MaintenanceRow({
             </p>
           ) : null}
           <p className="text-xs text-muted-foreground">
-            {isRequester ? 'You' : who(r.requester)} asked {who(r.assignee)} · {shortDate(r.createdAt, timeZone)}
+            {r.assignee?.id === r.requester.id
+              ? `${isRequester ? 'You' : who(r.requester)} took it on ${isRequester ? 'yourself' : 'themselves'}`
+              : `${isRequester ? 'You' : who(r.requester)} asked ${who(r.assignee)}`}{' '}
+            · {shortDate(r.createdAt, timeZone)}
           </p>
         </>
       }
@@ -1144,7 +1149,7 @@ function MaintenanceRow({
   );
 }
 
-/** The head gives a maintenance request to someone else: anyone but the requester. */
+/** The head gives a maintenance request to someone else: anyone, the requester included (owner, 2026-11-08). */
 function ReassignDialog({
   request,
   members,
@@ -1162,7 +1167,6 @@ function ReassignDialog({
   onReassign: (assigneeId: string) => void;
 }) {
   const [assigneeId, setAssigneeId] = useState(request?.assignee?.id ?? '');
-  const choices = members.filter((m) => m.id !== request?.requester.id);
   const unchanged = !assigneeId || assigneeId === request?.assignee?.id;
   return (
     <Dialog
@@ -1193,9 +1197,9 @@ function ReassignDialog({
           <option value="" disabled>
             Choose someone…
           </option>
-          {choices.map((m) => (
+          {members.map((m) => (
             <option key={m.id} value={m.id}>
-              {m.name}
+              {m.id === request?.requester.id ? `${m.name} (asked for it)` : m.name}
             </option>
           ))}
         </Select>
@@ -1544,6 +1548,7 @@ export function RequestForm({
   onSubmit,
   onCancel,
   idPrefix = 'request',
+  currentUserId,
 }: {
   /**
    * Starts every field's id, so the new-request card and the edit dialog
@@ -1551,6 +1556,8 @@ export function RequestForm({
    * their own fields.
    */
   idPrefix?: string;
+  /** Marks you in "Who should do it?" ("(you)"), when you may take it on yourself. */
+  currentUserId?: string;
   initial?: RequestDTO;
   /** The kinds of request that are on, as this member sees them. */
   modules: RequestModuleView[];
@@ -1968,7 +1975,7 @@ export function RequestForm({
               </option>
               {assignees.map((m) => (
                 <option key={m.id} value={m.id}>
-                  {m.name}
+                  {m.id === currentUserId ? `${m.name} (you)` : m.name}
                 </option>
               ))}
             </Select>

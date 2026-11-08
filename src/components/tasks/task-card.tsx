@@ -336,7 +336,7 @@ export function TaskCard({
                 ) : null}
                 <span
                   className={
-                    isOverdue(task.dueDate, timeZone) && !done
+                    isOverdue(task.dueDate, timeZone, undefined, task.dueAllDay) && !done
                       ? 'text-destructive'
                       : 'text-muted-foreground'
                   }

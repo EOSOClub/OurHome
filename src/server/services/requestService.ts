@@ -291,30 +291,27 @@ function assertModuleOn(modules: RequestModuleSettings, category: string): Reque
 }
 
 /**
- * The household member a maintenance request is assigned to: never the
- * requester, and one of the people the head lets be asked - unless it's who
- * it's already with (`current`), so a later change to that list doesn't stop
- * the requester editing the rest. `byHead`: the head reassigning, who made
- * that list and may pick anyone.
+ * The household member a maintenance request is assigned to: one of the
+ * people the head lets be asked, the requester included when they're one of
+ * them (owner, 2026-11-08: whoever may be asked may take on their own
+ * request) - unless it's who it's already with (`current`), so a later change
+ * to that list doesn't stop the requester editing the rest. `byHead`: the
+ * head reassigning, who made that list and may pick anyone.
  */
 async function assertAssignable(
   householdId: string,
   modules: RequestModuleSettings,
   assigneeId: string,
-  requesterId: string,
   current: string | null = null,
   byHead = false,
 ) {
-  if (assigneeId === requesterId) {
-    throw new ConflictError('Choose someone else to do it.', 'assigneeId');
-  }
   const member = await prisma.user.findFirst({
     where: { id: assigneeId, householdId },
     select: { id: true, name: true },
   });
   if (!member) throw new NotFoundError('That member is not in this household.');
   if (assigneeId !== current && !byHead) {
-    const choices = assigneeChoices(modules.maintenance, await householdMemberIds(householdId), requesterId);
+    const choices = assigneeChoices(modules.maintenance, await householdMemberIds(householdId));
     if (!choices.includes(assigneeId)) {
       throw new ConflictError(
         `${member.name} can’t be asked for ${moduleLabel(modules, 'maintenance').toLowerCase()} requests here.`,
@@ -461,7 +458,7 @@ export async function createRequest(
     });
     message = `asked permission for ${describe(request)}`;
   } else {
-    const assignee = await assertAssignable(householdId, modules, input.assigneeId, actor.id);
+    const assignee = await assertAssignable(householdId, modules, input.assigneeId);
     request = await prisma.request.create({
       data: {
         householdId,
@@ -475,7 +472,10 @@ export async function createRequest(
       },
       include: requestInclude,
     });
-    message = `asked ${assignee.name} to handle ${describe(request)}`;
+    message =
+      assignee.id === actor.id
+        ? `took on ${describe(request)} themselves`
+        : `asked ${assignee.name} to handle ${describe(request)}`;
   }
 
   await logActivity({
@@ -607,7 +607,7 @@ export async function updateRequest(
     if (reassigned && existing.status === 'completed') {
       throw new ConflictError('This request is already done, so it can’t go to someone else. Ask again if it needs doing again.', 'assigneeId');
     }
-    await assertAssignable(householdId, modules, input.assigneeId, userId, existing.assigneeId);
+    await assertAssignable(householdId, modules, input.assigneeId, existing.assigneeId);
     data = {
       title: input.title,
       details: input.details ?? null,
@@ -644,9 +644,9 @@ export async function updateRequest(
 }
 
 /**
- * Maintenance: the head gives an open request to another member, anyone but
- * the requester (the list of people who may be asked doesn't bind the head,
- * since the head set it).
+ * Maintenance: the head gives an open request to another member, anyone,
+ * the requester included (the list of people who may be asked doesn't bind
+ * the head, since the head set it).
  * Like the requester reassigning, it goes back to "pending" for the new person.
  */
 export async function reassignRequest(
@@ -665,14 +665,7 @@ export async function reassignRequest(
   if (input.assigneeId === existing.assigneeId) {
     throw new ConflictError('It’s already with them.', 'assigneeId');
   }
-  const assignee = await assertAssignable(
-    householdId,
-    modules,
-    input.assigneeId,
-    existing.requesterId,
-    existing.assigneeId,
-    true,
-  );
+  const assignee = await assertAssignable(householdId, modules, input.assigneeId, existing.assigneeId, true);
 
   const request = await prisma.request.update({
     where: { id: input.id },

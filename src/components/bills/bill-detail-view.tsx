@@ -159,7 +159,7 @@ export function BillDetailView({
                 ) : null}
                 <h1 className="text-2xl font-semibold">{bill.name}</h1>
                 {bill.recurrence ? (
-                  <Repeat className="size-4 text-muted-foreground" />
+                  <Repeat className="size-4 text-muted-foreground" aria-label="Repeats" />
                 ) : null}
                 {bill.autoPay ? (
                   <Badge variant="secondary" className="text-[10px]">

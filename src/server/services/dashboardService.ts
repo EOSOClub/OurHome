@@ -18,6 +18,9 @@ import { countTasksToCheck } from '@/server/services/taskSubmissionService';
 // so it is never overdue, due or open here while it waits for an adult's OK.
 const ACTIVE_STATUSES = ['pending', 'in_progress'];
 
+/** At most this many requests on "Needs you", oldest first. */
+const NEEDS_YOU_REQUESTS = 20;
+
 const taskSelect = {
   id: true,
   title: true,
@@ -172,7 +175,11 @@ export async function getDashboard(
       where: { householdId, status: 'unpaid', dueDate: dateOnOrBefore(inSevenDays) },
     }),
     prisma.bill.findMany({
-      where: { householdId, status: 'unpaid' },
+      // Only bills with a due date: Mongo sorts a missing date before every
+      // real one, so with `take: 5` a few undated bills pushed the ones
+      // actually coming up off the card. `gte` the epoch excludes both null
+      // and unset (see db/dateFilters for why `not: null` does not).
+      where: { householdId, status: 'unpaid', dueDate: { gte: new Date(0) } },
       select: { id: true, name: true, amount: true, currency: true, dueDate: true },
       orderBy: { dueDate: 'asc' },
       take: 5,
@@ -221,8 +228,11 @@ export async function getDashboard(
         createdAt: true,
         requester: { select: { id: true, name: true } },
       },
+      // No `take` here: the query also finds open requests that wait on nobody
+      // (accepted media, other parents' children), and capping before
+      // attentionReason let 20 of those push a new one off the card. Only open
+      // requests match, and the list is capped after the filter below.
       orderBy: { createdAt: 'asc' },
-      take: 20,
     }),
     pointsSummary(householdId, 'week', undefined, now),
     prisma.taskCompletion.count({ where: completedToday }),
@@ -267,10 +277,12 @@ export async function getDashboard(
       /** Unassigned, overdue or due today. */
       openToAnyone: tasksOn ? withPlace(openTasks, places) : [],
       requests: on('requests')
-        ? requests.flatMap((r) => {
-            const reason = attentionReason(r, user.id, requestHandling, endOfToday);
-            return reason ? [{ ...r, reason: reason satisfies RequestAttentionReason }] : [];
-          })
+        ? requests
+            .flatMap((r) => {
+              const reason = attentionReason(r, user.id, requestHandling, endOfToday);
+              return reason ? [{ ...r, reason: reason satisfies RequestAttentionReason }] : [];
+            })
+            .slice(0, NEEDS_YOU_REQUESTS)
         : [],
       /** Task checks waiting in their To check (children they look after). */
       tasksToCheck: tasksOn ? tasksToCheck : 0,

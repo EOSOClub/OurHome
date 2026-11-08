@@ -3,7 +3,9 @@ import { recordId } from '@/lib/validation/ids';
 
 // Quantities are stored as Float (supports fractional units like "2.5 lbs").
 // z.number() already refuses Infinity and NaN.
-const quantity = z.number().min(0).max(1_000_000);
+/** The most of anything an item can hold; a stock change can't add more at once. */
+export const MAX_QUANTITY = 1_000_000;
+const quantity = z.number().min(0).max(MAX_QUANTITY);
 
 export const createInventoryItemSchema = z.object({
   name: z.string().trim().min(1).max(200),
@@ -35,11 +37,15 @@ export const updateInventoryItemSchema = z.object({
 
 export type UpdateInventoryItemInput = z.infer<typeof updateInventoryItemSchema>;
 
-// delta is a signed decimal: negative removes stock, positive restocks.
+// delta is a signed decimal: negative removes stock, positive restocks. A
+// restock is capped like a quantity, or one change could push an item far
+// past MAX_QUANTITY (the service also keeps the result within it). Taking
+// away more than there is just empties it, so removing has no cap.
 export const adjustQuantitySchema = z.object({
   itemId: recordId,
   delta: z
     .number()
+    .max(MAX_QUANTITY)
     .refine((n) => n !== 0, 'Adjustment must be non-zero.'),
   note: z.string().trim().max(500).optional().nullable(),
 });

@@ -23,6 +23,8 @@ import { FieldNote } from '@/components/ui/field-note';
 import type { FieldErrorsState } from '@/lib/use-field-errors';
 import { LocationMultiSelect, placeIdLists, placeValues } from '@/components/location-select';
 import { usePointsShown } from '@/components/household-features';
+import { useHouseholdZone } from '@/components/household-zone';
+import { dateKey, timeKey, zonedInstant } from '@/lib/format';
 import {
   PointsEditor,
   draftFromTask,
@@ -93,15 +95,12 @@ function parseList(value: string | null): number[] {
     .filter((n) => Number.isFinite(n));
 }
 
-// Split an ISO timestamp into local date / time strings for the inputs.
-function splitDateTime(iso: string | null): { date: string; time: string } {
+// Split an ISO timestamp into date / time strings for the inputs, in the
+// household's zone (what save() reads them back in), so opening an edit and
+// saving it unchanged keeps the same moment whatever zone the device is in.
+function splitDateTime(iso: string | null, timeZone?: string): { date: string; time: string } {
   if (!iso) return { date: '', time: '' };
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return {
-    date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
-    time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
-  };
+  return { date: dateKey(iso, timeZone), time: timeKey(iso, timeZone) };
 }
 
 export function CreateTaskForm({
@@ -135,8 +134,11 @@ export function CreateTaskForm({
   // Sent for a check: only the name, notes, places and step names may change
   // (the server compares the values, so the full form is still sent).
   const waitingCheck = !!initial?.review.waiting;
-  const initialDue = splitDateTime(initial?.dueDate ?? null);
-  const initialUntil = splitDateTime(initial?.recurrence?.until ?? null);
+  // Dates are read and written in the household's zone (Settings), the one
+  // the server reads them in; the device's own zone plays no part.
+  const timeZone = useHouseholdZone();
+  const initialDue = splitDateTime(initial?.dueDate ?? null, timeZone);
+  const initialUntil = splitDateTime(initial?.recurrence?.until ?? null, timeZone);
 
   const [title, setTitle] = useState(initial?.title ?? '');
   const [notes, setNotes] = useState(initial?.notes ?? '');
@@ -213,8 +215,9 @@ export function CreateTaskForm({
       type,
       priority,
       notes: notes.trim() || undefined,
+      // No time = 12:00 household time, which is how "no time" is marked.
       dueDate: dueDate
-        ? new Date(`${dueDate}T${dueTime || '12:00'}:00`).toISOString()
+        ? zonedInstant(dueDate, dueTime || '12:00', timeZone).toISOString()
         : null,
       estimatedMinutes: points.task.baseMinutes || null,
       points: points.task.pointsFollowTime || points.task.basePointsCenti === null ? null : points.task.basePointsCenti / 100,
@@ -244,8 +247,9 @@ export function CreateTaskForm({
       payload.recurrence = {
         kind: recurKind,
         interval: Math.max(1, interval),
-        timezone: 'UTC',
-        until: until ? new Date(`${until}T12:00:00`).toISOString() : null,
+        // The server uses the household's zone; this just says the same.
+        timezone: timeZone ?? 'UTC',
+        until: until ? zonedInstant(until, '12:00', timeZone).toISOString() : null,
         ...(recurKind === 'weekly' && weekdays.length > 0
           ? { byWeekday: weekdays }
           : {}),
@@ -269,7 +273,7 @@ export function CreateTaskForm({
       <CardContent className="p-5">
         <form onSubmit={handleSubmit} className="space-y-4" {...errors.formProps}>
           {waitingCheck ? (
-            <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
+            <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm">
               Waiting for an OK, so only the name, notes and places can change.
             </p>
           ) : null}
@@ -455,25 +459,32 @@ export function CreateTaskForm({
                     <option value="daily">Daily</option>
                     <option value="weekly">Weekly</option>
                     <option value="monthly">Monthly</option>
-                    <option value="interval">Every N days</option>
+                    <option value="interval">Every few days</option>
                   </Select>
                 </div>
+                {/* Reads as a sentence, "Every [2] weeks", so the unit sits by
+                    the box instead of an "Every N weeks" label. */}
                 <div className="space-y-2">
-                  <Label htmlFor="interval">
-                    {recurKind === 'weekly'
-                      ? 'Every N weeks'
-                      : recurKind === 'monthly'
-                        ? 'Every N months'
-                        : 'Interval (days)'}
-                  </Label>
-                  <Input
-                    id="interval"
-                    type="number"
-                    min={1}
-                    max={365}
-                    value={interval}
-                    onChange={(e) => setInterval(Number(e.target.value))}
-                  />
+                  <Label htmlFor="interval">How often</Label>
+                  <div className="flex items-center gap-2 text-sm">
+                    <span>Every</span>
+                    <Input
+                      id="interval"
+                      type="number"
+                      min={1}
+                      max={365}
+                      value={interval}
+                      onChange={(e) => setInterval(Number(e.target.value))}
+                      className="w-20"
+                    />
+                    <span>
+                      {recurKind === 'weekly'
+                        ? interval === 1 ? 'week' : 'weeks'
+                        : recurKind === 'monthly'
+                          ? interval === 1 ? 'month' : 'months'
+                          : interval === 1 ? 'day' : 'days'}
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -486,6 +497,7 @@ export function CreateTaskForm({
                         key={day}
                         type="button"
                         onClick={() => setWeekdays((p) => toggleIn(p, day))}
+                        aria-pressed={weekdays.includes(day)}
                         className={cn(
                           'size-9 rounded-md border text-sm font-medium transition-colors',
                           weekdays.includes(day)
@@ -526,6 +538,7 @@ export function CreateTaskForm({
                         key={day}
                         type="button"
                         onClick={() => setMonthdays((p) => toggleIn(p, day))}
+                        aria-pressed={monthdays.includes(day)}
                         className={cn(
                           'size-8 rounded-md border text-xs font-medium transition-colors',
                           monthdays.includes(day)
@@ -621,6 +634,7 @@ export function CreateTaskForm({
                           key={day}
                           type="button"
                           onClick={() => setCycleWeekdays((p) => toggleIn(p, day))}
+                          aria-pressed={cycleWeekdays.includes(day)}
                           className={cn(
                             'size-9 rounded-md border text-sm font-medium transition-colors',
                             cycleWeekdays.includes(day)
@@ -643,6 +657,7 @@ export function CreateTaskForm({
                           key={day}
                           type="button"
                           onClick={() => setCycleMonthdays((p) => toggleIn(p, day))}
+                          aria-pressed={cycleMonthdays.includes(day)}
                           className={cn(
                             'size-8 rounded-md border text-xs font-medium transition-colors',
                             cycleMonthdays.includes(day)

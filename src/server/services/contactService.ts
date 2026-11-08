@@ -3,6 +3,7 @@ import { sendEmail } from '@/server/email/mailer';
 import type { ContactInput } from '@/lib/validation/contact';
 import type { ContactMessageDTO } from '@/lib/types';
 import { APP_NAME } from '@/server/config';
+import { assertServerAdmin } from '@/server/services/serverAdminService';
 
 // Where contact-form submissions are forwarded (CONTACT_FORWARD_TO). Unset →
 // the message is still stored and confirmed to the sender, just not forwarded.
@@ -41,8 +42,8 @@ export async function submitContactMessage(
     await sendEmail({
       to: input.email,
       subject: `We received your message - ${APP_NAME}`,
-      text: confirmationText(input.name),
-      html: confirmationHtml(input.name),
+      text: confirmationText(),
+      html: confirmationHtml(),
     });
 
     if (FORWARD_TO) {
@@ -91,13 +92,15 @@ function toDTO(row: {
 
 /**
  * Most recent contact-form submissions, newest first. ContactMessage is not
- * household-scoped (the public form has no household context), so callers must
- * gate access by permission - see /api/contact/messages. IP/UA are deliberately
- * omitted from the DTO; they exist only for abuse tracing.
+ * household-scoped (the public form has no household context), so only the
+ * server admin may read them; checked here as well as by the callers. IP/UA are
+ * deliberately omitted from the DTO; they exist only for abuse tracing.
  */
 export async function listContactMessages(
+  viewerId: string,
   limit = 20,
 ): Promise<ContactMessageDTO[]> {
+  await assertServerAdmin(viewerId);
   const rows = await prisma.contactMessage.findMany({
     orderBy: { createdAt: 'desc' },
     take: limit,
@@ -105,9 +108,12 @@ export async function listContactMessages(
   return rows.map(toDTO);
 }
 
-function confirmationText(name: string): string {
+// The confirmation goes to whatever address the visitor typed, so it carries
+// nothing they wrote (not even their name): otherwise the form could be used
+// to send someone else a message through the household's mail account.
+function confirmationText(): string {
   return [
-    `Hi ${name},`,
+    'Hello,',
     '',
     `Thanks for reaching out to ${APP_NAME}. We received your message and someone will be in contact with you soon.`,
     '',
@@ -117,10 +123,10 @@ function confirmationText(name: string): string {
   ].join('\n');
 }
 
-function confirmationHtml(name: string): string {
+function confirmationHtml(): string {
   const appName = escapeHtml(APP_NAME);
   return `
-    <p>Hi ${escapeHtml(name)},</p>
+    <p>Hello,</p>
     <p>Thanks for reaching out to ${appName}. We received your message and
     someone will be in contact with you soon.</p>
     <p>You do not need to reply to this email.</p>

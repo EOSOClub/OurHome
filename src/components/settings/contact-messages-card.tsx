@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/card';
 import { EmptyState } from '@/components/empty-state';
 import { useHouseholdZone } from '@/components/household-zone';
+import { APP_LOCALE } from '@/lib/format';
 
 const MESSAGES_KEY = ['contact-messages'];
 
@@ -48,7 +49,8 @@ export function ContactMessagesCard({
         </CardTitle>
         <CardDescription>
           Recent public contact-form submissions. Messages marked{' '}
-          <span className="font-medium text-[var(--color-warning)]">
+          {/* The darker text shade: plain --warning is too faint to read in light mode. */}
+          <span className="font-medium text-warning-text">
             Email failed
           </span>{' '}
           were stored but never forwarded - reply to them from here.
@@ -98,7 +100,7 @@ function MessageRow({ message }: { message: ContactMessageDTO }) {
         <div className="flex shrink-0 items-center gap-2">
           <Badge variant={badge.variant}>{badge.label}</Badge>
           <span className="text-xs text-muted-foreground">
-            {new Date(message.createdAt).toLocaleString(undefined, { timeZone })}
+            {new Date(message.createdAt).toLocaleString(APP_LOCALE, { timeZone })}
           </span>
         </div>
       </div>

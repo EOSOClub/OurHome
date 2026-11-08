@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Home, Loader2 } from 'lucide-react';
 import { signIn } from '@/lib/auth-client';
+import { safeRedirect } from '@/lib/safeRedirect';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -20,7 +21,7 @@ import { Label } from '@/components/ui/label';
 export function LoginForm({ appName }: { appName: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirectTo = searchParams.get('redirect') || '/dashboard';
+  const redirectTo = safeRedirect(searchParams.get('redirect'));
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');

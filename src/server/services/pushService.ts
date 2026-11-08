@@ -76,12 +76,21 @@ export async function registerDevice(
 /**
  * Drops tokens Firebase called dead (the app uninstalled, or its data
  * cleared), and marks their phones: a supervised child's phone that then goes
- * quiet is reported as OurHome removed (lib/phoneHealth.ts).
+ * quiet is reported as OurHome removed (lib/phoneHealth.ts). Only a phone
+ * with no token left: when Firebase rotates a token the app registers the new
+ * one for the same install, and the old row dies later, while the app is fine.
  */
 async function forgetDeadTokens(devices: { token: string; installId: string | null }[], now: Date = new Date()) {
   if (devices.length === 0) return;
   await prisma.pushDevice.deleteMany({ where: { token: { in: devices.map((d) => d.token) } } });
-  const installs = devices.map((d) => d.installId).filter((id): id is string => Boolean(id));
+  const dead = [...new Set(devices.map((d) => d.installId).filter((id): id is string => Boolean(id)))];
+  if (dead.length === 0) return;
+  const alive = await prisma.pushDevice.findMany({
+    where: { installId: { in: dead } },
+    select: { installId: true },
+  });
+  const stillThere = new Set(alive.map((d) => d.installId));
+  const installs = dead.filter((id) => !stillThere.has(id));
   if (installs.length > 0) {
     await prisma.phoneStatus.updateMany({ where: { installId: { in: installs } }, data: { pushGoneAt: now } });
   }

@@ -16,18 +16,9 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
+import { safeRedirect } from '@/lib/safeRedirect';
 import { ContactDialog } from '@/components/contact/contact-dialog';
 import { LoginForm } from './login-form';
-
-// Only follow same-origin, absolute-path redirect targets. Anything else
-// (external URLs, protocol-relative `//host`) falls back to the dashboard to
-// avoid an open-redirect.
-function safeRedirect(target: string | undefined): string {
-  if (target && target.startsWith('/') && !target.startsWith('//')) {
-    return target;
-  }
-  return '/dashboard';
-}
 
 export default async function LoginPage({
   searchParams,

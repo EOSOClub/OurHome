@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import type { BillDTO, BillPaymentDTO } from '@/lib/types';
-import { formatMoney } from '@/lib/format';
+import { dateKey, formatMoney, zonedInstant } from '@/lib/format';
+import { useHouseholdZone } from '@/components/household-zone';
 import { apiFetch, ApiError } from '@/lib/api';
 import { useFieldErrors } from '@/lib/use-field-errors';
 import { FieldNote } from '@/components/ui/field-note';
@@ -14,10 +15,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog } from '@/components/ui/dialog';
+import { balanceLeft, moneyText } from '@/components/bills/payment-amounts';
 
-const pad = (n: number) => String(n).padStart(2, '0');
-const dateValue = (d: Date) =>
-  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+// A picked day is stored at 12:00 in the household's zone (Settings), and
+// read back in it, whatever zone the device is in.
+const noonIn = (date: string, timeZone?: string) => zonedInstant(date, '12:00', timeZone).toISOString();
 
 /**
  * Record-payment modal shared by the bill list ("Mark paid") and the bill
@@ -38,18 +40,17 @@ export function PaymentDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  // When editing, exclude this payment from the paid total, so the helper text
-  // shows the balance the edited amount is applied against.
-  const remaining = Math.max(
-    0,
-    bill.amount - bill.paidTotal + (payment?.amount ?? 0),
-  );
-  const originalDate = payment ? dateValue(new Date(payment.paidAt)) : null;
+  // When editing, exclude this payment from the paid total (when it is in
+  // it), so the helper text shows the balance the edited amount is applied
+  // against. In whole cents, so the amount box never shows float residue.
+  const remaining = balanceLeft(bill, payment);
+  const timeZone = useHouseholdZone();
+  const originalDate = payment ? dateKey(payment.paidAt, timeZone) : null;
   const [amount, setAmount] = useState(
-    payment ? String(payment.amount) : remaining > 0 ? String(remaining) : '',
+    payment ? moneyText(payment.amount) : remaining > 0 ? moneyText(remaining) : '',
   );
-  const [fee, setFee] = useState(payment?.fee ? String(payment.fee) : '');
-  const [paidAt, setPaidAt] = useState(originalDate ?? dateValue(new Date()));
+  const [fee, setFee] = useState(payment?.fee ? moneyText(payment.fee) : '');
+  const [paidAt, setPaidAt] = useState(originalDate ?? dateKey(new Date(), timeZone));
   const [note, setNote] = useState(payment?.notes ?? '');
   const [confirmationNo, setConfirmationNo] = useState(
     payment?.confirmationNo ?? '',
@@ -72,7 +73,7 @@ export function PaymentDialog({
               // Untouched date ⇒ omit, preserving the original timestamp.
               paidAt:
                 paidAt && paidAt !== originalDate
-                  ? new Date(`${paidAt}T12:00`).toISOString()
+                  ? noonIn(paidAt, timeZone)
                   : undefined,
             }),
           })
@@ -83,7 +84,7 @@ export function PaymentDialog({
               amount: Number(amount) || 0,
               fee: fee ? Number(fee) : undefined,
               note: note.trim() || undefined,
-              paidAt: paidAt ? new Date(`${paidAt}T12:00`).toISOString() : undefined,
+              paidAt: paidAt ? noonIn(paidAt, timeZone) : undefined,
             }),
           }),
     onSuccess: () => {
@@ -149,7 +150,7 @@ export function PaymentDialog({
               type="number"
               min={0}
               step="0.01"
-              autoFocus
+              data-autofocus
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               placeholder="0.00"

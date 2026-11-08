@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ACTION_REMOVAL,
+  PaperlessAdmin,
   FILTER_CUSTOM_FIELD_QUERY,
   FILTER_HAS_TAGS_ANY,
   IMAP_SECURITY,
@@ -142,5 +143,27 @@ describe('waitingView', () => {
     ]);
     expect(view.filter_rules[2].rule_type).toBe(FILTER_CUSTOM_FIELD_QUERY);
     expect(JSON.parse(view.filter_rules[2].value)).toEqual(['OR', [[9, 'exists', false], [9, 'isnull', true]]]);
+  });
+});
+
+describe('PaperlessAdmin paging', () => {
+  afterEach(() => vi.restoreAllMocks());
+  const page = (results: number[], next: string | null) =>
+    new Response(JSON.stringify({ count: 3, next, results }), { status: 200 });
+
+  it('follows next links on a Paperless served under a path', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      // Under PAPERLESS_FORCE_SCRIPT_NAME its links carry the path...
+      .mockResolvedValueOnce(page([1], 'https://host.example/paperless/api/tags/?page=2&page_size=100'))
+      // ...behind a proxy that strips it, they don't.
+      .mockResolvedValueOnce(page([2], 'http://paperless:8000/api/tags/?page=3&page_size=100'))
+      .mockResolvedValueOnce(page([3], null));
+    const admin = new PaperlessAdmin('https://host.example/paperless', 'admin', 'pw');
+    await expect(admin.listAll<number>('/api/tags/')).resolves.toEqual([1, 2, 3]);
+    expect(fetchSpy.mock.calls.slice(1).map(([u]) => String(u))).toEqual([
+      'https://host.example/paperless/api/tags/?page=2&page_size=100',
+      'https://host.example/paperless/api/tags/?page=3&page_size=100',
+    ]);
   });
 });

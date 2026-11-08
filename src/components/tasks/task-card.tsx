@@ -36,7 +36,7 @@ import { FieldNote } from '@/components/ui/field-note';
 import { fieldErrors } from '@/lib/api';
 import { CompletionHistory } from '@/components/tasks/completion-history';
 import { SubtaskRow } from '@/components/tasks/subtask-row';
-import { formatDueDate, isOverdue } from '@/lib/format';
+import { APP_LOCALE, formatDueDate, isOverdue } from '@/lib/format';
 import { useHouseholdZone } from '@/components/household-zone';
 import { usePointsShown } from '@/components/household-features';
 
@@ -209,10 +209,13 @@ export function TaskCard({
         </Button>
 
         <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
+          {/* On a phone the action buttons wrap to their own row under the
+              title (w-full), so the title keeps the card's width; from sm up
+              they sit on the same line as before. */}
+          <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1 sm:flex-nowrap">
             <p
               className={cn(
-                'font-medium leading-snug',
+                'min-w-0 flex-1 font-medium leading-snug',
                 done && !doneThisCycle && 'text-muted-foreground line-through',
               )}
             >
@@ -224,10 +227,11 @@ export function TaskCard({
               ) : null}
               {task.title}
             </p>
-            <div className="flex shrink-0 items-center gap-1">
-              <Badge variant={priorityVariant(task.priority)}>
-                {PRIORITY_LABELS[task.priority as TaskPriority] ?? task.priority}
-              </Badge>
+            <Badge variant={priorityVariant(task.priority)} className="shrink-0">
+              {PRIORITY_LABELS[task.priority as TaskPriority] ?? task.priority}
+            </Badge>
+            {move || canEdit || canDelete ? (
+            <div className="flex w-full shrink-0 items-center justify-end gap-1 sm:w-auto">
               {move ? (
                 <>
                   <Button
@@ -258,7 +262,7 @@ export function TaskCard({
                   size="icon"
                   className="size-8 text-muted-foreground hover:text-foreground"
                   onClick={() => onEdit(task)}
-                  aria-label="Edit task"
+                  aria-label={`Edit task "${task.title}"`}
                 >
                   <Pencil />
                 </Button>
@@ -270,7 +274,7 @@ export function TaskCard({
                   size="icon"
                   className="size-8 text-muted-foreground hover:text-foreground"
                   onClick={() => onArchive(task.id, !archived)}
-                  aria-label={archived ? 'Restore task' : 'Archive task'}
+                  aria-label={`${archived ? 'Restore' : 'Archive'} task "${task.title}"`}
                   title={archived ? 'Restore task' : 'Archive task'}
                 >
                   {archived ? <ArchiveRestore /> : <Archive />}
@@ -283,12 +287,13 @@ export function TaskCard({
                   className="size-8 text-muted-foreground hover:text-destructive"
                   onClick={() => onDelete(task.id)}
                   disabled={deleting}
-                  aria-label="Delete task"
+                  aria-label={`Delete task "${task.title}"`}
                 >
                   {deleting ? <Loader2 className="animate-spin" /> : <Trash2 />}
                 </Button>
               ) : null}
             </div>
+            ) : null}
           </div>
 
           {task.notes ? (
@@ -299,7 +304,7 @@ export function TaskCard({
             {waitingCheck ? (
               sentByMe ? (
                 <span className="inline-flex items-center gap-2">
-                  <span className="font-medium text-amber-700 dark:text-amber-400">Waiting for an OK</span>
+                  <span className="font-medium text-warning-text">Waiting for an OK</span>
                   {onTakeBack ? (
                     <button
                       type="button"
@@ -313,19 +318,19 @@ export function TaskCard({
                   ) : null}
                 </span>
               ) : (
-                <span className="font-medium text-amber-700 dark:text-amber-400">
+                <span className="font-medium text-warning-text">
                   {task.review.submittedBy?.name ?? 'Someone'} sent this for a check
                 </span>
               )
             ) : null}
             {doneThisCycle ? (
-              <span className="font-medium text-emerald-600 dark:text-emerald-400">
+              <span className="font-medium text-success-text">
                 Done this cycle · reopens {formatUntil(task.cycleEndsAt!, timeZone)}
               </span>
             ) : (
               <>
                 {waiting ? (
-                  <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                  <span className="font-medium text-success-text">
                     Done · next opens {formatUntil(task.opensAt!, timeZone)}
                   </span>
                 ) : null}
@@ -511,7 +516,7 @@ function baseRecurrenceLabel(r: NonNullable<TaskDTO['recurrence']>): string {
 }
 
 function formatUntil(iso: string, timeZone?: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
+  return new Date(iso).toLocaleDateString(APP_LOCALE, {
     timeZone,
     month: 'short',
     day: 'numeric',

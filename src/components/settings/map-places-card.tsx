@@ -139,7 +139,7 @@ export function MapPlacesCard({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="size-8 text-muted-foreground"
+                  className="size-11 shrink-0 text-muted-foreground sm:size-8"
                   aria-label={`Edit ${p.name}`}
                   onClick={() => setEditing({ place: p })}
                 >
@@ -148,7 +148,7 @@ export function MapPlacesCard({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="size-8 text-muted-foreground hover:text-destructive"
+                  className="size-11 shrink-0 text-muted-foreground hover:text-destructive sm:size-8"
                   aria-label={`Remove ${p.name}`}
                   onClick={() => setDeleting(p)}
                 >
@@ -264,7 +264,8 @@ function MapPlaceDialog({
   const canSave = name.trim().length > 0 && !!point && !save.isPending;
 
   return (
-    <Dialog open onClose={onClose} title={place ? 'Edit map place' : 'New map place'}>
+    // preventOutsideClose: a stray tap outside must not throw away what was typed.
+    <Dialog open onClose={onClose} preventOutsideClose title={place ? 'Edit map place' : 'New map place'}>
       <form
         className="space-y-4"
         onSubmit={(e) => {
@@ -278,7 +279,7 @@ function MapPlaceDialog({
             <Label htmlFor="map-place-name">Name</Label>
             <Input
               id="map-place-name"
-              autoFocus
+              data-autofocus
               value={name}
               maxLength={60}
               placeholder={kind === 'store' ? 'Costco' : kind === 'home' ? 'Home' : 'School'}

@@ -1,5 +1,6 @@
 import { fail, ok, requirePermission, withAuth } from '@/server/api/http';
 import { getPaperlessStatus, hasPaperless, runPaperlessSync } from '@/server/services/paperlessSync';
+import { syncFailureMessage } from '@/server/api/syncError';
 import { can } from '@/lib/permissions';
 
 // Settings → "Check now": run this household's import immediately instead of
@@ -14,7 +15,7 @@ export const POST = withAuth(async (ctx) => {
   try {
     await runPaperlessSync(householdId);
   } catch (err) {
-    return fail(err instanceof Error ? err.message : 'Paperless import failed.', 502);
+    return fail(syncFailureMessage(err, 'Paperless import failed. The server log has the details.', 'paperless'), 502);
   }
   return ok(await getPaperlessStatus(householdId, can(ctx.user.role, 'household:manage')));
 });

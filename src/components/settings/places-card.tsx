@@ -78,7 +78,7 @@ export function PlacesCard({ initial }: { initial: PlacesDTO }) {
         <Button
           variant="ghost"
           size="icon"
-          className="size-8 text-muted-foreground"
+          className="size-11 text-muted-foreground sm:size-8"
           aria-label={`Move ${label} up`}
           disabled={i <= 0 || reorder.isPending}
           onClick={() => reorder.mutate({ kind, ids: moveId(ids, id, -1) })}
@@ -88,7 +88,7 @@ export function PlacesCard({ initial }: { initial: PlacesDTO }) {
         <Button
           variant="ghost"
           size="icon"
-          className="size-8 text-muted-foreground"
+          className="size-11 text-muted-foreground sm:size-8"
           aria-label={`Move ${label} down`}
           disabled={i === ids.length - 1 || reorder.isPending}
           onClick={() => reorder.mutate({ kind, ids: moveId(ids, id, 1) })}
@@ -103,28 +103,32 @@ export function PlacesCard({ initial }: { initial: PlacesDTO }) {
     rooms.length ? (
       <ul className="divide-y divide-border">
         {rooms.map((r) => (
-          <li key={r.id} className="flex items-center gap-2 py-1.5 pl-6 pr-1">
+          // On a phone the buttons are 44px tap targets; when they don't fit beside
+          // the name they wrap onto their own line instead of squeezing it.
+          <li key={r.id} className="flex flex-wrap items-center gap-2 py-1.5 pl-6 pr-1">
             <DoorOpen className="size-4 shrink-0 text-muted-foreground" />
-            <span className="flex-1 truncate text-sm">{r.name}</span>
-            {moveButtons('room', rooms.map((x) => x.id), r.id, r.name)}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8 text-muted-foreground"
-              aria-label={`Edit ${r.name}`}
-              onClick={() => setEditing({ kind: 'room', room: r })}
-            >
-              <Pencil />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8 text-muted-foreground hover:text-destructive"
-              aria-label={`Remove ${r.name}`}
-              onClick={() => setDeleting({ kind: 'room', room: r })}
-            >
-              <Trash2 />
-            </Button>
+            <span className="min-w-24 flex-1 truncate text-sm">{r.name}</span>
+            <div className="ml-auto flex items-center sm:gap-2">
+              {moveButtons('room', rooms.map((x) => x.id), r.id, r.name)}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-11 text-muted-foreground sm:size-8"
+                aria-label={`Edit ${r.name}`}
+                onClick={() => setEditing({ kind: 'room', room: r })}
+              >
+                <Pencil />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-11 text-muted-foreground hover:text-destructive sm:size-8"
+                aria-label={`Remove ${r.name}`}
+                onClick={() => setDeleting({ kind: 'room', room: r })}
+              >
+                <Trash2 />
+              </Button>
+            </div>
           </li>
         ))}
       </ul>
@@ -188,37 +192,40 @@ export function PlacesCard({ initial }: { initial: PlacesDTO }) {
       ) : null}
       {places.floors.map((f) => (
         <div key={f.id} className="rounded-lg border border-border">
-          <div className="flex items-center gap-2 px-3 py-2">
+          {/* As the room rows: 44px buttons on a phone, wrapping under the name when they don't fit. */}
+          <div className="flex flex-wrap items-center gap-2 px-3 py-2">
             <Layers className="size-4 shrink-0 text-muted-foreground" />
-            <span className="flex-1 truncate text-sm font-medium">{f.name}</span>
-            {moveButtons('floor', places.floors.map((x) => x.id), f.id, f.name)}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8 text-muted-foreground"
-              aria-label={`Add a room to ${f.name}`}
-              onClick={() => setEditing({ kind: 'room', floorId: f.id })}
-            >
-              <Plus />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8 text-muted-foreground"
-              aria-label={`Rename ${f.name}`}
-              onClick={() => setEditing({ kind: 'floor', floor: f })}
-            >
-              <Pencil />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8 text-muted-foreground hover:text-destructive"
-              aria-label={`Remove ${f.name}`}
-              onClick={() => setDeleting({ kind: 'floor', floor: f })}
-            >
-              <Trash2 />
-            </Button>
+            <span className="min-w-24 flex-1 truncate text-sm font-medium">{f.name}</span>
+            <div className="ml-auto flex items-center sm:gap-2">
+              {moveButtons('floor', places.floors.map((x) => x.id), f.id, f.name)}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-11 text-muted-foreground sm:size-8"
+                aria-label={`Add a room to ${f.name}`}
+                onClick={() => setEditing({ kind: 'room', floorId: f.id })}
+              >
+                <Plus />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-11 text-muted-foreground sm:size-8"
+                aria-label={`Rename ${f.name}`}
+                onClick={() => setEditing({ kind: 'floor', floor: f })}
+              >
+                <Pencil />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-11 text-muted-foreground hover:text-destructive sm:size-8"
+                aria-label={`Remove ${f.name}`}
+                onClick={() => setDeleting({ kind: 'floor', floor: f })}
+              >
+                <Trash2 />
+              </Button>
+            </div>
           </div>
           {roomList(roomsOn(f.id))}
         </div>
@@ -269,7 +276,8 @@ function PlaceDialog({
   });
   const noun = editing.kind === 'floor' ? 'floor' : 'room';
   return (
-    <Dialog open onClose={onClose} title={existing ? `Edit ${noun}` : `New ${noun}`}>
+    // preventOutsideClose: a stray tap outside must not throw away what was typed.
+    <Dialog open onClose={onClose} preventOutsideClose title={existing ? `Edit ${noun}` : `New ${noun}`}>
       <form
         className="space-y-4"
         onSubmit={(e) => {
@@ -282,7 +290,7 @@ function PlaceDialog({
           <Label htmlFor="place-name">Name</Label>
           <Input
             id="place-name"
-            autoFocus
+            data-autofocus
             value={name}
             maxLength={60}
             placeholder={editing.kind === 'floor' ? 'Upstairs' : 'Kitchen'}

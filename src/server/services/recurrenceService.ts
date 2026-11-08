@@ -148,15 +148,22 @@ export function completeOccurrence(
 export function computeNextRunAt(rule: NormalizedRule, from: Date): Date | null {
   const tz = rule.timeZone;
   if (!tz || tz === 'UTC') return nextWall(rule, from);
-  const next = nextWall(
-    {
-      ...rule,
-      anchorDate: toWall(rule.anchorDate, tz),
-      until: rule.until ? toWall(rule.until, tz) : null,
-    },
-    toWall(from, tz),
-  );
-  return next ? fromWall(next, tz) : null;
+  const local = {
+    ...rule,
+    anchorDate: toWall(rule.anchorDate, tz),
+    until: rule.until ? toWall(rule.until, tz) : null,
+  };
+  let wall = nextWall(local, toWall(from, tz));
+  // A local time the clocks skip (2:30 on a spring-forward night) maps to an
+  // instant an hour early, and one the clocks repeat can map to the earlier
+  // of its two: either can be at or before `from`, so stepping from it would
+  // land on it again and never move on. Step on in wall time until it is later.
+  for (let i = 0; wall && i < 3; i += 1) {
+    const at = fromWall(wall, tz);
+    if (at > from) return at;
+    wall = nextWall(local, wall);
+  }
+  return wall ? fromWall(wall, tz) : null;
 }
 
 /** computeNextRunAt on wall-clock dates. */

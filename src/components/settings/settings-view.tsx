@@ -42,6 +42,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { toast } from '@/components/ui/toast';
 import { EmptyState } from '@/components/empty-state';
 import { useHouseholdZone } from '@/components/household-zone';
+import { APP_LOCALE } from '@/lib/format';
 
 type ItemRef = { id: string; name: string };
 
@@ -252,7 +253,12 @@ function HomeAssistantCard({
     >
       {/* In the body, not the description: the closed card's title row is a button, and this holds one. */}
       <p className="text-sm text-muted-foreground">
-        Create a token, then have Home Assistant POST scans to{' '}
+        Create a token below, then give Home Assistant this address and the token.
+      </p>
+      {/* The wiring details stay, labeled for whoever sets up Home Assistant. */}
+      <p className="text-sm text-muted-foreground">
+        <span className="font-medium text-foreground">For whoever sets up Home Assistant:</span> send
+        scans as a POST request to{' '}
         <code className="rounded bg-muted px-1 py-0.5 text-xs">{webhookUrl}</code>{' '}
         <CopyButton
           text={webhookUrl}
@@ -260,10 +266,11 @@ function HomeAssistantCard({
           variant="ghost"
           className="h-6 gap-1 px-1.5 align-middle text-xs text-muted-foreground"
         />{' '}
-        with an <code className="rounded bg-muted px-1 py-0.5 text-xs">Authorization: Bearer</code> header.
+        with an <code className="rounded bg-muted px-1 py-0.5 text-xs">Authorization: Bearer</code> header
+        holding the token.
       </p>
       {newToken ? (
-        <div className="space-y-2 rounded-md border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 p-3">
+        <div className="space-y-2 rounded-md border border-warning/40 bg-warning/10 p-3">
           <p className="text-xs font-medium text-foreground">
             Copy this token now - it won’t be shown again:
           </p>
@@ -320,7 +327,7 @@ function HomeAssistantCard({
                 <p className="truncate text-sm font-medium">{i.name}</p>
                 <p className="text-xs text-muted-foreground">
                   {i.active ? 'Active' : 'Inactive'} · created{' '}
-                  {new Date(i.createdAt).toLocaleDateString(undefined, { timeZone })}
+                  {new Date(i.createdAt).toLocaleDateString(APP_LOCALE, { timeZone })}
                 </p>
               </div>
               <Button
@@ -578,7 +585,7 @@ function NfcTagsCard({
                       : 'no room'
                     : tag.item
                       ? tag.item.name
-                      : 'unbound'}
+                      : 'no item linked'}
                   {' · '}
                   {NFC_REPRESENTS_LABELS[
                     tag.represents as (typeof NFC_REPRESENTS)[number]

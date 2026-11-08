@@ -121,7 +121,7 @@ function NumberField({
       min={0}
       step={decimals ? 0.01 : 1}
       value={shown}
-      className={cn(rest.className, marked && 'border-amber-500 ring-1 ring-amber-500/40')}
+      className={cn(rest.className, marked && 'border-warning ring-1 ring-warning/40')}
       onFocus={() => {
         setText(value === null ? '' : String(value));
         onFocus?.();
@@ -144,7 +144,11 @@ function NumberField({
   );
 }
 
-type PendingTotal = { run: (confirm: boolean) => EditResult<DraftStep>; what: string };
+/** A step's small icon buttons: 44px to tap on a phone, the bare icon from sm up. */
+const STEP_BUTTON_CLASS =
+  'flex size-11 items-center justify-center rounded-md text-muted-foreground hover:text-foreground disabled:opacity-30 sm:size-auto';
+
+type PendingTotal ={ run: (confirm: boolean) => EditResult<DraftStep>; what: string };
 
 export function PointsEditor({
   value,
@@ -271,12 +275,12 @@ export function PointsEditor({
       </div>
 
       {custom > 0 && held ? (
-        <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
+        <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs">
           {custom} step{custom === 1 ? '' : 's'} set by hand. Changing a total rescales every step and clears
           their custom values.
         </p>
       ) : custom > 0 ? (
-        <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
+        <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs">
           Totals influenced by {custom} customised step{custom === 1 ? '' : 's'}
           {value.task.baseMinutes !== null || value.task.basePointsCenti !== null
             ? ` (task set to ${formatMinutes(value.task.baseMinutes ?? 0)}${
@@ -379,8 +383,9 @@ export function PointsEditor({
                     aria-pressed={s.pointsFollowTime}
                     disabled={locked}
                     onClick={() => onChange(setStepFollow(value, i, !s.pointsFollowTime, minutesPerPoint))}
+                    // 44px to tap on a phone; the small icon button from sm up.
                     className={cn(
-                      'rounded p-1 text-muted-foreground hover:text-foreground disabled:opacity-30',
+                      'flex size-11 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground disabled:opacity-30 sm:size-auto sm:p-1',
                       s.pointsFollowTime && 'text-primary',
                     )}
                   >
@@ -404,12 +409,13 @@ export function PointsEditor({
                     })
                   }
                 />
-                <div className="flex items-center justify-end gap-0.5">
+                {/* A full row on a phone, so three 44px buttons fit. */}
+                <div className="col-span-2 flex items-center justify-end gap-0.5 sm:col-span-1">
                   <button
                     type="button"
                     aria-label="Move step up"
                     disabled={i === 0 || locked}
-                    className="text-muted-foreground hover:text-foreground disabled:opacity-30"
+                    className={STEP_BUTTON_CLASS}
                     onClick={() => moveStep(i, -1)}
                   >
                     <ChevronUp className="size-4" />
@@ -418,7 +424,7 @@ export function PointsEditor({
                     type="button"
                     aria-label="Move step down"
                     disabled={i === value.steps.length - 1 || locked}
-                    className="text-muted-foreground hover:text-foreground disabled:opacity-30"
+                    className={STEP_BUTTON_CLASS}
                     onClick={() => moveStep(i, 1)}
                   >
                     <ChevronDown className="size-4" />
@@ -427,7 +433,7 @@ export function PointsEditor({
                     type="button"
                     aria-label="Remove step"
                     disabled={locked}
-                    className="text-muted-foreground hover:text-destructive disabled:opacity-30"
+                    className={cn(STEP_BUTTON_CLASS, 'hover:text-destructive')}
                     onClick={() => onChange(removeStep(value, i))}
                   >
                     <X className="size-4" />

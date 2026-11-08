@@ -22,7 +22,14 @@ import {
 import type { BillDTO, MemberDTO } from '@/lib/types';
 import { canModify, type PageAccess } from '@/lib/permissions';
 import { BILL_STATUS_LABELS, type BillKind, type BillStatus } from '@/lib/enums';
-import { formatDueDate, formatMoney, isDueWithinDays, isOverdue } from '@/lib/format';
+import {
+  dateKey,
+  formatDueDate,
+  formatMoney,
+  isDueWithinDays,
+  isOverdue,
+  zonedInstant,
+} from '@/lib/format';
 import { apiFetch, ApiError } from '@/lib/api';
 import { useFieldErrors } from '@/lib/use-field-errors';
 import { FieldNote } from '@/components/ui/field-note';
@@ -54,9 +61,9 @@ const CATEGORY_SUGGESTIONS: Record<BillKind, string[]> = {
 // How many paid bills the disclosure shows before "Show all (N)".
 const PAID_PREVIEW = 12;
 
-const pad = (n: number) => String(n).padStart(2, '0');
-const dateValue = (d: Date) =>
-  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+// A date input's day as a stored instant: 12:00 in the household's zone, how
+// a date with no time is marked (isDateOnly), whatever zone the device is in.
+const noonIn = (date: string, timeZone?: string) => zonedInstant(date, '12:00', timeZone).toISOString();
 
 const WEEKDAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
@@ -479,7 +486,7 @@ function BillRow({
           ) : null}
           <p className="truncate font-medium">{bill.name}</p>
           {bill.recurrence ? (
-            <Repeat className="size-3.5 shrink-0 text-muted-foreground" />
+            <Repeat className="size-3.5 shrink-0 text-muted-foreground" aria-label="Repeats" />
           ) : null}
           {bill.onCalendar ? (
             <CalendarDays className="size-3.5 shrink-0 text-muted-foreground" aria-label="On the calendar" />
@@ -603,15 +610,17 @@ export function BillDialog({
   // A service to the home or an extra; an existing one can be switched.
   const [kind, setKind] = useState<BillKind>(bill?.kind ?? newKind);
   const sub = kind === 'subscription';
+  // Dates are read and written in the household's zone (Settings).
+  const timeZone = useHouseholdZone();
   const [name, setName] = useState(bill?.name ?? '');
   const [amount, setAmount] = useState(bill ? String(bill.amount) : '');
   const [dueDate, setDueDate] = useState(
-    bill?.dueDate ? dateValue(new Date(bill.dueDate)) : (defaultDate ?? ''),
+    bill?.dueDate ? dateKey(bill.dueDate, timeZone) : (defaultDate ?? ''),
   );
   const [website, setWebsite] = useState(bill?.website ?? '');
   const [accountNo, setAccountNo] = useState(bill?.accountNo ?? '');
   const [trialEndsAt, setTrialEndsAt] = useState(
-    bill?.trialEndsAt ? dateValue(new Date(bill.trialEndsAt)) : '',
+    bill?.trialEndsAt ? dateKey(bill.trialEndsAt, timeZone) : '',
   );
   const [category, setCategory] = useState(bill?.category ?? '');
   // A subscription renews by itself unless it's cancelled.
@@ -630,7 +639,7 @@ export function BillDialog({
     parseList(bill?.recurrence?.byMonthday),
   );
   const [until, setUntil] = useState(
-    bill?.recurrence?.until ? dateValue(new Date(bill.recurrence.until)) : '',
+    bill?.recurrence?.until ? dateKey(bill.recurrence.until, timeZone) : '',
   );
   const [error, setError] = useState<string | null>(null);
   // Which fields the server named; the reason is said in the alert at the top.
@@ -646,8 +655,9 @@ export function BillDialog({
           : {
               kind: repeat,
               interval,
-              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-              until: until ? new Date(`${until}T12:00:00`).toISOString() : null,
+              // The server uses the household's zone; this just says the same.
+              timezone: timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+              until: until ? noonIn(until, timeZone) : null,
               // Day picks only count for a bill (a subscription doesn't show them).
               ...(repeat === 'weekly' && !sub && weekdays.length > 0
                 ? { byWeekday: weekdays }
@@ -661,11 +671,11 @@ export function BillDialog({
         website: website.trim() || null,
         // A bill's account number; a subscription's free trial.
         ...(sub ? {} : { accountNo: accountNo.trim() || null }),
-        trialEndsAt: sub && trialEndsAt ? new Date(`${trialEndsAt}T12:00`).toISOString() : null,
+        trialEndsAt: sub && trialEndsAt ? noonIn(trialEndsAt, timeZone) : null,
         ...(bill || !onCalendar ? {} : { onCalendar: true }),
         name: name.trim(),
         amount: Number(amount) || 0,
-        dueDate: dueDate ? new Date(`${dueDate}T12:00`).toISOString() : null,
+        dueDate: dueDate ? noonIn(dueDate, timeZone) : null,
         category: category.trim() || null,
         autoPay,
         notes: notes.trim() || null,
@@ -764,7 +774,7 @@ export function BillDialog({
             <Label htmlFor="bill-name">{sub ? 'Service' : 'Provider'}</Label>
             <Input
               id="bill-name"
-              autoFocus
+              data-autofocus
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={sub ? 'e.g. Netflix' : 'e.g. Prairie Power & Light'}
@@ -894,30 +904,37 @@ export function BillDialog({
               <option value="weekly">Weekly</option>
               <option value="monthly">Monthly</option>
               <option value="yearly">Yearly</option>
-              <option value="interval">Every N days</option>
+              <option value="interval">Every few days</option>
             </Select>
             <FieldNote id={fe.noteId('recurrence')} error={fe.get('recurrence')} />
           </div>
+          {/* Reads as a sentence, "Every [2] weeks", so the unit sits by the
+              box instead of an "Every N weeks" label. */}
           {repeat !== 'none' ? (
             <div className="space-y-1.5" data-field="recurrence">
-              <Label htmlFor="bill-interval">
-                {repeat === 'weekly'
-                  ? 'Every N weeks'
-                  : repeat === 'monthly'
-                    ? 'Every N months'
-                    : repeat === 'yearly'
-                      ? 'Every N years'
-                      : 'Every N days'}
-              </Label>
-              <Input
-                id="bill-interval"
-                type="number"
-                min={1}
-                max={365}
-                value={interval}
-                onChange={(e) => setInterval(Number(e.target.value) || 1)}
-                {...fe.invalid('recurrence')}
-              />
+              <Label htmlFor="bill-interval">How often</Label>
+              <div className="flex items-center gap-2 text-sm">
+                <span>Every</span>
+                <Input
+                  id="bill-interval"
+                  type="number"
+                  min={1}
+                  max={365}
+                  value={interval}
+                  onChange={(e) => setInterval(Number(e.target.value) || 1)}
+                  className="w-20"
+                  {...fe.invalid('recurrence')}
+                />
+                <span>
+                  {repeat === 'weekly'
+                    ? interval === 1 ? 'week' : 'weeks'
+                    : repeat === 'monthly'
+                      ? interval === 1 ? 'month' : 'months'
+                      : repeat === 'yearly'
+                        ? interval === 1 ? 'year' : 'years'
+                        : interval === 1 ? 'day' : 'days'}
+                </span>
+              </div>
             </div>
           ) : null}
           {/* A subscription charges on its date; the day pickers are for bills. */}
@@ -930,6 +947,7 @@ export function BillDialog({
                     key={day}
                     type="button"
                     onClick={() => setWeekdays((p) => toggleIn(p, day))}
+                    aria-pressed={weekdays.includes(day)}
                     className={`size-9 rounded-md border text-sm font-medium transition-colors ${
                       weekdays.includes(day)
                         ? 'border-primary bg-primary text-primary-foreground'
@@ -951,6 +969,7 @@ export function BillDialog({
                     key={day}
                     type="button"
                     onClick={() => setMonthdays((p) => toggleIn(p, day))}
+                    aria-pressed={monthdays.includes(day)}
                     className={`size-8 rounded-md border text-xs font-medium transition-colors ${
                       monthdays.includes(day)
                         ? 'border-primary bg-primary text-primary-foreground'

@@ -27,7 +27,7 @@ export const PRESENCE_KEY = ['location-presence'];
 const REFRESH_MS = 60_000;
 
 function PlaceIcon({ kind }: { kind: string }) {
-  if (kind === 'home') return <Home className="size-4 text-[var(--color-success)]" />;
+  if (kind === 'home') return <Home className="size-4 text-success" />;
   if (kind === 'store') return <Store className="size-4 text-primary" />;
   return <MapPin className="size-4 text-muted-foreground" />;
 }
@@ -115,7 +115,7 @@ export function MapView({
           <Link href="/profile" className="font-medium text-primary hover:underline">
             Profile
           </Link>
-          , then set it up in the OurHome app on your phone.
+          , then set it up in the Our Home app on your phone.
         </p>
       ) : null}
 

@@ -63,7 +63,8 @@ export function LocationMultiSelect({
       aria-pressed={picked.has(v)}
       onClick={() => toggle(v)}
       className={cn(
-        'h-8 rounded-md border px-2.5 text-sm transition-colors',
+        // h-11 on phones: a full-size tap target.
+        'h-11 rounded-md border px-2.5 text-sm transition-colors sm:h-8',
         picked.has(v) ? 'border-primary bg-primary text-primary-foreground' : 'border-input hover:bg-accent',
       )}
     >

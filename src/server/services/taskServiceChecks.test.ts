@@ -576,6 +576,48 @@ describe('rollTaskCycles: a check waiting when its cycle ends', () => {
   });
 });
 
+describe('rollTaskCycles: a rule whose end date passed while nobody finished it', () => {
+  // Daily at noon in Chicago (17:00 UTC); each day's window starts at 05:00 UTC.
+  const rule = (until: Date) => ({
+    id: 'r1', kind: 'daily', interval: 1, byWeekday: null, byMonthday: null, cron: null, timezone: 'UTC',
+    anchorDate: new Date('2026-10-01T17:00:00.000Z'), until, nextRunAt: new Date('2026-10-24T17:00:00.000Z'),
+    rollover: true, cycleWeekdays: null, cycleMonthdays: null,
+  });
+  function rollFrom(until: Date) {
+    prisma.task.findMany.mockResolvedValueOnce([{ id: 't1' }]);
+    tx.task.findFirst.mockResolvedValueOnce(
+      task({
+        type: 'recurring', status: 'pending', recurrence: rule(until), recurrenceId: 'r1',
+        // Oct 24's window, last seen days ago (the server was off since).
+        cycleStartedAt: new Date('2026-10-24T05:00:00.000Z'), cycleEndsAt: new Date('2026-10-25T05:00:00.000Z'),
+      }),
+    );
+    return rollTaskCycles(H, NOW, 't1');
+  }
+  const missedAt = () => written('taskCompletion.create').filter((c) => c.data.outcome === 'missed').map((c) => c.data.completedAt);
+
+  it('counts only the cycles before the end date as missed, not the days after it', async () => {
+    // Ends Oct 25 at 12:00 UTC, before that day's noon: Oct 24 was the last cycle.
+    await rollFrom(new Date('2026-10-25T12:00:00.000Z'));
+    expect(missedAt()).toEqual([new Date('2026-10-25T05:00:00.000Z')]);
+    expect(written('logActivity').map((a) => (a as unknown as { message: string }).message)).toEqual(['missed task “Dishes”']);
+    // Then it stops cycling, as before.
+    expect(written('task.update').at(-1)!.data).toEqual({ cycleStartedAt: null, cycleEndsAt: null });
+  });
+
+  it('still counts every cycle up to the end date', async () => {
+    // Ends Oct 27 at 20:00 UTC, after that day's noon: Oct 24 to 27 were cycles.
+    await rollFrom(new Date('2026-10-27T20:00:00.000Z'));
+    expect(missedAt()).toEqual([
+      new Date('2026-10-25T05:00:00.000Z'),
+      new Date('2026-10-26T05:00:00.000Z'),
+      new Date('2026-10-27T05:00:00.000Z'),
+      new Date('2026-10-28T05:00:00.000Z'),
+    ]);
+    expect(written('logActivity').map((a) => (a as unknown as { message: string }).message)).toEqual(['missed task “Dishes” (4 cycles)']);
+  });
+});
+
 // --- Undo -----------------------------------------------------------------------------
 
 describe('undoCompletion of an approved check', () => {
@@ -914,6 +956,86 @@ describe('Ask for a photo (photoProof)', () => {
   it('an adult changes it', async () => {
     await updateTask(H, 'mum', { taskId: 't1', photoProof: true });
     expect(written('task.update').at(-1)!.data).toMatchObject({ photoProof: true });
+  });
+});
+
+describe('updateTask: restoring an archived task', () => {
+  // Daily at noon in Chicago; today's window is Oct 29 05:00 UTC to Oct 30 05:00 UTC.
+  const WINDOW_START = new Date('2026-10-29T05:00:00.000Z');
+  const WINDOW_END = new Date('2026-10-30T05:00:00.000Z');
+  const OLD_TICK = new Date('2026-10-20T12:00:00.000Z');
+  const daily = {
+    id: 'r1', kind: 'daily', interval: 1, byWeekday: null, byMonthday: null, cron: null, timezone: 'UTC',
+    anchorDate: new Date('2026-10-01T17:00:00.000Z'), until: null, nextRunAt: new Date('2026-10-20T17:00:00.000Z'),
+    rollover: true, cycleWeekdays: null, cycleMonthdays: null,
+  };
+  /** Archived in an old cycle (Oct 20), with "a" ticked and queued then. */
+  const archivedCycleTask = (over: Record<string, unknown> = {}) =>
+    task({
+      type: 'recurring', recurrence: daily, recurrenceId: 'r1', status: 'archived',
+      dueDate: new Date('2026-10-20T17:00:00.000Z'),
+      subtasks: [step('a', { done: true, doneAt: OLD_TICK, doneById: 'kid' }), step('b', { position: 1 })],
+      ...over,
+    });
+  const restore = () => updateTask(H, 'mum', { taskId: 't1', status: 'pending' });
+
+  it('a cycle task starts its fresh window clean, as at a roll-over', async () => {
+    stored = archivedCycleTask();
+    await restore();
+    expect(written('pendingCredit.deleteMany')).toEqual([{ where: { taskId: 't1', checkedAt: { lt: WINDOW_START } } }]);
+    expect(written('subtask.updateMany')).toEqual([
+      { where: { taskId: 't1', done: true, doneAt: { lt: WINDOW_START } }, data: { done: false, doneAt: null, doneById: null, checkAwardId: null, autoResetAt: null } },
+    ]);
+    // Due today at noon, not overdue since Oct 20.
+    const due = new Date('2026-10-29T17:00:00.000Z');
+    expect(written('recurrenceRule.update')).toEqual([{ where: { id: 'r1' }, data: { nextRunAt: due } }]);
+    expect(written('task.update').at(-1)!.data).toMatchObject({
+      status: 'pending', dueDate: due, cycleStartedAt: WINDOW_START, cycleEndsAt: WINDOW_END,
+    });
+  });
+
+  it('a due date already in the new window, or one set in the same save, is kept', async () => {
+    stored = archivedCycleTask({ dueDate: new Date('2026-10-29T17:00:00.000Z') });
+    await restore();
+    expect(names()).not.toContain('recurrenceRule.update');
+    expect(written('task.update').at(-1)!.data.dueDate).toBeUndefined();
+    writes.length = 0;
+    stored = archivedCycleTask();
+    const chosen = new Date('2026-11-02T17:00:00.000Z');
+    await updateTask(H, 'mum', { taskId: 't1', status: 'pending', dueDate: chosen });
+    expect(names()).not.toContain('recurrenceRule.update');
+    expect(written('task.update').at(-1)!.data.dueDate).toEqual(chosen);
+  });
+
+  it('one done in this window already comes back done, untouched', async () => {
+    stored = archivedCycleTask({ completedAt: new Date('2026-10-29T06:00:00.000Z'), dueDate: new Date('2026-10-29T17:00:00.000Z') });
+    await restore();
+    expect(names()).not.toContain('pendingCredit.deleteMany');
+    expect(names()).not.toContain('subtask.updateMany');
+    expect(written('task.update').at(-1)!.data).toMatchObject({ status: 'completed' });
+  });
+
+  it('a one-time task comes back as it was', async () => {
+    stored = task({ status: 'archived', dueDate: new Date('2026-10-20T17:00:00.000Z') });
+    await restore();
+    expect(names()).not.toContain('pendingCredit.deleteMany');
+    expect(names()).not.toContain('subtask.updateMany');
+    expect(names()).not.toContain('recurrenceRule.update');
+    expect(written('task.update').at(-1)!.data).toMatchObject({ status: 'pending', cycleStartedAt: null, cycleEndsAt: null });
+    expect(written('task.update').at(-1)!.data.dueDate).toBeUndefined();
+  });
+});
+
+describe('updateTask: two saves at the same moment', () => {
+  it('the second is told plainly (409), not an error page', async () => {
+    const { Prisma } = await import('@prisma/client');
+    prisma.$transaction.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError('conflict', { code: 'P2034', clientVersion: 'test' }),
+    );
+    await expect(updateTask(H, 'mum', { taskId: 't1', title: 'Dishes and pans' })).rejects.toMatchObject({
+      name: 'ConflictError',
+      message: 'Someone else changed this at the same moment. Try again.',
+    });
   });
 });
 

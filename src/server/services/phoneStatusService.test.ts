@@ -14,10 +14,14 @@ const prisma = {
   },
   notification: {
     findMany: vi.fn(async (): Promise<{ id: string; dedupeKey: string | null }[]> => []),
+    findFirst: vi.fn(async (): Promise<unknown> => null),
     deleteMany: vi.fn(),
     createMany: vi.fn(),
+    create: vi.fn(),
   },
 };
+const { Prisma } = await import('@prisma/client');
+const duplicateKey = () => new Prisma.PrismaClientKnownRequestError('dup', { code: 'P2002', clientVersion: 'test' });
 vi.mock('@/server/db/prisma', () => ({ prisma }));
 const push = { pushSync: vi.fn(), pingInstall: vi.fn(async () => 'sent') };
 vi.mock('@/server/services/pushService', () => push);
@@ -42,8 +46,17 @@ vi.mock('@/server/services/pointsTimeService', () => pointsTime);
 const parentPin = { reportPinEvents: vi.fn(async () => ({ told: 0 })) };
 vi.mock('@/server/services/parentPinService', () => parentPin);
 
-const { checkIn, clearPhoneWatches, phoneSetup, phoneSummaries, PING_AFTER_MS, recordStream, refreshPhoneAlerts } =
-  await import('./phoneStatusService');
+const {
+  checkIn,
+  clearPhoneWatches,
+  phoneSetup,
+  phoneSummaries,
+  PING_AFTER_MS,
+  recordStream,
+  refreshPhoneAlerts,
+  setServerStartedAt,
+  STREAM_BOOT_GRACE_MS,
+} = await import('./phoneStatusService');
 const { addStream, clearStreams } = await import('@/server/push/streamHub');
 
 const now = new Date('2026-10-12T18:00:00Z');
@@ -394,6 +407,153 @@ describe('phone alerts', () => {
   });
 });
 
+describe('alerts that stay put', () => {
+  const minutesAgo = (m: number) => new Date(now.getTime() - m * 60_000);
+  const phone = { userId: 'mia', installId: 'phone', locationAlways: true, notifications: true, deviceName: 'Phone' };
+  const tablet = { userId: 'mia', installId: 'tablet', locationAlways: true, notifications: false, deviceName: 'Tablet' };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearStreams();
+    prisma.supervision.findMany.mockResolvedValue([link('alex')]);
+    prisma.notification.findMany.mockResolvedValue([]);
+    prisma.notification.createMany.mockReset();
+    prisma.notification.create.mockReset();
+  });
+
+  it('keeps an alert another of the child’s phones still has, when the other one checks in', async () => {
+    // The tablet (notifications off) raised it; now the phone is the freshest.
+    prisma.phoneStatus.findMany.mockResolvedValue([
+      { ...phone, lastSeenAt: now },
+      { ...tablet, lastSeenAt: minutesAgo(40) },
+    ]);
+    prisma.notification.findMany.mockResolvedValue([{ id: 'n1', dedupeKey: 'phone:notifications_off:mia:alex' }]);
+    await refreshPhoneAlerts(H, now, ['mia']);
+    expect(prisma.notification.deleteMany).not.toHaveBeenCalled();
+    expect(prisma.notification.createMany).not.toHaveBeenCalled();
+    expect(push.pushSync).not.toHaveBeenCalled();
+  });
+
+  it('still judges the freshest phone: a long-quiet other phone neither holds nor raises alerts', async () => {
+    prisma.phoneStatus.findMany.mockResolvedValue([
+      { ...phone, lastSeenAt: now },
+      { ...tablet, lastSeenAt: minutesAgo(9 * 60) },
+    ]);
+    prisma.notification.findMany.mockResolvedValue([{ id: 'n1', dedupeKey: 'phone:notifications_off:mia:alex' }]);
+    await refreshPhoneAlerts(H, now, ['mia']);
+    expect(prisma.notification.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ['n1'] } } });
+    expect(prisma.notification.createMany).not.toHaveBeenCalled();
+  });
+
+  it('keeps the other alerts while the phone is quiet, so none comes back as new when it returns', async () => {
+    const filtered = { ...mia, webFilter: 'family' } as typeof mia;
+    prisma.supervision.findMany.mockResolvedValue([link('alex', 'adult', filtered)]);
+    const quiet = { ...phone, privateDns: 'off', lastSeenAt: minutesAgo(9 * 60) };
+    prisma.phoneStatus.findMany.mockResolvedValue([quiet]);
+    prisma.notification.findMany.mockResolvedValue([{ id: 'n1', dedupeKey: 'phone:web_filter_off:mia:alex' }]);
+    await refreshPhoneAlerts(H, now);
+    // Quiet is raised; the filter alert, not known to be fixed, stays.
+    expect(prisma.notification.deleteMany).not.toHaveBeenCalled();
+    expect(prisma.notification.createMany.mock.calls[0][0].data.map((r: { dedupeKey: string }) => r.dedupeKey)).toEqual([
+      'phone:quiet:mia:alex',
+    ]);
+
+    // Back next morning, filter still off: only the quiet alert goes, nothing is pushed again.
+    vi.clearAllMocks();
+    prisma.phoneStatus.findMany.mockResolvedValue([{ ...quiet, lastSeenAt: now }]);
+    prisma.notification.findMany.mockResolvedValue([
+      { id: 'n1', dedupeKey: 'phone:web_filter_off:mia:alex' },
+      { id: 'n2', dedupeKey: 'phone:quiet:mia:alex' },
+    ]);
+    await refreshPhoneAlerts(H, now);
+    expect(prisma.notification.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ['n2'] } } });
+    expect(prisma.notification.createMany).not.toHaveBeenCalled();
+    expect(push.pushSync).not.toHaveBeenCalled();
+  });
+
+  it('still clears an alert while the phone is quiet once its requirement is turned off', async () => {
+    // The web filter was required (and off on the phone); now it isn't required.
+    prisma.supervision.findMany.mockResolvedValue([link('alex', 'adult', mia)]);
+    const quiet = { ...phone, privateDns: 'off', lastSeenAt: minutesAgo(9 * 60) };
+    prisma.phoneStatus.findMany.mockResolvedValue([quiet]);
+    prisma.notification.findMany.mockResolvedValue([{ id: 'n1', dedupeKey: 'phone:web_filter_off:mia:alex' }]);
+    await refreshPhoneAlerts(H, now);
+    expect(prisma.notification.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ['n1'] } } });
+  });
+
+  it('takes an alert written at the same moment by another check as already done', async () => {
+    prisma.supervision.findMany.mockResolvedValue([link('alex'), link('sam')]);
+    prisma.phoneStatus.findMany.mockResolvedValue([{ ...phone, locationAlways: false, lastSeenAt: now }]);
+    prisma.notification.createMany.mockRejectedValueOnce(duplicateKey());
+    prisma.notification.create.mockRejectedValueOnce(duplicateKey()).mockResolvedValueOnce({});
+    const pinEvents = [{ id: 'event-0001', kind: 'opened', atMs: now.getTime(), screen: 'app_info' }];
+    await checkIn(H, 'mia', { installId: 'phone', locationAlways: false, notifications: true, pinEvents }, now);
+    expect(prisma.notification.create.mock.calls.map(([a]) => (a as { data: { dedupeKey: string } }).data.dedupeKey)).toEqual([
+      'phone:location_off:mia:alex',
+      'phone:location_off:mia:sam',
+    ]);
+    // The rest of the check-in still ran.
+    expect(parentPin.reportPinEvents).toHaveBeenCalled();
+  });
+
+  it('still fails on any other error', async () => {
+    prisma.phoneStatus.findMany.mockResolvedValue([{ ...phone, locationAlways: false, lastSeenAt: now }]);
+    prisma.notification.createMany.mockRejectedValueOnce(new Error('down'));
+    await expect(refreshPhoneAlerts(H, now)).rejects.toThrow('down');
+  });
+});
+
+describe('after the server restarts', () => {
+  // Mia's phone holds a Stay connected stream; it opened 11:35, its last check-in was 11:20.
+  const bootAt = new Date('2026-10-12T12:00:00Z');
+  const at = (hhmm: string) => new Date(`2026-10-12T${hhmm}:00Z`);
+  const watched = {
+    userId: 'mia',
+    installId: 'i1',
+    locationAlways: true,
+    deviceName: null,
+    stayConnected: true,
+    batteryUnrestricted: true,
+    lastSeenAt: at('11:20'),
+    streamAt: at('11:35'),
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearStreams();
+    prisma.supervision.findMany.mockResolvedValue([link('alex')]);
+    prisma.notification.findMany.mockResolvedValue([]);
+    prisma.notification.createMany.mockReset();
+    prisma.phoneStatus.findMany.mockResolvedValue([watched]);
+    setServerStartedAt(bootAt);
+  });
+  afterEach(() => setServerStartedAt(new Date(0)));
+
+  it('gives a connected phone time to reconnect before calling it quiet', async () => {
+    await refreshPhoneAlerts(H, at('12:01'));
+    expect(prisma.notification.createMany).not.toHaveBeenCalled();
+    // An alert from before the restart is neither dropped nor raised again.
+    prisma.notification.findMany.mockResolvedValue([{ id: 'n1', dedupeKey: 'phone:quiet:mia:alex' }]);
+    await refreshPhoneAlerts(H, at('12:01'));
+    expect(prisma.notification.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('still alerts once the grace is over and it hasn’t come back', async () => {
+    await refreshPhoneAlerts(H, new Date(bootAt.getTime() + STREAM_BOOT_GRACE_MS + 60_000));
+    expect(prisma.notification.createMany.mock.calls[0][0].data.map((r: { dedupeKey: string }) => r.dedupeKey)).toEqual([
+      'phone:quiet:mia:alex',
+    ]);
+  });
+
+  it('a phone that never used a stream is judged as before', async () => {
+    prisma.phoneStatus.findMany.mockResolvedValue([{ ...watched, stayConnected: null, streamAt: null, lastSeenAt: at('03:00') }]);
+    await refreshPhoneAlerts(H, at('12:01'));
+    expect(prisma.notification.createMany.mock.calls[0][0].data.map((r: { dedupeKey: string }) => r.dedupeKey)).toEqual([
+      'phone:quiet:mia:alex',
+    ]);
+  });
+});
+
 describe('a stream that closes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -437,6 +597,24 @@ describe('a stream that closes', () => {
     await recordStream(H, 'alex', 'i2', { opened: false }, now);
     await vi.advanceTimersByTimeAsync(30 * 60_000);
     expect(push.pingInstall).not.toHaveBeenCalled();
+  });
+
+  it('clears a quiet alert as soon as the phone reconnects', async () => {
+    prisma.notification.findFirst.mockResolvedValueOnce({ id: 'n1' });
+    prisma.notification.findMany.mockResolvedValue([{ id: 'n1', dedupeKey: 'phone:quiet:mia:alex' }]);
+    prisma.phoneStatus.findMany.mockResolvedValue([
+      { userId: 'mia', installId: 'i1', locationAlways: true, deviceName: null, stayConnected: true, batteryUnrestricted: true, lastSeenAt: hoursAgo(1), streamAt: now },
+    ]);
+    await recordStream(H, 'mia', 'i1', { opened: true }, now);
+    expect(prisma.notification.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { householdId: H, type: 'phone_alert', subjectId: 'mia' } }),
+    );
+    expect(prisma.notification.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ['n1'] } } });
+  });
+
+  it('does no extra work on reconnect when there is no alert to clear', async () => {
+    await recordStream(H, 'mia', 'i1', { opened: true }, now);
+    expect(prisma.supervision.findMany).not.toHaveBeenCalled();
   });
 });
 

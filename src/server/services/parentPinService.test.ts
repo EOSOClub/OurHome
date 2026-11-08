@@ -6,8 +6,11 @@ const prisma = {
   notification: {
     findMany: vi.fn(async (): Promise<unknown[]> => []),
     createMany: vi.fn(),
+    create: vi.fn(),
   },
 };
+const { Prisma } = await import('@prisma/client');
+const duplicateKey = () => new Prisma.PrismaClientKnownRequestError('dup', { code: 'P2002', clientVersion: 'test' });
 vi.mock('@/server/db/prisma', () => ({ prisma }));
 const push = { pushSync: vi.fn() };
 vi.mock('@/server/services/pushService', () => push);
@@ -29,6 +32,13 @@ describe('parent PIN alerts', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     prisma.supervision.findMany.mockResolvedValue([link('alex'), link('sam'), link('guesty', 'guest')]);
+  });
+
+  it('takes an alert written at the same moment by an overlapping check-in as already sent', async () => {
+    prisma.notification.createMany.mockRejectedValueOnce(duplicateKey());
+    prisma.notification.create.mockRejectedValueOnce(duplicateKey()).mockResolvedValueOnce({});
+    await reportPinEvents(H, 'riley', [{ id: 'event-0099', kind: 'unlocked', atMs: at('2026-10-26T18:00:00Z') }], now);
+    expect(prisma.notification.create).toHaveBeenCalledTimes(2);
   });
 
   it('tells each supervisor about each opened screen and unlock once, dated when it happened', async () => {

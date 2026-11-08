@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createBillSchema, updateBillSchema } from '@/lib/validation/bills';
+import { createBillSchema, markBillPaidSchema, updateBillSchema, updatePaymentSchema } from '@/lib/validation/bills';
 
 const ID = 'cmabcdefghijklmnopqrstuvw';
 const base = { name: 'Netflix', amount: 15.49 };
@@ -23,5 +23,23 @@ describe('bill kinds', () => {
   it('takes only web links for the pay or manage link', () => {
     expect(createBillSchema.safeParse({ ...base, website: 'https://netflix.com/account' }).success).toBe(true);
     expect(createBillSchema.safeParse({ ...base, website: 'javascript:alert(1)' }).success).toBe(false);
+  });
+});
+
+describe('bill amounts', () => {
+  it('are rounded to the cent', () => {
+    expect(createBillSchema.parse({ ...base, amount: 12.345678 }).amount).toBe(12.35);
+    expect(createBillSchema.parse({ ...base, amount: 0.1 + 0.2 }).amount).toBe(0.3);
+    expect(updateBillSchema.parse({ id: ID, amount: 9.999 }).amount).toBe(10);
+    expect(markBillPaidSchema.parse({ id: ID, amount: 5.004, fee: 1.006 })).toMatchObject({ amount: 5, fee: 1.01 });
+    expect(updatePaymentSchema.parse({ id: ID, amount: 3.333, fee: null })).toMatchObject({ amount: 3.33, fee: null });
+    // Whole cents and leaving it out are unchanged.
+    expect(createBillSchema.parse(base).amount).toBe(15.49);
+    expect(markBillPaidSchema.parse({ id: ID }).amount).toBeUndefined();
+  });
+
+  it('still refuses negative and huge amounts', () => {
+    expect(createBillSchema.safeParse({ ...base, amount: -1 }).success).toBe(false);
+    expect(createBillSchema.safeParse({ ...base, amount: 1_000_001 }).success).toBe(false);
   });
 });

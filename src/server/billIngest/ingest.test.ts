@@ -5,13 +5,21 @@ const NOV_1 = new Date('2026-11-01T12:00:00Z');
 const DEC_1 = new Date('2026-12-01T12:00:00Z');
 
 // Last cycle's payment is on file; the bill has rolled on to Nov 1.
-type Payment = { billId: string; amount: number; cycleDueDate: Date | null };
+type Payment = { billId: string; amount: number; cycleDueDate: Date | null; fee?: number | null; paidAt?: Date; reference?: string | null };
 let payments: Payment[] = [];
+type Range = { lt?: Date; gte?: Date };
+const inRange = (d: Date | null | undefined, r: Range | undefined) =>
+  !r || (!!d && (r.lt === undefined || d < r.lt) && (r.gte === undefined || d >= r.gte));
 
 const prisma = {
   bill: { findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn(), create: vi.fn() },
   billPayment: {
     findFirst: vi.fn(async () => null),
+    findMany: vi.fn(async ({ where }: { where: { billId: string; cycleDueDate?: Range; paidAt?: Range } }) =>
+      payments
+        .filter((p) => p.billId === where.billId && inRange(p.cycleDueDate, where.cycleDueDate) && inRange(p.paidAt, where.paidAt))
+        .map((p) => ({ amount: p.amount, fee: p.fee ?? null, paidAt: p.paidAt ?? new Date(0), reference: p.reference ?? null })),
+    ),
     aggregate: vi.fn(async ({ where }) => ({
       _sum: {
         amount: payments
@@ -21,6 +29,7 @@ const prisma = {
     })),
     create: vi.fn<(args: { data: Record<string, unknown> }) => Promise<{ id: string }>>(async () => ({ id: 'pay1' })),
     update: vi.fn<(args: { where: { id: string }; data: Record<string, unknown> }) => Promise<{ id: string }>>(async ({ where }) => ({ id: where.id })),
+    updateMany: vi.fn(async () => ({ count: 1 })),
     count: vi.fn(async ({ where }: { where: { billId: string; cycleDueDate?: Date } }) =>
       payments.filter((p) => p.billId === where.billId && (where.cycleDueDate === undefined || p.cycleDueDate?.getTime() === where.cycleDueDate.getTime())).length,
     ),
@@ -35,6 +44,7 @@ vi.mock('@/server/services/activityService', () => ({ logActivity: vi.fn() }));
 vi.mock('@/server/services/pointsService', () => ({ getPointsSettings: vi.fn(async () => ({ timezone: 'UTC' })) }));
 
 const { ingestFinancialDoc } = await import('./ingest');
+const { splitFee } = await import('./matching');
 
 const mortgage = {
   id: 'b1', householdId: 'h1', name: 'Mortgage', amount: 1850, currency: 'USD', dueDate: NOV_1,
@@ -392,5 +402,223 @@ describe('follow-up: recurring bills that have not rolled', () => {
     expect(prisma.billPayment.create.mock.calls[0][0].data).toMatchObject({ amount: 1350, cycleDueDate: NOV_1 });
     // The cycle is now covered, so the bill rolls on.
     expect(prisma.bill.update.mock.calls[0][0].data).toMatchObject({ status: 'unpaid', dueDate: DEC_1 });
+  });
+});
+
+// Bills held in a tiny table, so the lookups run on the `where` the importer builds.
+describe('reference numbers, settled bills and sources', () => {
+  type Row = Record<string, unknown>;
+  let bills: Row[] = [];
+  const fits = (b: Row, where: Row): boolean =>
+    Object.entries(where).every(([k, v]) =>
+      k === 'householdId' || (k === 'OR' ? (v as Row[]).some((w) => fits(b, w)) : b[k] === v),
+    );
+  const row = (over: Row) => ({
+    householdId: 'h1', currency: 'USD', dueDate: NOV_1, status: 'unpaid', source: 'paperless',
+    billerKey: null, billerEmail: null, sourceUrl: null, recurrenceId: null, recurrence: null, ...over,
+  });
+  // Water, from Paperless correspondent 1, invoice 1001.
+  const water = row({ id: 'bw', name: 'Water', amount: 80, reference: '1001', sourceMessageId: 'paperless:10', billerKey: 'paperless-correspondent:1' });
+  const PAPERLESS = { source: 'paperless', createUnmatchedReceipts: false } as const;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    prisma.bill.findFirst.mockReset();
+    prisma.bill.findMany.mockReset();
+    payments = [];
+    bills = [water];
+    prisma.bill.findFirst.mockImplementation(async ({ where }) => bills.find((b) => fits(b, where)) ?? null);
+    prisma.bill.findMany.mockImplementation(async ({ where }) => bills.filter((b) => fits(b, where)));
+    prisma.bill.create.mockImplementation(async ({ data }) => ({ id: 'nb1', ...data }));
+    prisma.bill.update.mockImplementation(async ({ where, data }) => ({ ...bills.find((b) => b.id === where.id), ...data }));
+  });
+
+  describe("another biller's invoice with the same number", () => {
+    const lawnBill = { kind: 'bill', messageId: 'paperless:20', invoiceNo: '1001', amount: 45, dueDate: NOV_1, subject: 'Lawn care', billerKey: 'paperless-correspondent:2' } as never;
+
+    it('becomes a bill of its own, leaving the other one alone', async () => {
+      const result = await ingestFinancialDoc('h1', lawnBill, { source: 'paperless' });
+      expect(result.status).toBe('created');
+      expect(prisma.bill.update).not.toHaveBeenCalled();
+    });
+
+    it('still updates the bill when it is the same biller', async () => {
+      const result = await ingestFinancialDoc('h1', { ...(lawnBill as object), billerKey: 'paperless-correspondent:1' } as never, { source: 'paperless' });
+      expect(result).toMatchObject({ status: 'updated', billId: 'bw' });
+    });
+
+    it("doesn't pay the other biller's bill", async () => {
+      const lawnPayment = { kind: 'receipt', messageId: 'paperless:21', invoiceNo: '1001', amount: 45, billerKey: 'paperless-correspondent:2' } as never;
+      const result = await ingestFinancialDoc('h1', lawnPayment, PAPERLESS);
+      expect(result).toMatchObject({ status: 'skipped', reason: 'no matching unpaid bill' });
+      expect(prisma.billPayment.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('a second Paperless payment for a bill already paid', () => {
+    const payment = (over: Row = {}) =>
+      ({ kind: 'receipt', messageId: 'paperless:301', invoiceNo: '1001', amount: 80, paidDate: new Date('2026-10-28T12:00:00Z'), billerKey: 'paperless-correspondent:1', ...over }) as never;
+
+    it('is skipped once the payments cover the bill', async () => {
+      payments = [{ billId: 'bw', amount: 80, cycleDueDate: NOV_1 }];
+      const result = await ingestFinancialDoc('h1', payment(), PAPERLESS);
+      expect(result).toMatchObject({ status: 'skipped', billId: 'bw', reason: 'This bill is already paid in OurHome' });
+      expect(prisma.billPayment.create).not.toHaveBeenCalled();
+      // A bill marked paid by hand, with no payment recorded.
+      payments = [];
+      bills = [{ ...water, status: 'paid' }];
+      expect((await ingestFinancialDoc('h1', payment(), PAPERLESS)).status).toBe('skipped');
+      // Not booked as a card fee either.
+      expect(prisma.billPayment.create).not.toHaveBeenCalled();
+    });
+
+    it('still takes part payments until the bill is covered', async () => {
+      payments = [{ billId: 'bw', amount: 30, cycleDueDate: NOV_1 }];
+      const result = await ingestFinancialDoc('h1', payment({ amount: 50 }), PAPERLESS);
+      expect(result.status).toBe('linked');
+      expect(prisma.billPayment.create.mock.calls[0][0].data).toMatchObject({ amount: 50, fee: null });
+      expect(prisma.bill.update.mock.calls[0][0].data).toEqual({ status: 'paid' });
+    });
+
+    it("doesn't pay the next cycle of a recurring bill that rolled on from that payment", async () => {
+      // Paid on Oct 28 for the Nov 1 cycle; the bill rolled on to Dec 1.
+      bills = [{ ...water, dueDate: DEC_1, recurrenceId: 'r1', recurrence: mortgage.recurrence }];
+      payments = [{ billId: 'bw', amount: 80, cycleDueDate: NOV_1 }];
+      prisma.billPayment.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ cycleDueDate: NOV_1 } as never);
+      const result = await ingestFinancialDoc('h1', payment(), PAPERLESS);
+      expect(result).toMatchObject({ status: 'skipped', reason: 'This bill is already paid in OurHome' });
+      expect(prisma.recurrenceRule.update).not.toHaveBeenCalled();
+      expect(prisma.billPayment.create).not.toHaveBeenCalled();
+    });
+
+    // Paid late: Nov 5 for the Nov 1 cycle, so the bill rolled on to Dec 1.
+    describe('for a cycle paid after its due date', () => {
+      const NOV_5 = new Date('2026-11-05T12:00:00Z');
+      const recurringWater = { ...water, dueDate: DEC_1, recurrenceId: 'r1', recurrence: mortgage.recurrence };
+      const lastCycle = (over: Partial<Payment> = {}): Payment =>
+        ({ billId: 'bw', amount: 80, cycleDueDate: NOV_1, paidAt: NOV_5, reference: '1001', ...over });
+      beforeEach(() => {
+        bills = [recurringWater];
+        prisma.billPayment.findFirst.mockReset();
+        prisma.billPayment.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ cycleDueDate: NOV_1 } as never);
+      });
+
+      it("doesn't pay the next cycle with a second document for that payment", async () => {
+        payments = [lastCycle()];
+        const result = await ingestFinancialDoc('h1', payment({ paidDate: NOV_5 }), PAPERLESS);
+        expect(result).toMatchObject({ status: 'skipped', billId: 'bw', reason: 'This bill is already paid in OurHome' });
+        expect(prisma.billPayment.create).not.toHaveBeenCalled();
+        expect(prisma.recurrenceRule.update).not.toHaveBeenCalled();
+        // The same with the card fee recorded apart, or a payment added by hand with no reference.
+        payments = [lastCycle({ amount: 78, fee: 2, reference: null })];
+        prisma.billPayment.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ cycleDueDate: NOV_1 } as never);
+        expect((await ingestFinancialDoc('h1', payment({ paidDate: NOV_5 }), PAPERLESS)).status).toBe('skipped');
+      });
+
+      it('takes a slip with the card fee as the payment entered by hand without it', async () => {
+        // Entered by hand as 80 with no fee; the slip shows 82 charged.
+        payments = [lastCycle({ amount: 80, fee: null, reference: null })];
+        const result = await ingestFinancialDoc('h1', payment({ amount: 82, paidDate: NOV_5 }), PAPERLESS);
+        expect(result).toMatchObject({ status: 'skipped', billId: 'bw' });
+        expect(prisma.billPayment.create).not.toHaveBeenCalled();
+        expect(prisma.recurrenceRule.update).not.toHaveBeenCalled();
+      });
+
+      it('counts the paid day in the household time zone', async () => {
+        const { getPointsSettings } = await import('@/server/services/pointsService');
+        vi.mocked(getPointsSettings).mockResolvedValue({ timezone: 'America/Chicago' } as never);
+        try {
+          // Nov 5, 11:30 pm in Chicago is already Nov 6 in UTC.
+          payments = [lastCycle({ paidAt: new Date('2026-11-06T05:30:00Z') })];
+          expect((await ingestFinancialDoc('h1', payment({ paidDate: NOV_5 }), PAPERLESS)).status).toBe('skipped');
+        } finally {
+          vi.mocked(getPointsSettings).mockResolvedValue({ timezone: 'UTC' } as never);
+        }
+      });
+
+      it("still pays the next cycle with a new month's payment under the same number", async () => {
+        payments = [lastCycle()];
+        const result = await ingestFinancialDoc('h1', payment({ paidDate: new Date('2026-12-03T12:00:00Z') }), PAPERLESS);
+        expect(result).toMatchObject({ status: 'linked', billId: 'bw' });
+        expect(prisma.billPayment.create.mock.calls[0][0].data).toMatchObject({ amount: 80, cycleDueDate: DEC_1 });
+        expect(prisma.recurrenceRule.update).toHaveBeenCalled();
+      });
+
+      it('still takes a part payment, or another amount, on the next cycle', async () => {
+        payments = [lastCycle()];
+        const part = await ingestFinancialDoc('h1', payment({ amount: 30, paidDate: new Date('2026-11-20T12:00:00Z') }), PAPERLESS);
+        expect(part.status).toBe('linked');
+        expect(prisma.billPayment.create.mock.calls[0][0].data).toMatchObject({ amount: 30, cycleDueDate: DEC_1 });
+        expect(prisma.bill.update.mock.calls[0][0].data).toEqual({ status: 'unpaid' });
+        // Same day as the last payment, but not the same amount: a payment of its own.
+        prisma.billPayment.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ cycleDueDate: NOV_1 } as never);
+        expect((await ingestFinancialDoc('h1', payment({ amount: 40, paidDate: NOV_5 }), PAPERLESS)).status).toBe('linked');
+        // Same day and amount, but another invoice number on the payment: not the same one.
+        payments = [lastCycle({ reference: '2002' })];
+        prisma.billPayment.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ cycleDueDate: NOV_1 } as never);
+        expect((await ingestFinancialDoc('h1', payment({ paidDate: NOV_5 }), PAPERLESS)).status).toBe('linked');
+      });
+    });
+  });
+
+  describe('a bill document offered again', () => {
+    const doc = (amount: number) =>
+      ({ kind: 'bill', messageId: 'paperless:10', invoiceNo: '1001', amount, dueDate: NOV_1, subject: 'Water', billerKey: 'paperless-correspondent:1' }) as never;
+
+    it("follows the payments when its amount is corrected on a one-off bill", async () => {
+      bills = [{ ...water, status: 'paid' }];
+      payments = [{ billId: 'bw', amount: 80, cycleDueDate: NOV_1 }];
+      await ingestFinancialDoc('h1', doc(95), { source: 'paperless' });
+      expect(prisma.bill.update.mock.calls[0][0].data).toMatchObject({ amount: 95, status: 'unpaid' });
+
+      bills = [water];
+      payments = [{ billId: 'bw', amount: 60, cycleDueDate: NOV_1 }];
+      await ingestFinancialDoc('h1', doc(60), { source: 'paperless' });
+      expect(prisma.bill.update.mock.calls[1][0].data).toMatchObject({ amount: 60, status: 'paid' });
+    });
+
+    it("moves the payments for a recurring bill's due date with a corrected due date", async () => {
+      const NOV_5 = new Date('2026-11-05T12:00:00Z');
+      bills = [{ ...water, recurrenceId: 'r1', recurrence: mortgage.recurrence }];
+      payments = [{ billId: 'bw', amount: 40, cycleDueDate: NOV_1 }];
+      await ingestFinancialDoc('h1', { ...(doc(80) as object), dueDate: NOV_5 } as never, { source: 'paperless' });
+      expect(prisma.bill.update.mock.calls[0][0].data).toMatchObject({ dueDate: NOV_5 });
+      expect(prisma.billPayment.updateMany).toHaveBeenCalledWith({ where: { billId: 'bw', cycleDueDate: NOV_1 }, data: { cycleDueDate: NOV_5 } });
+    });
+
+    it('leaves the status of a bill with no payments alone', async () => {
+      bills = [{ ...water, status: 'paid' }];
+      await ingestFinancialDoc('h1', doc(95), { source: 'paperless' });
+      expect(prisma.bill.update.mock.calls[0][0].data.status).toBeUndefined();
+    });
+  });
+
+  it('keeps a bill from OurHomeInbox its own when Paperless has the same invoice', async () => {
+    bills = [row({
+      id: 'be', name: 'City Water', amount: 80, reference: 'INV-55', source: 'email', sourceMessageId: '<bill@water.example>',
+      billerKey: 'ourhomeinbox-biller:3', billerEmail: 'billing@water.example', sourceUrl: 'https://inbox.example/m/1',
+    })];
+    const scanned = { kind: 'bill', messageId: 'paperless:77', invoiceNo: 'INV-55', amount: 82, dueDate: NOV_1, subject: 'Water', billerKey: 'paperless-correspondent:4', sourceUrl: 'https://paperless.example/documents/77/details' } as never;
+    const result = await ingestFinancialDoc('h1', scanned, { source: 'paperless' });
+    // The same bill (billers from two imports can't be compared), updated in place...
+    expect(result).toMatchObject({ status: 'updated', billId: 'be' });
+    const data = prisma.bill.update.mock.calls[0][0].data;
+    expect(data).toMatchObject({ amount: 82 });
+    // ...but still OurHomeInbox's.
+    expect(data.source).toBeUndefined();
+    expect(data.sourceMessageId).toBeUndefined();
+    expect(data.sourceUrl).toBeUndefined();
+    expect(data.billerKey).toBeUndefined();
+    expect(data.billerEmail).toBeUndefined();
+  });
+
+  it('keeps imported money to whole cents', async () => {
+    expect(splitFee({} as never, 103.45, 100, 100)).toEqual({ applied: 100, fee: 3.45 });
+    expect(splitFee({} as never, 46, 89.99 - 45, 89.99)).toEqual({ applied: 44.99, fee: 1.01 });
+    // A payment that becomes a paid bill of its own: amount less the fee.
+    const own = { kind: 'receipt', messageId: '<own2@x>', amount: 10.1, fee: 0.3 } as never;
+    await ingestFinancialDoc('h1', own, { source: 'email', receiptPairing: 'reference' });
+    expect(prisma.bill.create.mock.calls[0][0].data.amount).toBe(9.8);
+    expect(prisma.billPayment.create.mock.calls[0][0].data).toMatchObject({ amount: 9.8, fee: 0.3 });
   });
 });

@@ -4,6 +4,7 @@ import { auth } from '@/server/auth/auth';
 import { logActivity } from '@/server/services/activityService';
 import { ConflictError, ForbiddenError, NotFoundError } from '@/server/services/errors';
 import { FEATURES, FEATURE_LABELS, enabledFeatures, type Feature } from '@/lib/features';
+import { placeholderEmailFor } from '@/lib/placeholderEmail';
 import type {
   CreateHouseholdInput,
   ResetHeadPasswordInput,
@@ -169,6 +170,9 @@ export interface HouseholdSummaryDTO {
 }
 
 export async function listHouseholds(adminId: string): Promise<HouseholdSummaryDTO[]> {
+  // Checked here, not only by the caller: a layout's check doesn't stop its
+  // page rendering (Next's auth guide), and this lists every household.
+  await assertServerAdmin(adminId);
   const [households, users, activity, admin, paperless, inbox] = await Promise.all([
     prisma.household.findMany({ orderBy: { createdAt: 'asc' } }),
     prisma.user.findMany({
@@ -236,7 +240,7 @@ export async function createHouseholdWithHead(
 ): Promise<{ householdId: string; headId: string; username: string }> {
   const displayUsername = input.head.username.trim();
   const username = displayUsername.toLowerCase();
-  const email = (input.head.email?.trim() || `${username}@household.local`).toLowerCase();
+  const email = (input.head.email?.trim() || placeholderEmailFor(username)).toLowerCase();
   await assertAccountFree(tx, username, email);
 
   const authCtx = await auth.$context;

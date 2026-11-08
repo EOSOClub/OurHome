@@ -1,5 +1,6 @@
 import { InboxClient } from '@/server/inbox/client';
 import { helloSchema, parseDocumentsReply } from '@/server/inbox/mapping';
+import { DEFAULT_TIMEZONE } from '@/lib/taskCycles';
 
 // Dry run of the OurHomeInbox bill import: tests the connection and shows
 // what Our Home would do with the documents OurHomeInbox has ready. It writes
@@ -42,7 +43,8 @@ async function main() {
   console.log(`[preview] OurHomeInbox household "${hello.household}", newest document ${hello.newest}, start date ${hello.startDate ?? '-'}`);
 
   console.log(`[preview] asking for up to 200 documents after ${after}...`);
-  const page = parseDocumentsReply(await client.documents(after, 200), after, publicUrl);
+  // No household (no database), so days are pinned to noon in the app's default zone.
+  const page = parseDocumentsReply(await client.documents(after, 200), after, publicUrl, DEFAULT_TIMEZONE);
   console.log(`[preview] ${page.entries.length} document(s):`);
   if (page.entries.length === 0) console.log('  (none: nothing is ready in OurHomeInbox after that number)');
   for (const e of page.entries) {

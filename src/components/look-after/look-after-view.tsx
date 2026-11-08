@@ -195,8 +195,8 @@ export function LookAfterView({ initial }: { initial: LookAfterDTO }) {
           </ul>
           {data.canRing ? null : (
             <p className="text-xs text-muted-foreground">
-              Ringing needs instant phone alerts: Firebase on this server, or Stay connected turned on in the app on
-              their phone.
+              Ringing needs instant phone alerts. They aren&apos;t set up on this server yet, so turn on Stay connected
+              in the Our Home app on their phone, or ask whoever runs the server to set them up.
             </p>
           )}
         </>
@@ -377,7 +377,7 @@ function UsageLine({ person }: { person: Person }) {
   if (!latest) {
     return (
       <p className="text-xs text-muted-foreground">
-        No app usage from their phone yet. It needs the latest OurHome app, and Usage access allowed.
+        No app usage from their phone yet. It needs the latest Our Home app, and Usage access allowed.
       </p>
     );
   }
@@ -465,7 +465,8 @@ function BlockButton({ person, app }: { person: Person; app: UsageAppDTO }) {
         <Button
           size="sm"
           variant="ghost"
-          className="h-6 px-1.5 text-[11px] text-destructive hover:text-destructive"
+          // 44px tall to tap on a phone; the small inline size from sm up.
+          className="h-11 px-1.5 text-xs text-destructive hover:text-destructive sm:h-6 sm:text-[11px]"
           disabled={block.isPending}
           aria-label={`Unblock ${app.label}`}
           onClick={() => block.mutate({ app: app.app, label: app.label, blocked: false })}
@@ -476,7 +477,7 @@ function BlockButton({ person, app }: { person: Person; app: UsageAppDTO }) {
         <Button
           size="sm"
           variant="ghost"
-          className="h-6 px-1.5 text-[11px]"
+          className="h-11 px-1.5 text-xs sm:h-6 sm:text-[11px]"
           disabled={block.isPending}
           aria-label={`Block ${app.label}`}
           onClick={() => block.mutate({ app: app.app, label: app.label, blocked: true })}
@@ -523,7 +524,7 @@ function BlockedRow({ person, app }: { person: Person; app: BlockedAppDTO }) {
       <Button
         size="sm"
         variant="outline"
-        className="h-7 shrink-0 px-2 text-xs"
+        className="h-11 shrink-0 px-2 text-xs sm:h-7"
         disabled={block.isPending}
         onClick={() => block.mutate({ app: app.app, label: app.label, blocked: false })}
       >
@@ -542,24 +543,29 @@ function limitsLine(person: Person): string | null {
 /** Sets, changes, or removes (minutes null) one daily limit on their phone; the answer is the page's new data. */
 function useAppLimit(person: Person) {
   const queryClient = useQueryClient();
-  return useMutation({
+  const limit = useMutation({
     // A fetch already on its way mustn't put the old limits back.
     onMutate: () => queryClient.cancelQueries({ queryKey: LOOK_AFTER_KEY }),
-    mutationFn: ({ app, minutes }: { app: string; label: string; minutes: number | null }) =>
+    // was: the minutes a one-tap Remove took away, so its toast can undo it.
+    mutationFn: ({ app, minutes }: { app: string; label: string; minutes: number | null; was?: number }) =>
       apiFetch<LookAfterDTO>('/api/supervision/app-limits', {
         method: 'POST',
         body: JSON.stringify({ supervisedId: person.id, app, minutes }),
       }),
-    onSuccess: (next, { label, minutes }) => {
+    onSuccess: (next, { app, label, minutes, was }) => {
       queryClient.setQueryData(LOOK_AFTER_KEY, next);
       toast.success(
         minutes === null
           ? `${label}: no limit on ${person.name}’s phone`
           : `${label}: ${limitLabel(minutes)} on ${person.name}’s phone`,
+        minutes === null && was !== undefined
+          ? { label: 'Undo', onClick: () => limit.mutate({ app, label, minutes: was }) }
+          : undefined,
       );
     },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not change it.'),
   });
+  return limit;
 }
 
 /** A limit's minutes as a dropdown; [none] adds a "No limit" choice (minutes null). */
@@ -740,7 +746,7 @@ function LimitRow({
         className="h-8 shrink-0 px-2 text-xs"
         disabled={save.isPending}
         aria-label={`Remove the limit for ${limit.label}`}
-        onClick={() => save.mutate({ app: limit.app, label: limit.label, minutes: null })}
+        onClick={() => save.mutate({ app: limit.app, label: limit.label, minutes: null, was: limit.minutes })}
       >
         {pending && save.variables?.minutes === null ? <Loader2 className="animate-spin" /> : null}
         Remove
@@ -762,9 +768,35 @@ function Schedules({ person }: { person: Person }) {
       }),
     onSuccess: (next, schedule) => {
       queryClient.setQueryData(LOOK_AFTER_KEY, next);
-      toast.success(`${schedule.name} is off ${person.name}’s phone`);
+      // One tap removes it, so the toast can put it back.
+      toast.success(`${schedule.name} is off ${person.name}’s phone`, {
+        label: 'Undo',
+        onClick: () => restore.mutate(schedule),
+      });
     },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not remove it.'),
+  });
+  // Undo: saves the removed schedule again as a new one with the same name,
+  // days, times and still-open apps (what Edit would send).
+  const restore = useMutation({
+    onMutate: () => queryClient.cancelQueries({ queryKey: LOOK_AFTER_KEY }),
+    mutationFn: (schedule: ScheduleDTO) =>
+      apiFetch<LookAfterDTO>('/api/supervision/schedules', {
+        method: 'POST',
+        body: JSON.stringify({
+          supervisedId: person.id,
+          name: schedule.name,
+          days: schedule.days,
+          start: schedule.start,
+          end: schedule.end,
+          allowed: schedule.allowed.map((a) => a.app),
+        }),
+      }),
+    onSuccess: (next, schedule) => {
+      queryClient.setQueryData(LOOK_AFTER_KEY, next);
+      toast.success(`${schedule.name} is back on ${person.name}’s phone`);
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Could not put it back.'),
   });
   const list = person.schedules;
   return (
@@ -811,7 +843,8 @@ function Schedules({ person }: { person: Person }) {
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="h-7 shrink-0 px-2 text-xs"
+                  // 44px tall to tap on a phone; the small size from sm up.
+                  className="h-11 shrink-0 px-2 text-xs sm:h-7"
                   disabled={remove.isPending || editing !== null}
                   aria-label={`Edit ${s.name}`}
                   onClick={() => setEditing(s.id)}
@@ -821,7 +854,7 @@ function Schedules({ person }: { person: Person }) {
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="h-7 shrink-0 px-2 text-xs"
+                  className="h-11 shrink-0 px-2 text-xs sm:h-7"
                   disabled={remove.isPending || editing !== null}
                   aria-label={`Remove ${s.name}`}
                   onClick={() => remove.mutate(s)}
@@ -1411,7 +1444,7 @@ function PersonDetail({ person, canRing, until, onRang }: RingButtonProps & { ca
               <UsageLine person={person} />
               <Help>
                 Block next to an app stops it opening on their phone: they see a screen saying you blocked it.
-                Blocking needs Keep Our Home running on their phone. Phone calls, messages and OurHome always stay
+                Blocking needs Keep Our Home running on their phone. Phone calls, messages and Our Home always stay
                 open.
               </Help>
             </div>
@@ -1479,16 +1512,17 @@ function WebFilterCard({ person }: { person: Person }) {
       contentClassName="space-y-3"
     >
       <Help>
-        Filters websites in every browser and app on their phone, through Android&apos;s Private DNS. Set up this
-        phone shows them how to turn it on, and you&apos;re told if it&apos;s turned off.
+        Filters websites in every browser and app on their phone, through Android&apos;s Private DNS (a phone setting
+        that checks each website against the filter before it opens). Set up this phone shows them how to turn it
+        on, and you&apos;re told if it&apos;s turned off.
       </Help>
       {filter && on === false ? (
         <p className="text-xs text-destructive">
-          Their phone isn&apos;t using it. On their phone, open OurHome and follow Set up this phone.
+          Their phone isn&apos;t using it. On their phone, open Our Home and follow Set up this phone.
         </p>
       ) : null}
       {filter && on === null ? (
-        <Help>Waiting for their phone to say it&apos;s on. It needs the latest OurHome app.</Help>
+        <Help>Waiting for their phone to say it&apos;s on. It needs the latest Our Home app.</Help>
       ) : null}
       <div className="space-y-2">
         {WEB_FILTER_CHOICES.map((c) => (
@@ -1547,7 +1581,7 @@ function PhoneCard({ person, canRing, until, onRang }: RingButtonProps & { canRi
         <Help>
           {canRing
             ? 'Ring rings their phone loudly for up to 30 seconds, even on silent. You see when it starts ringing, and whether someone tapped Stop.'
-            : 'Ringing needs instant phone alerts: Firebase on this server, or Stay connected turned on in the app on their phone.'}
+            : 'Ringing needs instant phone alerts. They aren’t set up on this server yet, so turn on Stay connected in the Our Home app on their phone, or ask whoever runs the server to set them up.'}
         </Help>
       </CardContent>
     </Card>
@@ -1556,7 +1590,7 @@ function PhoneCard({ person, canRing, until, onRang }: RingButtonProps & { canRi
 
 /** What each protection does, under its box. */
 const RULE_HELP: Record<PhoneRule, string> = {
-  keepRunning: 'Stops OurHome being closed on their phone.',
+  keepRunning: 'Stops Our Home being closed on their phone.',
   preventUninstall: 'Stops it being removed without your PIN.',
   batteryUnrestricted: 'Stops battery saving from holding back rings and alerts.',
 };

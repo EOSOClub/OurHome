@@ -39,9 +39,10 @@ import { Dialog } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { toast } from '@/components/ui/toast';
 import { useHouseholdZone } from '@/components/household-zone';
-import { dateKey, formatDate, timeKey, zonedInstant } from '@/lib/format';
+import { APP_LOCALE, dateKey, formatDate, timeKey, zonedInstant } from '@/lib/format';
 import { ALL_DAY_REMINDERS, TIMED_REMINDERS } from '@/lib/validation/calendar';
 import { MONTHS, MonthPicker } from '@/components/calendar/month-picker';
+import { gridDayKey, monthGridBounds } from '@/components/calendar/month-grid';
 import { BillDialog } from '@/components/bills/bills-view';
 import {
   KIND_ICONS,
@@ -79,8 +80,17 @@ function dayRange(first: Date, last: Date, timeZone?: string) {
   };
 }
 
-function monthRange({ year, month }: YearMonth, timeZone?: string) {
-  return dayRange(new Date(year, month, 1), new Date(year, month + 1, 0), timeZone);
+/**
+ * [start, end] of every day the month grid shows, the greyed days of the
+ * months either side too, so a tap on one lists what's really on it. The
+ * page's first render loads the same range (monthGridBounds).
+ */
+function monthRange(ym: YearMonth, timeZone?: string) {
+  const { first, afterLast } = monthGridBounds(ym);
+  return {
+    start: dayStart(gridDayKey(first), timeZone),
+    end: new Date(dayStart(gridDayKey(afterLast), timeZone).getTime() - 1),
+  };
 }
 
 function monthMatrix({ year, month }: YearMonth): Date[][] {
@@ -103,7 +113,7 @@ function monthMatrix({ year, month }: YearMonth): Date[][] {
 // Event times in the household's zone, so the server render and the browser
 // agree (see HouseholdZoneProvider).
 function timeLabel(iso: string, timeZone?: string) {
-  return new Date(iso).toLocaleTimeString(undefined, {
+  return new Date(iso).toLocaleTimeString(APP_LOCALE, {
     hour: 'numeric',
     minute: '2-digit',
     timeZone,
@@ -256,6 +266,8 @@ export function CalendarView({
   const {
     data: { events: occurrences, chores } = { events: [], chores: [] },
     isFetching,
+    isError,
+    refetch,
   } = useQuery({
     queryKey: ['calendar', ym.year, ym.month],
     queryFn: () => fetchRange(range.start, range.end),
@@ -281,6 +293,8 @@ export function CalendarView({
   const {
     data: { events: weekOccurrences, chores: weekChores } = { events: [], chores: [] },
     isFetching: isFetchingWeek,
+    isError: isErrorWeek,
+    refetch: refetchWeek,
   } = useQuery({
     queryKey: ['calendar', 'week', weekStartKey],
     queryFn: () => fetchRange(weekRange.start, weekRange.end),
@@ -316,8 +330,12 @@ export function CalendarView({
     month: Number(todayKey.slice(5, 7)) - 1,
   };
 
-  // Chronological [dayKey, entries] pairs for the agenda list.
-  const agendaDays = [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b));
+  // Chronological [dayKey, entries] pairs for the agenda list: this month's
+  // days only (the month data also covers the grid's greyed days).
+  const monthPrefix = `${ym.year}-${pad(ym.month + 1)}-`;
+  const agendaDays = [...byDay.entries()]
+    .filter(([key]) => key.startsWith(monthPrefix))
+    .sort(([a], [b]) => a.localeCompare(b));
 
   // Mirror month + view (and the filters) into the URL so the view can be
   // linked/restored. Month view and no filters are the default, so they stay
@@ -554,6 +572,24 @@ export function CalendarView({
         ) : null}
       </div>
 
+      {/* A failed load would otherwise look like an empty month. */}
+      {(view === 'week' ? isErrorWeek : isError) ? (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm"
+        >
+          <span>Couldn&apos;t load the calendar. What&apos;s shown may be missing things.</span>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={view === 'week' ? isFetchingWeek : isFetching}
+            onClick={() => void (view === 'week' ? refetchWeek() : refetch())}
+          >
+            Try again
+          </Button>
+        </div>
+      ) : null}
+
       {view === 'month' ? (
       <div className="overflow-hidden rounded-lg border border-border">
         <div className="grid grid-cols-7 border-b border-border bg-muted/40">
@@ -574,27 +610,39 @@ export function CalendarView({
           {matrix.flat().map((day) => {
             const key = dateValue(day);
             const inMonth = day.getMonth() === ym.month;
-            const entries = byDay.get(key) ?? [];
+            // What's really on the day (the label, and the day dialog a tap
+            // opens); a greyed day's cell still shows no dots or chips.
+            const dayEntries = byDay.get(key) ?? [];
+            const entries = inMonth ? dayEntries : [];
+            const dayLabel = `${MONTHS[day.getMonth()]} ${day.getDate()}, ${countLabel(dayEntries)}`;
+            // The cell itself is not a button (its chips are): a full-cell
+            // button sits behind the chips instead, so nothing interactive is
+            // nested and a cell is only in the Tab order when it does something.
             return (
               <div
                 key={key}
-                role="button"
-                tabIndex={0}
-                aria-label={`${MONTHS[day.getMonth()]} ${day.getDate()}, ${countLabel(entries)}`}
-                className={`min-h-24 border-b border-r border-border p-1.5 last:border-r-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
+                className={`relative min-h-24 border-b border-r border-border p-1.5 last:border-r-0 ${
                   inMonth ? '' : 'bg-muted/30'
-                } ${canWrite ? 'cursor-pointer hover:bg-accent/40' : ''}`}
-                onClick={() => canWrite && setCreatingDate(key)}
-                onKeyDown={(e) => {
-                  // Ignore keys bubbling up from the event/overflow buttons.
-                  if (e.target !== e.currentTarget) return;
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    if (canWrite) setCreatingDate(key);
-                  }
-                }}
+                }`}
               >
-                <div className="mb-1 flex justify-end">
+                {/* Phones: titles don't fit a seventh of the screen, so a tap
+                    opens the day (what's on, and Add for those who may). */}
+                <button
+                  type="button"
+                  aria-label={dayLabel}
+                  onClick={() => setViewingDay(key)}
+                  className="absolute inset-0 hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:hidden"
+                />
+                {/* From sm up, as before: a click on the cell starts a new event. */}
+                {canWrite ? (
+                  <button
+                    type="button"
+                    aria-label={`Add on ${dayLabel}`}
+                    onClick={() => setCreatingDate(key)}
+                    className="absolute inset-0 hidden cursor-pointer hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:block"
+                  />
+                ) : null}
+                <div className="pointer-events-none relative mb-1 flex justify-end">
                   <span
                     className={`flex size-6 items-center justify-center rounded-full text-xs ${
                       key === todayKey
@@ -607,7 +655,32 @@ export function CalendarView({
                     {day.getDate()}
                   </span>
                 </div>
-                <div className="space-y-1">
+                {/* Phones: a dot per entry (events, chores, bills), the day's
+                    button says how many. */}
+                {entries.length > 0 ? (
+                  <div aria-hidden className="pointer-events-none relative flex flex-wrap items-center gap-0.5 sm:hidden">
+                    {entries.slice(0, 4).map((entry, i) => (
+                      <span
+                        key={entryKey(entry, i)}
+                        className={`size-1.5 rounded-full ${
+                          entry.kind === 'chore'
+                            ? entry.c.overdue
+                              ? 'bg-destructive'
+                              : 'bg-success'
+                            : entry.o.billId
+                              ? 'bg-warning'
+                              : 'bg-primary'
+                        }`}
+                      />
+                    ))}
+                    {entries.length > 4 ? (
+                      <span className="text-[10px] leading-none text-muted-foreground">+{entries.length - 4}</span>
+                    ) : null}
+                  </div>
+                ) : null}
+                {/* From sm up: the chips, above the cell's Add button; the gaps
+                    between them let a click through to it. */}
+                <div className="pointer-events-none relative hidden space-y-1 *:pointer-events-auto sm:block">
                   {entries.slice(0, 3).map((entry, i) => (
                     <EntryChip
                       key={entryKey(entry, i)}
@@ -650,22 +723,26 @@ export function CalendarView({
                   i < 6 ? 'border-b border-border sm:border-b-0 sm:border-r' : ''
                 }`}
               >
+                {/* A button (starts a new event on that day) only for those who
+                    may add; for the rest it's just the day's heading. */}
                 <div
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`${MONTHS[day.getMonth()]} ${day.getDate()}, ${countLabel(entries)}`}
+                  role={canWrite ? 'button' : undefined}
+                  tabIndex={canWrite ? 0 : undefined}
+                  aria-label={canWrite ? `Add on ${MONTHS[day.getMonth()]} ${day.getDate()}, ${countLabel(entries)}` : undefined}
                   className={`flex items-center gap-1.5 border-b border-border bg-muted/40 px-2 py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:flex-col sm:gap-0.5 ${
                     canWrite ? 'cursor-pointer hover:bg-accent/40' : ''
                   }`}
-                  onClick={() => canWrite && setCreatingDate(key)}
-                  onKeyDown={(e) => {
-                    // Ignore keys bubbling up from the event buttons.
-                    if (e.target !== e.currentTarget) return;
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      if (canWrite) setCreatingDate(key);
-                    }
-                  }}
+                  onClick={canWrite ? () => setCreatingDate(key) : undefined}
+                  onKeyDown={
+                    canWrite
+                      ? (e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setCreatingDate(key);
+                          }
+                        }
+                      : undefined
+                  }
                 >
                   <span className="text-xs font-medium text-muted-foreground">
                     {WEEKDAYS[day.getDay()]}
@@ -703,9 +780,15 @@ export function CalendarView({
         className={`space-y-4 transition-opacity ${isFetching ? 'opacity-60' : ''}`}
       >
         {agendaDays.length === 0 ? (
-          <p className="rounded-lg border border-border px-4 py-6 text-center text-sm text-muted-foreground">
-            Nothing on the calendar this month.
-          </p>
+          // After a failed load the box above says so; "nothing on" would be wrong.
+          isError ? null : (
+            <p className="rounded-lg border border-border px-4 py-6 text-center text-sm text-muted-foreground">
+              {/* With Mine or a hidden kind on, the filter may be why. */}
+              {who === 'mine' || hidden.size > 0
+                ? 'Nothing this month matches what you chose to show.'
+                : 'Nothing on the calendar this month.'}
+            </p>
+          )
         ) : (
           agendaDays.map(([key, entries]) => {
             const day = new Date(`${key}T00:00`);
@@ -742,6 +825,15 @@ export function CalendarView({
           entries={byDay.get(viewingDay) ?? []}
           onClose={() => setViewingDay(null)}
           onOpen={setEditing}
+          // On a phone this is what tapping a day opens, so it carries Add.
+          onAdd={
+            canWrite
+              ? () => {
+                  setViewingDay(null);
+                  setCreatingDate(viewingDay);
+                }
+              : undefined
+          }
         />
       )}
 
@@ -820,7 +912,8 @@ function EntryChip({
         // The day cell behind it would start a new event.
         onClick={(e) => e.stopPropagation()}
         title={c.overdue ? `${c.title} (overdue)` : c.title}
-        className={`flex w-full items-center gap-1 truncate rounded px-1.5 py-0.5 text-left text-xs ${
+        // 44px tall on a phone (the week list); the compact chip from sm up.
+        className={`flex min-h-11 w-full items-center gap-1 truncate rounded px-1.5 py-0.5 text-left text-xs sm:min-h-0 ${
           c.overdue
             ? 'bg-destructive/10 text-destructive hover:bg-destructive/20'
             : 'bg-success/15 text-foreground hover:bg-success/25'
@@ -846,7 +939,8 @@ function EntryChip({
         e.stopPropagation();
         onOpen(o);
       }}
-      className={`flex w-full items-center gap-1 truncate rounded px-1.5 py-0.5 text-left text-xs ${
+      // 44px tall on a phone (the week list); the compact chip from sm up.
+      className={`flex min-h-11 w-full items-center gap-1 truncate rounded px-1.5 py-0.5 text-left text-xs sm:min-h-0 ${
         o.billId
           ? 'bg-warning/15 text-foreground hover:bg-warning/25'
           : 'bg-primary/15 text-primary hover:bg-primary/25'
@@ -858,7 +952,7 @@ function EntryChip({
           aria-label={KIND_LABELS[shownKind(o)]}
         />
       ) : o.recurring ? (
-        <Repeat className="size-2.5 shrink-0" />
+        <Repeat className="size-2.5 shrink-0" aria-label="Repeats" />
       ) : null}
       <span className="truncate">
         {time}
@@ -917,7 +1011,7 @@ function EntryRow({
           aria-label={KIND_LABELS[shownKind(o)]}
         />
       ) : o.recurring ? (
-        <Repeat className="size-3 shrink-0 text-muted-foreground" />
+        <Repeat className="size-3 shrink-0 text-muted-foreground" aria-label="Repeats" />
       ) : null}
       <span className="truncate">{entryTitle(o, timeZone)}</span>
       {o.provider ? (
@@ -938,11 +1032,14 @@ function DayDialog({
   entries,
   onClose,
   onOpen,
+  onAdd,
 }: {
   dayKey: string;
   entries: Entry[];
   onClose: () => void;
   onOpen: (o: EventOccurrenceDTO) => void;
+  /** Start a new item on this day; left out for those who can't add. */
+  onAdd?: () => void;
 }) {
   const day = new Date(`${dayKey}T00:00`);
   return (
@@ -951,6 +1048,13 @@ function DayDialog({
       onClose={onClose}
       title={`${MONTHS[day.getMonth()]} ${day.getDate()}, ${day.getFullYear()}`}
       description={countLabel(entries)}
+      footer={
+        onAdd ? (
+          <Button onClick={onAdd}>
+            <CalendarPlus /> Add on this day
+          </Button>
+        ) : undefined
+      }
     >
       <div className="space-y-2">
         {entries.length === 0 ? (
@@ -1081,6 +1185,11 @@ function EventDialog({
     occurrence && yearly ? (whoseOf(occurrence.title, kind) ?? '') : '',
   );
   const byWhose = yearly && (!occurrence || whoseOf(occurrence.title, kind) !== null);
+  // The Dialog focuses the name field on open (data-autofocus). Once a type
+  // has been picked, the name field it swaps in (Title <-> Whose) takes focus
+  // as it mounts (autoFocus), as before; not on open, where autoFocus would
+  // run before the Dialog notes where focus was and break its return.
+  const [typePicked, setTypePicked] = useState(false);
   const [sinceYear, setSinceYear] = useState(
     occurrence?.sinceYear != null ? String(occurrence.sinceYear) : '',
   );
@@ -1144,6 +1253,7 @@ function EventDialog({
       setRepeat('none');
       setAllDay(false);
     }
+    setTypePicked(true);
     setKind(next);
     if (next === 'birthday') {
       setAllDay(true);
@@ -1383,7 +1493,8 @@ function EventDialog({
             </Label>
             <Input
               id="ev-whose"
-              autoFocus
+              data-autofocus
+              autoFocus={typePicked}
               value={whose}
               onChange={(e) => setWhose(e.target.value)}
               placeholder={kind === 'birthday' ? 'e.g. Jordan' : 'e.g. Mom and Dad'}
@@ -1400,7 +1511,8 @@ function EventDialog({
             <Label htmlFor="ev-title">{kind === 'event' ? 'Title' : 'What'}</Label>
             <Input
               id="ev-title"
-              autoFocus
+              data-autofocus
+              autoFocus={typePicked}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder={
@@ -1638,16 +1750,30 @@ function EventDialog({
           </div>
           {repeat !== 'none' ? (
             <div className="space-y-1.5">
-              <Label htmlFor="ev-interval">Every</Label>
-              <Input
-                id="ev-interval"
-                type="number"
-                min={1}
-                max={365}
-                value={interval}
-                onChange={(e) => setInterval(Number(e.target.value) || 1)}
-                {...fe.invalid('recurrence')}
-              />
+              {/* Reads as a sentence, "Every [2] weeks", so the unit is by the box. */}
+              <Label htmlFor="ev-interval">How often</Label>
+              <div className="flex items-center gap-2 text-sm">
+                <span>Every</span>
+                <Input
+                  id="ev-interval"
+                  type="number"
+                  min={1}
+                  max={365}
+                  value={interval}
+                  onChange={(e) => setInterval(Number(e.target.value) || 1)}
+                  className="w-20"
+                  {...fe.invalid('recurrence')}
+                />
+                <span>
+                  {repeat === 'daily'
+                    ? interval === 1 ? 'day' : 'days'
+                    : repeat === 'weekly'
+                      ? interval === 1 ? 'week' : 'weeks'
+                      : repeat === 'monthly'
+                        ? interval === 1 ? 'month' : 'months'
+                        : interval === 1 ? 'year' : 'years'}
+                </span>
+              </div>
             </div>
           ) : null}
           {repeat === 'weekly' ? (
@@ -1659,6 +1785,7 @@ function EventDialog({
                     key={day}
                     type="button"
                     onClick={() => setWeekdays((p) => toggleIn(p, day))}
+                    aria-pressed={weekdays.includes(day)}
                     className={`size-9 rounded-md border text-sm font-medium transition-colors ${
                       weekdays.includes(day)
                         ? 'border-primary bg-primary text-primary-foreground'
@@ -1680,6 +1807,7 @@ function EventDialog({
                     key={day}
                     type="button"
                     onClick={() => setMonthdays((p) => toggleIn(p, day))}
+                    aria-pressed={monthdays.includes(day)}
                     className={`size-8 rounded-md border text-xs font-medium transition-colors ${
                       monthdays.includes(day)
                         ? 'border-primary bg-primary text-primary-foreground'
@@ -1729,6 +1857,7 @@ function EventDialog({
                     key={m.id}
                     type="button"
                     onClick={() => toggleAttendee(m.id)}
+                    aria-pressed={on}
                     className={`rounded-full border px-3 py-1 text-sm transition-colors ${
                       on
                         ? 'border-transparent bg-primary text-primary-foreground'

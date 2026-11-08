@@ -188,11 +188,14 @@ export function TasksView({
   }, [search, filters, sort, searchParams]);
 
   const tasksKey = ['tasks', filters];
+  const filtersOn = !!(filters.status || filters.type || filters.assigneeId);
 
   const {
     data: tasks = [],
     isPending,
     isFetching,
+    isError,
+    refetch,
   } = useQuery({
     queryKey: tasksKey,
     queryFn: () => apiFetch<TaskDTO[]>(`/api/tasks${buildQuery(filters)}`),
@@ -791,7 +794,28 @@ export function TasksView({
           isFetching && 'opacity-60',
         )}
       >
-        {!isPending && tasks.length === 0 ? (
+        {/* An empty list means "no tasks yet" only when it loaded and no
+            filter is on; otherwise say what really happened. */}
+        {!isPending && tasks.length === 0 && isError ? (
+          <div className="flex flex-col items-center gap-3 py-6 text-center">
+            <p className="text-sm text-muted-foreground">Couldn&apos;t load the tasks.</p>
+            <Button variant="outline" size="sm" onClick={() => void refetch()} disabled={isFetching}>
+              {isFetching ? <Loader2 className="animate-spin" /> : null}
+              Try again
+            </Button>
+          </div>
+        ) : !isPending && tasks.length === 0 && filtersOn ? (
+          <div className="flex flex-col items-center gap-3 py-6 text-center">
+            <p className="text-sm text-muted-foreground">No tasks match this filter.</p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => changeFilters({ status: '', type: '', assigneeId: '' })}
+            >
+              Clear filter
+            </Button>
+          </div>
+        ) : !isPending && tasks.length === 0 ? (
           <EmptyState
             icon={ListChecks}
             title="No tasks yet"

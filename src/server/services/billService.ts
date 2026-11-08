@@ -11,6 +11,7 @@ import {
   parseIntList,
   type NormalizedRule,
 } from '@/server/services/recurrenceService';
+import { localDateOf, localTimeAt } from '@/lib/taskCycles';
 import type { BillDTO, BillDetailDTO, BillPaymentDTO } from '@/lib/types';
 import type { RecurrenceInput } from '@/lib/validation/task';
 import type {
@@ -39,20 +40,49 @@ type Db = Prisma.TransactionClient | typeof prisma;
 type BillCycle = { id: string; recurrenceId: string | null; dueDate: Date | null };
 
 /**
+ * The cycle stamp of a payment for a cycle that closed while its bill
+ * repeated, once the bill stops repeating (updateBill). The payment stays in
+ * the bill's history but never counts toward its balance again: those cycles
+ * were paid off, and a one-off bill otherwise counts every payment it has. The
+ * epoch, so it can never be a real due date.
+ */
+export const CLOSED_CYCLE = new Date(0);
+
+// Payments not stamped CLOSED_CYCLE (unstamped ones included, null or missing).
+const NOT_CLOSED: Prisma.BillPaymentWhereInput[] = [
+  { cycleDueDate: null },
+  { cycleDueDate: { isSet: false } },
+  { cycleDueDate: { not: CLOSED_CYCLE } },
+];
+
+/**
  * True when a payment counts toward the bill's current balance. A one-off bill
- * counts all its payments. A recurring bill rolls on to its next due date when
- * paid, so only payments made for its current due date count; summing them all
- * would make every recurring bill with a past payment look settled.
+ * counts all its payments, except those of cycles closed while it repeated. A
+ * recurring bill rolls on to its next due date when paid, so only payments made
+ * for its current due date count; summing them all would make every recurring
+ * bill with a past payment look settled.
  */
 export function countsTowardBalance(bill: BillCycle, cycleDueDate: Date | null): boolean {
+  if (cycleDueDate?.getTime() === CLOSED_CYCLE.getTime()) return false;
   if (!bill.recurrenceId || !bill.dueDate) return true;
   return cycleDueDate?.getTime() === bill.dueDate.getTime();
 }
 
 /** The `where` for the payments that count toward the bill's current balance. */
 export function cyclePaymentsWhere(bill: BillCycle): Prisma.BillPaymentWhereInput {
-  if (!bill.recurrenceId || !bill.dueDate) return { billId: bill.id };
+  if (!bill.recurrenceId || !bill.dueDate) return { billId: bill.id, OR: NOT_CLOSED };
   return { billId: bill.id, cycleDueDate: bill.dueDate };
+}
+
+/**
+ * Noon today in the household's zone: the anchor for a repeating bill saved
+ * without a due date. A picked day is stored at noon, which reads as due all
+ * day; the time of saving would make every cycle due (and overdue) at that
+ * time of day instead.
+ */
+async function noonToday(householdId: string): Promise<Date> {
+  const { timezone } = await getPointsSettings(householdId);
+  return localTimeAt(localDateOf(new Date(), timezone), 12, 0, timezone);
 }
 
 async function paymentStats(db: Db, bill: BillCycle): Promise<BillStats> {
@@ -71,7 +101,7 @@ type PaymentWithRelations = Prisma.BillPaymentGetPayload<{
   include: typeof paymentInclude;
 }>;
 
-function paymentToDTO(p: PaymentWithRelations): BillPaymentDTO {
+function paymentToDTO(p: PaymentWithRelations, inBalance: boolean): BillPaymentDTO {
   return {
     id: p.id,
     billId: p.billId,
@@ -82,6 +112,7 @@ function paymentToDTO(p: PaymentWithRelations): BillPaymentDTO {
     source: p.source,
     confirmationNo: p.confirmationNo,
     paidLate: p.paidLate === true,
+    countsTowardBalance: inBalance,
     paidBy: p.paidBy ? { id: p.paidBy.id, name: p.paidBy.name } : null,
     createdById: p.createdById,
   };
@@ -228,7 +259,7 @@ export async function getBillDetail(
     sourceUrl: bill.sourceUrl,
     feeTotal,
     remaining: Math.max(0, bill.amount - paidTotal),
-    payments: payments.map(paymentToDTO),
+    payments: payments.map((p) => paymentToDTO(p, countsTowardBalance(bill, p.cycleDueDate))),
   };
 }
 
@@ -250,12 +281,13 @@ export async function createBill(
   input: CreateBillInput,
 ): Promise<BillDTO> {
   const assignedUserId = await validAssignee(householdId, input.assignedUserId);
+  const anchor = input.recurrence ? (input.dueDate ?? (await noonToday(householdId))) : null;
 
   const bill = await prisma.$transaction(async (tx) => {
     let recurrenceId: string | undefined;
-    if (input.recurrence) {
+    if (input.recurrence && anchor) {
       const rule = await tx.recurrenceRule.create({
-        data: recurrenceData(input.recurrence, input.dueDate ?? new Date()),
+        data: recurrenceData(input.recurrence, anchor),
       });
       recurrenceId = rule.id;
     }
@@ -306,6 +338,8 @@ export async function updateBill(
   input: UpdateBillInput,
 ): Promise<BillDTO> {
   const { id, recurrence, assignedUserId, ...rest } = input;
+  // Only used when the bill repeats and has no due date (see below).
+  const noon = recurrence && !rest.dueDate ? await noonToday(householdId) : null;
 
   const bill = await prisma.$transaction(async (tx) => {
     const existing = await tx.bill.findFirst({
@@ -323,7 +357,7 @@ export async function updateBill(
     if (recurrence === null) {
       recurrenceId = null;
     } else if (recurrence) {
-      const anchor = rest.dueDate ?? existing.dueDate ?? new Date();
+      const anchor = rest.dueDate ?? existing.dueDate ?? noon ?? new Date();
       const data = recurrenceData(recurrence, anchor);
       if (existing.recurrenceId) {
         await tx.recurrenceRule.update({ where: { id: existing.recurrenceId }, data });
@@ -341,11 +375,38 @@ export async function updateBill(
     // A one-off bill's paid/unpaid follows its payments: a new amount can
     // leave it owing (or settle it). Only when it has payments - a bill marked
     // paid by hand has nothing to recompute from - and the edit didn't set a
-    // status itself.
+    // status itself. One-off before and after the edit: the bill form sends
+    // `recurrence: null` for every bill that doesn't repeat, which on a
+    // one-off bill changes nothing.
     let status = rest.status;
-    if (rest.amount !== undefined && status === undefined && !existing.recurrenceId && recurrenceId === undefined && !recurrence) {
+    if (rest.amount !== undefined && status === undefined && !existing.recurrenceId && !recurrence) {
       const { paidTotal, paymentCount } = await paymentStats(tx, existing);
       if (paymentCount > 0) status = paidTotal + 0.005 >= rest.amount ? 'paid' : 'unpaid';
+    }
+
+    // Repeat turned off: the cycles paid while it repeated are closed. Without
+    // this the one-off rule (every payment counts) would add them all to the
+    // balance of the bill that is left, showing it paid with nothing paid for
+    // it. Payments for its current due date keep counting.
+    if (recurrence === null && existing.recurrenceId && existing.dueDate) {
+      await tx.billPayment.updateMany({
+        where: {
+          billId: id,
+          OR: [{ cycleDueDate: null }, { cycleDueDate: { isSet: false } }, { cycleDueDate: { not: existing.dueDate } }],
+        },
+        data: { cycleDueDate: CLOSED_CYCLE },
+      });
+    }
+
+    // The payments for the current due date move with it. A recurring bill's
+    // balance counts only the payments for its due date (cyclePaymentsWhere),
+    // so leaving them on the old date would drop them from the balance and
+    // make the bill look rolled on (billIngest hasRolledOn).
+    if (rest.dueDate && existing.dueDate && rest.dueDate.getTime() !== existing.dueDate.getTime()) {
+      await tx.billPayment.updateMany({
+        where: { billId: id, cycleDueDate: existing.dueDate },
+        data: { cycleDueDate: rest.dueDate },
+      });
     }
 
     const updated = await tx.bill.update({
@@ -539,11 +600,13 @@ export async function updatePayment(
       include: paymentInclude,
     });
 
+    let inBalance = false;
     if (existing.billId) {
       const bill = await tx.bill.findUnique({
         where: { id: existing.billId },
         select: { id: true, name: true, amount: true, recurrenceId: true, dueDate: true },
       });
+      if (bill) inBalance = countsTowardBalance(bill, updated.cycleDueDate);
       if (bill && !bill.recurrenceId) {
         const { paidTotal } = await paymentStats(tx, bill);
         const fullyPaid = paidTotal + 0.005 >= bill.amount;
@@ -565,10 +628,10 @@ export async function updatePayment(
         tx,
       );
     }
-    return updated;
+    return { updated, inBalance };
   });
 
-  return paymentToDTO(payment);
+  return paymentToDTO(payment.updated, payment.inBalance);
 }
 
 /**

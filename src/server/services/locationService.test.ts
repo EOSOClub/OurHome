@@ -139,6 +139,17 @@ describe('reportPresence', () => {
     });
   });
 
+  it('drops an old live-check point time when a new report replaces the point', async () => {
+    // A check that closed days ago left pointAt; this departure is a new point.
+    prisma.memberLocation.findUnique.mockResolvedValue({
+      state: 'place', placeId: costco.id, at: minutesAgo(60), pointAt: minutesAgo(4 * 24 * 60),
+    });
+    await reportPresence('h1', 'u1', { placeId: costco.id, transition: 'exit', at: minutesAgo(1), lat: 41.9, lng: -87.7 }, now);
+    const { update, create } = prisma.memberLocation.upsert.mock.calls[0][0];
+    expect(update).toMatchObject({ state: 'away', lat: 41.9, at: minutesAgo(1), pointAt: null });
+    expect(create.pointAt).toBeNull();
+  });
+
   it('pulls a report from a fast phone clock back to now', async () => {
     prisma.memberLocation.findUnique.mockResolvedValue(null);
     await reportPresence('h1', 'u1', arrive(new Date(now.getTime() + 3_600_000)), now);

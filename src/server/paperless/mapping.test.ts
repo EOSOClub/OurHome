@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { billIngestSchema } from '@/lib/validation/billIngest';
+import { isDateOnly } from '@/lib/format';
 import {
   evaluateDocument,
   parseDay,
@@ -21,6 +22,7 @@ const ctx: MappingContext = {
   fields: { amount: 2, dueDate: 3, accountNo: 5 },
   correspondents: new Map([[7, 'City Water']]),
   publicUrl: 'https://paperless.example.com/',
+  timeZone: 'America/Chicago',
 };
 
 function doc(over: Partial<PaperlessDocument> = {}): PaperlessDocument {
@@ -57,11 +59,15 @@ describe('parseMonetary', () => {
 });
 
 describe('parseDay', () => {
-  it('pins a date to local noon so no timezone moves it a day', () => {
-    const d = parseDay('2026-10-20')!;
-    expect([d.getFullYear(), d.getMonth(), d.getDate(), d.getHours()]).toEqual([2026, 9, 20, 12]);
-    expect(parseDay('not a date')).toBeNull();
-    expect(parseDay(null)).toBeNull();
+  it('pins a date to noon in the household zone so no timezone moves it a day', () => {
+    // Noon in Chicago, not in the server's zone (UTC in Docker): CDT is UTC-5,
+    // CST UTC-6. Anything other than 12:00 there reads as a timed due date.
+    expect(parseDay('2026-10-20', 'America/Chicago')!.toISOString()).toBe('2026-10-20T17:00:00.000Z');
+    expect(parseDay('2026-12-20', 'America/Chicago')!.toISOString()).toBe('2026-12-20T18:00:00.000Z');
+    expect(isDateOnly(parseDay('2026-12-20', 'America/Chicago')!, 'America/Chicago')).toBe(true);
+    expect(parseDay('2026-10-20', 'Europe/London')!.toISOString()).toBe('2026-10-20T11:00:00.000Z');
+    expect(parseDay('not a date', 'America/Chicago')).toBeNull();
+    expect(parseDay(null, 'America/Chicago')).toBeNull();
   });
 });
 

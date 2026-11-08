@@ -349,6 +349,28 @@ describe('local time zone rules', () => {
     const d = iso('2026-07-04T17:30:00.000Z');
     expect(fromWall(toWall(d, tz), tz)).toEqual(d);
   });
+
+  it('moves on past a time the spring DST change skips', () => {
+    // Daily at 2:30, which Chicago skips on Mar 8 2026: each step is later than the last.
+    const r = rule({ kind: 'daily', anchorDate: iso('2026-03-01T08:30:00.000Z'), timeZone: tz });
+    let from = iso('2026-03-07T00:00:00.000Z');
+    const seen: Date[] = [];
+    for (let i = 0; i < 4; i += 1) {
+      const next = computeNextRunAt(r, from)!;
+      expect(next.getTime()).toBeGreaterThan(from.getTime());
+      seen.push(next);
+      from = next;
+    }
+    expect(seen.map((d) => toWall(d, tz).toISOString().slice(0, 10))).toEqual([
+      '2026-03-07',
+      '2026-03-08',
+      '2026-03-09',
+      '2026-03-10',
+    ]);
+    // Paying or completing the skipped date's one moves on too.
+    const gap = seen[1];
+    expect(nextAfterOccurrence(r, gap, iso('2026-03-08T06:00:00.000Z'))).toEqual(seen[2]);
+  });
 });
 
 describe('weekday / month-day rules respect start and interval', () => {

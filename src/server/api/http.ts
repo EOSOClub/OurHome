@@ -60,11 +60,13 @@ export function withAuth(handler: Handler) {
     if (!allowRequest(req)) {
       return fail('Too many requests', 429);
     }
+    if (isCrossSiteWrite(req)) return fail('Refused: this request came from another site.', 403);
 
     const session = await getServerSession();
     if (!session?.user) return fail('Unauthorized', 401);
 
     const user = session.user as unknown as AuthUser;
+    if (!allowUser(user, req)) return fail('Too many requests', 429);
     if (!user.householdId) return fail('No household assigned', 403);
     // A household the server admin turned off: refused until it's back on.
     // `code` lets the app sign out with this message instead of erroring everywhere.
@@ -92,6 +94,22 @@ export function withAuth(handler: Handler) {
 }
 
 /**
+ * A change (anything but GET/HEAD/OPTIONS) that a browser says was started by
+ * another site. The session cookie is SameSite=Lax, which stops other sites
+ * but not a sibling subdomain ("same-site"), and parseBody accepts a body
+ * sent as plain text, which a form on another page can send. Browsers set
+ * Sec-Fetch-Site themselves and pages can't change it; the Android app and
+ * other non-browser callers don't send it, so they are unaffected. Not the
+ * Host/Origin comparison: behind a reverse proxy the Host this server sees
+ * can differ from the address the browser used.
+ */
+export function isCrossSiteWrite(req: Request): boolean {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return false;
+  const site = req.headers.get('sec-fetch-site');
+  return site === 'cross-site' || site === 'same-site';
+}
+
+/**
  * Like withAuth, for the server admin's endpoints (households, HTTPS only,
  * contact messages): the caller needn't belong to a household - a server
  * admin may have none - but must be the server admin.
@@ -101,9 +119,11 @@ export function withServerAdmin(handler: Handler) {
     if (!allowRequest(req)) {
       return fail('Too many requests', 429);
     }
+    if (isCrossSiteWrite(req)) return fail('Refused: this request came from another site.', 403);
     const session = await getServerSession();
     if (!session?.user) return fail('Unauthorized', 401);
     const user = session.user as unknown as AuthUser;
+    if (!allowUser(user, req)) return fail('Too many requests', 429);
     try {
       if (!(await isServerAdmin(user.id))) return fail('Only the server admin can do that.', 403);
       const res = await handler({ user, req });
@@ -179,7 +199,7 @@ export async function requireAnyAccess(
   page: AccessPage,
 ): Promise<void> {
   const access = await getAccess(ctx);
-  if (!hasAnyAccess(access[page])) {
+  if (!hasAnyAccess(access[page], page)) {
     throw new ForbiddenError(`You don't have access to ${ACCESS_PAGE_LABELS[page]}.`);
   }
 }
@@ -194,12 +214,26 @@ export async function requireFeatureOn(ctx: AuthedContext, feature: Feature): Pr
   }
 }
 
-/** Parse and validate a JSON body, throwing ZodError on failure. */
+/**
+ * Most bytes an ordinary JSON body may have. The largest everyday one is a
+ * phone's batch of app icons (20 at up to 44,000 characters, about 0.9 MB);
+ * everything else is a small form. The proxy doesn't cover /api, so without a
+ * cap one huge POST could fill the server's memory.
+ */
+export const BODY_MAX_BYTES = 2 * 1024 * 1024;
+/** Most bytes a public form (contact, setup, webhooks) may send. */
+export const PUBLIC_BODY_MAX_BYTES = 64 * 1024;
+
+/**
+ * Parse and validate a JSON body, throwing ZodError on failure, and
+ * PayloadTooLargeError (413) when it is bigger than [maxBytes].
+ */
 export async function parseBody<T>(
   req: NextRequest,
   schema: z.ZodType<T>,
+  maxBytes: number = BODY_MAX_BYTES,
 ): Promise<T> {
-  const raw = await req.json().catch(() => ({}));
+  const raw = await readJsonCapped(req, maxBytes);
   return schema.parse(raw);
 }
 
@@ -207,10 +241,9 @@ export async function parseBody<T>(
  * Read a JSON body of at most [maxBytes] bytes, for a route that takes more
  * than a form (a photo sent with a check). Refused with 413 as soon as it's
  * known to be too big: from Content-Length before anything is read, or while
- * reading when the header is missing or wrong, so memory stays bounded. Not
- * built on parseBody: its catch-all would turn that refusal into an empty
- * body. A body that isn't JSON (or a dropped connection) still reads as {},
- * as in parseBody, so the route's schema says what's missing.
+ * reading when the header is missing or wrong, so memory stays bounded.
+ * parseBody is built on it. A body that isn't JSON (or a dropped connection)
+ * reads as {}, so the route's schema says what's missing.
  */
 export async function readJsonCapped(req: Request, maxBytes: number): Promise<unknown> {
   const declared = Number(req.headers.get('content-length'));
@@ -330,6 +363,7 @@ export function rateLimit(key: string, windowMs: number, max: number): boolean {
   const now = Date.now();
   const bucket = buckets.get(key);
   if (!bucket || now > bucket.resetAt) {
+    if (buckets.size >= PRUNE_AT) pruneBuckets(now);
     buckets.set(key, { count: 1, resetAt: now + windowMs });
     return true;
   }
@@ -337,9 +371,39 @@ export function rateLimit(key: string, windowMs: number, max: number): boolean {
   return bucket.count <= max;
 }
 
+/**
+ * Keys carry the path, and paths carry record ids, so without pruning the map
+ * would grow for as long as the server runs. Past [PRUNE_AT] buckets, the
+ * expired ones are dropped before a new one is added.
+ */
+const PRUNE_AT = 5_000;
+function pruneBuckets(now: number): void {
+  for (const [key, bucket] of buckets) {
+    if (now > bucket.resetAt) buckets.delete(key);
+  }
+}
+
+/** For tests: how many buckets are held. */
+export function rateLimitBucketCount(): number {
+  return buckets.size;
+}
+
+/**
+ * Before the session is read: by address and path. On the home network,
+ * without a proxy in front, there is no address header at all, so every
+ * device shares the "unknown" bucket; it gets a bigger budget, and the real
+ * per-person limit is [allowUser], once we know who is asking.
+ */
+const UNKNOWN_IP_MULTIPLIER = 10;
 function allowRequest(req: NextRequest): boolean {
-  const key = `${clientIp(req)}:${new URL(req.url).pathname}`;
-  return rateLimit(key, WINDOW_MS, MAX_PER_WINDOW);
+  const ip = clientIp(req);
+  const key = `${ip}:${new URL(req.url).pathname}`;
+  return rateLimit(key, WINDOW_MS, ip === 'unknown' ? MAX_PER_WINDOW * UNKNOWN_IP_MULTIPLIER : MAX_PER_WINDOW);
+}
+
+/** After the session is read: per member and path, whatever the address. */
+function allowUser(user: AuthUser, req: NextRequest): boolean {
+  return rateLimit(`user:${user.id}:${new URL(req.url).pathname}`, WINDOW_MS, MAX_PER_WINDOW);
 }
 
 // --- Audit logging (hook) -------------------------------------------------

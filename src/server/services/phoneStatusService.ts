@@ -11,8 +11,11 @@ import { isFeatureEnabled } from '@/server/services/serverAdminService';
 import { canBeSupervised, canSupervise } from '@/lib/permissions';
 import { sharingMode } from '@/lib/location';
 import { WEB_FILTER_INFO, webFilterOf } from '@/lib/webFilter';
+import { createAllOnce } from '@/server/services/errors';
 import {
+  PHONE_PROBLEMS,
   PHONE_QUICK_QUIET_MS,
+  SILENT_PROBLEMS,
   freshestPhone,
   lastWordAt,
   phoneAlertText,
@@ -188,7 +191,17 @@ export async function recordStream(
       ...(event.opened ? { ...statusData(event.status, now), shutdownAt: null, pushGoneAt: null } : {}),
     },
   });
-  if (event.opened || !(await isSupervised(householdId, userId))) return;
+  if (event.opened) {
+    // Back: an alert raised while it was away (a restart, a dropped network)
+    // goes now, not at the next sweep or check-in. Only when there is one.
+    const alert = await prisma.notification.findFirst({
+      where: { householdId, type: PHONE_ALERT_TYPE, subjectId: userId },
+      select: { id: true },
+    });
+    if (alert) await refreshPhoneAlerts(householdId, now, [userId]);
+    return;
+  }
+  if (!(await isSupervised(householdId, userId))) return;
   // Already back (the server ends each stream every 30 minutes, and the phone reconnects at once).
   if (connectedInstalls(householdId).has(installId)) return;
   clearWatch(installId);
@@ -304,18 +317,47 @@ export interface PhoneSummary {
   alwaysAllowed: string[];
 }
 
+type SummaryKid = {
+  id: string;
+  locationSharing: string | null;
+  shareAppUsage?: boolean | null;
+  webFilter?: string | null;
+} & Partial<PhoneRuleColumns>;
+
 /** Each child's freshest phone and what's wrong with it, for the Map card. */
 export async function phoneSummaries(
   householdId: string,
-  kids: ({
-    id: string;
-    locationSharing: string | null;
-    shareAppUsage?: boolean | null;
-    webFilter?: string | null;
-  } & Partial<PhoneRuleColumns>)[],
+  kids: SummaryKid[],
   now: Date = new Date(),
 ): Promise<Map<string, PhoneSummary>> {
-  const out = new Map<string, PhoneSummary>();
+  const judged = await judgePhones(householdId, kids, now);
+  return new Map([...judged].map(([kidId, j]) => [kidId, j.summary]));
+}
+
+/**
+ * What the alerts need besides each child's summary. [others]: what's wrong
+ * with their other phones that aren't quiet themselves (a tablet beside the
+ * phone). [mayStillStream]: the freshest phone used Stay connected and the
+ * server started too recently to tell whether it's reconnecting.
+ */
+interface PhoneJudgement {
+  summary: PhoneSummary;
+  others: Set<PhoneProblem>;
+  mayStillStream: boolean;
+  /**
+   * What the freshest phone's last report shows wrong under the rules as
+   * they are now, its silence aside. While it's quiet only these alerts are
+   * kept: one whose requirement was since turned off still goes.
+   */
+  lastKnown: Set<PhoneProblem>;
+}
+
+async function judgePhones(
+  householdId: string,
+  kids: SummaryKid[],
+  now: Date,
+): Promise<Map<string, PhoneJudgement>> {
+  const out = new Map<string, PhoneJudgement>();
   if (kids.length === 0) return out;
   const [phones, locationOn] = await Promise.all([
     prisma.phoneStatus.findMany({
@@ -349,33 +391,64 @@ export async function phoneSummaries(
     isFeatureEnabled(householdId, 'location').catch(() => true),
   ]);
   const connected = connectedInstalls(householdId);
+  const sinceBoot = now.getTime() - serverStartedAt.getTime();
+  const justStarted = sinceBoot >= 0 && sinceBoot < STREAM_BOOT_GRACE_MS;
   for (const kid of kids) {
-    const phone = freshestPhone(phones.filter((p) => p.userId === kid.id));
+    const kidPhones = phones.filter((p) => p.userId === kid.id);
+    const phone = freshestPhone(kidPhones);
     if (!phone) continue;
     const webFilter = webFilterOf(kid.webFilter);
+    const expect = {
+      sharing: sharingMode(kid.locationSharing),
+      usageShared: kid.shareAppUsage === true,
+      locationOn,
+      rules: phoneRules(kid),
+      webFilter,
+    };
+    const problemsOf = (p: (typeof phones)[number]) =>
+      phoneProblems({ ...p, connected: connected.has(p.installId) }, expect, now);
+    const others = new Set<PhoneProblem>();
+    for (const other of kidPhones) {
+      if (other === phone) continue;
+      // A quiet one says only that it's quiet, which is never held for it.
+      for (const problem of problemsOf(other)) if (!SILENT_PROBLEMS.has(problem)) others.add(problem);
+    }
     out.set(kid.id, {
-      // Its stream counts too, so "last seen" matches when the quiet alert counts from.
-      lastSeenAt: lastWordAt(phone).toISOString(),
-      deviceName: phone.deviceName,
-      lastPushAt: phone.lastPushAt?.toISOString() ?? null,
-      stayConnected: phone.stayConnected === true,
-      connected: connected.has(phone.installId),
-      checks: setupChecks(phone, webFilter),
-      alwaysAllowed: phone.alwaysAllowed,
-      problems: phoneProblems(
-        { ...phone, connected: connected.has(phone.installId) },
-        {
-          sharing: sharingMode(kid.locationSharing),
-          usageShared: kid.shareAppUsage === true,
-          locationOn,
-          rules: phoneRules(kid),
-          webFilter,
-        },
-        now,
+      summary: {
+        // Its stream counts too, so "last seen" matches when the quiet alert counts from.
+        lastSeenAt: lastWordAt(phone).toISOString(),
+        deviceName: phone.deviceName,
+        lastPushAt: phone.lastPushAt?.toISOString() ?? null,
+        stayConnected: phone.stayConnected === true,
+        connected: connected.has(phone.installId),
+        checks: setupChecks(phone, webFilter),
+        alwaysAllowed: phone.alwaysAllowed,
+        problems: problemsOf(phone),
+      },
+      others,
+      mayStillStream: justStarted && phone.stayConnected === true && phone.streamAt != null,
+      lastKnown: new Set(
+        phoneProblems({ ...phone, connected: true }, expect, now).filter((p) => !SILENT_PROBLEMS.has(p)),
       ),
     });
   }
   return out;
+}
+
+/**
+ * After the server starts, a phone that held its Stay connected stream isn't
+ * connected again yet: streams live in memory, the close was never noted, and
+ * the phone's wait between tries is up to 5 minutes (plus 90 s to notice a
+ * dead connection). Until then its silence isn't news either way.
+ */
+export const STREAM_BOOT_GRACE_MS = 7 * 60_000;
+
+/** When this server process started (Node's performance.timeOrigin). */
+let serverStartedAt = new Date(performance.timeOrigin);
+
+/** Tests only: when the server started. */
+export function setServerStartedAt(at: Date): void {
+  serverStartedAt = at;
 }
 
 /**
@@ -395,12 +468,35 @@ export async function refreshPhoneAlerts(householdId: string, now: Date = new Da
   });
   const valid = links.filter((l) => canSupervise(l.supervisor.role) && canBeSupervised(l.supervised.role));
   const kids = [...new Map(valid.map((l) => [l.supervised.id, l.supervised])).values()];
-  const summaries = await phoneSummaries(householdId, kids, now);
+  const judged = await judgePhones(householdId, kids, now);
 
   const wanted = new Map<string, { kid: (typeof kids)[number]; problem: PhoneProblem; supervisorId: string }>();
+  // Rows left as they are though their problem isn't judged now: only a
+  // fresh report that says a problem is gone takes its alert away, so it's
+  // never deleted and then raised (and pushed) again as new.
+  const kept = new Set<string>();
   for (const link of valid) {
-    for (const problem of summaries.get(link.supervised.id)?.problems ?? []) {
-      wanted.set(alertKey(problem, link.supervised.id, link.supervisorId), {
+    const kidId = link.supervised.id;
+    const j = judged.get(kidId);
+    const problems = j?.summary.problems ?? [];
+    const keep = (problem: PhoneProblem) => kept.add(alertKey(problem, kidId, link.supervisorId));
+    const silent = problems.some((p) => SILENT_PROBLEMS.has(p));
+    if (silent && j?.mayStillStream) {
+      // Just restarted: it may be reconnecting. Nothing raised, nothing
+      // dropped, except an alert whose requirement was turned off.
+      PHONE_PROBLEMS.filter((p) => SILENT_PROBLEMS.has(p) || j.lastKnown.has(p)).forEach(keep);
+      continue;
+    }
+    // While it's quiet only the silence is said; what it said before isn't
+    // known to be fixed, so those alerts stay, as long as the rules still ask
+    // for what they're about (turning a requirement off still clears its alert).
+    if (silent) j?.lastKnown.forEach(keep);
+    // Another of their phones, not quiet itself, still has it (a tablet beside
+    // the phone): judging the freshest one alone would drop and raise it on
+    // every other check-in.
+    j?.others.forEach(keep);
+    for (const problem of problems) {
+      wanted.set(alertKey(problem, kidId, link.supervisorId), {
         kid: link.supervised,
         problem,
         supervisorId: link.supervisorId,
@@ -413,13 +509,16 @@ export async function refreshPhoneAlerts(householdId: string, now: Date = new Da
     select: { id: true, dedupeKey: true },
   });
   const have = new Set(existing.map((n) => n.dedupeKey));
-  const stale = existing.filter((n) => !n.dedupeKey || !wanted.has(n.dedupeKey)).map((n) => n.id);
+  const stale = existing
+    .filter((n) => !n.dedupeKey || (!wanted.has(n.dedupeKey) && !kept.has(n.dedupeKey)))
+    .map((n) => n.id);
   if (stale.length) await prisma.notification.deleteMany({ where: { id: { in: stale } } });
 
   const fresh = [...wanted.entries()].filter(([key]) => !have.has(key));
   if (fresh.length === 0) return;
-  await prisma.notification.createMany({
-    data: fresh.map(([key, { kid, problem, supervisorId }]) => ({
+  // A check-in and the sweep can write the same alert at the same moment.
+  await createAllOnce(
+    fresh.map(([key, { kid, problem, supervisorId }]) => ({
       householdId,
       userId: supervisorId,
       type: PHONE_ALERT_TYPE,
@@ -431,6 +530,8 @@ export async function refreshPhoneAlerts(householdId: string, now: Date = new Da
       readAt: null,
       createdAt: now,
     })),
-  });
+    (data) => prisma.notification.createMany({ data }),
+    (data) => prisma.notification.create({ data }),
+  );
   pushSync(householdId, { userIds: [...new Set(fresh.map(([, a]) => a.supervisorId))] }, 'reminder');
 }

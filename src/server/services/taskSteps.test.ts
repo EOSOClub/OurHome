@@ -799,7 +799,8 @@ describe('decisions on checks of the whole task', () => {
     await withdrawSubmission(H, kid, 's1');
     const activity = written('logActivity').at(-1) as unknown;
     expect(activity).toEqual({ householdId: H, actorId: 'kid', verb: 'updated', subjectType: 'task', subjectId: 't1', message: 'took back “Dishes” from the check' });
-    expect(ready.announceTaskReady).toHaveBeenCalledWith(tx, H, expect.objectContaining({ id: 't1' }), 'kid');
+    // In the household's zone, as every other "your turn" notice is.
+    expect(ready.announceTaskReady).toHaveBeenCalledWith(tx, H, expect.objectContaining({ id: 't1' }), 'kid', 'America/Chicago');
     expect(ready.pushTaskReady).toHaveBeenCalledWith(H, ['dad']);
     expect(subs[0]).toMatchObject({ status: 'withdrawn', waitingKey: 's1' });
   });
@@ -930,5 +931,29 @@ describe('the task DTO for the member reading it (review.checkForMe, review.subm
     expect(mumView.every((d) => d.review.submissionId !== null && !d.review.checkForMe)).toBe(true);
     expect(prisma.user.findFirst).toHaveBeenCalledTimes(1);
     expect(prisma.supervision.findMany).toHaveBeenCalledTimes(1);
+  });
+});
+
+// --- Ticks that lose a race -------------------------------------------------------------
+
+describe('a tick at the same moment as another change', () => {
+  it('a step deleted since it was looked up is simply not found (404), nothing written', async () => {
+    // The step was found outside the transaction; inside it, it is gone.
+    stored = task({ subtasks: [step('b', { position: 0 })] });
+    await expect(updateSubtask(H, { subtaskId: 'a', done: true }, kid)).rejects.toMatchObject({
+      name: 'NotFoundError',
+      message: 'That step isn’t on this task any more.',
+    });
+    expect(writes).toEqual([]);
+  });
+
+  it('a write conflict is told plainly (409), not an error page', async () => {
+    prisma.$transaction.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError('conflict', { code: 'P2034', clientVersion: 'test' }),
+    );
+    await expect(updateSubtask(H, { subtaskId: 'b', done: true }, mum)).rejects.toMatchObject({
+      name: 'ConflictError',
+      message: 'Someone else changed this at the same moment. Try again.',
+    });
   });
 });

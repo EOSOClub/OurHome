@@ -46,6 +46,8 @@ const prisma = {
     aggregate: vi.fn(async () => ({ _sum: { amount: 0 } })),
     count: vi.fn(async () => 0),
     findMany: vi.fn(async () => []),
+    // A new due date moves its payments along (billService.updateBill).
+    updateMany: vi.fn(async () => ({ count: 0 })),
   },
   user: { findFirst: vi.fn(async () => null) },
   $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(prisma)),

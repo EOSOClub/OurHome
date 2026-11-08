@@ -44,6 +44,12 @@ export const recurrenceInputSchema = z
   .refine((r) => !r.rollover || r.kind !== 'monthly' || (r.cycleMonthdays?.length ?? 0) > 0, {
     message: 'Pick the day(s) of the month each cycle starts.',
     path: ['cycleMonthdays'],
+  })
+  // Cycles have no yearly boundary (taskService.cycleSpecFor): such a task
+  // was saved as running in cycles and then never cycled. Refused instead.
+  .refine((r) => !r.rollover || r.kind !== 'yearly', {
+    message: 'A yearly task can’t run in cycles.',
+    path: ['rollover'],
   });
 
 export type RecurrenceInput = z.infer<typeof recurrenceInputSchema>;

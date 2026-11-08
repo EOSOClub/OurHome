@@ -4,6 +4,7 @@ import {
   extractIntegrationToken,
   resolveHouseholdByToken,
 } from '@/server/services/integrationService';
+import { isFeatureEnabled } from '@/server/services/serverAdminService';
 
 // Read-only inventory feed for Home Assistant to *display* (REST sensors on a
 // dashboard). Scanning and updates now happen in the Android app; HA just
@@ -14,6 +15,10 @@ export async function GET(req: Request): Promise<Response> {
   if (!token) return fail('Missing token', 401);
   const resolved = await resolveHouseholdByToken(token);
   if (!resolved) return fail('Invalid token', 401);
+  // A household that turned Inventory off shares no stock, as on its own pages.
+  if (!(await isFeatureEnabled(resolved.householdId, 'inventory'))) {
+    return fail('Inventory is turned off for this household.', 403);
+  }
 
   const items = await prisma.inventoryItem.findMany({
     where: { householdId: resolved.householdId },

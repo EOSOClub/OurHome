@@ -17,7 +17,7 @@ vi.mock('@/server/services/permissionService', () => ({ getUserAccess: vi.fn() }
 const { NotFoundError } = await import('@/server/services/errors');
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
 const submissions = {
-  submissionPhoto: vi.fn(async (_hh: string, _viewer: string, _id: string): Promise<Uint8Array> => JPEG),
+  submissionPhoto: vi.fn<(hh: string, viewer: string, id: string) => Promise<Uint8Array>>(async () => JPEG),
 };
 vi.mock('@/server/services/taskSubmissionService', () => submissions);
 

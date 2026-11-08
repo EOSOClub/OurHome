@@ -99,6 +99,9 @@ export async function reportPresence(
       lng: input.lng ?? null,
       accuracyM: input.accuracyM ?? null,
       at: change.next.at,
+      // The point is this report's now, taken at `at`: a time left by an
+      // earlier live check (closeCheck) would date it wrong on the map.
+      pointAt: null,
     };
     await prisma.memberLocation.upsert({ where: { userId }, update: data, create: { userId, ...data } });
   }

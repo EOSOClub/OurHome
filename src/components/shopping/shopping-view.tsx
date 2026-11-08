@@ -1,9 +1,21 @@
 'use client';
 
 import type * as React from 'react';
-import { Fragment, useState } from 'react';
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  useIsMutating,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import { Loader2, Pencil, Plus, ShoppingCart, Trash2 } from 'lucide-react';
 import type { CategoryDTO, ShoppingItemDTO, ShoppingListDTO } from '@/lib/types';
 import { canModify, type PageAccess } from '@/lib/permissions';
@@ -26,6 +38,7 @@ import { Dialog } from '@/components/ui/dialog';
 import { FieldNote } from '@/components/ui/field-note';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
+import { useEditingCount, type ReportEditing } from '@/components/editing-pause';
 import { LinkField } from '@/components/shopping/link-field';
 import {
   ShoppingItemRow,
@@ -33,6 +46,9 @@ import {
 } from '@/components/shopping/shopping-item-row';
 
 const LISTS_KEY = ['shopping-lists'];
+// The lists are shared: poll so one person's changes reach everyone else's
+// screen. TanStack pauses the interval while the tab is in the background.
+const POLL_MS = 25_000;
 
 interface AddItemPayload {
   listId: string;
@@ -53,6 +69,32 @@ interface AddItemPayload {
 // navigates to another page mid-window.
 const UNDO_WINDOW_MS = 5500;
 const pendingRemovals = new Map<string, ReturnType<typeof setTimeout>>();
+// Removals sent but not yet answered: a poll landing in that gap would briefly
+// bring the item back, so they stay hidden too.
+const sendingRemovals = new Set<string>();
+
+function isRemoving(itemId: string): boolean {
+  return pendingRemovals.has(itemId) || sendingRemovals.has(itemId);
+}
+
+// The hidden ids as a snapshot the view subscribes to. Hiding has to change
+// the query's select function: copying the cached array to force a re-run did
+// nothing, since TanStack's structural sharing hands back the same array.
+const NO_REMOVALS: ReadonlySet<string> = new Set();
+let removalSnapshot: ReadonlySet<string> = NO_REMOVALS;
+const removalListeners = new Set<() => void>();
+
+function removalsChanged() {
+  removalSnapshot = new Set([...pendingRemovals.keys(), ...sendingRemovals]);
+  for (const listener of removalListeners) listener();
+}
+
+function subscribeRemovals(listener: () => void) {
+  removalListeners.add(listener);
+  return () => {
+    removalListeners.delete(listener);
+  };
+}
 
 function sendRemoval(itemId: string, keepalive = false) {
   return apiFetch<{ id: string }>('/api/shopping/items/delete', {
@@ -74,17 +116,20 @@ if (typeof window !== 'undefined') {
 }
 
 /** A refetch mid-window would bring a removed item back; keep it hidden. */
-function hidePendingRemovals(lists: ShoppingListDTO[]): ShoppingListDTO[] {
-  if (pendingRemovals.size === 0) return lists;
+function hidePendingRemovals(
+  lists: ShoppingListDTO[],
+  hidden: ReadonlySet<string>,
+): ShoppingListDTO[] {
+  if (hidden.size === 0) return lists;
   return lists.map((list) => {
-    const gone = list.items.filter((i) => pendingRemovals.has(i.id));
+    const gone = list.items.filter((i) => hidden.has(i.id));
     if (gone.length === 0) return list;
     const goneBought = gone.filter((i) => i.purchased).length;
     return {
       ...list,
       openCount: list.openCount - (gone.length - goneBought),
       purchasedCount: list.purchasedCount - goneBought,
-      items: list.items.filter((i) => !pendingRemovals.has(i.id)),
+      items: list.items.filter((i) => !hidden.has(i.id)),
     };
   });
 }
@@ -120,11 +165,31 @@ export function ShoppingView({
   const [confirmDeleteList, setConfirmDeleteList] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
 
+  // While a save is in flight, hold off polling: a poll answered before the
+  // server applied it would undo the optimistic check-off for a moment. Each
+  // mutation refetches when it settles, which resumes the interval.
+  const mutating = useIsMutating() > 0;
+  // Also while an item's edit form or the Rename list dialog is open: a poll
+  // that moved the row (another member ticked it off or changed its
+  // category) remounted it and lost what was typed.
+  const { editing: editingItem, report: reportEditing } = useEditingCount();
+  const editing = editingItem || renamingList;
+  const hidden = useSyncExternalStore(
+    subscribeRemovals,
+    () => removalSnapshot,
+    () => NO_REMOVALS,
+  );
+  const hideRemoved = useCallback(
+    (data: ShoppingListDTO[]) => hidePendingRemovals(data, hidden),
+    [hidden],
+  );
   const { data: lists = [] } = useQuery({
     queryKey: LISTS_KEY,
     queryFn: () => apiFetch<ShoppingListDTO[]>('/api/shopping/lists'),
     initialData: initialLists,
-    select: hidePendingRemovals,
+    select: hideRemoved,
+    refetchOnWindowFocus: !editing,
+    refetchInterval: mutating || editing ? false : POLL_MS,
   });
 
   // Derive the active list during render: honor the explicit selection when it
@@ -248,18 +313,25 @@ export function ShoppingView({
   // Deleting a single item is low-stakes, so skip the confirmation dialog: hide it
   // at once and only send the delete once the Undo window has passed.
   function removeItem(item: ShoppingItemDTO) {
-    if (pendingRemovals.has(item.id)) return;
+    if (isRemoving(item.id)) return;
     const timer = setTimeout(() => {
       pendingRemovals.delete(item.id);
+      sendingRemovals.add(item.id);
       sendRemoval(item.id)
         .catch((error) => {
           // The refetch below brings the item back.
           toast.error(error instanceof Error ? error.message : 'Something went wrong.');
         })
-        .finally(() => invalidate());
+        .finally(async () => {
+          // Unhide only once the refetch is in: unhiding first flashed the
+          // removed item back for a moment.
+          await invalidate();
+          sendingRemovals.delete(item.id);
+          removalsChanged();
+        });
     }, UNDO_WINDOW_MS);
     pendingRemovals.set(item.id, timer);
-    queryClient.setQueryData<ShoppingListDTO[]>(LISTS_KEY, (old) => old && [...old]);
+    removalsChanged();
     toast.info(`Removed “${item.name}”`, {
       label: 'Undo',
       onClick: () => {
@@ -267,7 +339,7 @@ export function ShoppingView({
         if (!pending) return;
         clearTimeout(pending);
         pendingRemovals.delete(item.id);
-        queryClient.setQueryData<ShoppingListDTO[]>(LISTS_KEY, (old) => old && [...old]);
+        removalsChanged();
       },
     });
   }
@@ -358,7 +430,8 @@ export function ShoppingView({
               type="button"
               onClick={() => selectList(list.id)}
               className={cn(
-                'rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors',
+                // min-h-11: a full-size tap target on phones.
+                'min-h-11 rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors sm:min-h-0',
                 list.id === selected?.id
                   ? 'border-primary bg-primary text-primary-foreground'
                   : 'border-input hover:bg-accent',
@@ -376,7 +449,7 @@ export function ShoppingView({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="size-8 text-muted-foreground hover:text-foreground"
+                  className="size-11 text-muted-foreground hover:text-foreground sm:size-8"
                   onClick={() => {
                     renameForm.clear();
                     setRenamingList(true);
@@ -390,7 +463,7 @@ export function ShoppingView({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="size-8 text-muted-foreground hover:text-destructive"
+                  className="size-11 text-muted-foreground hover:text-destructive sm:size-8"
                   onClick={() => setConfirmDeleteList(true)}
                   aria-label={`Delete ${selected.name}`}
                 >
@@ -416,6 +489,7 @@ export function ShoppingView({
           onToggle={(item) => togglePurchased.mutate(item)}
           onDelete={removeItem}
           onUpdate={(payload) => updateItem.mutateAsync(payload)}
+          onEditing={reportEditing}
           onClear={() => setConfirmClear(true)}
         />
       ) : !showNewList ? (
@@ -428,7 +502,10 @@ export function ShoppingView({
 
       {selected ? (
         <RenameListDialog
-          key={`${selected.id}:${selected.name}`}
+          // By id only: with the name in the key, another member's rename
+          // remounted the open dialog and replaced what was typed. The field
+          // takes the name when the dialog opens.
+          key={selected.id}
           open={renamingList}
           list={selected}
           pending={renameList.isPending}
@@ -516,6 +593,7 @@ function ListPanel({
   onToggle,
   onDelete,
   onUpdate,
+  onEditing,
   onClear,
 }: {
   list: ShoppingListDTO;
@@ -528,6 +606,8 @@ function ListPanel({
   onToggle: (item: ShoppingItemDTO) => void;
   onDelete: (item: ShoppingItemDTO) => void;
   onUpdate: (payload: UpdateItemPayload) => Promise<unknown>;
+  /** Told when a row's edit form opens and closes, so polling holds off. */
+  onEditing: ReportEditing;
   onClear: () => void;
 }) {
   const open = list.items.filter((i) => !i.purchased);
@@ -573,6 +653,7 @@ function ListPanel({
                       onToggle={onToggle}
                       onDelete={onDelete}
                       onUpdate={onUpdate}
+                      onEditing={onEditing}
                       busy={busyItemId === item.id}
                     />
                   </li>
@@ -607,6 +688,7 @@ function ListPanel({
                   onToggle={onToggle}
                   onDelete={onDelete}
                   onUpdate={onUpdate}
+                  onEditing={onEditing}
                   busy={busyItemId === item.id}
                 />
               </li>
@@ -638,6 +720,12 @@ function QuickAddItem({
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const fe = useFieldErrors('qa');
+  const nameRef = useRef<HTMLInputElement>(null);
+  // Focus the name field only on wider screens: on a phone, autofocus popped
+  // the keyboard open over the list on every visit.
+  useEffect(() => {
+    if (window.matchMedia('(min-width: 640px)').matches) nameRef.current?.focus();
+  }, []);
   // A refused option is hidden under "More options": open them so it can be seen.
   const detailKeys = ['priority', 'categoryId', 'estimatedPrice', 'notes', 'url', 'imageUrl'];
 
@@ -693,8 +781,8 @@ function QuickAddItem({
         <div className="min-w-0 flex-1" data-field="name">
           <Input
             aria-label="Item name"
+            ref={nameRef}
             value={name}
-            autoFocus
             onChange={(e) => setName(e.target.value)}
             placeholder="Add an item…"
             {...fe.invalid('name')}
@@ -728,7 +816,8 @@ function QuickAddItem({
         <button
           type="button"
           onClick={() => setShowDetails((v) => !v)}
-          className="text-xs font-medium text-muted-foreground hover:text-foreground"
+          // min-h-11: a full-size tap target on phones.
+          className="inline-flex min-h-11 items-center text-xs font-medium text-muted-foreground hover:text-foreground sm:min-h-0"
         >
           {showDetails ? 'Hide options' : 'More options'}
         </button>
@@ -845,6 +934,34 @@ function RenameListDialog({
   onClose: () => void;
   onRename: (name: string) => void;
 }) {
+  // The form mounts each time the dialog opens (a closed Dialog renders
+  // nothing), so the field starts from the list's name at that moment.
+  return (
+    <Dialog open={open} onClose={onClose} title="Rename list">
+      <RenameListForm
+        list={list}
+        pending={pending}
+        errors={errors}
+        onClose={onClose}
+        onRename={onRename}
+      />
+    </Dialog>
+  );
+}
+
+function RenameListForm({
+  list,
+  pending,
+  errors,
+  onClose,
+  onRename,
+}: {
+  list: ShoppingListDTO;
+  pending: boolean;
+  errors: FieldErrorsState;
+  onClose: () => void;
+  onRename: (name: string) => void;
+}) {
   const [name, setName] = useState(list.name);
 
   function handleSubmit(e: React.SubmitEvent<HTMLFormElement>) {
@@ -860,30 +977,28 @@ function RenameListDialog({
   }
 
   return (
-    <Dialog open={open} onClose={onClose} title="Rename list">
-      <form onSubmit={handleSubmit} className="space-y-4" {...errors.formProps}>
-        <div className="space-y-1.5" data-field="name">
-          <Label htmlFor="rename-list-name">List name</Label>
-          <Input
-            id="rename-list-name"
-            autoFocus
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            {...errors.invalid('name')}
-          />
-          <FieldNote id={errors.noteId('name')} error={errors.get('name')} />
-        </div>
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="ghost" onClick={onClose} disabled={pending}>
-            Cancel
-          </Button>
-          <Button type="submit" disabled={pending || !name.trim()}>
-            {pending ? <Loader2 className="animate-spin" /> : null}
-            Save
-          </Button>
-        </div>
-      </form>
-    </Dialog>
+    <form onSubmit={handleSubmit} className="space-y-4" {...errors.formProps}>
+      <div className="space-y-1.5" data-field="name">
+        <Label htmlFor="rename-list-name">List name</Label>
+        <Input
+          id="rename-list-name"
+          data-autofocus
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          {...errors.invalid('name')}
+        />
+        <FieldNote id={errors.noteId('name')} error={errors.get('name')} />
+      </div>
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="ghost" onClick={onClose} disabled={pending}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={pending || !name.trim()}>
+          {pending ? <Loader2 className="animate-spin" /> : null}
+          Save
+        </Button>
+      </div>
+    </form>
   );
 }
 

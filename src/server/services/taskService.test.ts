@@ -374,6 +374,18 @@ describe('undoCompletion: changed since?', () => {
     stored = { id: 't1', title: 'Dishes', status: 'pending' };
     await undoCompletion(H, head, 'done1');
     expect(writes.map(([name]) => name)).toContain('taskCompletion.update');
+    // Its "your turn" notice gives the due day in the household's zone.
+    expect(ready.announceTaskReady).toHaveBeenCalledWith(tx, H, expect.objectContaining({ id: 't1' }), 'boss', 'America/Chicago');
+  });
+
+  it('an undo at the same moment as another change is told plainly (409)', async () => {
+    prisma.$transaction.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError('conflict', { code: 'P2034', clientVersion: 'test' }),
+    );
+    await expect(undoCompletion(H, head, 'done1')).rejects.toMatchObject({
+      name: 'ConflictError',
+      message: 'Someone else changed this at the same moment. Try again.',
+    });
   });
 
   it('still refuses a task edited after the completion was written', async () => {

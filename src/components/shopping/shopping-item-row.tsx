@@ -5,7 +5,12 @@ import { useState, type CSSProperties } from 'react';
 import { Check, ExternalLink, Loader2, Pencil, Repeat, Trash2 } from 'lucide-react';
 import type { CategoryDTO, ShoppingItemDTO } from '@/lib/types';
 import { canModify, hasAnyAccess, type PageAccess } from '@/lib/permissions';
-import { SHOPPING_PRIORITIES, SHOPPING_PRIORITY_LABELS } from '@/lib/enums';
+import {
+  SHOPPING_PRIORITIES,
+  SHOPPING_PRIORITY_LABELS,
+  type ShoppingPriority,
+} from '@/lib/enums';
+import { formatMoney } from '@/lib/format';
 import { isAmazonUrl, parseAmazonLink } from '@/lib/amazon';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
@@ -16,6 +21,7 @@ import { Select } from '@/components/ui/select';
 import { FieldNote } from '@/components/ui/field-note';
 import { useFieldErrors } from '@/lib/use-field-errors';
 import { LinkField } from '@/components/shopping/link-field';
+import { useHoldsEditing, type ReportEditing } from '@/components/editing-pause';
 
 export interface UpdateItemPayload {
   itemId: string;
@@ -64,15 +70,15 @@ export function ItemLink({ url }: { url: string }) {
   );
 }
 
-function priorityVariant(priority: string): 'secondary' | 'destructive' | 'warning' {
-  switch (priority) {
-    case 'high':
-      return 'destructive';
-    case 'medium':
-      return 'warning';
-    default:
-      return 'secondary';
-  }
+function priorityVariant(priority: string): 'secondary' | 'destructive' {
+  return priority === 'high' ? 'destructive' : 'secondary';
+}
+
+/** The pill shows only a non-default priority: Medium is the default, and a
+ * pill on nearly every row said nothing. */
+function priorityLabel(priority: string): string | null {
+  if (priority === 'medium') return null;
+  return SHOPPING_PRIORITY_LABELS[priority as ShoppingPriority] ?? priority;
 }
 
 export function ShoppingItemRow({
@@ -83,6 +89,7 @@ export function ShoppingItemRow({
   onToggle,
   onDelete,
   onUpdate,
+  onEditing,
   busy,
 }: {
   item: ShoppingItemDTO;
@@ -93,6 +100,8 @@ export function ShoppingItemRow({
   onToggle: (item: ShoppingItemDTO) => void;
   onDelete: (item: ShoppingItemDTO) => void;
   onUpdate: (payload: UpdateItemPayload) => Promise<unknown>;
+  /** Told when the edit form opens and closes, so the view holds off polling. */
+  onEditing?: ReportEditing;
   busy: boolean;
 }) {
   const [editing, setEditing] = useState(false);
@@ -100,7 +109,7 @@ export function ShoppingItemRow({
   const [notesOpen, setNotesOpen] = useState(false);
   const { purchased } = item;
   // Ticking off isn't an edit: any Shopping access will do (matches the API).
-  const canToggle = hasAnyAccess(access);
+  const canToggle = hasAnyAccess(access, 'shopping');
   const canEdit = canModify(access, 'edit', item.createdById, userId);
   const canDelete = canModify(access, 'delete', item.createdById, userId);
   const cells = rowCells(item);
@@ -110,6 +119,7 @@ export function ShoppingItemRow({
       <EditItemForm
         item={item}
         categories={categories}
+        onEditing={onEditing}
         onCancel={() => setEditing(false)}
         onSave={async (payload) => {
           await onUpdate(payload);
@@ -181,7 +191,7 @@ export function ShoppingItemRow({
           >
             {item.estimatedPrice != null ? (
               <span className="shrink-0 tabular-nums sm:hidden">
-                ${item.estimatedPrice.toFixed(2)}
+                {formatMoney(item.estimatedPrice)}
               </span>
             ) : null}
             {item.estimatedPrice != null && item.notes ? (
@@ -212,14 +222,16 @@ export function ShoppingItemRow({
         <div className={cn(CELL, 'flex items-center justify-end gap-2')} style={cells.actions}>
           {item.estimatedPrice != null ? (
             <span className="hidden text-xs tabular-nums text-muted-foreground sm:inline">
-              ${item.estimatedPrice.toFixed(2)}
+              {formatMoney(item.estimatedPrice)}
             </span>
           ) : null}
           {item.recurring ? (
             <Repeat className="size-3.5 text-muted-foreground" aria-label="Recurring" />
           ) : null}
-          {!purchased ? (
-            <Badge variant={priorityVariant(item.priority)}>{item.priority}</Badge>
+          {!purchased && priorityLabel(item.priority) ? (
+            <Badge variant={priorityVariant(item.priority)}>
+              {priorityLabel(item.priority)}
+            </Badge>
           ) : null}
           {canEdit ? (
             <Button
@@ -228,7 +240,7 @@ export function ShoppingItemRow({
               className="size-9 text-muted-foreground hover:text-foreground"
               onClick={() => setEditing(true)}
               disabled={busy}
-              aria-label="Edit item"
+              aria-label={`Edit ${item.name}`}
             >
               <Pencil />
             </Button>
@@ -240,7 +252,7 @@ export function ShoppingItemRow({
               className="size-9 text-muted-foreground hover:text-destructive"
               onClick={() => onDelete(item)}
               disabled={busy}
-              aria-label="Remove item"
+              aria-label={`Remove ${item.name}`}
             >
               <Trash2 />
             </Button>
@@ -281,11 +293,13 @@ function rowCells(item: ShoppingItemDTO) {
 function EditItemForm({
   item,
   categories,
+  onEditing,
   onCancel,
   onSave,
 }: {
   item: ShoppingItemDTO;
   categories: CategoryDTO[];
+  onEditing?: ReportEditing;
   onCancel: () => void;
   onSave: (payload: UpdateItemPayload) => Promise<void>;
 }) {
@@ -302,6 +316,12 @@ function EditItemForm({
   const [imageUrl, setImageUrl] = useState<string | null>(item.imageUrl);
   const [saving, setSaving] = useState(false);
   const fe = useFieldErrors(`edit-${item.id}`);
+  useHoldsEditing(onEditing);
+  // A category this page wasn't given (made since it loaded): still offer
+  // it, so the picker doesn't show "None" for the item's own category.
+  const own = item.category;
+  const categoryOptions =
+    own && !categories.some((c) => c.id === own.id) ? [...categories, own] : categories;
 
   async function handleSubmit(e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -390,7 +410,7 @@ function EditItemForm({
             {...fe.invalid('categoryId')}
           >
             <option value="">None</option>
-            {categories.map((c) => (
+            {categoryOptions.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
               </option>

@@ -46,7 +46,7 @@ export function SetupSteps({ person }: { person: Person }) {
       />
       <Row
         done={phone !== null}
-        label="Signed in to the OurHome app"
+        label="Signed in to the Our Home app"
         detail={
           phone ? (
             <>
@@ -64,7 +64,7 @@ export function SetupSteps({ person }: { person: Person }) {
           label={PHONE_SETUP_STEP_LABELS[step]}
           detail={
             done === null && phone
-              ? 'Their app is too old to say. Update OurHome on their phone.'
+              ? 'Their app is too old to say. Update Our Home on their phone.'
               : step === 'preventUninstall' && done !== true
                 ? 'A parent does this one: it needs the parent PIN.'
                 : undefined

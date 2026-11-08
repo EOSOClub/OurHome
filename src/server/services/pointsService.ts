@@ -13,6 +13,7 @@ import {
 } from '@/lib/taskCycles';
 import type { PointAwardDTO, PointsSettingsDTO, PointsSummaryDTO } from '@/lib/types';
 import { ForbiddenError, NotFoundError } from '@/server/services/errors';
+import { markRemindersStale } from '@/server/services/reminderRuns';
 
 // Task points: who earns what, when, and the ledger behind the stats. The
 // rules (docs/points.md):
@@ -73,6 +74,9 @@ export async function updatePointsSettings(
     },
     select: { timezone: true, weekStartsOn: true, minutesPerPoint: true },
   });
+  // Reminder times depend on the zone (due today, 9:00 for all-day events),
+  // and this save logs no activity, so mark them stale here (reminderRuns).
+  markRemindersStale(householdId);
   return settingsFrom(row);
 }
 

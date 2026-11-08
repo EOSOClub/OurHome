@@ -1,13 +1,15 @@
+import type { Prisma } from '@prisma/client';
 import { getPointsSettings } from '@/server/services/pointsService';
 import { prisma } from '@/server/db/prisma';
 import { logActivity } from '@/server/services/activityService';
 import { cyclePaymentsWhere } from '@/server/services/billService';
 import { syncBillEvent } from '@/server/services/billCalendarService';
 import { nextAfterOccurrence } from '@/server/services/recurrenceService';
-import { billName, billSel, fromLabel, hasRolledOn, normalizeRule } from '@/server/billIngest/common';
-import { findMatchingBill, sentFee, splitFee, type MatchedBill } from '@/server/billIngest/matching';
+import { billName, billSel, fromLabel, hasRolledOn, normalizeRule, otherBiller } from '@/server/billIngest/common';
+import { cents, feeCeiling, findMatchingBill, sentFee, splitFee, type MatchedBill } from '@/server/billIngest/matching';
 import type { IngestOptions, IngestResult } from '@/server/billIngest/types';
 import type { BillIngestInput } from '@/lib/validation/billIngest';
+import { dateKey } from '@/lib/format';
 
 // A receipt (payment) document: a payment on the bill it pays, or, when
 // allowed, a new bill recorded as already paid. Which bill it pays is worked
@@ -20,6 +22,67 @@ import type { BillIngestInput } from '@/lib/validation/billIngest';
 // bill back (after a reconnect, say); the same payment row is reused so the
 // spending is never counted twice.
 
+/**
+ * True when a recurring bill has a cycle paid already whose due date is on or
+ * after `paidAt`: a payment made by then was for that cycle (or an earlier
+ * one), not the current one. A payment made after it, for example the next
+ * month's under the same loan number, is for the current cycle.
+ *
+ * Also true when a paid cycle already has this very payment: the same amount
+ * on the same day (in the household's zone) under the same reference, or with
+ * none. A cycle paid late has a payment after its due date, so the date rule
+ * alone would take a second document for it as the next cycle's payment and
+ * roll the bill on again. A new month's payment is on another day.
+ */
+async function paidForClosedCycle(
+  tx: Prisma.TransactionClient,
+  bill: MatchedBill,
+  paidAt: Date,
+  amount: number,
+  reference: string,
+  timeZone: () => Promise<string>,
+): Promise<boolean> {
+  if (!bill.recurrenceId || !bill.dueDate) return false;
+  const latest = await tx.billPayment.findFirst({
+    where: { billId: bill.id, cycleDueDate: { lt: bill.dueDate } },
+    orderBy: { cycleDueDate: 'desc' },
+    select: { cycleDueDate: true },
+  });
+  if (!latest?.cycleDueDate) return false;
+  if (paidAt.getTime() <= latest.cycleDueDate.getTime()) return true;
+
+  // Two days either side covers any zone; the day itself is compared below.
+  const DAY = 24 * 60 * 60 * 1000;
+  const near = await tx.billPayment.findMany({
+    where: {
+      billId: bill.id,
+      cycleDueDate: { lt: bill.dueDate },
+      paidAt: { gte: new Date(paidAt.getTime() - 2 * DAY), lt: new Date(paidAt.getTime() + 2 * DAY) },
+    },
+    select: { amount: true, fee: true, paidAt: true, reference: true },
+  });
+  if (!near.length) return false;
+  const zone = await timeZone();
+  const day = dateKey(paidAt, zone);
+  const want = cents(amount);
+  // The amount as charged (with its card fee) or as applied: a payment added
+  // by hand may have been entered either way. Entered by hand with no fee,
+  // the charged amount on the slip is the applied one plus a card fee, as
+  // much as a fee can be on this bill (feeCeiling, as when a slip is split).
+  const ceiling = feeCeiling(bill.amount);
+  const samePayment = (p: { amount: number; fee: number | null }) => {
+    if (cents(p.amount + (p.fee ?? 0)) === want || cents(p.amount) === want) return true;
+    const extra = cents(want - p.amount);
+    return p.fee == null && extra > 0 && extra <= ceiling;
+  };
+  return near.some(
+    (p) =>
+      dateKey(p.paidAt, zone) === day &&
+      samePayment(p) &&
+      (p.reference == null || p.reference === reference),
+  );
+}
+
 export async function ingestReceipt(
   householdId: string,
   doc: BillIngestInput,
@@ -31,6 +94,9 @@ export async function ingestReceipt(
   const name = billName(doc);
   const from = fromLabel(opts.source);
   const notes = doc.subject ? `From ${from}: ${doc.subject}` : null;
+  // The household's zone, looked up once and only when needed.
+  let zone: Promise<string> | undefined;
+  const timeZone = () => (zone ??= getPointsSettings(householdId).then((s) => s.timezone));
 
   return prisma.$transaction(async (tx) => {
     const paired = opts.receiptPairing === 'reference';
@@ -78,6 +144,17 @@ export async function ingestReceipt(
           // Deterministic if two bills ever share a reference: the newest.
           orderBy: { createdAt: 'desc' },
         });
+        // Two billers' bills can share an invoice number (bill.ts keeps them
+        // apart): prefer the one from this payment's biller. The biller never
+        // rules a bill out here, since OurHomeInbox already paired it.
+        if (match && otherBiller(match, doc)) {
+          const same = await tx.bill.findMany({
+            where: { householdId, reference },
+            include: { recurrence: true },
+            orderBy: { createdAt: 'desc' },
+          });
+          match = same.find((b) => !otherBiller(b, doc)) ?? match;
+        }
         if (!match) {
           return { status: 'skipped' as const, kind: 'receipt' as const, reference, reason: "Its bill isn't in OurHome" };
         }
@@ -102,7 +179,21 @@ export async function ingestReceipt(
       // most one payment, so a recurring bill that has already rolled past
       // the email's cycle (a payment recorded for another cycle) counts as
       // paid too; otherwise this would pay the next cycle and roll it again.
-      if (paired && (match.status === 'paid' || outstanding < 0.005 || (await hasRolledOn(tx, match)))) {
+      //
+      // A Paperless payment found by its invoice number (a second document
+      // for one payment: card slip and bank confirmation, or a bill paid by
+      // hand whose receipt is scanned later) gets the same check, except for
+      // part payments: several can pay one invoice, each while some of it is
+      // still owed. A recurring bill there can share one number every month
+      // (a loan number), so it counts as paid only when this payment was made
+      // on or before the due date of a cycle already paid, or when a paid
+      // cycle already has the same payment (amount and day): it belongs to
+      // that cycle, and would otherwise pay the next one and roll it on again.
+      const byReference = !paired && match.reference === reference;
+      if (
+        (paired && (match.status === 'paid' || outstanding < 0.005 || (await hasRolledOn(tx, match)))) ||
+        (byReference && (match.status === 'paid' || outstanding < 0.005 || (await paidForClosedCycle(tx, match, paidAt, amount, reference, timeZone))))
+      ) {
         return {
           status: 'skipped' as const,
           kind: 'receipt' as const,
@@ -126,7 +217,7 @@ export async function ingestReceipt(
       const paidTotal = prior + applied;
       const fullyPaid = paidTotal + 0.005 >= match.amount; // cent tolerance
 
-      const rule = normalizeRule(match.recurrence, (await getPointsSettings(householdId)).timezone);
+      const rule = normalizeRule(match.recurrence, await timeZone());
       const next = rule ? nextAfterOccurrence(rule, match.dueDate) : null;
       const recurrenceEnded =
         !!match.recurrence && match.recurrence.kind !== 'cron' && next === null;
@@ -173,8 +264,9 @@ export async function ingestReceipt(
     // Bills tab shows what was paid (the user asked for bills and payments made
     // to be added automatically). Honor an explicit fee split so the bill's balance is the base
     // amount and the surcharge is recorded separately (not baked into the balance).
-    const fee = doc.fee ?? null;
-    const base = fee != null ? (doc.baseAmount ?? Math.max(0, amount - fee)) : amount;
+    // Whole cents, like every other money value (matching.ts cents).
+    const fee = doc.fee != null ? cents(doc.fee) : null;
+    const base = cents(fee != null ? (doc.baseAmount ?? Math.max(0, amount - fee)) : amount);
     const bill = await tx.bill.create({
       data: {
         householdId,

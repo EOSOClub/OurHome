@@ -170,6 +170,8 @@ export function ContactDialog({
       <Dialog
         open={open}
         onClose={handleClose}
+        // A stray tap outside must not throw away the message being typed.
+        preventOutsideClose
         title="Contact us"
         description="Send us a message and we'll be in touch."
       >

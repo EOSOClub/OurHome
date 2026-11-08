@@ -63,6 +63,28 @@ export async function healAwaitingReview<T extends { id: string; status: string 
   return { ...task, status: 'pending' };
 }
 
+/**
+ * healAwaitingReview for a task listed earlier (the sweep), run in [tx] (its
+ * own transaction): the write only lands while the task still waits for an
+ * OK. An approval that committed since the list has made it completed, and
+ * writing pending over that would let it be completed and paid again.
+ * Returns whether it changed anything.
+ */
+export async function healListedTask(tx: Tx, householdId: string, taskId: string): Promise<boolean> {
+  const waiting = await tx.taskSubmission.findFirst({
+    where: { householdId, taskId, kind: 'task', status: 'waiting' },
+    select: { id: true },
+  });
+  if (waiting) return false;
+  const res = await tx.task.updateMany({
+    where: { id: taskId, householdId, status: 'awaiting_review' },
+    data: { status: 'pending' },
+  });
+  if (res.count === 0) return false;
+  console.warn(`[tasks] task ${taskId} was waiting for a check with none waiting; set back to pending`);
+  return true;
+}
+
 // --- Shared by sending, deciding, undoing and settling checks ------------------
 
 /** Bell row for each supervisor when a child sends a task for a check. */

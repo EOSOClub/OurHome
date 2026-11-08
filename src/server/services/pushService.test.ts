@@ -142,7 +142,8 @@ describe('a quiet phone', () => {
   });
 
   it('marks the phone when Firebase says its app is gone', async () => {
-    prisma.pushDevice.findMany.mockResolvedValue([{ token: 'tok', installId: 'install-1' }]);
+    // Its one token; after it's dropped, none is left for the install.
+    prisma.pushDevice.findMany.mockResolvedValueOnce([{ token: 'tok', installId: 'install-1' }]);
     fcm.sendData.mockResolvedValueOnce('invalid_token');
     expect(await pingInstall(H, 'mia', 'install-1')).toBe('gone');
     expect(fcm.sendData.mock.calls[0]).toEqual(['tok', expect.objectContaining({ type: 'ping' }), 600, 'normal']);
@@ -151,6 +152,21 @@ describe('a quiet phone', () => {
       where: { installId: { in: ['install-1'] } },
       data: { pushGoneAt: expect.any(Date) },
     });
+  });
+
+  it('drops a rotated token without marking a phone that still has its new one', async () => {
+    // Firebase rotated the token: the app registered the new one for the same
+    // install, and the old row is still there until Firebase calls it dead.
+    prisma.pushDevice.findMany
+      .mockResolvedValueOnce([
+        { token: 'old', installId: 'install-1' },
+        { token: 'new', installId: 'install-1' },
+      ])
+      .mockResolvedValueOnce([{ token: 'new', installId: 'install-1' }]); // left after the delete
+    fcm.sendData.mockResolvedValueOnce('invalid_token').mockResolvedValueOnce('sent');
+    expect(await pushToMember(H, 'mia', { type: 'usage_refresh' })).toBe(1);
+    expect(prisma.pushDevice.deleteMany).toHaveBeenCalledWith({ where: { token: { in: ['old'] } } });
+    expect(prisma.phoneStatus.updateMany).not.toHaveBeenCalled();
   });
 
   it('says so when a ping went, or when there is nothing to ping with', async () => {

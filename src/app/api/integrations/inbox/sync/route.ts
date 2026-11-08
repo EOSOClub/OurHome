@@ -1,5 +1,6 @@
 import { fail, ok, requirePermission, withAuth } from '@/server/api/http';
 import { getInboxStatus, hasInbox, runInboxSync } from '@/server/inbox/sync';
+import { syncFailureMessage } from '@/server/api/syncError';
 import { can } from '@/lib/permissions';
 
 // Settings → "Check now": run this household's OurHomeInbox import
@@ -14,7 +15,7 @@ export const POST = withAuth(async (ctx) => {
   try {
     await runInboxSync(householdId);
   } catch (err) {
-    return fail(err instanceof Error ? err.message : 'OurHomeInbox import failed.', 502);
+    return fail(syncFailureMessage(err, 'OurHomeInbox import failed. The server log has the details.', 'inbox'), 502);
   }
   return ok(await getInboxStatus(householdId, can(ctx.user.role, 'household:manage')));
 });

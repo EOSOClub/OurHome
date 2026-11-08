@@ -305,6 +305,37 @@ describe('decideSubmission: approve', () => {
     expect(writes).toEqual([]);
   });
 
+  it('an approval that went through is answered as such when the roll after it loses a race', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const conflict = () => new Prisma.PrismaClientKnownRequestError('conflict', { code: 'P2034', clientVersion: 'test' });
+    setUp();
+    // Nothing to roll before deciding; after it, the cycle the check was paid in has ended.
+    prisma.task.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 't1' }]);
+    prisma.$transaction
+      .mockImplementationOnce(async (fn) => fn(tx))
+      .mockRejectedValueOnce(conflict())
+      .mockRejectedValueOnce(conflict());
+    await expect(decideSubmission(H, mum, { submissionId: 's1', decision: 'approve' })).resolves.toEqual({ taskId: 't1', completionId: 'done1' });
+    expect(written('taskCompletion.create')).toHaveLength(1);
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it('a decision whose roll first loses a race is told plainly (409), deciding nothing', async () => {
+    const conflict = () => new Prisma.PrismaClientKnownRequestError('conflict', { code: 'P2034', clientVersion: 'test' });
+    setUp();
+    prisma.task.findMany.mockResolvedValueOnce([{ id: 't1' }]);
+    prisma.$transaction.mockRejectedValueOnce(conflict()).mockRejectedValueOnce(conflict());
+    await expect(decideSubmission(H, mum, { submissionId: 's1', decision: 'approve' })).rejects.toMatchObject({
+      name: 'ConflictError',
+      message: 'Someone else changed this at the same moment. Try again.',
+    });
+    prisma.task.findMany.mockResolvedValueOnce([{ id: 't1' }]);
+    prisma.$transaction.mockRejectedValueOnce(conflict()).mockRejectedValueOnce(conflict());
+    await expect(withdrawSubmission(H, kid, 's1')).rejects.toMatchObject({ name: 'ConflictError' });
+    expect(writes).toEqual([]);
+  });
+
   it('a steps check already decided can’t be decided again; an unknown one is not found', async () => {
     setUp(check({ kind: 'steps', status: 'approved' }));
     await expect(decideSubmission(H, mum, { submissionId: 's1', decision: 'approve' })).rejects.toMatchObject({ name: 'ConflictError' });
@@ -516,12 +547,42 @@ describe('settleOrphanedSubmissions', () => {
   it('opens tasks left waiting with nothing to wait for first', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     prisma.task.findMany.mockResolvedValueOnce([{ id: 't9', status: 'awaiting_review' }]);
-    prisma.taskSubmission.findFirst.mockResolvedValueOnce(null);
+    tx.taskSubmission.findFirst.mockResolvedValueOnce(null);
     prisma.taskSubmission.findMany.mockResolvedValue([]);
     await settleOrphanedSubmissions(H, NOW);
-    expect(written('prisma.task.update')).toEqual([{ where: { id: 't9' }, data: { status: 'pending' } }]);
+    // In a transaction, and only while it still waits (see the next test).
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(written('task.updateMany')).toEqual([
+      { where: { id: 't9', householdId: H, status: 'awaiting_review' }, data: { status: 'pending' } },
+    ]);
+    expect(written('prisma.task.update')).toEqual([]);
     expect(warn).toHaveBeenCalledTimes(1);
     warn.mockRestore();
+  });
+
+  it('never reopens a task approved between the list and the heal', async () => {
+    // The approval made it completed and its check approved: the conditional
+    // write matches nothing, so the task stays done and can't be paid twice.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    prisma.task.findMany.mockResolvedValueOnce([{ id: 't9', status: 'awaiting_review' }]);
+    tx.taskSubmission.findFirst.mockResolvedValueOnce(null);
+    tx.task.updateMany.mockResolvedValueOnce({ count: 0 });
+    prisma.taskSubmission.findMany.mockResolvedValue([]);
+    await settleOrphanedSubmissions(H, NOW);
+    expect(written('prisma.task.update')).toEqual([]);
+    expect(written('task.update')).toEqual([]);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('a heal that fails is logged and the settling goes on', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    prisma.task.findMany.mockResolvedValueOnce([{ id: 't9', status: 'awaiting_review' }]);
+    prisma.$transaction.mockRejectedValueOnce(new Prisma.PrismaClientKnownRequestError('conflict', { code: 'P2034', clientVersion: 'test' }));
+    tx.user.findFirst.mockResolvedValue(null);
+    expect(await settleOrphanedSubmissions(H, NOW)).toBe(1);
+    expect(error).toHaveBeenCalledTimes(1);
+    error.mockRestore();
   });
 
   it('one check failing never stops the others', async () => {
@@ -677,8 +738,11 @@ describe('countTasksToCheck and deleteExpiredPhotos', () => {
     prisma.taskPhoto.findMany.mockResolvedValueOnce([{ submissionId: 's1' }, { submissionId: 's2' }]);
     prisma.taskSubmission.findMany.mockResolvedValueOnce([{ id: 's1' }]);
     expect(await deleteExpiredPhotos(H, NOW)).toBe(1);
+    // With a lower bound: a bare `lte` also matches a check still waiting
+    // (no photoDeleteAt) or put back in To check by an undo (null), and their
+    // photos went before an adult saw them (src/server/db/dateFilters.ts).
     expect(prisma.taskSubmission.findMany).toHaveBeenCalledWith({
-      where: { householdId: H, id: { in: ['s1', 's2'] }, photoDeleteAt: { lte: NOW } },
+      where: { householdId: H, id: { in: ['s1', 's2'] }, photoDeleteAt: { gte: new Date(0), lte: NOW } },
       select: { id: true },
     });
     expect(written('prisma.taskPhoto.deleteMany')).toEqual([{ where: { householdId: H, submissionId: { in: ['s1'] } } }]);

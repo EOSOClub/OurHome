@@ -25,6 +25,7 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { FieldNote } from '@/components/ui/field-note';
 import { useFieldErrors } from '@/lib/use-field-errors';
+import { useHoldsEditing, type ReportEditing } from '@/components/editing-pause';
 
 export function InventoryRow({
   item,
@@ -37,6 +38,7 @@ export function InventoryRow({
   canAddToShopping,
   onAdjust,
   onUpdate,
+  onEditing,
   onDelete,
   onAddToShopping,
   addingToShopping,
@@ -56,6 +58,8 @@ export function InventoryRow({
   onAdjust: (delta: number) => void;
   /** Resolves once saved; rejects when refused (the edit form stays open, marked). */
   onUpdate: (payload: UpdateItemPayload) => Promise<unknown>;
+  /** Told when the edit form opens and closes, so the view holds off polling. */
+  onEditing?: ReportEditing;
   onDelete: () => void;
   onAddToShopping: () => void;
   addingToShopping: boolean;
@@ -64,7 +68,7 @@ export function InventoryRow({
   const [editing, setEditing] = useState(false);
   const [amount, setAmount] = useState('');
   // Using up / restocking isn't an edit: any Inventory access will do.
-  const canAdjust = hasAnyAccess(access);
+  const canAdjust = hasAnyAccess(access, 'inventory');
   const canEdit = canModify(access, 'edit', item.createdById, userId);
   const canDelete = canModify(access, 'delete', item.createdById, userId);
 
@@ -82,6 +86,7 @@ export function InventoryRow({
         categories={categories}
         places={places}
         busy={busy}
+        onEditing={onEditing}
         onCancel={() => setEditing(false)}
         onSave={async (payload) => {
           // Closes only once saved: a refusal leaves the form open with the field marked.
@@ -164,7 +169,7 @@ export function InventoryRow({
               className="size-11 text-muted-foreground hover:text-destructive sm:size-9"
               onClick={() => applyAmount(-1)}
               disabled={busy || !amount}
-              aria-label="Subtract amount"
+              aria-label={`Subtract amount from ${item.name}`}
             >
               <Minus />
             </Button>
@@ -174,7 +179,7 @@ export function InventoryRow({
               className="size-11 text-muted-foreground hover:text-foreground sm:size-9"
               onClick={() => applyAmount(1)}
               disabled={busy || !amount}
-              aria-label="Add amount"
+              aria-label={`Add amount to ${item.name}`}
             >
               <Plus />
             </Button>
@@ -188,7 +193,7 @@ export function InventoryRow({
                 className={cn(
                   'size-9',
                   addedToShopping
-                    ? 'text-success'
+                    ? 'text-success-text'
                     : 'text-muted-foreground hover:text-foreground',
                 )}
                 onClick={onAddToShopping}
@@ -215,7 +220,7 @@ export function InventoryRow({
                 className="size-9 text-muted-foreground hover:text-foreground"
                 onClick={() => setEditing(true)}
                 disabled={busy}
-                aria-label="Edit item"
+                aria-label={`Edit ${item.name}`}
               >
                 <Pencil />
               </Button>
@@ -227,7 +232,7 @@ export function InventoryRow({
                 className="size-9 text-muted-foreground hover:text-destructive"
                 onClick={onDelete}
                 disabled={busy}
-                aria-label="Remove item"
+                aria-label={`Remove ${item.name}`}
               >
                 <Trash2 />
               </Button>
@@ -242,6 +247,7 @@ function EditForm({
   categories,
   places,
   busy,
+  onEditing,
   onCancel,
   onSave,
 }: {
@@ -249,6 +255,7 @@ function EditForm({
   categories: CategoryDTO[];
   places: PlacesDTO;
   busy: boolean;
+  onEditing?: ReportEditing;
   onCancel: () => void;
   /** Resolves once saved; rejects when refused. */
   onSave: (payload: UpdateItemPayload) => Promise<unknown>;
@@ -263,6 +270,12 @@ function EditForm({
   const [location, setLocation] = useState(placeValue(item));
   const hasPlaces = places.floors.length > 0 || places.rooms.length > 0;
   const fe = useFieldErrors(`inv-edit-${item.id}`);
+  useHoldsEditing(onEditing);
+  // A category made elsewhere that this page hasn't fetched yet: still offer
+  // it, so the picker doesn't show "None" for the item's own category.
+  const own = item.category;
+  const categoryOptions =
+    own && !categories.some((c) => c.id === own.id) ? [...categories, own] : categories;
 
   async function handleSubmit(e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -358,7 +371,7 @@ function EditForm({
             {...fe.invalid('categoryId')}
           >
             <option value="">None</option>
-            {categories.map((c) => (
+            {categoryOptions.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
               </option>

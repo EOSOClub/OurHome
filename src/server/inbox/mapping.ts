@@ -77,9 +77,13 @@ function firstIssue(error: z.ZodError): string {
   return issue ? `${issue.path.join('.') || 'reply'}: ${issue.message.replace(/\.+$/, '')}` : 'unreadable';
 }
 
-/** `YYYY-MM-DD` days become noon local time, like dates picked in the web UI and the Paperless import. */
-function dayField(value: unknown): unknown {
-  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) return parseDay(value.trim());
+/**
+ * `YYYY-MM-DD` days become noon in the household's time zone, like dates
+ * picked in the web UI and the Paperless import (see parseDay for why the
+ * household's zone and not the server's).
+ */
+function dayField(value: unknown, timeZone: string): unknown {
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) return parseDay(value.trim(), timeZone);
   return value;
 }
 
@@ -100,14 +104,15 @@ function titleOf(doc: Record<string, unknown>, captureId: string): string {
 export function toIngestInput(
   raw: Record<string, unknown>,
   url: string | null,
+  timeZone: string,
 ): { input: BillIngestInput; problem: null } | { input: null; problem: string } {
   // OurHome builds the link itself (contract); one sent along is ignored.
   const rest: Record<string, unknown> = { ...raw };
   delete rest.sourceUrl;
   const parsed = billIngestSchema.safeParse({
     ...rest,
-    dueDate: dayField(rest.dueDate),
-    paidDate: dayField(rest.paidDate),
+    dueDate: dayField(rest.dueDate, timeZone),
+    paidDate: dayField(rest.paidDate, timeZone),
     sourceUrl: url,
   });
   if (!parsed.success) {
@@ -126,8 +131,14 @@ export function toIngestInput(
  * so the stored number is not moved past documents that were never handled.
  * One document whose fields OurHome can't read comes back with a `problem`
  * instead, so it is listed as skipped and the rest still come in.
+ * `timeZone` is the household's: plain days become noon there.
  */
-export function parseDocumentsReply(body: unknown, after: number, publicUrl: string | null): InboxPage {
+export function parseDocumentsReply(
+  body: unknown,
+  after: number,
+  publicUrl: string | null,
+  timeZone: string,
+): InboxPage {
   const reply = replySchema.safeParse(body);
   if (!reply.success) throw new InboxReplyError(`OurHomeInbox sent a reply OurHome can't read (${firstIssue(reply.error)}).`);
 
@@ -157,7 +168,7 @@ export function parseDocumentsReply(body: unknown, after: number, publicUrl: str
       throw new InboxReplyError(`OurHomeInbox sent a document OurHome can't read (documents.${i}.${firstIssue(r.error)}).`);
     }
     const url = emailUrl(publicUrl, r.data.link);
-    const mapped = toIngestInput(r.data.document, url);
+    const mapped = toIngestInput(r.data.document, url, timeZone);
     entries.push({
       status: 'ready',
       number: r.data.number,

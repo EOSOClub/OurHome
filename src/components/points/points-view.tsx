@@ -5,18 +5,21 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { ChevronLeft, ChevronRight, Loader2, Trophy } from 'lucide-react';
 import type { PointAwardDTO, PointsSummaryDTO } from '@/lib/types';
 import { apiFetch } from '@/lib/api';
-import { addDays, parseLocalDate, type LocalDate } from '@/lib/taskCycles';
+import { addDays, parseLocalDate } from '@/lib/taskCycles';
+import { APP_LOCALE, dateKey } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { iso, nextPeriodDate } from '@/components/points/points-period';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { LoadError } from '@/components/ui/load-error';
 import { Select } from '@/components/ui/select';
 import { toast } from '@/components/ui/toast';
 import { FieldNote } from '@/components/ui/field-note';
 import { useFieldErrors } from '@/lib/use-field-errors';
-import { RelativeTime } from '@/components/household-zone';
+import { RelativeTime, useHouseholdZone } from '@/components/household-zone';
 
 type Period = PointsSummaryDTO['period'];
 const PERIODS: { value: Period; label: string }[] = [
@@ -32,10 +35,6 @@ const KIND_LABELS: Record<string, string> = {
   step_repeat: 'Step again',
 };
 
-function iso(d: LocalDate): string {
-  return `${d.year}-${String(d.month).padStart(2, '0')}-${String(d.day).padStart(2, '0')}`;
-}
-
 /** A date inside the previous/next period, from the current period's start. */
 function shift(summary: PointsSummaryDTO, direction: -1 | 1): string {
   const start = parseLocalDate(summary.startDate)!;
@@ -47,11 +46,11 @@ function periodTitle(s: PointsSummaryDTO): string {
   const start = new Date(`${s.startDate}T12:00:00`);
   switch (s.period) {
     case 'day':
-      return start.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+      return start.toLocaleDateString(APP_LOCALE, { weekday: 'long', month: 'short', day: 'numeric' });
     case 'week':
-      return `Week of ${start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+      return `Week of ${start.toLocaleDateString(APP_LOCALE, { month: 'short', day: 'numeric' })}`;
     case 'month':
-      return start.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+      return start.toLocaleDateString(APP_LOCALE, { month: 'long', year: 'numeric' });
     case 'year':
       return String(start.getFullYear());
   }
@@ -67,6 +66,7 @@ export function PointsView({
   isHead: boolean;
 }) {
   const queryClient = useQueryClient();
+  const timeZone = useHouseholdZone();
   const [period, setPeriod] = useState<Period>('week');
   const [date, setDate] = useState<string | null>(null);
   const [member, setMember] = useState('');
@@ -80,7 +80,13 @@ export function PointsView({
     initialData: period === 'week' && !date ? initialSummary : undefined,
     placeholderData: keepPreviousData,
   });
-  const { data: awards = [], isPending: awardsPending } = useQuery({
+  const {
+    data: awards = [],
+    isPending: awardsPending,
+    isError: awardsError,
+    isFetching: awardsFetching,
+    refetch: refetchAwards,
+  } = useQuery({
     queryKey: ['points', 'awards', period, date, member],
     queryFn: () =>
       apiFetch<PointAwardDTO[]>(`/api/points/awards?${params}${member ? `&userId=${member}` : ''}`),
@@ -124,7 +130,8 @@ export function PointsView({
                 setDate(null);
               }}
               className={cn(
-                'rounded px-3 py-1 text-sm font-medium',
+                // min-h-11: a full-size tap target on phones.
+                'min-h-11 rounded px-3 py-1 text-sm font-medium sm:min-h-0',
                 period === p.value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent',
               )}
             >
@@ -146,8 +153,9 @@ export function PointsView({
           disabled={isCurrent}
           onClick={() => {
             const next = shift(summary, 1);
-            // Back to "now" once the next period is the current one.
-            setDate(new Date(`${next}T12:00:00`) > new Date() ? null : next);
+            // Back to "now" once the next period is the current one (holds
+            // today in the household's zone).
+            setDate(nextPeriodDate(summary.period, next, dateKey(new Date(), timeZone)));
           }}
         >
           <ChevronRight />
@@ -215,7 +223,14 @@ export function PointsView({
             ))}
           </Select>
         </div>
-        {awardsPending ? (
+        {/* Checked first: a failed load has no awards, and must not read as "no points". */}
+        {awardsError && awards.length === 0 ? (
+          <LoadError
+            message="Couldn't load the points history. Check your connection and try again."
+            onRetry={() => void refetchAwards()}
+            retrying={awardsFetching}
+          />
+        ) : awardsPending ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : awards.length === 0 ? (
           <p className="text-sm text-muted-foreground">No points in this period yet.</p>

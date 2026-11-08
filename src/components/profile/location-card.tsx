@@ -6,6 +6,7 @@ import { isSharing, type LocationConsent } from '@/lib/location';
 import { canChangeOwnSharing } from '@/lib/permissions';
 import type { LiveCheckDTO, LiveChecksOverviewDTO } from '@/lib/types';
 import { apiFetch } from '@/lib/api';
+import { APP_LOCALE } from '@/lib/format';
 import { Button } from '@/components/ui/button';
 import { SectionCard } from '@/components/ui/collapsible-card';
 import { toast } from '@/components/ui/toast';
@@ -57,6 +58,13 @@ export function LocationCard({ initial }: { initial: LocationConsent }) {
   const sharing = isSharing(consent.sharing);
   const locked = !canChangeOwnSharing(consent.sharing);
   const onMe = checks?.onMe ?? null;
+  // While a change saves, the box shows what was just picked: bound to the saved
+  // value alone, it snapped back until the save landed.
+  const pendingChange = update.isPending ? update.variables : undefined;
+  const sharingShown =
+    pendingChange && 'sharing' in pendingChange ? pendingChange.sharing === 'on' : sharing;
+  const liveChecksShown =
+    pendingChange && 'liveChecks' in pendingChange ? pendingChange.liveChecks : consent.liveChecks;
 
   return (
     <SectionCard
@@ -70,7 +78,7 @@ export function LocationCard({ initial }: { initial: LocationConsent }) {
           <span className="flex items-center gap-2">
             <Radio className="size-4 text-primary" />
             {onMe.requesterName} is checking where you are until{' '}
-            {new Date(onMe.endsAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}.
+            {new Date(onMe.endsAt).toLocaleTimeString(APP_LOCALE, { hour: 'numeric', minute: '2-digit' })}.
           </span>
           {/* Older servers don't say; then sharing being required decides, as before. */}
           {(onMe.canStopOnMe ?? !locked) ? (
@@ -85,7 +93,7 @@ export function LocationCard({ initial }: { initial: LocationConsent }) {
         <input
           type="checkbox"
           className="mt-0.5 size-4 shrink-0 rounded border-input"
-          checked={sharing}
+          checked={sharingShown}
           disabled={locked || update.isPending}
           onChange={(e) => update.mutate({ sharing: e.target.checked ? 'on' : 'off' })}
         />
@@ -114,7 +122,7 @@ export function LocationCard({ initial }: { initial: LocationConsent }) {
           <input
             type="checkbox"
             className="mt-0.5 size-4 shrink-0 rounded border-input"
-            checked={consent.liveChecks}
+            checked={liveChecksShown}
             disabled={update.isPending}
             onChange={(e) => update.mutate({ liveChecks: e.target.checked })}
           />

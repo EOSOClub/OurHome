@@ -7,14 +7,23 @@ const db = { event: [] as Row[], rule: [] as Row[], attendee: [] as Row[] };
 let seq = 0;
 const nextId = (p: string) => `${p}${++seq}`;
 
+// Every operator given must hold. Like MongoDB, a range never matches a
+// missing or null date, and `not: null` alone matches a missing field.
 function matches(row: Row, where: Record<string, unknown> = {}): boolean {
   return Object.entries(where).every(([k, cond]) => {
+    if (k === 'OR') return (cond as Record<string, unknown>[]).some((w) => matches(row, w));
+    if (k === 'AND') return (cond as Record<string, unknown>[]).every((w) => matches(row, w));
     const v = row[k];
     if (cond && typeof cond === 'object' && !(cond instanceof Date)) {
-      const c = cond as { in?: unknown[]; gte?: Date };
-      if (c.in) return c.in.includes(v);
-      if (c.gte) return v instanceof Date && v >= c.gte;
-      return false;
+      const c = cond as { in?: unknown[]; gte?: Date; lte?: Date; not?: unknown; isSet?: boolean };
+      const ops = Object.keys(c);
+      if (ops.length === 0 || ops.some((op) => !['in', 'gte', 'lte', 'not', 'isSet'].includes(op))) return false;
+      if (c.in && !c.in.includes(v)) return false;
+      if (c.gte && !(v instanceof Date && v >= c.gte)) return false;
+      if (c.lte && !(v instanceof Date && v <= c.lte)) return false;
+      if ('not' in c && (c.not === null ? v === null : v === c.not)) return false;
+      if (c.isSet !== undefined && (k in row && v !== undefined) !== c.isSet) return false;
+      return true;
     }
     if (cond instanceof Date) return v instanceof Date && v.getTime() === cond.getTime();
     return v === cond;
@@ -202,6 +211,55 @@ describe('expandEvent', () => {
     expect(expandEvent(one, null, at('2026-11-02T00:00:00Z'), at('2026-11-03T00:00:00Z'))).toHaveLength(0);
   });
 
+  it('lists a time the spring DST change skips once and goes on', () => {
+    // Daily at 2:30 Chicago; Mar 8 2026 has no 2:30.
+    const chicago = { kind: 'daily' as const, interval: 1, anchorDate: at('2026-03-01T08:30:00Z'), timeZone: 'America/Chicago' };
+    const out = expandEvent(
+      { startAt: at('2026-03-01T08:30:00Z'), endAt: null },
+      chicago,
+      at('2026-03-06T00:00:00Z'),
+      at('2026-03-12T23:59:59Z'),
+    );
+    expect(out).toHaveLength(7);
+    expect(new Set(out.map((d) => d.getTime())).size).toBe(7);
+    // The skipped date is still one of the series' dates (it can be edited).
+    expect(isOccurrence(chicago, [], out[2])).toBe(true);
+  });
+
+  it('lists a series date already under way at the range start', () => {
+    // Weekly 15:00-16:00, looked at from 15:30 that day: still on.
+    const weekly = { kind: 'weekly' as const, interval: 1, anchorDate: at('2026-11-02T15:00:00Z') };
+    const meeting = { startAt: at('2026-11-02T15:00:00Z'), endAt: at('2026-11-02T16:00:00Z') };
+    const out = expandEvent(meeting, weekly, at('2026-11-09T15:30:00Z'), at('2026-11-16T15:30:00Z'));
+    expect(out.map((d) => d.toISOString())).toEqual(['2026-11-09T15:00:00.000Z', '2026-11-16T15:00:00.000Z']);
+    // Over already: left out, as a one-off would be.
+    expect(expandEvent(meeting, weekly, at('2026-11-09T16:00:01Z'), at('2026-11-10T00:00:00Z'))).toEqual([]);
+    // A three-day date from last month running into this one.
+    const monthly = { kind: 'monthly' as const, interval: 1, anchorDate: at('2026-10-30T00:00:00Z') };
+    const trip = { startAt: at('2026-10-30T00:00:00Z'), endAt: at('2026-11-01T23:59:00Z') };
+    expect(expandEvent(trip, monthly, NOV.start, NOV.end).map((d) => d.toISOString())).toEqual([
+      '2026-10-30T00:00:00.000Z',
+      '2026-11-30T00:00:00.000Z',
+    ]);
+  });
+
+  it('an all-day date with no end lasts to the end of its day in the household zone', () => {
+    // A yearly birthday on Nov 10, local midnight in Chicago (06:00 UTC).
+    const zone = 'America/Chicago';
+    const midnight = at('2026-11-10T06:00:00Z');
+    const yearly = { kind: 'yearly' as const, interval: 1, anchorDate: midnight, timeZone: zone };
+    const bday = { startAt: midnight, endAt: null, allDay: true };
+    const week = (from: string) => [at(from), new Date(at(from).getTime() + 7 * 86_400_000)] as const;
+    // Asked from 9:00 that morning, as the dashboard does: still today's.
+    expect(expandEvent(bday, yearly, ...week('2026-11-10T15:00:00Z'))).toEqual([midnight]);
+    expect(expandEvent(bday, null, ...week('2026-11-10T15:00:00Z'), zone)).toEqual([midnight]);
+    // From midnight the next day: over.
+    expect(expandEvent(bday, yearly, ...week('2026-11-11T06:00:00Z'))).toEqual([]);
+    expect(expandEvent(bday, null, ...week('2026-11-11T06:00:00Z'), zone)).toEqual([]);
+    // Not all day: still a moment, as before.
+    expect(expandEvent({ ...bday, allDay: false }, yearly, ...week('2026-11-10T15:00:00Z'))).toEqual([]);
+  });
+
   it('isOccurrence knows real, off-pattern and skipped dates', () => {
     expect(isOccurrence(rule, [], at('2026-11-05T09:00:00Z'))).toBe(true);
     expect(isOccurrence(rule, [], at('2026-11-05T10:00:00Z'))).toBe(false);
@@ -328,6 +386,75 @@ describe('editing "This and following"', () => {
     ]);
   });
 
+  it('works from a date changed on its own, and that date gets the new values', async () => {
+    const id = await weeklySeries();
+    await updateEvent(HH, 'u1', { id, scope: 'this', occurrenceStart: week(1), title: 'A' });
+    const override = db.event.find((e) => e.seriesId === id)!;
+    await updateEvent(HH, 'u1', {
+      id: override.id,
+      scope: 'following',
+      title: 'B',
+      startAt: week(1),
+      endAt: new Date(week(1).getTime() + 3_600_000),
+      recurrence: { kind: 'weekly', interval: 1, timezone: 'UTC' },
+    });
+    expect(await starts()).toEqual([
+      ['2026-11-02T15:00:00.000Z', 'Piano'],
+      ['2026-11-09T15:00:00.000Z', 'B'],
+      ['2026-11-16T15:00:00.000Z', 'B'],
+      ['2026-11-23T15:00:00.000Z', 'B'],
+      ['2026-11-30T15:00:00.000Z', 'B'],
+    ]);
+    // Listed once: its row moved to the new series, which leaves its date out.
+    expect(db.event.find((e) => e.id === override.id)).toMatchObject({ title: 'B' });
+    expect(db.event.find((e) => e.title === 'B' && e.recurrenceId)!.excludedStarts).toEqual([week(1)]);
+  });
+
+  it('from a date moved on its own keeps its own time, as "All events" does', async () => {
+    const id = await weeklySeries();
+    const own = new Date(week(1).getTime() + 3_600_000); // week 1 alone at 16:00
+    const hour = (d: Date) => new Date(d.getTime() + 3_600_000);
+    const rule = { kind: 'weekly' as const, interval: 1, timezone: 'UTC' };
+    await updateEvent(HH, 'u1', { id, scope: 'this', occurrenceStart: week(1), startAt: own, endAt: hour(own) });
+    const override = db.event.find((e) => e.seriesId === id)!;
+    // The dialog opened on 16:00 and the time was left alone.
+    await updateEvent(HH, 'u1', { id: override.id, scope: 'following', title: 'B', startAt: own, endAt: hour(own), recurrence: rule });
+    expect(await starts()).toEqual([
+      ['2026-11-02T15:00:00.000Z', 'Piano'],
+      ['2026-11-09T16:00:00.000Z', 'B'],
+      ['2026-11-16T15:00:00.000Z', 'B'],
+      ['2026-11-23T15:00:00.000Z', 'B'],
+      ['2026-11-30T15:00:00.000Z', 'B'],
+    ]);
+    // Its row stays, now one of the new series' changed dates.
+    expect(db.event.find((e) => e.id === override.id)).toMatchObject({ title: 'B', seriesId: expect.any(String) });
+    expect(db.event.find((e) => e.id === override.id)!.seriesId).not.toBe(id);
+  });
+
+  it('from a date moved on its own, a changed time moves the later dates and drops it', async () => {
+    const id = await weeklySeries();
+    const own = new Date(week(2).getTime() + 3_600_000); // week 2 alone at 16:00
+    const hour = (d: Date) => new Date(d.getTime() + 3_600_000);
+    await updateEvent(HH, 'u1', { id, scope: 'this', occurrenceStart: week(2), startAt: own, endAt: hour(own) });
+    const override = db.event.find((e) => e.seriesId === id)!;
+    // Opened on 16:00, moved to 17:00: an hour later from here on.
+    await updateEvent(HH, 'u1', {
+      id: override.id,
+      scope: 'following',
+      startAt: hour(own),
+      endAt: hour(hour(own)),
+      recurrence: { kind: 'weekly', interval: 1, timezone: 'UTC' },
+    });
+    expect((await starts()).map(([s]) => s)).toEqual([
+      '2026-11-02T15:00:00.000Z',
+      '2026-11-09T15:00:00.000Z',
+      '2026-11-16T16:00:00.000Z',
+      '2026-11-23T16:00:00.000Z',
+      '2026-11-30T16:00:00.000Z',
+    ]);
+    expect(db.event.find((e) => e.id === override.id)).toBeUndefined();
+  });
+
   it('from the first date is the whole series', async () => {
     const id = await weeklySeries();
     await updateEvent(HH, 'u1', { id, scope: 'following', occurrenceStart: MON, title: 'Renamed' });
@@ -367,6 +494,29 @@ describe('editing "All events"', () => {
     expect(await starts()).toHaveLength(5);
   });
 
+  it('from a date changed on its own also changes that date', async () => {
+    const id = await weeklySeries();
+    await updateEvent(HH, 'u1', { id, scope: 'this', occurrenceStart: week(1), title: 'A' });
+    await updateEvent(HH, 'u1', { id, scope: 'this', occurrenceStart: week(3), title: 'Recital' });
+    const opened = db.event.find((e) => e.title === 'A')!;
+    await updateEvent(HH, 'u1', {
+      id: opened.id,
+      scope: 'all',
+      title: 'B',
+      startAt: week(1),
+      endAt: new Date(week(1).getTime() + 3_600_000),
+      recurrence: { kind: 'weekly', interval: 1, timezone: 'UTC' },
+    });
+    expect(await starts()).toEqual([
+      ['2026-11-02T15:00:00.000Z', 'B'],
+      ['2026-11-09T15:00:00.000Z', 'B'],
+      ['2026-11-16T15:00:00.000Z', 'B'],
+      // Another date changed on its own keeps its change on a text-only edit.
+      ['2026-11-23T15:00:00.000Z', 'Recital'],
+      ['2026-11-30T15:00:00.000Z', 'B'],
+    ]);
+  });
+
   it('still works for callers that send no scope (old clients)', async () => {
     const id = await weeklySeries();
     await updateEvent(HH, 'u1', { id, scope: 'all', title: 'Plain' });
@@ -396,6 +546,15 @@ describe('deleting', () => {
     await updateEvent(HH, 'u1', { id, scope: 'this', occurrenceStart: week(3), title: 'Recital' });
     await deleteEvent(HH, 'u1', { id, scope: 'following', occurrenceStart: week(2) });
     expect((await starts()).map(([s]) => s)).toEqual(['2026-11-02T15:00:00.000Z', '2026-11-09T15:00:00.000Z']);
+    expect(db.event).toHaveLength(1);
+  });
+
+  it('"This and following" from a changed date ends the series there', async () => {
+    const id = await weeklySeries();
+    await updateEvent(HH, 'u1', { id, scope: 'this', occurrenceStart: week(1), title: 'A' });
+    const override = db.event.find((e) => e.seriesId === id)!;
+    await deleteEvent(HH, 'u1', { id: override.id, scope: 'following' });
+    expect((await starts()).map(([s]) => s)).toEqual(['2026-11-02T15:00:00.000Z']);
     expect(db.event).toHaveLength(1);
   });
 
@@ -475,5 +634,65 @@ describe('event kinds', () => {
     expect(later).toMatchObject({ kind: 'appointment', provider: 'Dr. Patel', phone: '555-0100', title: 'Physio' });
     await updateEvent(HH, 'u1', { id: later.id, scope: 'all', phone: null });
     expect(db.event.find((e) => e.id === later.id)!.phone).toBeNull();
+  });
+});
+
+describe('listOccurrences loads only the events that can be in the range', () => {
+  const oneOff = (title: string, startAt: Date, endAt?: Date) =>
+    createEvent(HH, 'u1', { kind: 'event', title, startAt, endAt, allDay: false });
+
+  it('lists repeats, one-offs inside, a multi-day one running into the range, and a moved date', async () => {
+    const id = await weeklySeries();
+    await oneOff('Long ago', at('2025-03-01T10:00:00Z'));
+    await oneOff('Long trip', at('2025-03-01T10:00:00Z'), at('2025-03-09T10:00:00Z'));
+    await oneOff('Next year', at('2027-02-01T10:00:00Z'));
+    await oneOff('Dentist', at('2026-11-12T10:00:00Z'));
+    await oneOff('Holiday', at('2026-10-28T10:00:00Z'), at('2026-11-03T10:00:00Z'));
+    // A real MongoDB row made without an end or a repeat has no such fields at all.
+    const bare = await oneOff('Bare', at('2026-11-20T10:00:00Z'));
+    const row = db.event.find((e) => e.id === bare.eventId)!;
+    delete row.endAt;
+    delete row.recurrenceId;
+    await oneOff('Bare and old', at('2025-01-01T10:00:00Z'));
+    delete db.event[db.event.length - 1].recurrenceId;
+    // One date of the series moved on its own: a one-off row of its series.
+    await updateEvent(HH, 'u1', { id, scope: 'this', occurrenceStart: week(1), startAt: at('2026-11-10T15:00:00Z') });
+
+    prisma.event.findMany.mockClear();
+    const listed = await listOccurrences(HH, NOV.start, NOV.end);
+    const loaded = (await prisma.event.findMany.mock.results[0].value) as { title: string }[];
+    expect(loaded.map((e) => e.title).sort()).toEqual(['Bare', 'Dentist', 'Holiday', 'Piano', 'Piano'].sort());
+    expect(listed.map((o) => [o.start, o.title])).toEqual([
+      ['2026-10-28T10:00:00.000Z', 'Holiday'],
+      ['2026-11-02T15:00:00.000Z', 'Piano'],
+      ['2026-11-10T15:00:00.000Z', 'Piano'],
+      ['2026-11-12T10:00:00.000Z', 'Dentist'],
+      ['2026-11-16T15:00:00.000Z', 'Piano'],
+      ['2026-11-20T10:00:00.000Z', 'Bare'],
+      ['2026-11-23T15:00:00.000Z', 'Piano'],
+      ['2026-11-30T15:00:00.000Z', 'Piano'],
+    ]);
+    // The moved date still carries its series' repeat.
+    expect(listed.find((o) => o.start === '2026-11-10T15:00:00.000Z')).toMatchObject({ recurring: true, seriesId: id });
+  });
+
+  it('lists today’s all-day dates with no end when asked from later that day, once', async () => {
+    const NOV10 = at('2026-11-10T00:00:00.000Z');
+    // The dialog sends no end for a yearly event.
+    await createEvent(HH, 'u1', {
+      kind: 'birthday',
+      title: 'Birthday',
+      startAt: NOV10,
+      allDay: true,
+      recurrence: { kind: 'yearly', interval: 1, timezone: 'UTC' },
+    });
+    await createEvent(HH, 'u1', { kind: 'event', title: 'Day off', startAt: NOV10, allDay: true });
+    const from = (s: string) => listOccurrences(HH, at(s), new Date(at(s).getTime() + 7 * 86_400_000));
+    // 9:00 on the day, as the dashboard asks.
+    expect((await from('2026-11-10T09:00:00Z')).map((o) => [o.start, o.title, o.end])).toEqual([
+      ['2026-11-10T00:00:00.000Z', 'Birthday', null],
+      ['2026-11-10T00:00:00.000Z', 'Day off', null],
+    ]);
+    expect(await from('2026-11-11T00:00:00Z')).toEqual([]);
   });
 });

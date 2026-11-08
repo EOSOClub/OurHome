@@ -1,8 +1,16 @@
 import type { NextRequest } from 'next/server';
 import { ZodError } from 'zod';
-import { clientIp, fail, ok, rateLimit, validationFailed } from '@/server/api/http';
+import {
+  PUBLIC_BODY_MAX_BYTES,
+  clientIp,
+  fail,
+  ok,
+  rateLimit,
+  readJsonCapped,
+  validationFailed,
+} from '@/server/api/http';
 import { isFromLocalNetwork } from '@/server/security/network';
-import { ConflictError } from '@/server/services/errors';
+import { ConflictError, PayloadTooLargeError } from '@/server/services/errors';
 import {
   completeSetup,
   needsSetup,
@@ -38,12 +46,13 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   try {
-    const input = setupSchema.parse(await req.json().catch(() => ({})));
+    const input = setupSchema.parse(await readJsonCapped(req, PUBLIC_BODY_MAX_BYTES));
     return ok(await completeSetup(input), { status: 201 });
   } catch (err) {
     if (err instanceof ZodError) {
       return validationFailed(err);
     }
+    if (err instanceof PayloadTooLargeError) return fail('Request too large', 413);
     if (err instanceof ConflictError) return fail(err.message, 409);
     console.error('[setup] failed', err);
     return fail('Internal server error', 500);

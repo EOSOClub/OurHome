@@ -5,10 +5,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ExternalLink, FileText, Loader2, Pencil, RefreshCw, Unplug } from 'lucide-react';
 import type { PaperlessStatusDTO } from '@/lib/types';
 import { apiFetch } from '@/lib/api';
-import { safeHref } from '@/lib/format';
+import { APP_LOCALE, safeHref } from '@/lib/format';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CollapsibleCard } from '@/components/ui/collapsible-card';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { LoadError } from '@/components/ui/load-error';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { FieldNote } from '@/components/ui/field-note';
@@ -34,7 +36,12 @@ const OUTCOME_LABELS: Record<string, string> = {
 export function PaperlessCard() {
   const timeZone = useHouseholdZone();
   const queryClient = useQueryClient();
-  const { data: status } = useQuery({
+  const {
+    data: status,
+    isError,
+    isFetching,
+    refetch,
+  } = useQuery({
     queryKey: STATUS_KEY,
     queryFn: () => apiFetch<PaperlessStatusDTO>('/api/integrations/paperless'),
   });
@@ -75,7 +82,13 @@ export function PaperlessCard() {
       openWhen={!!status?.lastError}
     >
       {status ? <ConnectionSection status={status} /> : null}
-      {!status ? (
+      {!status && isError ? (
+        <LoadError
+          message="Couldn't load the Paperless import. Check your connection and try again."
+          onRetry={() => void refetch()}
+          retrying={isFetching}
+        />
+      ) : !status ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : !status.configured ? null : (
         <>
@@ -89,13 +102,13 @@ export function PaperlessCard() {
                 )}{' '}
                 <span className="text-muted-foreground">
                   {status.lastRunAt
-                    ? `Last checked ${new Date(status.lastRunAt).toLocaleString(undefined, { timeZone })}`
+                    ? `Last checked ${new Date(status.lastRunAt).toLocaleString(APP_LOCALE, { timeZone })}`
                     : 'Not checked yet'}
                 </span>
               </p>
               {status.since ? (
                 <p className="text-xs text-muted-foreground">
-                  Importing documents changed since {new Date(status.since).toLocaleDateString(undefined, { timeZone })}.
+                  Importing documents changed since {new Date(status.since).toLocaleDateString(APP_LOCALE, { timeZone })}.
                 </p>
               ) : null}
             </div>
@@ -115,7 +128,7 @@ export function PaperlessCard() {
           </div>
 
           {status.lastError ? (
-            <p className="rounded-md border border-[var(--color-warning)] px-3 py-2 text-sm">
+            <p className="rounded-md border border-warning px-3 py-2 text-sm">
               {status.lastError}
             </p>
           ) : null}
@@ -145,6 +158,7 @@ export function PaperlessCard() {
                         target="_blank"
                         rel="noreferrer"
                         className="shrink-0 text-muted-foreground hover:text-foreground"
+                        aria-label={`Open ${s.title} in Paperless`}
                         title="Open in Paperless"
                       >
                         <ExternalLink className="size-4" />
@@ -173,11 +187,13 @@ export function PaperlessCard() {
 function ConnectionSection({ status }: { status: PaperlessStatusDTO }) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const conn = status.connection;
 
   const disconnect = useMutation({
     mutationFn: () => apiFetch<PaperlessStatusDTO>('/api/integrations/paperless/disconnect', { method: 'POST' }),
     onSuccess: (next) => {
+      setConfirmDisconnect(false);
       queryClient.setQueryData(STATUS_KEY, next);
       toast.success('Paperless disconnected');
     },
@@ -219,12 +235,23 @@ function ConnectionSection({ status }: { status: PaperlessStatusDTO }) {
             <Pencil /> {conn!.source === 'server' ? 'Connect your own' : 'Change'}
           </Button>
           {conn!.source === 'household' ? (
-            <Button variant="ghost" size="sm" disabled={disconnect.isPending} onClick={() => disconnect.mutate()}>
+            <Button variant="ghost" size="sm" disabled={disconnect.isPending} onClick={() => setConfirmDisconnect(true)}>
               <Unplug /> Disconnect
             </Button>
           ) : null}
         </div>
       ) : null}
+      {/* Reconnecting needs the token pasted again, so ask first. */}
+      <ConfirmDialog
+        open={confirmDisconnect}
+        onClose={() => setConfirmDisconnect(false)}
+        onConfirm={() => disconnect.mutate()}
+        title="Disconnect Paperless?"
+        description="Bills it already brought in stay. You'll need to paste the token again to reconnect."
+        confirmLabel="Disconnect"
+        destructive
+        pending={disconnect.isPending}
+      />
     </div>
   );
 }

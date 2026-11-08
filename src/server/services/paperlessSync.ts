@@ -12,6 +12,8 @@ import {
 } from '@/server/paperless/mapping';
 import { paperlessNames } from '@/server/paperless/names';
 import { ingestFinancialDoc } from '@/server/billIngest/ingest';
+import { getPointsSettings } from '@/server/services/pointsService';
+import { DEFAULT_TIMEZONE } from '@/lib/taskCycles';
 import type { PaperlessStatusDTO, PaperlessSyncResultDTO } from '@/lib/types';
 
 // Imports bills and bill payments from Paperless-ngx.
@@ -48,8 +50,11 @@ interface ResolvedSetup {
   found: Record<string, string>;
 }
 
-/** Looks up the configured tag and field names; a required one missing is an error. */
-async function resolveSetup(client: PaperlessClient, cfg: PaperlessConfig): Promise<ResolvedSetup> {
+/**
+ * Looks up the configured tag and field names; a required one missing is an
+ * error. `timeZone` is the household's, so imported dates land at noon there.
+ */
+async function resolveSetup(client: PaperlessClient, cfg: PaperlessConfig, timeZone: string): Promise<ResolvedSetup> {
   const [tags, fields, correspondents] = await Promise.all([
     client.listAll<{ id: number; name: string }>('/api/tags/'),
     client.listAll<{ id: number; name: string; data_type: string }>('/api/custom_fields/'),
@@ -87,6 +92,7 @@ async function resolveSetup(client: PaperlessClient, cfg: PaperlessConfig): Prom
       fields: { amount: amount.id, dueDate: due?.id, accountNo: account?.id, invoiceNo: invoice?.id },
       correspondents: new Map(correspondents.map((c) => [c.id, c.name])),
       publicUrl: cfg.publicUrl,
+      timeZone,
     },
     tagIds: [...kindTags.keys()],
     found: {
@@ -269,7 +275,8 @@ async function syncOnce(householdId: string): Promise<PaperlessSyncResult | null
   try {
     if (windowEnd > cursor) {
       const client = new PaperlessClient(cfg);
-      const { ctx, tagIds } = await resolveSetup(client, cfg);
+      const { timezone } = await getPointsSettings(householdId);
+      const { ctx, tagIds } = await resolveSetup(client, cfg, timezone);
       const docs = await fetchDocuments(client, tagIds, cursor, windowEnd);
       result.checked = docs.length;
 
@@ -369,7 +376,8 @@ export async function savePaperlessConnection(
   const publicOnly = !(await paperlessMayUsePrivateNetwork(householdId));
   const cfg: PaperlessConfig = { url, token, publicUrl, publicOnly };
   try {
-    await resolveSetup(new PaperlessClient(cfg), cfg);
+    // Only checking the tags and fields exist: no dates are read, so any zone does.
+    await resolveSetup(new PaperlessClient(cfg), cfg, DEFAULT_TIMEZONE);
   } catch (err) {
     throw new ConflictError(`Couldn’t use that Paperless: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -408,7 +416,10 @@ export async function previewPaperless(days: number): Promise<{ found: Record<st
   const cfg = paperlessConfig();
   if (!cfg) throw new Error('Set PAPERLESS_URL and PAPERLESS_TOKEN first.');
   const client = new PaperlessClient(cfg);
-  const { ctx, tagIds, found } = await resolveSetup(client, cfg);
+  // No household here (the preview reads the server-wide connection and must
+  // write nothing, so it doesn't go looking for the admin's household): dates
+  // are shown at noon in the app's default zone.
+  const { ctx, tagIds, found } = await resolveSetup(client, cfg, DEFAULT_TIMEZONE);
   const now = new Date();
   const docs = await fetchDocuments(client, tagIds, new Date(now.getTime() - days * 86_400_000), now);
   return {

@@ -3,6 +3,7 @@ import { getPointsSettings } from '@/server/services/pointsService';
 import { prisma } from '@/server/db/prisma';
 import { logActivity } from '@/server/services/activityService';
 import { ConflictError, NotFoundError } from '@/server/services/errors';
+import { addDays, localDateOf, startOfLocalDate } from '@/lib/taskCycles';
 import {
   computeNextRunAt,
   formatIntList,
@@ -42,6 +43,9 @@ type RuleFields = Pick<
 
 // Cap occurrence expansion so a malformed rule can never loop forever.
 const MAX_OCCURRENCES = 500;
+// Longer than any local day (25 hours on a DST change), with room to spare:
+// how far back an all-day date with no end can start and still be on.
+const MAX_DAY_MS = 26 * 3_600_000;
 
 function buildRule(r: EventWithRelations['recurrence'], timeZone?: string): NormalizedRule | null {
   if (!r) return null;
@@ -168,27 +172,41 @@ function kindFields(
 
 /**
  * The starts of one event within [rangeStart, rangeEnd]: its own start for a
- * one-off event (when it overlaps the range), the rule's dates for a series,
- * less the dates left out of it (`excludedStarts`). Pure, for tests.
+ * one-off event, the rule's dates for a series (each when it overlaps the
+ * range), less the dates left out of it (`excludedStarts`). Pure, for tests.
  */
 export function expandEvent(
-  e: { startAt: Date; endAt: Date | null; excludedStarts?: Date[] | null },
+  e: { startAt: Date; endAt: Date | null; allDay?: boolean; excludedStarts?: Date[] | null },
   rule: NormalizedRule | null,
   rangeStart: Date,
   rangeEnd: Date,
+  timeZone?: string,
 ): Date[] {
+  // An all-day date saved with no end (every birthday and anniversary: the
+  // dialog sends none for a yearly event) counts as on until the end of its
+  // day in the household's zone, so it is still today's when asked from later
+  // that day (the dashboard asks from now). Only the overlap test uses this;
+  // the listed date keeps no end.
+  const zone = rule?.timeZone ?? timeZone ?? 'UTC';
+  const openAllDay = !!e.allDay && !e.endAt;
+  const endOfDay = (start: Date) =>
+    startOfLocalDate(addDays(localDateOf(start, zone), 1), zone).getTime() - 1;
   if (!rule) {
-    const overlapEnd = e.endAt ?? e.startAt;
+    const overlapEnd = e.endAt ?? (openAllDay ? new Date(endOfDay(e.startAt)) : e.startAt);
     return e.startAt <= rangeEnd && overlapEnd >= rangeStart ? [e.startAt] : [];
   }
   const skipped = new Set((e.excludedStarts ?? []).map((d) => d.getTime()));
   const out: Date[] = [];
-  let from = new Date(rangeStart.getTime() - 1);
+  // Overlap, like a one-off: a date that began before the range but is still
+  // on at its start (in progress, all day today, a trip from last month).
+  const durationMs = e.endAt ? Math.max(0, e.endAt.getTime() - e.startAt.getTime()) : 0;
+  const endOf = (start: Date) => (openAllDay ? endOfDay(start) : start.getTime() + durationMs);
+  let from = new Date(rangeStart.getTime() - (openAllDay ? MAX_DAY_MS : durationMs) - 1);
   let guard = 0;
   while (guard < MAX_OCCURRENCES) {
     const next = computeNextRunAt(rule, from);
     if (!next || next > rangeEnd) break;
-    if (next >= rangeStart && !skipped.has(next.getTime())) out.push(next);
+    if (endOf(next) >= rangeStart.getTime() && !skipped.has(next.getTime())) out.push(next);
     from = next;
     guard += 1;
   }
@@ -209,14 +227,50 @@ export function isOccurrence(
   );
 }
 
-/** Expand all events into individual occurrences within [rangeStart, rangeEnd]. */
+/**
+ * The events that can have a date in [rangeStart, rangeEnd]: every repeating
+ * one (its rule decides, in expandEvent), and the one-off ones that overlap
+ * the range by expandEvent's own test (start on or before the range's end,
+ * and end - or start, without an end, or the end of its day for an all-day
+ * one - on or after its start). Loading every
+ * event ever made, as this once did, grew with each past date on the
+ * calendar, and the dashboard and the reminder sweep call this all the time.
+ *
+ * It may load a little more than it lists (expandEvent still decides), but
+ * never less. A date changed on its own (seriesId) is a one-off row, so it is
+ * found by its dates; its series repeats, so it is always loaded too, which
+ * is what lends the changed date its series' repeat below.
+ *
+ * MongoDB (see db/dateFilters): a missing or null date sorts below every
+ * date, so a lower bound (`gte`) never matches one, while an upper bound
+ * (`lte`) does. Only `startAt` gets an upper bound here, and it is always
+ * set; a missing `endAt` simply fails the second branch and is caught by the
+ * third. `not: null` alone matches a missing field too, hence `isSet` next to it.
+ */
+function eventsInRange(householdId: string, rangeStart: Date, rangeEnd: Date): Prisma.EventWhereInput {
+  return {
+    householdId,
+    OR: [
+      { AND: [{ recurrenceId: { isSet: true } }, { recurrenceId: { not: null } }] },
+      // One-off with an end: it overlaps when it starts by the range's end and ends after its start.
+      { startAt: { lte: rangeEnd }, endAt: { gte: rangeStart } },
+      // One-off without an end (or with one, a harmless extra): it starts inside the range.
+      { startAt: { gte: rangeStart, lte: rangeEnd } },
+      // All day with no end: on until the end of its day, so it may have
+      // started up to a day before the range (expandEvent checks the day).
+      { allDay: true, startAt: { gte: new Date(rangeStart.getTime() - MAX_DAY_MS), lte: rangeEnd } },
+    ],
+  };
+}
+
+/** Expand the events into individual occurrences within [rangeStart, rangeEnd]. */
 export async function listOccurrences(
   householdId: string,
   rangeStart: Date,
   rangeEnd: Date,
 ): Promise<EventOccurrenceDTO[]> {
   const [events, { timezone }] = await Promise.all([
-    prisma.event.findMany({ where: { householdId }, include: eventInclude }),
+    prisma.event.findMany({ where: eventsInRange(householdId, rangeStart, rangeEnd), include: eventInclude }),
     getPointsSettings(householdId),
   ]);
   const byId = new Map(events.map((e) => [e.id, e]));
@@ -237,7 +291,7 @@ export async function listOccurrences(
   for (const e of events) {
     const rule = buildRule(e.recurrence, timezone);
     const repeat = e.recurrence ?? (e.seriesId ? byId.get(e.seriesId)?.recurrence : null) ?? null;
-    for (const start of expandEvent(e, rule, rangeStart, rangeEnd)) {
+    for (const start of expandEvent(e, rule, rangeStart, rangeEnd, timezone)) {
       const o = occurrence(e, start, repeat);
       if (e.billId) o.billAssigneeId = billAssignee.get(e.billId) ?? null;
       out.push(o);
@@ -321,8 +375,16 @@ function firstOccurrence(series: EventWithRelations, rule: NormalizedRule): Date
   return computeNextRunAt(rule, new Date(series.startAt.getTime() - 1));
 }
 
-function assertOccurrence(series: EventWithRelations, rule: NormalizedRule, start: Date) {
-  if (!isOccurrence(rule, series.excludedStarts, start)) {
+/**
+ * `own`: the original date of the changed date the dialog was opened from.
+ * Its series leaves that date out on purpose (the row stands in for it), so
+ * it still counts as one of the series' dates here.
+ */
+function assertOccurrence(series: EventWithRelations, rule: NormalizedRule, start: Date, own?: Date) {
+  const excluded = own
+    ? series.excludedStarts.filter((d) => d.getTime() !== own.getTime())
+    : series.excludedStarts;
+  if (!isOccurrence(rule, excluded, start)) {
     throw new ConflictError('That date isn’t part of this repeating event any more. Refresh and try again.');
   }
 }
@@ -503,6 +565,17 @@ export async function updateEvent(
     let series = existing;
     let date = occurrenceStart;
     let opened = occurrenceStart;
+    // The changed date the dialog was opened from, when it acts on its series.
+    let ownDate: Date | undefined;
+    // A series edit ("all" or "following") opened from a changed date: that
+    // date takes the edit too (it is the one the user edited), unless the
+    // series edit already dropped it. Other changed dates keep their own values on a
+    // text-only edit, as before.
+    const editOpenedDate = async (t: Tx) => {
+      if (ownDate && (await t.event.findFirst({ where: { id: existing.id, householdId } }))) {
+        await updateRow(t, householdId, existing, changes, attendees, undefined);
+      }
+    };
     if (existing.seriesId && existing.originalStart) {
       if (scope === 'this') {
         const row = await updateRow(tx, householdId, existing, changes, attendees, undefined);
@@ -516,6 +589,7 @@ export async function updateEvent(
         series = parent;
         date = existing.originalStart;
         opened = existing.startAt;
+        ownDate = existing.originalStart;
       }
     }
 
@@ -523,6 +597,7 @@ export async function updateEvent(
     if (!rule || scope === 'all' || !date) {
       const effective = rule && opened ? shiftSeries(series, opened, changes) : changes;
       const row = await updateRow(tx, householdId, series, effective, attendees, recurrence);
+      await editOpenedDate(tx);
       return { event: row, message: `updated event “${row.title}”` };
     }
 
@@ -530,9 +605,10 @@ export async function updateEvent(
     if (scope === 'following' && first && date <= first) {
       // From the first date on is the whole series.
       const row = await updateRow(tx, householdId, series, shiftSeries(series, opened!, changes), attendees, recurrence);
+      await editOpenedDate(tx);
       return { event: row, message: `updated event “${row.title}”` };
     }
-    assertOccurrence(series, rule, date);
+    assertOccurrence(series, rule, date, ownDate);
     const attendeesFor = attendees ?? series.attendees.map((a) => a.userId);
 
     if (scope === 'this') {
@@ -594,6 +670,10 @@ export async function updateEvent(
       !!newNormalized &&
       shiftedStart.getTime() === from.getTime() &&
       !repeatChanged(series.recurrence!, repeat!);
+    // The changed date the dialog was opened from is kept like the others, as
+    // "All events" keeps it: the dialog opened on its own (moved) time, so an
+    // edit that leaves the time alone must not put it back on the series'
+    // time. It takes the edit below. A changed time or repeat drops it.
     const fits = (d: Date) => keep && isOccurrence(newNormalized!, [], d);
     const keptOverrides = laterOverrides.filter((o) => fits(o.originalStart!));
     const droppedOverrides = laterOverrides.filter((o) => !fits(o.originalStart!));
@@ -611,6 +691,8 @@ export async function updateEvent(
       data: { excludedStarts: { set: series.excludedStarts.filter((d) => d < from) } },
     });
     const keptExcluded = later.filter(fits);
+    // The opened date, if kept, gets the dialog's changes (its own time stays).
+    await editOpenedDate(tx);
     const result = keptExcluded.length
       ? await tx.event.update({
           where: { id: created.id },
@@ -657,6 +739,8 @@ export async function deleteEvent(
       series = parent;
       date = existing.originalStart;
     }
+    // The changed date opened, which its series leaves out on purpose.
+    const ownDate = series === existing ? undefined : existing.originalStart ?? undefined;
 
     const rule = buildRule(series.recurrence, timezone);
     const first = rule ? firstOccurrence(series, rule) : null;
@@ -674,7 +758,7 @@ export async function deleteEvent(
       return;
     }
 
-    assertOccurrence(series, rule, date!);
+    assertOccurrence(series, rule, date!, ownDate);
     if (scope === 'this') {
       await tx.event.update({
         where: { id: series.id },

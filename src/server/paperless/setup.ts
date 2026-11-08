@@ -340,9 +340,22 @@ export class PaperlessAdmin {
     while (next) {
       const page: Page<T> = await this.get<Page<T>>(next);
       out.push(...page.results);
-      next = page.next ? new URL(page.next).pathname + new URL(page.next).search : null;
+      next = page.next ? this.pathOf(page.next) : null;
     }
     return out;
+  }
+
+  /**
+   * `next` is an absolute URL built from whatever host Paperless thinks it
+   * is; keep only the path + query. A Paperless served under a path
+   * (PAPERLESS_FORCE_SCRIPT_NAME) puts that path in its links too, and our
+   * address already ends in it, so it would be doubled. Same as client.ts.
+   */
+  private pathOf(link: string): string {
+    const u = new URL(link);
+    const base = new URL(this.url).pathname.replace(/\/+$/, '');
+    const path = base && u.pathname.startsWith(`${base}/`) ? u.pathname.slice(base.length) : u.pathname;
+    return path + u.search;
   }
 
   /** The first object of a list endpoint with this name (case-insensitive). */

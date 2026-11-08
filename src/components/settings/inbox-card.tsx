@@ -6,10 +6,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, ExternalLink, Loader2, Mail, Pencil, RefreshCw, Unplug } from 'lucide-react';
 import type { InboxSkippedDTO, InboxStatusDTO } from '@/lib/types';
 import { apiFetch } from '@/lib/api';
-import { safeHref } from '@/lib/format';
+import { APP_LOCALE, safeHref } from '@/lib/format';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CollapsibleCard } from '@/components/ui/collapsible-card';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { LoadError } from '@/components/ui/load-error';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { FieldNote } from '@/components/ui/field-note';
@@ -40,7 +42,12 @@ const TOKEN_PATTERN = /^ohi_[A-Za-z0-9_-]{43}$/;
 export function InboxCard() {
   const timeZone = useHouseholdZone();
   const queryClient = useQueryClient();
-  const { data: status } = useQuery({
+  const {
+    data: status,
+    isError,
+    isFetching,
+    refetch,
+  } = useQuery({
     queryKey: STATUS_KEY,
     queryFn: () => apiFetch<InboxStatusDTO>('/api/integrations/inbox'),
   });
@@ -81,14 +88,20 @@ export function InboxCard() {
       openWhen={!!status?.lastError || (!!status?.configured && status.paperlessConnected)}
     >
       {status?.configured && status.paperlessConnected ? (
-        <p className="rounded-md border border-[var(--color-warning)] px-3 py-2 text-sm">
+        <p className="rounded-md border border-warning px-3 py-2 text-sm">
           Paperless is connected too. If Paperless also reads your bills email, bills without an
           invoice number come in twice. Turn off Paperless&apos;s mail rules for that email, or
           disconnect Paperless if you no longer use it.
         </p>
       ) : null}
       {status ? <ConnectionSection status={status} /> : null}
-      {!status ? (
+      {!status && isError ? (
+        <LoadError
+          message="Couldn't load the OurHomeInbox import. Check your connection and try again."
+          onRetry={() => void refetch()}
+          retrying={isFetching}
+        />
+      ) : !status ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : !status.configured ? null : (
         <>
@@ -102,13 +115,13 @@ export function InboxCard() {
                 )}{' '}
                 <span className="text-muted-foreground">
                   {status.lastRunAt
-                    ? `Last checked ${new Date(status.lastRunAt).toLocaleString(undefined, { timeZone })}`
+                    ? `Last checked ${new Date(status.lastRunAt).toLocaleString(APP_LOCALE, { timeZone })}`
                     : 'Not checked yet'}
                 </span>
               </p>
               {status.since ? (
                 <p className="text-xs text-muted-foreground">
-                  Connected since {new Date(status.since).toLocaleDateString(undefined, { timeZone })}.
+                  Connected since {new Date(status.since).toLocaleDateString(APP_LOCALE, { timeZone })}.
                   Emails from before the start date set in OurHomeInbox never come in.
                 </p>
               ) : null}
@@ -120,7 +133,7 @@ export function InboxCard() {
           </div>
 
           {status.lastError ? (
-            <p className="rounded-md border border-[var(--color-warning)] px-3 py-2 text-sm">{status.lastError}</p>
+            <p className="rounded-md border border-warning px-3 py-2 text-sm">{status.lastError}</p>
           ) : null}
 
           {result ? (
@@ -194,11 +207,13 @@ function SkippedLink({ item }: { item: InboxSkippedDTO }) {
 function ConnectionSection({ status }: { status: InboxStatusDTO }) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const conn = status.connection;
 
   const disconnect = useMutation({
     mutationFn: () => apiFetch<InboxStatusDTO>('/api/integrations/inbox/disconnect', { method: 'POST' }),
     onSuccess: (next) => {
+      setConfirmDisconnect(false);
       queryClient.setQueryData(STATUS_KEY, next);
       toast.success('OurHomeInbox disconnected. Bills it brought in stay.');
     },
@@ -239,11 +254,22 @@ function ConnectionSection({ status }: { status: InboxStatusDTO }) {
           <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
             <Pencil /> Change
           </Button>
-          <Button variant="ghost" size="sm" disabled={disconnect.isPending} onClick={() => disconnect.mutate()}>
+          <Button variant="ghost" size="sm" disabled={disconnect.isPending} onClick={() => setConfirmDisconnect(true)}>
             <Unplug /> Disconnect
           </Button>
         </div>
       ) : null}
+      {/* Reconnecting needs the token pasted again, so ask first. */}
+      <ConfirmDialog
+        open={confirmDisconnect}
+        onClose={() => setConfirmDisconnect(false)}
+        onConfirm={() => disconnect.mutate()}
+        title="Disconnect OurHomeInbox?"
+        description="Bills it already brought in stay. You'll need to paste the token again to reconnect."
+        confirmLabel="Disconnect"
+        destructive
+        pending={disconnect.isPending}
+      />
     </div>
   );
 }

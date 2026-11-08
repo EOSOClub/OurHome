@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { InboxReplyError, helloSchema, parseDocumentsReply } from '@/server/inbox/mapping';
+import { InboxReplyError, helloSchema, parseDocumentsReply as parseIn } from '@/server/inbox/mapping';
+
+// The household's zone; days become noon there.
+const TZ = 'America/Chicago';
+const parseDocumentsReply = (body: unknown, after: number, publicUrl: string | null) => parseIn(body, after, publicUrl, TZ);
 
 // The example replies from the contract (OurHomeInbox vault,
 // 03 - OurHome Integration/Hand-off.md, section 6), as OurHomeInbox sends them.
@@ -63,13 +67,18 @@ describe('parseDocumentsReply', () => {
     });
   });
 
-  it('takes a day as noon local time, so no time zone moves it a day', () => {
+  it('takes a day as noon in the household zone, so no time zone moves it a day', () => {
     const page = parseDocumentsReply(contractReply, 42, null);
     const ready = page.entries[0];
     if (ready.status !== 'ready' || !ready.input) throw new Error('expected a ready document');
-    const paid = ready.input.paidDate!;
-    expect([paid.getFullYear(), paid.getMonth() + 1, paid.getDate(), paid.getHours()]).toEqual([2026, 10, 26, 12]);
+    // Oct 26 is still daylight time in Chicago (UTC-5): noon there is 17:00 UTC,
+    // whatever zone the server itself runs in.
+    expect(ready.input.paidDate?.toISOString()).toBe('2026-10-26T17:00:00.000Z');
     expect(ready.input.emailDate?.toISOString()).toBe('2026-10-28T14:03:11.000Z');
+    // Another household's zone gives noon there.
+    const tokyo = parseIn(contractReply, 42, null, 'Asia/Tokyo').entries[0];
+    if (tokyo.status !== 'ready' || !tokyo.input) throw new Error('expected a ready document');
+    expect(tokyo.input.paidDate?.toISOString()).toBe('2026-10-26T03:00:00.000Z');
   });
 
   it('keeps the v2 fields of a paired payment: its bill’s reference, the fee split and paid late', () => {

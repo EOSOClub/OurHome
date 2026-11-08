@@ -2,7 +2,12 @@
 
 import type * as React from 'react';
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  useIsMutating,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import { Boxes, Loader2, Plus, Search, Tag, X } from 'lucide-react';
 import type {
   CategoryDTO,
@@ -27,9 +32,13 @@ import { toast } from '@/components/ui/toast';
 import { Dialog } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
+import { useEditingCount } from '@/components/editing-pause';
 import { InventoryRow } from '@/components/inventory/inventory-row';
 
 const ITEMS_KEY = ['inventory-items'];
+// Inventory is shared: poll so one person's changes reach everyone else's
+// screen. TanStack pauses the interval while the tab is in the background.
+const POLL_MS = 25_000;
 const CATEGORIES_KEY = ['inventory-categories'];
 // Shared with the Shopping page (same route + DTO shape), so a visit there
 // pre-warms this cache and vice versa.
@@ -97,7 +106,6 @@ export function InventoryView({
   canAddToShopping: boolean;
 }) {
   const queryClient = useQueryClient();
-  const [busyItemId, setBusyItemId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [lowOnly, setLowOnly] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<InventoryItemDTO | null>(
@@ -118,16 +126,29 @@ export function InventoryView({
   const [shoppingChooserItem, setShoppingChooserItem] =
     useState<InventoryItemDTO | null>(null);
 
+  // While a save is in flight, hold off polling: a poll answered before the
+  // server applied a +/- tap would briefly show the old count. Each mutation
+  // refetches when it settles, which resumes the interval.
+  const mutating = useIsMutating() > 0;
+  // Also while an edit form is open: a poll that moved its row to another
+  // group (or out of "Low only") remounted the row and lost what was typed.
+  const { editing, report: reportEditing } = useEditingCount();
   const { data: items = [] } = useQuery({
     queryKey: ITEMS_KEY,
     queryFn: () => apiFetch<InventoryItemDTO[]>('/api/inventory/items'),
     initialData: initialItems,
+    refetchOnWindowFocus: !editing,
+    refetchInterval: mutating || editing ? false : POLL_MS,
   });
 
+  // Refreshed with the items: an item polled in under a category someone else
+  // just made has to find that category here too.
   const { data: categories = [] } = useQuery({
     queryKey: CATEGORIES_KEY,
     queryFn: () => apiFetch<CategoryDTO[]>('/api/inventory/categories'),
     initialData: initialCategories,
+    refetchOnWindowFocus: !editing,
+    refetchInterval: mutating || editing ? false : POLL_MS,
   });
 
   const { data: places = initialPlaces } = useQuery({
@@ -227,8 +248,6 @@ export function InventoryView({
         method: 'POST',
         body: JSON.stringify(payload),
       }),
-    onMutate: (payload) => setBusyItemId(payload.itemId),
-    onSettled: () => setBusyItemId(null),
     onSuccess: () => invalidate(),
   });
 
@@ -238,13 +257,20 @@ export function InventoryView({
         method: 'POST',
         body: JSON.stringify({ itemId: item.id }),
       }),
-    onMutate: (item) => setBusyItemId(item.id),
-    onSettled: () => setBusyItemId(null),
     onSuccess: (_data, item) => {
       toast.success(`Removed “${item.name}” from inventory`);
       void invalidate();
     },
   });
+
+  // Per-row pending derived from each mutation's own variables, as on the
+  // Shopping page: one shared "busy id" state was cleared by whichever save
+  // finished first, so a row still saving lost its spinner (or the wrong row
+  // showed one).
+  const busyItemId =
+    (updateItem.isPending ? updateItem.variables?.itemId : undefined) ??
+    (deleteItem.isPending ? deleteItem.variables?.id : undefined) ??
+    null;
 
   // Shopping lists, fetched lazily on the first cart tap (enabled: false) and
   // cached so the multi-list chooser opens instantly on repeat use. Shared
@@ -361,6 +387,24 @@ export function InventoryView({
       if (bucket)
         groups.push({ key: c.id, label: c.name, color: c.color, items: bucket });
     }
+    // A category this page doesn't know yet (made by someone else since the
+    // last refresh): its items still show, under the name they carry, until
+    // the categories catch up. Dropping them left the header count one more
+    // than the rows shown. Same key as the known group, so nothing remounts.
+    const known = new Set(categories.map((c) => c.id));
+    const unknown: ItemGroup[] = [];
+    for (const [key, bucket] of byCategory) {
+      if (key === '' || known.has(key)) continue;
+      const category = bucket[0].category;
+      unknown.push({
+        key,
+        label: category?.name ?? 'Other',
+        color: category?.color ?? null,
+        items: bucket,
+      });
+    }
+    unknown.sort((a, b) => a.label.localeCompare(b.label));
+    groups.push(...unknown);
     const uncategorized = byCategory.get('');
     if (uncategorized) {
       groups.push({
@@ -514,6 +558,7 @@ export function InventoryView({
                             adjust.mutate({ itemId: item.id, delta })
                           }
                           onUpdate={(payload) => updateItem.mutateAsync(payload)}
+                          onEditing={reportEditing}
                           onDelete={() => setItemToDelete(item)}
                           onAddToShopping={() =>
                             void handleAddToShopping(item)
@@ -661,7 +706,7 @@ function CategoryManager({
       {open ? (
         <div className="mt-3 space-y-3">
           {categories.length > 0 ? (
-            <ul className="flex flex-wrap gap-2">
+            <ul className="flex flex-wrap gap-3 sm:gap-2">
               {categories.map((c) => (
                 <li
                   key={c.id}
@@ -678,7 +723,8 @@ function CategoryManager({
                     onClick={() => onDelete(c)}
                     disabled={deletingId === c.id}
                     aria-label={`Delete category ${c.name}`}
-                    className="rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-destructive disabled:opacity-50"
+                    // A 44px tap area on phones; the negative margin keeps the chip small.
+                    className="-my-2.5 flex size-11 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-destructive disabled:opacity-50 sm:my-0 sm:size-auto sm:p-0.5"
                   >
                     {deletingId === c.id ? (
                       <Loader2 className="size-3.5 animate-spin" />
@@ -844,7 +890,8 @@ function QuickAddItem({
         type="button"
         onClick={() => setShowDetails(!showDetails)}
         aria-expanded={showDetails}
-        className="text-xs font-medium text-muted-foreground hover:text-foreground"
+        // min-h-11: a full-size tap target on phones.
+        className="inline-flex min-h-11 items-center text-xs font-medium text-muted-foreground hover:text-foreground sm:min-h-0"
       >
         {showDetails ? 'Hide options' : 'More options'}
       </button>

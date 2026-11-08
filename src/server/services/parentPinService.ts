@@ -1,4 +1,5 @@
 import { prisma } from '@/server/db/prisma';
+import { createAllOnce } from '@/server/services/errors';
 import { pushSync } from '@/server/services/pushService';
 import { canBeSupervised, canSupervise } from '@/lib/permissions';
 import { isPinEventKind, pinEventText, type PinEventKind } from '@/lib/parentPin';
@@ -64,8 +65,10 @@ export async function reportPinEvents(
   });
   for (const n of have) if (n.dedupeKey) wanted.delete(n.dedupeKey);
   if (wanted.size === 0) return { told: 0 };
-  await prisma.notification.createMany({
-    data: [...wanted.entries()].map(([key, { e, supervisorId }]) => ({
+  // The phone sends again at once after a PIN event, beside its periodic
+  // check-in: an overlapping one that wrote the same alert first already told them.
+  await createAllOnce(
+    [...wanted.entries()].map(([key, { e, supervisorId }]) => ({
       householdId,
       userId: supervisorId,
       type: PARENT_PIN_TYPE,
@@ -77,7 +80,9 @@ export async function reportPinEvents(
       readAt: null,
       createdAt: at(e),
     })),
-  });
+    (data) => prisma.notification.createMany({ data }),
+    (data) => prisma.notification.create({ data }),
+  );
   pushSync(householdId, { userIds: [...new Set([...wanted.values()].map((w) => w.supervisorId))] }, 'reminder');
   return { told: wanted.size };
 }

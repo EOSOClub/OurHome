@@ -3,8 +3,16 @@ import { recordId } from '@/lib/validation/ids';
 import { BILL_KINDS, BILL_STATUSES } from '@/lib/enums';
 import { recurrenceInputSchema } from '@/lib/validation/task';
 import { httpLink } from '@/lib/validation/shopping';
+import { roundCents } from '@/lib/money';
 
-const amountSchema = z.number().nonnegative().max(1_000_000);
+// Money is whole cents: an amount sent with more decimals (12.345, or a sum
+// the browser worked out as 0.30000000000000004) is rounded to the cent here,
+// so balances and totals never carry fractions of a cent.
+const amountSchema = z
+  .number()
+  .nonnegative()
+  .max(1_000_000)
+  .transform(roundCents);
 
 // What it is, and the fields that go with it: a bill's account number and pay
 // link, a subscription's manage link and trial end.

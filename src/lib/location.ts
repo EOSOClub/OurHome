@@ -28,6 +28,15 @@ export function clampRadius(radiusM: number): number {
   return Math.min(MAP_PLACE_RADIUS.max, Math.max(MAP_PLACE_RADIUS.min, Math.round(radiusM)));
 }
 
+/** Metres between two points (haversine; plenty for geofence-sized distances). */
+export function distanceM(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad;
+  const dLng = (b.lng - a.lng) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6_371_000 * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
 /**
  * A member's location sharing. "required" is for parental controls: a
  * supervising adult turns it on, and the member can't turn it off. Nothing

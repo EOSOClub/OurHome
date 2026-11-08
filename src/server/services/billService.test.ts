@@ -1,18 +1,35 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // A tiny in-memory payments table, so the tests exercise the real `where`
 // clauses the service builds rather than canned totals.
 type Payment = { id: string; billId: string; amount: number; fee: number | null; cycleDueDate: Date | null; paidLate?: boolean | null };
 let payments: Payment[] = [];
 
-const matches = (p: Payment, where: { billId?: string; cycleDueDate?: Date | null }) =>
+// The filters the service uses on cycleDueDate: a date or null, `isSet`, `not`,
+// and OR / NOT of those.
+type DateCond = Date | null | { isSet?: boolean; not?: Date | null };
+type Where = { billId?: string; cycleDueDate?: DateCond; OR?: Where[]; NOT?: Where };
+const sameDate = (a: Date | null | undefined, b: Date | null) => (a?.getTime() ?? null) === (b?.getTime() ?? null);
+const dateMatches = (v: Date | null | undefined, c: DateCond) => {
+  if (c === null || c instanceof Date) return sameDate(v, c);
+  if (c.isSet !== undefined && (v !== undefined) !== c.isSet) return false;
+  if (c.not !== undefined && sameDate(v, c.not)) return false;
+  return true;
+};
+const matches = (p: Payment, where: Where): boolean =>
   (where.billId === undefined || p.billId === where.billId) &&
-  (where.cycleDueDate === undefined ||
-    (p.cycleDueDate?.getTime() ?? null) === (where.cycleDueDate?.getTime() ?? null));
+  (where.cycleDueDate === undefined || dateMatches(p.cycleDueDate, where.cycleDueDate)) &&
+  (where.OR === undefined || where.OR.some((w) => matches(p, w))) &&
+  (where.NOT === undefined || !matches(p, where.NOT));
 
 const prisma = {
-  bill: { findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn(), delete: vi.fn() },
+  bill: { findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn(), delete: vi.fn(), create: vi.fn() },
   billPayment: {
+    updateMany: vi.fn(async ({ where, data }: { where: Where; data: Partial<Payment> }) => {
+      const hit = payments.filter((p) => matches(p, where));
+      for (const p of hit) Object.assign(p, data);
+      return { count: hit.length };
+    }),
     aggregate: vi.fn(async ({ where }) => ({
       _sum: { amount: payments.filter((p) => matches(p, where)).reduce((s, p) => s + p.amount, 0) },
     })),
@@ -27,8 +44,8 @@ const prisma = {
       return {};
     }),
   },
-  recurrenceRule: { update: vi.fn(), delete: vi.fn() },
-  event: { updateMany: vi.fn(), findMany: vi.fn(async () => []), deleteMany: vi.fn() },
+  recurrenceRule: { update: vi.fn(), delete: vi.fn(), create: vi.fn<(args: { data: Record<string, unknown> }) => Promise<{ id: string }>>(async () => ({ id: 'r9' })) },
+  event: { updateMany: vi.fn(), findMany: vi.fn(async () => []), deleteMany: vi.fn(), count: vi.fn(async () => 0) },
   // The household's OurHomeInbox (1 = connected) and the queue of changes to report to it.
   inboxConnection: { count: vi.fn(async () => 1) },
   inboxChange: { create: vi.fn() },
@@ -38,7 +55,8 @@ vi.mock('@/server/db/prisma', () => ({ prisma }));
 vi.mock('@/server/services/activityService', () => ({ logActivity: vi.fn() }));
 vi.mock('@/server/services/pointsService', () => ({ getPointsSettings: vi.fn(async () => ({ timezone: 'UTC' })) }));
 
-const { listBills, getBillDetail, markBillPaid, deleteBill, countsTowardBalance } = await import('./billService');
+const { listBills, getBillDetail, markBillPaid, deleteBill, countsTowardBalance, updateBill, createBill } = await import('./billService');
+const { getPointsSettings } = await import('@/server/services/pointsService');
 
 const OCT_1 = new Date('2026-10-01T12:00:00Z');
 const NOV_1 = new Date('2026-11-01T12:00:00Z');
@@ -199,5 +217,108 @@ describe('reporting to OurHomeInbox (contract v2)', () => {
     prisma.bill.findFirst.mockResolvedValueOnce(emailBill);
     const detail = await getBillDetail('h1', 'b3');
     expect(detail.payments.map((p) => p.paidLate)).toEqual([true, false]);
+  });
+});
+
+describe('editing a bill keeps its balance right', () => {
+  const NOV_20 = new Date('2026-11-20T12:00:00Z');
+  const monthly = { kind: 'monthly', interval: 1, timezone: 'UTC' } as never;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    payments = [];
+  });
+
+  it('counts only the current cycle once Repeat is turned off', async () => {
+    payments = [
+      { id: 'p1', billId: 'b1', amount: 1850, fee: null, cycleDueDate: SEP_1 },
+      { id: 'p2', billId: 'b1', amount: 1850, fee: null, cycleDueDate: OCT_1 },
+      // Recorded before cycleDueDate existed: an earlier cycle too.
+      { id: 'p3', billId: 'b1', amount: 1850, fee: null, cycleDueDate: null },
+      // A part payment for the current cycle keeps counting.
+      { id: 'p4', billId: 'b1', amount: 400, fee: null, cycleDueDate: NOV_1 },
+    ];
+    const oneOff = bill({ recurrenceId: null, recurrence: null });
+    prisma.bill.findFirst.mockResolvedValueOnce({ id: 'b1', recurrenceId: 'r1', dueDate: NOV_1, kind: 'bill' });
+    prisma.bill.update.mockResolvedValueOnce(oneOff);
+    // The form's save: amount and due date as they were, Repeat none.
+    const result = await updateBill('h1', 'u1', { id: 'b1', amount: 1850, dueDate: NOV_1, recurrence: null } as never);
+    expect(result.paidTotal).toBe(400);
+    expect(result.paymentCount).toBe(4);
+
+    prisma.bill.findMany.mockResolvedValueOnce([oneOff]);
+    const [listed] = await listBills('h1');
+    expect(listed.paidTotal).toBe(400);
+
+    // Paying it now defaults to what is left of this cycle, not nothing.
+    prisma.bill.findFirst.mockResolvedValueOnce(oneOff);
+    prisma.bill.update.mockResolvedValueOnce({ ...oneOff, status: 'paid' });
+    await markBillPaid('h1', 'u1', { id: 'b1' } as never);
+    expect(prisma.billPayment.create.mock.calls[0][0].data.amount).toBe(1450);
+  });
+
+  it("keeps this cycle's payments when a recurring bill's due date moves", async () => {
+    payments = [
+      { id: 'p1', billId: 'b1', amount: 1850, fee: null, cycleDueDate: OCT_1 },
+      { id: 'p2', billId: 'b1', amount: 400, fee: null, cycleDueDate: NOV_1 },
+    ];
+    prisma.bill.findFirst.mockResolvedValueOnce({ id: 'b1', recurrenceId: 'r1', dueDate: NOV_1, kind: 'bill' });
+    prisma.bill.update.mockResolvedValueOnce(bill({ dueDate: NOV_20 }));
+    const result = await updateBill('h1', 'u1', { id: 'b1', dueDate: NOV_20, recurrence: monthly } as never);
+    expect(result.paidTotal).toBe(400);
+    // Last cycle's payment stays on its own cycle.
+    expect(payments[0].cycleDueDate).toEqual(OCT_1);
+  });
+
+  it("recomputes a one-off bill's paid/unpaid when the form changes its amount", async () => {
+    const existing = { id: 'b2', recurrenceId: null, dueDate: water.dueDate, kind: 'bill' };
+    payments = [{ id: 'p1', billId: 'b2', amount: 64.3, fee: null, cycleDueDate: water.dueDate as Date }];
+    // The form sends `recurrence: null` for a bill that doesn't repeat.
+    prisma.bill.findFirst.mockResolvedValueOnce(existing);
+    prisma.bill.update.mockResolvedValueOnce({ ...water, amount: 80 });
+    await updateBill('h1', 'u1', { id: 'b2', amount: 80, recurrence: null } as never);
+    expect(prisma.bill.update.mock.calls[0][0].data.status).toBe('unpaid');
+
+    prisma.bill.findFirst.mockResolvedValueOnce(existing);
+    prisma.bill.update.mockResolvedValueOnce(water);
+    await updateBill('h1', 'u1', { id: 'b2', amount: 64.3, recurrence: null } as never);
+    expect(prisma.bill.update.mock.calls[1][0].data.status).toBe('paid');
+  });
+
+  it('marks which payments count toward the current balance', async () => {
+    payments = [
+      { id: 'p1', billId: 'b1', amount: 1850, fee: null, cycleDueDate: OCT_1 },
+      { id: 'p2', billId: 'b1', amount: 400, fee: null, cycleDueDate: NOV_1 },
+    ];
+    prisma.bill.findFirst.mockResolvedValueOnce(mortgage);
+    const detail = await getBillDetail('h1', 'b1');
+    expect(detail.payments.map((p) => [p.id, p.countsTowardBalance])).toEqual([['p1', false], ['p2', true]]);
+  });
+});
+
+// Last: it sets the household's zone for its own calls.
+describe('a repeating bill made without a due date', () => {
+  const monthly = { kind: 'monthly', interval: 1, timezone: 'America/Chicago' } as never;
+  const NOON_NOV_7_CHICAGO = new Date('2026-11-07T18:00:00Z');
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    payments = [];
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-07T21:37:00Z')); // 15:37 in Chicago
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('is anchored at noon today in the household zone, not the time it was made', async () => {
+    vi.mocked(getPointsSettings).mockResolvedValueOnce({ timezone: 'America/Chicago' } as never);
+    prisma.bill.create.mockResolvedValueOnce(bill({ dueDate: null }));
+    await createBill('h1', 'u1', { kind: 'bill', name: 'Lawn service', amount: 40, autoPay: false, recurrence: monthly } as never);
+    expect(prisma.recurrenceRule.create.mock.calls[0][0].data.anchorDate).toEqual(NOON_NOV_7_CHICAGO);
+
+    vi.mocked(getPointsSettings).mockResolvedValueOnce({ timezone: 'America/Chicago' } as never);
+    prisma.bill.findFirst.mockResolvedValueOnce({ id: 'b1', recurrenceId: 'r1', dueDate: null, kind: 'bill' });
+    prisma.bill.update.mockResolvedValueOnce(bill({ dueDate: null }));
+    await updateBill('h1', 'u1', { id: 'b1', dueDate: null, recurrence: monthly } as never);
+    expect(prisma.recurrenceRule.update.mock.calls[0][0].data.anchorDate).toEqual(NOON_NOV_7_CHICAGO);
   });
 });

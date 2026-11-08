@@ -46,7 +46,7 @@ interface Command {
 }
 
 const NAVIGATION: Command[] = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, keywords: ['home', 'overview', 'start'] },
+  { name: 'Home', href: '/dashboard', icon: LayoutDashboard, keywords: ['dashboard', 'overview', 'start'] },
   { name: 'Tasks', href: '/tasks', icon: ListChecks, keywords: ['todo', 'chores'] },
   { name: 'Shopping', href: '/shopping', icon: ShoppingCart, keywords: ['groceries', 'list', 'buy'] },
   { name: 'Inventory', href: '/inventory', icon: Boxes, keywords: ['stock', 'pantry', 'supplies'] },

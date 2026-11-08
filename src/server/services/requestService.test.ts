@@ -6,6 +6,7 @@ const prisma = {
     findFirst: vi.fn(async (): Promise<unknown> => null),
     // The saved row: the request as it was, with the change.
     update: vi.fn(async (args: { data: Record<string, unknown> }): Promise<unknown> => ({ ...ROW, ...args.data })),
+    updateMany: vi.fn(async (): Promise<{ count: number }> => ({ count: 1 })),
     delete: vi.fn(),
     findMany: vi.fn(async (): Promise<unknown[]> => []),
     findFirstOrThrow: vi.fn(async (): Promise<unknown> => ({ ...ROW })),
@@ -20,6 +21,10 @@ const prisma = {
     findUnique: vi.fn(async (): Promise<unknown> => ({ name: 'Sam' })),
     update: vi.fn(),
   },
+  shoppingList: {
+    findFirst: vi.fn(async (): Promise<unknown> => ({ name: 'Groceries' })),
+  },
+  $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(prisma)),
 };
 vi.mock('@/server/db/prisma', () => ({ prisma }));
 const activity = { logActivity: vi.fn() };
@@ -42,19 +47,27 @@ vi.mock('@/server/services/requestModuleService', () => modules);
 const permissions = { getUserAccess: vi.fn(), membersWithAccess: vi.fn(async (): Promise<string[]> => []) };
 vi.mock('@/server/services/permissionService', () => permissions);
 vi.mock('@/server/services/pointsService', () => ({ getPointsSettings: vi.fn() }));
-vi.mock('@/server/services/shoppingService', () => ({ addShoppingItem: vi.fn() }));
-vi.mock('@/server/services/serverAdminService', () => ({ isFeatureEnabled: vi.fn() }));
+const shopping = {
+  addShoppingItem: vi.fn(),
+  prepareShoppingItem: vi.fn(async (_h: string, input: unknown) => ({ input })),
+  createPreparedShoppingItem: vi.fn(),
+};
+vi.mock('@/server/services/shoppingService', () => shopping);
+vi.mock('@/server/services/serverAdminService', () => ({ isFeatureEnabled: vi.fn(async () => true) }));
 
 const {
   acceptRequest,
   addRequestNote,
   completeRequest,
   countNewRequests,
+  declineRequest,
   deleteRequest,
   deleteRequestNote,
   markRequestsSeen,
   reassignRequest,
+  updateRequest,
 } = await import('./requestService');
+const { getPointsSettings } = await import('@/server/services/pointsService');
 
 const H = 'h1';
 const HEAD = { id: 'head', role: 'head' };
@@ -385,5 +398,139 @@ describe('the Requests badge', () => {
     prisma.user.findFirst.mockResolvedValueOnce({ id: 'alex', name: 'Alex' });
     await reassignRequest(H, HEAD, { id: ID, assigneeId: 'alex' });
     expect(savedData()).toMatchObject({ changedById: 'head' });
+  });
+});
+
+describe('two answers to one request at once', () => {
+  const PURCHASE = {
+    ...ROW,
+    category: 'purchase',
+    title: 'Headphones',
+    assigneeId: null,
+    status: 'pending',
+    quantity: 1,
+    url: null,
+    imageUrl: null,
+    price: null,
+  };
+  const ON: RequestModuleSettings = {
+    ...DEFAULT_REQUEST_MODULES,
+    purchase: { ...DEFAULT_REQUEST_MODULES.purchase, enabled: true },
+  };
+  // The status in the database; both callers read it as still pending.
+  let status: string;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    status = 'pending';
+    prisma.request.findFirst.mockResolvedValue({ ...PURCHASE });
+    prisma.request.updateMany.mockImplementation((async (args: {
+      where: { status?: string };
+      data: { status: string };
+    }) => {
+      if (args.where.status !== status) return { count: 0 };
+      status = args.data.status;
+      return { count: 1 };
+    }) as never);
+    prisma.request.update.mockImplementation(async (args: { data: Record<string, unknown> }) => ({ ...PURCHASE, ...args.data }));
+    permissions.getUserAccess.mockResolvedValue({ requests: { approve: true }, shopping: { create: true } });
+    modules.getRequestModules.mockResolvedValue(ON);
+  });
+
+  it('a second approve is refused and adds nothing to the list again', async () => {
+    await completeRequest(H, HEAD, { id: ID, listId: 'list1' });
+    await expect(completeRequest(H, HEAD, { id: ID, listId: 'list1' })).rejects.toThrow('just changed');
+    expect(shopping.createPreparedShoppingItem).toHaveBeenCalledTimes(1);
+    expect(prisma.request.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('a decline after the approve is refused, so it stays approved', async () => {
+    await completeRequest(H, HEAD, { id: ID, listId: 'list1' });
+    await expect(declineRequest(H, ADULT, { id: ID, reply: null })).rejects.toThrow('just changed');
+    expect(status).toBe('completed');
+    expect(prisma.request.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepting media after it was marked added is refused, so it stays added', async () => {
+    const MEDIA = { ...ROW, category: 'media', title: 'Dune', mediaType: 'movie', year: 2021, assigneeId: null, status: 'pending' };
+    prisma.request.findFirst.mockResolvedValue({ ...MEDIA });
+    modules.getRequestModules.mockResolvedValue(DEFAULT_REQUEST_MODULES);
+    await completeRequest(H, HEAD, { id: ID });
+    await expect(acceptRequest(H, HEAD, { id: ID })).rejects.toThrow('just changed');
+    expect(status).toBe('completed');
+    expect(prisma.request.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepting maintenance after it was marked done is refused, so it stays done', async () => {
+    const TESTER = { id: 'tester', role: 'adult' };
+    prisma.request.findFirst.mockResolvedValue({ ...ROW, status: 'pending' });
+    modules.getRequestModules.mockResolvedValue(DEFAULT_REQUEST_MODULES);
+    await completeRequest(H, TESTER, { id: ID });
+    await expect(acceptRequest(H, TESTER, { id: ID, dueAt: new Date('2026-11-20T16:00:00Z') })).rejects.toThrow('just changed');
+    expect(status).toBe('completed');
+    expect(prisma.request.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('two answers at exactly the same moment get the same message, not a server error', async () => {
+    const { Prisma } = await import('@prisma/client');
+    const { ConflictError } = await import('@/server/services/errors');
+    const conflict = new Prisma.PrismaClientKnownRequestError('Transaction failed due to a write conflict', {
+      code: 'P2034',
+      clientVersion: 'test',
+    });
+    prisma.$transaction.mockRejectedValueOnce(conflict as never);
+    const err = await declineRequest(H, ADULT, { id: ID, reply: null }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictError);
+    expect((err as Error).message).toBe('This request just changed. Refresh to see where it stands.');
+  });
+});
+
+describe('the requester edits a finished maintenance request', () => {
+  const DONE = { ...ROW, status: 'completed', completedAt: new Date('2026-11-01T12:00:00Z') };
+  const SAM = 'sam';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    prisma.request.findFirst.mockResolvedValue({ ...DONE });
+    prisma.request.update.mockImplementation(async (args: { data: Record<string, unknown> }) => ({ ...DONE, ...args.data }));
+    prisma.user.findFirst.mockImplementation(async (args?: unknown) => {
+      const id = (args as { where: { id: string } }).where.id;
+      return named[id] ? { id, name: named[id] } : null;
+    });
+    modules.getRequestModules.mockResolvedValue(DEFAULT_REQUEST_MODULES);
+  });
+
+  it('can’t send it to someone else, which would reopen it', async () => {
+    await expect(
+      updateRequest(H, SAM, { id: ID, category: 'maintenance', title: 'Fix the faucet', assigneeId: 'alex' }),
+    ).rejects.toThrow('already done');
+    expect(prisma.request.update).not.toHaveBeenCalled();
+  });
+
+  it('may still fix its text', async () => {
+    await updateRequest(H, SAM, { id: ID, category: 'maintenance', title: 'Fix the kitchen faucet', assigneeId: 'tester' });
+    expect(savedData()).toMatchObject({ title: 'Fix the kitchen faucet' });
+    expect(savedData().status).toBeUndefined();
+  });
+});
+
+describe('accepting maintenance with a done-by date', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    prisma.request.findFirst.mockResolvedValue({ ...ROW, status: 'pending' });
+    prisma.request.update.mockImplementation(async (args: { data: Record<string, unknown> }) => ({ ...ROW, ...args.data }));
+    // Nobody else answered in between (an earlier block swaps this mock).
+    prisma.request.updateMany.mockResolvedValue({ count: 1 });
+    modules.getRequestModules.mockResolvedValue(DEFAULT_REQUEST_MODULES);
+    // A zone far from both the server (UTC in Docker) and a US dev machine.
+    vi.mocked(getPointsSettings).mockResolvedValue({ timezone: 'Asia/Tokyo', weekStartsOn: 0, minutesPerPoint: 15 });
+  });
+
+  it('names the day in Activity in the household zone, not the server one', async () => {
+    // 16:00 UTC on Nov 20 is already 01:00 on Nov 21 in Tokyo.
+    await acceptRequest(H, { id: 'tester', role: 'adult' }, { id: ID, dueAt: new Date('2026-11-20T16:00:00Z') });
+    expect(activity.logActivity).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'accepted “Fix the faucet”, done by Nov 21' }),
+    );
   });
 });

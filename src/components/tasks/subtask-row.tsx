@@ -27,8 +27,13 @@ function without(errs: Record<string, string>, key: string): Record<string, stri
   return next;
 }
 
+/** A step's small icon buttons: 44px to tap on a phone, the bare icon from sm up. */
+const STEP_ACTION_CLASS =
+  'flex size-11 items-center justify-center rounded-md text-muted-foreground hover:text-foreground disabled:opacity-30 sm:size-auto';
+
 function resetBadgeLabel(days: number): string {
-  return days === 1 ? 'daily' : `${days}d`;
+  // Spelled out: "3d" read as jargon to the household.
+  return days === 1 ? 'daily' : `every ${days} days`;
 }
 
 export function SubtaskRow({
@@ -181,25 +186,34 @@ export function SubtaskRow({
     waitingForOk || !!who || (showPoints && subtask.points > 0) || !!subtask.resetIntervalDays;
 
   return (
-    <div className="group flex items-start gap-2">
+    // On a phone the row wraps: the edit buttons get their own line, so every
+    // tap target can be 44px without squeezing the step's name.
+    <div className="group flex flex-wrap items-start gap-x-2 sm:flex-nowrap">
+      {/* The box stays 20px to look at, but on a phone the button around it is
+          44px (children tick steps here); -ml-3 keeps the box in line. */}
       <button
         type="button"
         onClick={() => onToggle(subtask.id, !subtask.done)}
         // Ticking a task that waits for an OK is refused; don't flick the box.
         disabled={locked}
         aria-label={subtask.done ? 'Mark not done' : 'Mark done'}
-        className={cn(
-          'flex size-5 shrink-0 items-center justify-center rounded border transition-colors disabled:opacity-60',
-          subtask.done
-            ? 'border-primary bg-primary text-primary-foreground'
-            : 'border-input hover:bg-accent',
-        )}
+        className="group/box -ml-3 flex size-11 shrink-0 items-center justify-center disabled:opacity-60 sm:ml-0 sm:size-5"
       >
-        {subtask.done ? <Check className="size-3.5" /> : null}
+        <span
+          className={cn(
+            'flex size-5 items-center justify-center rounded border transition-colors',
+            subtask.done
+              ? 'border-primary bg-primary text-primary-foreground'
+              : 'border-input group-hover/box:bg-accent',
+          )}
+        >
+          {subtask.done ? <Check className="size-3.5" /> : null}
+        </span>
       </button>
       {/* The name keeps a readable width; on a narrow row, what's said about
-          the step wraps onto the next line instead of pushing the row wider. */}
-      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5">
+          the step wraps onto the next line instead of pushing the row wider.
+          pt-3 lines the first line up with the 44px box on a phone. */}
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5 pt-3 sm:pt-0">
         <span
           className={cn(
             'min-w-[7rem] flex-1 break-words text-sm',
@@ -211,7 +225,7 @@ export function SubtaskRow({
         {hasDetails ? (
           <span className="flex min-w-0 max-w-full flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
             {waitingForOk ? (
-              <span className="whitespace-nowrap rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-400">
+              <span className="whitespace-nowrap rounded-full bg-warning/15 px-2 py-0.5 text-[11px] font-medium text-warning-text">
                 Waiting for an OK
               </span>
             ) : null}
@@ -226,7 +240,7 @@ export function SubtaskRow({
                 }
               >
                 {showPoints && subtask.queuedFor
-                  ? `queued · ${subtask.queuedFor.name}`
+                  ? `${subtask.queuedFor.name}, points come when the task is done`
                   : (subtask.queuedFor ?? subtask.doneBy)?.name}
               </span>
             ) : null}
@@ -242,7 +256,7 @@ export function SubtaskRow({
                     : `Unchecks itself every ${subtask.resetIntervalDays} days`
                 }
               >
-                <Repeat className="size-3" />
+                <Repeat className="size-3" aria-hidden />
                 {resetBadgeLabel(subtask.resetIntervalDays)}
               </span>
             ) : null}
@@ -250,12 +264,12 @@ export function SubtaskRow({
         ) : null}
       </div>
       {canWrite ? (
-        <div className="flex shrink-0 items-center gap-0.5 pt-0.5">
+        <div className="flex w-full shrink-0 items-center justify-end gap-0.5 sm:w-auto sm:pt-0.5">
           <button
             type="button"
             aria-label="Move item up"
             disabled={isFirst || locked}
-            className="text-muted-foreground hover:text-foreground disabled:opacity-30"
+            className={STEP_ACTION_CLASS}
             onClick={() => onMove(subtask.id, -1)}
           >
             <ChevronUp className="size-4" />
@@ -264,7 +278,7 @@ export function SubtaskRow({
             type="button"
             aria-label="Move item down"
             disabled={isLast || locked}
-            className="text-muted-foreground hover:text-foreground disabled:opacity-30"
+            className={STEP_ACTION_CLASS}
             onClick={() => onMove(subtask.id, 1)}
           >
             <ChevronDown className="size-4" />
@@ -272,7 +286,7 @@ export function SubtaskRow({
           <button
             type="button"
             aria-label="Edit item"
-            className="text-muted-foreground hover:text-foreground"
+            className={STEP_ACTION_CLASS}
             onClick={startEdit}
           >
             <Pencil className="size-3.5" />
@@ -281,7 +295,7 @@ export function SubtaskRow({
             type="button"
             aria-label="Remove item"
             disabled={locked}
-            className="text-muted-foreground hover:text-destructive disabled:opacity-30"
+            className={cn(STEP_ACTION_CLASS, 'hover:text-destructive')}
             onClick={() => setConfirmDelete(true)}
           >
             <X className="size-4" />

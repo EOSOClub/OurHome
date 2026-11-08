@@ -15,6 +15,7 @@ import { ConflictError, ForbiddenError, NotFoundError } from '@/server/services/
 import { ROLE_RANK, USER_ROLE_LABELS, isUserRole, type UserRole } from '@/lib/enums';
 import { can, canAssignRole, canManageMember } from '@/lib/permissions';
 import type { HouseholdMemberDTO } from '@/lib/types';
+import { placeholderEmailFor } from '@/lib/placeholderEmail';
 import { PHONE_RULES, PHONE_RULE_COLUMNS, PHONE_RULE_LABELS, type PhoneRuleColumns } from '@/lib/phoneHealth';
 import type {
   CreateMemberInput,
@@ -84,6 +85,17 @@ async function assertUnique(
 }
 
 /**
+ * The server admin's way in (username, email, password) and their account are
+ * theirs alone, even when someone else is their household's Head of House
+ * (after "Make Head of House"): whoever could reset or redirect them, or
+ * remove them, would end up running the server.
+ */
+function assertNotServerAdmin(target: User, actor: Actor, message: string): void {
+  if (target.isServerAdmin && target.id !== actor.id) throw new ForbiddenError(message);
+}
+const SERVER_ADMIN_OWN = 'This member runs the server; only they can change that.';
+
+/**
  * Provision a household member with a temporary password. We create the user
  * row and credential account directly (rather than auth.api.signUpEmail), so the
  * call has no session/cookie side effects on the admin making the request.
@@ -129,7 +141,9 @@ export async function createMember(
 
   const displayUsername = input.username.trim();
   const username = displayUsername.toLowerCase();
-  const email = (input.email?.trim() || `${username}@household.local`).toLowerCase();
+  // No email given: a stand-in address nobody reads (lib/placeholderEmail),
+  // which every email send checks for and skips.
+  const email = input.email?.trim().toLowerCase() || placeholderEmailFor(username);
   await assertUnique(username, email);
   // Checked before anything is made, so a refusal leaves no half-set-up member.
   const supervisors = await newMemberSupervisors(householdId, actor, role, input.supervisorIds);
@@ -209,7 +223,31 @@ export async function updateMember(
   if (isSelf && email && email !== target.email.toLowerCase()) {
     throw new ForbiddenError('Change your own email from your profile.');
   }
-  await assertUnique(username ?? null, email ?? null, target.id);
+  // The form sends the username and email back unchanged with a new name, so
+  // only a real change counts.
+  const renamed = !!username && username !== target.username;
+  if (renamed || (!!email && email !== target.email.toLowerCase())) {
+    assertNotServerAdmin(target, actor, SERVER_ADMIN_OWN);
+  }
+  // A stand-in email (no email given, lib/placeholderEmail) follows a rename:
+  // left on the old username, it would refuse a new member who takes that
+  // username later without an email. Not when a different email was typed.
+  const movedEmail =
+    renamed &&
+    !!target.username &&
+    target.email.toLowerCase() === placeholderEmailFor(target.username) &&
+    (!email || email === target.email.toLowerCase())
+      ? placeholderEmailFor(username)
+      : undefined;
+  try {
+    await assertUnique(username ?? null, movedEmail ?? email ?? null, target.id);
+  } catch (err) {
+    // The moved stand-in is taken: to them it's the username that is.
+    if (movedEmail && err instanceof ConflictError && err.field === 'email') {
+      throw new ConflictError('That username is already taken. Try another.', 'username');
+    }
+    throw err;
+  }
 
   const updated = await prisma.user.update({
     where: { id: target.id },
@@ -217,7 +255,7 @@ export async function updateMember(
       name: input.name?.trim() ?? undefined,
       username: username ?? undefined,
       displayUsername: displayUsername ?? undefined,
-      email: email ?? undefined,
+      email: movedEmail ?? email ?? undefined,
     },
   });
 
@@ -305,6 +343,7 @@ export async function resetMemberPassword(
   if (!canManageMember(actor.role, target.role)) {
     throw new ForbiddenError('You cannot reset this member’s password.');
   }
+  assertNotServerAdmin(target, actor, SERVER_ADMIN_OWN);
 
   const authCtx = await auth.$context;
   const hashed = await authCtx.password.hash(input.password);
@@ -364,6 +403,7 @@ export async function removeMember(
   if (!canManageMember(actor.role, target.role)) {
     throw new ForbiddenError('You cannot remove this member.');
   }
+  assertNotServerAdmin(target, actor, 'This member runs the server, so they can’t be removed from the household.');
 
   const released = await prisma.$transaction(async (tx) => {
     // The children and teens they supervised. Their links go first (the
@@ -371,6 +411,11 @@ export async function removeMember(
     // sees who is still left to supervise each one.
     const theirs = await tx.supervision.findMany({ where: { householdId, supervisorId: target.id }, select: { supervisedId: true } });
     if (theirs.length) await tx.supervision.deleteMany({ where: { supervisorId: target.id } });
+    // Notices addressed to them go with them. The schema only sets their
+    // userId to null, and a notice with no owner is shown to the whole
+    // household (notificationService.visibleTo): a removed parent's alerts
+    // about a child's phone would reach everyone, the child included.
+    await tx.notification.deleteMany({ where: { householdId, userId: target.id } });
     // Cascades remove sessions/accounts; assigned tasks are set null by schema.
     await tx.user.delete({ where: { id: target.id } });
     // Nobody left to supervise them: their controls are theirs again

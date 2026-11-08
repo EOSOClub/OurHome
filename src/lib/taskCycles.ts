@@ -4,7 +4,8 @@
 // (the project has no date library), so DST is handled by the platform's tz
 // data.
 //
-// A boundary is always local midnight. Monthly cycle days are 1-31; in a
+// A boundary is always local midnight (or the day's first instant, 01:00, on a
+// day whose clocks jump past midnight). Monthly cycle days are 1-31; in a
 // month without that day the cycle starts on the month's last day instead
 // (30 and 31 both land on Feb 28/29 and fire once).
 
@@ -22,10 +23,12 @@ export type CycleSpec =
   | { kind: 'daily' }
   /** Every `everyDays` days counted from the anchor's local date. */
   | { kind: 'interval'; everyDays: number; anchor: Date }
-  /** 0 = Sunday … 6 = Saturday. */
-  | { kind: 'weekdays'; days: number[] }
-  /** 1-31. */
-  | { kind: 'monthdays'; days: number[] };
+  /** 0 = Sunday … 6 = Saturday. With everyWeeks > 1, only in weeks that are a
+   *  multiple of it from the anchor's week (Sunday-based, as the rule counts). */
+  | { kind: 'weekdays'; days: number[]; everyWeeks?: number; anchor?: Date }
+  /** 1-31. With everyMonths > 1, only in months that are a multiple of it
+   *  from the anchor's month. */
+  | { kind: 'monthdays'; days: number[]; everyMonths?: number; anchor?: Date };
 
 export type Period = 'day' | 'week' | 'month' | 'year';
 
@@ -84,22 +87,36 @@ function offsetMs(instant: Date, timeZone: string): number {
   return asUtc - Math.floor(instant.getTime() / 1000) * 1000;
 }
 
-/** The instant local midnight starts `date` in `timeZone`. */
-export function startOfLocalDate(date: LocalDate, timeZone: string): Date {
-  const naive = Date.UTC(date.year, date.month - 1, date.day);
-  // Two passes settle the offset even when midnight sits next to a DST change.
+function sameDate(a: LocalDate, b: LocalDate): boolean {
+  return a.year === b.year && a.month === b.month && a.day === b.day;
+}
+
+/** Turns the naive UTC reading of a local wall time on `date` into an instant. */
+function wallTimeToInstant(date: LocalDate, naive: number, timeZone: string): Date {
+  // Two passes settle the offset even when the time sits next to a DST change.
   let guess = naive - offsetMs(new Date(naive), timeZone);
   guess = naive - offsetMs(new Date(guess), timeZone);
+  // A wall time the clocks skip (Santiago and Havana jump from 00:00 straight
+  // to 01:00) settles on the evening before. Read it with the offset in force
+  // before the jump instead, which lands just after the jump on the right day.
+  // Without this, local midnight on such a day was 23:00 the day before and
+  // the cycle roll-over never moved past it.
+  if (!sameDate(localDateOf(new Date(guess), timeZone), date)) {
+    const before = naive - offsetMs(new Date(guess), timeZone);
+    if (sameDate(localDateOf(new Date(before), timeZone), date)) guess = before;
+  }
   return new Date(guess);
+}
+
+/** The first instant of `date` in `timeZone`: local midnight, or 01:00 on a
+ *  day whose clocks jump past midnight. */
+export function startOfLocalDate(date: LocalDate, timeZone: string): Date {
+  return wallTimeToInstant(date, Date.UTC(date.year, date.month - 1, date.day), timeZone);
 }
 
 /** The instant the local time `hour:minute` on `date` happens in `timeZone`. */
 export function localTimeAt(date: LocalDate, hour: number, minute: number, timeZone: string): Date {
-  const naive = Date.UTC(date.year, date.month - 1, date.day, hour, minute);
-  // Same two passes as startOfLocalDate, for times next to a DST change.
-  let guess = naive - offsetMs(new Date(naive), timeZone);
-  guess = naive - offsetMs(new Date(guess), timeZone);
-  return new Date(guess);
+  return wallTimeToInstant(date, Date.UTC(date.year, date.month - 1, date.day, hour, minute), timeZone);
 }
 
 export function addDays(date: LocalDate, days: number): LocalDate {
@@ -133,9 +150,22 @@ export function isCycleStart(date: LocalDate, spec: CycleSpec, timeZone: string)
       const diff = daysBetween(localDateOf(spec.anchor, timeZone), date);
       return ((diff % every) + every) % every === 0;
     }
-    case 'weekdays':
-      return spec.days.includes(weekdayOf(date));
+    case 'weekdays': {
+      if (!spec.days.includes(weekdayOf(date))) return false;
+      // "Every 2 weeks": the weeks between are part of the cycle before them.
+      const every = Math.max(1, Math.floor(spec.everyWeeks ?? 1));
+      if (every === 1 || !spec.anchor) return true;
+      const anchor = localDateOf(spec.anchor, timeZone);
+      const week = Math.floor(daysBetween(addDays(anchor, -weekdayOf(anchor)), date) / 7);
+      return ((week % every) + every) % every === 0;
+    }
     case 'monthdays': {
+      const every = Math.max(1, Math.floor(spec.everyMonths ?? 1));
+      if (every > 1 && spec.anchor) {
+        const anchor = localDateOf(spec.anchor, timeZone);
+        const months = (date.year - anchor.year) * 12 + (date.month - anchor.month);
+        if (((months % every) + every) % every !== 0) return false;
+      }
       if (spec.days.includes(date.day)) return true;
       // Short month: a later configured day starts on the last day instead.
       const last = daysInMonth(date.year, date.month);
@@ -144,14 +174,22 @@ export function isCycleStart(date: LocalDate, spec: CycleSpec, timeZone: string)
   }
 }
 
-// A year covers every spec (the sparsest is one monthday, or an interval of
-// up to 365 days), so a search this long always finds a boundary.
+// A year covers every spec with no interval (the sparsest is one monthday, or
+// an interval of up to 365 days), so a search this long always finds a
+// boundary; "every n weeks / months" searches n of them, plus one.
 const SEARCH_DAYS = 400;
+
+function searchDays(spec: CycleSpec): number {
+  if (spec.kind === 'weekdays' && (spec.everyWeeks ?? 1) > 1) return Math.max(SEARCH_DAYS, 7 * (spec.everyWeeks! + 1));
+  if (spec.kind === 'monthdays' && (spec.everyMonths ?? 1) > 1) return Math.max(SEARCH_DAYS, 31 * (spec.everyMonths! + 1));
+  return SEARCH_DAYS;
+}
 
 /** Start of the cycle containing `instant` (the latest boundary at or before it). */
 export function cycleStartAt(instant: Date, spec: CycleSpec, timeZone: string): Date {
   const today = localDateOf(instant, timeZone);
-  for (let i = 0; i <= SEARCH_DAYS; i += 1) {
+  const search = searchDays(spec);
+  for (let i = 0; i <= search; i += 1) {
     const date = addDays(today, -i);
     if (isCycleStart(date, spec, timeZone)) return startOfLocalDate(date, timeZone);
   }
@@ -161,11 +199,17 @@ export function cycleStartAt(instant: Date, spec: CycleSpec, timeZone: string): 
 /** The first boundary strictly after `instant`. */
 export function nextCycleStart(instant: Date, spec: CycleSpec, timeZone: string): Date {
   const today = localDateOf(instant, timeZone);
-  for (let i = 1; i <= SEARCH_DAYS; i += 1) {
+  const search = searchDays(spec);
+  for (let i = 1; i <= search; i += 1) {
     const date = addDays(today, i);
-    if (isCycleStart(date, spec, timeZone)) return startOfLocalDate(date, timeZone);
+    if (!isCycleStart(date, spec, timeZone)) continue;
+    const start = startOfLocalDate(date, timeZone);
+    // "Strictly after" is a promise the roll-over loop relies on to finish, so
+    // a boundary that is not later (odd tz data) is skipped, never returned.
+    if (start > instant) return start;
   }
-  return startOfLocalDate(addDays(today, 1), timeZone);
+  const fallback = startOfLocalDate(addDays(today, 1), timeZone);
+  return fallback > instant ? fallback : new Date(instant.getTime() + DAY_MS);
 }
 
 /** Bounds of the statistics period containing `instant`: [start, end) and its

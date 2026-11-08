@@ -133,6 +133,38 @@ export async function myExtraTime(householdId: string, userId: string, day: stri
 }
 
 /**
+ * Why buying [minutes] for [cost] is refused, with [left] of the day's cap
+ * and [balanceCenti] to spend; null when it fits.
+ */
+function buyRefusal(minutes: number, left: number, cost: number, balanceCenti: number): string | null {
+  if (minutes > left) {
+    return left > 0 ? `You can buy ${formatMinutes(left)} more today.` : 'You’ve bought all the time you can today.';
+  }
+  if (cost > balanceCenti) {
+    return `That costs ${formatPoints(cost)} points, and you have ${formatPoints(Math.max(0, balanceCenti))}.`;
+  }
+  return null;
+}
+
+// One purchase per member at a time on this server. Two taps at once would
+// otherwise both pass the checks: Mongo runs two transactions that only read
+// and insert side by side (neither sees the other's new row, and inserts
+// never clash), so the re-check inside the transaction alone can't stop it.
+const buying = new Map<string, Promise<unknown>>();
+
+/** Runs [run] after any purchase of [userId]'s still running here has finished. */
+async function oneAtATime<T>(userId: string, run: () => Promise<T>): Promise<T> {
+  const mine = (buying.get(userId) ?? Promise.resolve()).catch(() => undefined).then(run);
+  const tail = mine.catch(() => undefined);
+  buying.set(userId, tail);
+  try {
+    return await mine;
+  } finally {
+    if (buying.get(userId) === tail) buying.delete(userId);
+  }
+}
+
+/**
  * The member buys [minutes] for [day] (their phone's date) with points:
  * refused (409, saying why) unless buying is open to them, it fits what's
  * left of the day's cap, and their balance covers it. Each adult who looks
@@ -151,24 +183,25 @@ export async function buyExtraTime(
     throw new ConflictError('Points can’t buy screen time for you. An adult who looks after you can turn it on.');
   }
   if (!status.hasLimits) throw new ConflictError('You have no daily limits, so there’s nothing to add time to.');
-  const left = status.dailyCap - status.bought;
-  if (input.minutes > left) {
-    throw new ConflictError(
-      left > 0 ? `You can buy ${formatMinutes(left)} more today.` : 'You’ve bought all the time you can today.',
-    );
-  }
-  const cost = costCenti(input.minutes, status.minutesPerPoint);
-  if (cost > status.balanceCenti) {
-    throw new ConflictError(
-      `That costs ${formatPoints(cost)} points, and you have ${formatPoints(Math.max(0, status.balanceCenti))}.`,
-    );
-  }
+  const { minutesPerPoint, dailyCap } = status;
+  const cost = costCenti(input.minutes, minutesPerPoint);
+  const refused = buyRefusal(input.minutes, dailyCap - status.bought, cost, status.balanceCenti);
+  if (refused) throw new ConflictError(refused);
   const [user, supervisors] = await Promise.all([
     prisma.user.findFirst({ where: { id: userId, householdId }, select: { name: true } }),
     supervisorsOf(prisma, householdId, userId),
   ]);
   const name = user?.name ?? 'Someone';
-  await prisma.$transaction(async (tx) => {
+  await oneAtATime(userId, () => prisma.$transaction(async (tx) => {
+    // Checked again with the transaction's own reads, after any purchase
+    // made at the same moment: the points and the cap can't be spent twice.
+    const [balances, today] = await Promise.all([
+      pointsBalances(tx, householdId, [userId]),
+      minutesOn(tx, userId, input.day),
+    ]);
+    const left = dailyCap - today.bought;
+    const again = buyRefusal(input.minutes, left, cost, balances.get(userId) ?? 0);
+    if (again) throw new ConflictError(again);
     const row = await tx.extraTime.create({
       data: { householdId, userId, day: input.day, minutes: input.minutes, pointsCenti: cost, byId: userId },
     });
@@ -199,7 +232,7 @@ export async function buyExtraTime(
         })),
       });
     }
-  });
+  }));
   if (supervisors.length > 0) pushSync(householdId, { userIds: supervisors }, 'reminder');
   // Their other phones learn the new minutes too.
   pushSync(householdId, { userIds: [userId] }, 'supervision');

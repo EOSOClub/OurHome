@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { planRestore, RESTORE_ORDER } from '@/server/services/householdRestore';
 import { HOUSEHOLD_MODELS } from '@/server/services/householdDataService';
+import { ConflictError } from '@/server/services/errors';
 
 // Old ids as Prisma makes them ("c" + 24).
 const id = (n: number) => `c${String(n).padStart(24, '0')}`;
@@ -112,6 +113,63 @@ describe('planRestore', () => {
     const note = plan.rows.Notification[0];
     expect(note.dedupeKey).toBe(`overdue:task:${task.id}`);
     expect(note.audienceUserIds).toEqual([kid.id, head.id]);
+  });
+
+  it('puts every row in the restored household, even one that names another household', () => {
+    const OTHER = id(99); // a household already on the server, not in the export
+    const sample = sampleExport();
+    const crafted = {
+      ...sample,
+      members: [...sample.members, { id: id(98), name: 'Eve', username: 'eve', role: 'head', householdId: OTHER }],
+      shoppingLists: [{ id: id(97), householdId: OTHER, name: 'Planted', items: [] }],
+    };
+    const restored = planRestore(crafted, { newId: newIds(), fields });
+    for (const model of RESTORE_ORDER) {
+      for (const row of restored.rows[model]) {
+        if ('householdId' in row) expect(row.householdId).toBe(restored.householdId);
+      }
+    }
+    expect(restored.rows.User.find((u) => u.username === 'eve')?.householdId).toBe(restored.householdId);
+    expect(JSON.stringify(restored.rows)).not.toContain(OTHER);
+  });
+
+  it('refuses a file whose record needs a parent that is not in it (a hand-edited export)', () => {
+    const FOREIGN = id(96); // a list, task or request in another household
+    const sample = sampleExport();
+    const withItem = {
+      ...sample,
+      shoppingLists: [{ ...sample.shoppingLists[0], items: [{ id: ITEM, listId: FOREIGN, name: 'Planted' }] }],
+    };
+    expect(() => planRestore(withItem, { newId: newIds() })).toThrow(ConflictError);
+    expect(() => planRestore(withItem, { newId: newIds() })).toThrow(/ShoppingItem\.listId points at a record that isn’t in the file/);
+    const withStep = { ...sample, tasks: [{ ...sample.tasks[0], subtasks: [{ id: STEP, taskId: FOREIGN, title: 'Planted' }] }] };
+    expect(() => planRestore(withStep, { newId: newIds() })).toThrow(/Subtask\.taskId/);
+    const withNote = {
+      ...sample,
+      requests: [{ id: id(95), householdId: H, title: 'Bike', requesterId: KID, notes: [{ id: id(94), householdId: H, requestId: FOREIGN, body: 'Planted' }] }],
+    };
+    expect(() => planRestore(withNote, { newId: newIds() })).toThrow(/RequestNote\.requestId/);
+    // The test sample's own fields check the same way.
+    expect(() => planRestore(withItem, { newId: newIds(), fields })).toThrow(/ShoppingItem\.listId/);
+  });
+
+  it('clears an optional link to a record that is not in the file', () => {
+    const FOREIGN = id(96);
+    const sample = sampleExport();
+    const restored = planRestore(
+      {
+        ...sample,
+        tasks: [{ ...sample.tasks[0], assigneeId: FOREIGN }],
+        bills: [],
+        billPayments: [{ id: id(93), householdId: H, billId: FOREIGN, paidByUserId: KID, amount: 10, paidAt: '2026-10-01T00:00:00.000Z' }],
+      },
+      { newId: newIds() },
+    );
+    expect(restored.rows.Task[0].assigneeId).toBeNull();
+    const [payment] = restored.rows.BillPayment;
+    expect(payment.billId).toBeNull();
+    expect(payment.paidByUserId).toBe(restored.rows.User[1].id);
+    expect(JSON.stringify(restored.rows)).not.toContain(FOREIGN);
   });
 
   it('keeps where stock is kept and which room a location tag opens', () => {

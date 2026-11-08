@@ -64,6 +64,25 @@ export async function hasRolledOn(
   return all > thisCycle;
 }
 
+/**
+ * True when a bill found by its reference is plainly another biller's than
+ * the document's. Invoice numbers are only unique per biller (small billers
+ * count 1001, 1002...), so another biller's bill with the same number is not
+ * this document's bill. Only billerKeys from the same import compare (a
+ * Paperless correspondent and an OurHomeInbox biller can't), so the same
+ * invoice arriving through both imports still finds its one bill. A biller
+ * unknown on either side is no conflict.
+ */
+export function otherBiller(
+  bill: { billerKey?: string | null },
+  doc: Pick<BillIngestInput, 'billerKey'>,
+): boolean {
+  // "paperless-correspondent:4" -> "paperless-correspondent:"
+  const importOf = (key: string) => key.slice(0, key.lastIndexOf(':') + 1);
+  if (!bill.billerKey || !doc.billerKey) return false;
+  return importOf(bill.billerKey) === importOf(doc.billerKey) && bill.billerKey !== doc.billerKey;
+}
+
 export const billSel = {
   id: true,
   name: true,

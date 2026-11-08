@@ -1,7 +1,7 @@
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/server/db/prisma';
 import { createHash } from 'node:crypto';
-import { ConflictError } from '@/server/services/errors';
+import { ConflictError, createAllOnce } from '@/server/services/errors';
 import { pushSync } from '@/server/services/pushService';
 import { blockedAppNames } from '@/server/services/appBlockService';
 import { limitedAppNames } from '@/server/services/appLimitService';
@@ -219,8 +219,9 @@ export async function reportNewApps(
   const sent = new Set(have.map((n) => n.dedupeKey));
   const fresh = supervisors.filter((s) => !sent.has(keyFor(s)));
   if (fresh.length === 0) return { told: 0 };
-  await prisma.notification.createMany({
-    data: fresh.map((supervisorId) => ({
+  // The same report sent twice at once (a retry): the clash is already sent.
+  await createAllOnce(
+    fresh.map((supervisorId) => ({
       householdId,
       userId: supervisorId,
       type: NEW_APP_TYPE,
@@ -232,7 +233,9 @@ export async function reportNewApps(
       readAt: null,
       createdAt: now,
     })),
-  });
+    (data) => prisma.notification.createMany({ data }),
+    (data) => prisma.notification.create({ data }),
+  );
   pushSync(householdId, { userIds: fresh }, 'reminder');
   return { told: fresh.length };
 }

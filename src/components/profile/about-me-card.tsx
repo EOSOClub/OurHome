@@ -128,7 +128,7 @@ export function AboutMeCard({ overview }: { overview: ProfileOverview }) {
         </div>
 
         <div className="space-y-1.5" data-field="profileColor">
-          <Label>Colour</Label>
+          <Label>Color</Label>
           <FieldNote id={fe.noteId('profileColor')} error={fe.get('profileColor')} />
           <div className="flex flex-wrap gap-2">
             {PROFILE_COLOR_KEYS.map((key) => (
@@ -196,7 +196,7 @@ export function AboutMeCard({ overview }: { overview: ProfileOverview }) {
             value={bio}
             maxLength={BIO_MAX}
             onChange={(e) => setBio(e.target.value)}
-            placeholder="Favourite foods, hobbies, what you're up to…"
+            placeholder="Favorite foods, hobbies, what you're up to…"
             {...fe.invalid('bio')}
           />
           {fe.get('bio') ? (

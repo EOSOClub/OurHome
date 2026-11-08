@@ -6,6 +6,7 @@ import { Loader2, Radio } from 'lucide-react';
 import type { LiveCheckDTO, LiveChecksOverviewDTO } from '@/lib/types';
 import { fixAge } from '@/lib/location';
 import { apiFetch } from '@/lib/api';
+import { APP_LOCALE } from '@/lib/format';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
@@ -16,7 +17,7 @@ import { LIVE_CHECKS_KEY } from '@/components/profile/location-card';
 import { everyLabel, minutesLabel } from '@/components/settings/live-check-card';
 
 function clock(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  return new Date(iso).toLocaleTimeString(APP_LOCALE, { hour: 'numeric', minute: '2-digit' });
 }
 
 function statusText(check: LiveCheckDTO): string {
@@ -96,8 +97,8 @@ export function LiveChecksCard({
 
         {!overview.available ? (
           <p className="text-sm text-muted-foreground">
-            Live checks need instant phone alerts: Firebase on this server, or Stay connected turned on in the app on
-            their phone.
+            Live checks need instant phone alerts. They aren&apos;t set up on this server yet, so turn on Stay
+            connected in the Our Home app on their phone, or ask whoever runs the server to set them up.
           </p>
         ) : idle.length === 0 && overview.started.length === 0 ? (
           <p className="text-sm text-muted-foreground">

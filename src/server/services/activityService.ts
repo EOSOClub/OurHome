@@ -1,6 +1,8 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/server/db/prisma';
 import { areaOf, subjectFilter, type ActivityArea } from '@/lib/activityAreas';
+import { hiddenSubjectTypes } from '@/lib/features';
+import { markRemindersStale } from '@/server/services/reminderRuns';
 
 type Db = typeof prisma | Prisma.TransactionClient;
 
@@ -21,6 +23,12 @@ export interface LogActivityInput {
  * Accepts a transaction client so the entry commits atomically with the change.
  */
 export async function logActivity(input: LogActivityInput, db: Db = prisma) {
+  // Every change is logged here, so it's also the signal that the household's
+  // reminders may be out of date (reminderRuns): the next read rebuilds them.
+  // A read landing inside the change's own transaction can still rebuild from
+  // the old state; the next change, or the throttle running out a minute
+  // later, catches that.
+  markRemindersStale(input.householdId);
   return db.activityEntry.create({
     data: {
       householdId: input.householdId,
@@ -49,9 +57,15 @@ export interface ActivityQuery {
  */
 export async function listActivity(householdId: string, query: ActivityQuery = {}) {
   const take = Math.min(100, query.limit ?? 50);
+  // Areas the server admin turned off for this household stay out of the log,
+  // as they do from the bell. Imported here: serverAdminService logs activity
+  // through this module.
+  const { getHouseholdFeatures } = await import('@/server/services/serverAdminService');
+  const hidden = hiddenSubjectTypes(await getHouseholdFeatures(householdId));
   const rows = await prisma.activityEntry.findMany({
     where: {
       householdId,
+      ...(hidden.length ? { NOT: { subjectType: { in: hidden } } } : {}),
       ...(query.area ? { subjectType: subjectFilter(query.area) } : {}),
       ...(query.actorId ? { actorId: query.actorId } : {}),
     },

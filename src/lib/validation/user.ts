@@ -8,6 +8,13 @@ import {
   type ProfileColor,
 } from '@/lib/profile';
 
+/**
+ * The characters a username may have. Better Auth checks sign-in with the
+ * same pattern (auth.ts): its own default has no hyphen, so a member named
+ * "mary-jo" could be created but never sign in.
+ */
+export const USERNAME_PATTERN = /^[a-zA-Z0-9._-]+$/;
+
 // Mirrors the Better Auth username plugin defaults (3-30 chars). Letters,
 // numbers, dots, underscores, and hyphens, so display names like "jane.d" work.
 export const usernameSchema = z
@@ -15,7 +22,7 @@ export const usernameSchema = z
   .trim()
   .min(3, 'At least 3 characters.')
   .max(30, 'At most 30 characters.')
-  .regex(/^[a-zA-Z0-9._-]+$/, 'Use only letters, numbers and . _ - (no spaces).');
+  .regex(USERNAME_PATTERN, 'Use only letters, numbers and . _ - (no spaces).');
 
 // Better Auth's emailAndPassword minimum is 8.
 export const passwordSchema = z

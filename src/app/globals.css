@@ -26,6 +26,11 @@
   --destructive-foreground: hsl(210 40% 98%);
   --success: hsl(142 71% 45%);
   --warning: hsl(38 92% 50%);
+  /* Text in the success/warning colors: --success and --warning are only
+     about 2.2:1 on white, too faint to read, so text uses these darker shades
+     (about 5:1). Fills and tints keep the brighter colors. */
+  --success-text: hsl(142 72% 29%);
+  --warning-text: hsl(26 90% 37%);
   --border: hsl(214 32% 91%);
   --input: hsl(214 32% 91%);
   --ring: hsl(221 83% 53%);
@@ -47,6 +52,9 @@
   --destructive-foreground: hsl(210 40% 98%);
   --success: hsl(142 69% 48%);
   --warning: hsl(38 92% 55%);
+  /* Already readable on the dark background, so text keeps the same shades. */
+  --success-text: hsl(142 69% 48%);
+  --warning-text: hsl(38 92% 55%);
   --border: hsl(217 33% 20%);
   --input: hsl(217 33% 22%);
   --ring: hsl(217 91% 60%);
@@ -70,6 +78,8 @@
   --color-destructive-foreground: var(--destructive-foreground);
   --color-success: var(--success);
   --color-warning: var(--warning);
+  --color-success-text: var(--success-text);
+  --color-warning-text: var(--warning-text);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);

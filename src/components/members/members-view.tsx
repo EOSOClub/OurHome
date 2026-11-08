@@ -34,6 +34,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { FieldNote } from '@/components/ui/field-note';
 import { Label } from '@/components/ui/label';
+import { LoadError } from '@/components/ui/load-error';
 import { Select } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Dialog } from '@/components/ui/dialog';
@@ -134,7 +135,7 @@ export function MembersView({
             <Button
               variant="ghost"
               size="icon"
-              className="size-8 text-muted-foreground"
+              className="size-11 text-muted-foreground sm:size-8"
               aria-label="Rename household"
               onClick={() => setRenaming(true)}
             >
@@ -235,7 +236,7 @@ function RenameHouseholdDialog({
         <Label htmlFor="household-name">Household name</Label>
         <Input
           id="household-name"
-          autoFocus
+          data-autofocus
           value={name}
           maxLength={80}
           onChange={(e) => setName(e.target.value)}
@@ -374,7 +375,7 @@ function AddMemberCard({
 
       {created ? (
         <CardContent>
-          <div className="rounded-md border border-[var(--color-success)]/40 bg-[var(--color-success)]/10 p-3 text-sm">
+          <div className="rounded-md border border-success/40 bg-success/10 p-3 text-sm">
             Added <span className="font-medium">{created.name}</span>. They sign
             in with username{' '}
             <code className="rounded bg-background px-1">{created.username}</code>{' '}
@@ -460,6 +461,12 @@ function AddMemberCard({
                   <p className="text-xs text-muted-foreground">
                     The Head of House chooses who supervises them, on this page.
                   </p>
+                ) : !supervision.data && supervision.isError ? (
+                  <LoadError
+                    message="Couldn't load who can supervise. Check your connection and try again."
+                    onRetry={() => void supervision.refetch()}
+                    retrying={supervision.isFetching}
+                  />
                 ) : !supervision.data ? (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Loader2 className="size-4 animate-spin" /> Loading…
@@ -666,7 +673,7 @@ function MemberRow({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <p className="truncate text-sm font-medium">{member.name}</p>
-            {isHead ? <Crown className="size-3.5 text-[var(--color-warning)]" /> : null}
+            {isHead ? <Crown className="size-3.5 text-warning" /> : null}
             {isSelf ? (
               <span className="text-xs text-muted-foreground">(you)</span>
             ) : null}

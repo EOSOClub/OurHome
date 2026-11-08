@@ -3,6 +3,8 @@ import {
   cycleStartAt,
   elapsedDays,
   isCycleStart,
+  localDateOf,
+  localTimeAt,
   nextCycleStart,
   parseLocalDate,
   periodBounds,
@@ -27,6 +29,69 @@ describe('local midnight', () => {
   });
 });
 
+describe('zones whose clocks jump from midnight to 01:00', () => {
+  // America/Santiago 2026-09-06 and America/Havana 2026-03-08 have no local
+  // midnight: the day starts at 01:00. Returning 23:00 the evening before made
+  // nextCycleStart return the same instant again and the roll-over spin forever.
+  const SANTIAGO = 'America/Santiago';
+  const HAVANA = 'America/Havana';
+
+  it('the day starts at 01:00, never on the evening before', () => {
+    expect(startOfLocalDate({ year: 2026, month: 9, day: 6 }, SANTIAGO).toISOString()).toBe('2026-09-06T04:00:00.000Z');
+    expect(startOfLocalDate({ year: 2026, month: 9, day: 7 }, SANTIAGO).toISOString()).toBe('2026-09-07T03:00:00.000Z');
+    expect(startOfLocalDate({ year: 2026, month: 3, day: 8 }, HAVANA).toISOString()).toBe('2026-03-08T05:00:00.000Z');
+    expect(localDateOf(startOfLocalDate({ year: 2026, month: 9, day: 6 }, SANTIAGO), SANTIAGO)).toEqual({ year: 2026, month: 9, day: 6 });
+  });
+
+  it('a local time inside the skipped hour lands on its own day', () => {
+    expect(localTimeAt({ year: 2026, month: 9, day: 6 }, 0, 30, SANTIAGO).toISOString()).toBe('2026-09-06T04:30:00.000Z');
+    // Outside the gap nothing changes.
+    expect(localTimeAt({ year: 2026, month: 9, day: 6 }, 12, 0, SANTIAGO).toISOString()).toBe('2026-09-06T15:00:00.000Z');
+    expect(localTimeAt({ year: 2026, month: 3, day: 8 }, 12, 0, TZ).toISOString()).toBe('2026-03-08T17:00:00.000Z');
+  });
+
+  it('daily and weekly boundaries always move forward', () => {
+    const eve = at('2026-09-05T16:00:00Z'); // Sat noon local
+    const first = nextCycleStart(eve, { kind: 'daily' }, SANTIAGO);
+    expect(first.toISOString()).toBe('2026-09-06T04:00:00.000Z');
+    expect(nextCycleStart(first, { kind: 'daily' }, SANTIAGO).toISOString()).toBe('2026-09-07T03:00:00.000Z');
+    // The old wrong boundary (23:00 on the eve) still moves on to the real one.
+    expect(nextCycleStart(at('2026-09-06T03:00:00Z'), { kind: 'daily' }, SANTIAGO).toISOString()).toBe('2026-09-06T04:00:00.000Z');
+    const sundays = { kind: 'weekdays' as const, days: [0] };
+    expect(nextCycleStart(eve, sundays, SANTIAGO).toISOString()).toBe('2026-09-06T04:00:00.000Z');
+    expect(cycleStartAt(at('2026-09-06T12:00:00Z'), sundays, SANTIAGO).toISOString()).toBe('2026-09-06T04:00:00.000Z');
+    const havanaEve = at('2026-03-07T17:00:00Z');
+    expect(nextCycleStart(havanaEve, { kind: 'daily' }, HAVANA).toISOString()).toBe('2026-03-08T05:00:00.000Z');
+  });
+
+  it('a loop like the roll-over finishes in a few steps', () => {
+    for (const [zone, start, now] of [
+      [SANTIAGO, '2026-09-05T16:00:00Z', '2026-09-08T16:00:00Z'],
+      [HAVANA, '2026-03-07T17:00:00Z', '2026-03-10T17:00:00Z'],
+      [TZ, '2026-03-07T17:00:00Z', '2026-03-10T17:00:00Z'],
+      [TZ, '2026-10-31T17:00:00Z', '2026-11-03T17:00:00Z'],
+      ['Asia/Tokyo', '2026-03-07T03:00:00Z', '2026-03-10T03:00:00Z'],
+    ] as const) {
+      let end = nextCycleStart(at(start), { kind: 'daily' }, zone);
+      let steps = 0;
+      while (end <= at(now) && steps < 50) {
+        end = nextCycleStart(end, { kind: 'daily' }, zone);
+        steps += 1;
+      }
+      expect(steps, zone).toBe(3);
+    }
+  });
+
+  it('Tokyo (no DST) and Chicago are unchanged', () => {
+    expect(startOfLocalDate({ year: 2026, month: 3, day: 8 }, 'Asia/Tokyo').toISOString()).toBe('2026-03-07T15:00:00.000Z');
+    expect(nextCycleStart(at('2026-03-08T03:00:00Z'), { kind: 'daily' }, 'Asia/Tokyo').toISOString()).toBe('2026-03-08T15:00:00.000Z');
+    expect(nextCycleStart(at('2026-03-07T18:00:00Z'), { kind: 'daily' }, TZ).toISOString()).toBe('2026-03-08T06:00:00.000Z');
+    expect(nextCycleStart(at('2026-03-08T18:00:00Z'), { kind: 'daily' }, TZ).toISOString()).toBe('2026-03-09T05:00:00.000Z');
+    expect(nextCycleStart(at('2026-10-31T18:00:00Z'), { kind: 'daily' }, TZ).toISOString()).toBe('2026-11-01T05:00:00.000Z');
+    expect(nextCycleStart(at('2026-11-01T18:00:00Z'), { kind: 'daily' }, TZ).toISOString()).toBe('2026-11-02T06:00:00.000Z');
+  });
+});
+
 describe('weekday cycles (Mon + Fri)', () => {
   const spec = { kind: 'weekdays' as const, days: [1, 5] };
 
@@ -47,6 +112,43 @@ describe('weekday cycles (Mon + Fri)', () => {
     // Sun 2026-10-11 23:30 local is already Monday in UTC.
     const lateSunday = at('2026-10-12T04:30:00Z');
     expect(cycleStartAt(lateSunday, spec, TZ).toISOString()).toBe('2026-10-09T05:00:00.000Z');
+  });
+});
+
+describe('every n weeks or months', () => {
+  // Anchored Mon 2026-11-02 at noon: the on weeks are Nov 2, Nov 16, Nov 30.
+  const anchor = at('2026-11-02T18:00:00Z');
+  const biweekly = { kind: 'weekdays' as const, days: [1], everyWeeks: 2, anchor };
+
+  it('every 2 weeks skips the Mondays between', () => {
+    expect(isCycleStart({ year: 2026, month: 11, day: 2 }, biweekly, TZ)).toBe(true);
+    expect(isCycleStart({ year: 2026, month: 11, day: 9 }, biweekly, TZ)).toBe(false);
+    expect(isCycleStart({ year: 2026, month: 11, day: 16 }, biweekly, TZ)).toBe(true);
+    // Weeks before the anchor count the same way.
+    expect(isCycleStart({ year: 2026, month: 10, day: 19 }, biweekly, TZ)).toBe(true);
+    expect(isCycleStart({ year: 2026, month: 10, day: 26 }, biweekly, TZ)).toBe(false);
+    const wed = at('2026-11-11T15:00:00Z');
+    expect(cycleStartAt(wed, biweekly, TZ).toISOString()).toBe('2026-11-02T06:00:00.000Z');
+    expect(nextCycleStart(wed, biweekly, TZ).toISOString()).toBe('2026-11-16T06:00:00.000Z');
+  });
+
+  it('weeks are counted from the anchor’s Sunday, as the rule counts them', () => {
+    // Anchored on a Saturday: its week began the Sunday before, so the Monday
+    // two days later is in the next (off) week.
+    const sat = { kind: 'weekdays' as const, days: [1], everyWeeks: 2, anchor: at('2026-11-07T18:00:00Z') };
+    expect(isCycleStart({ year: 2026, month: 11, day: 2 }, sat, TZ)).toBe(true);
+    expect(isCycleStart({ year: 2026, month: 11, day: 9 }, sat, TZ)).toBe(false);
+  });
+
+  it('every 3 months on the 1st', () => {
+    const quarterly = { kind: 'monthdays' as const, days: [1], everyMonths: 3, anchor };
+    expect(nextCycleStart(at('2026-11-10T15:00:00Z'), quarterly, TZ).toISOString()).toBe('2027-02-01T06:00:00.000Z');
+    expect(cycleStartAt(at('2027-01-10T15:00:00Z'), quarterly, TZ).toISOString()).toBe('2026-11-01T05:00:00.000Z');
+  });
+
+  it('every 1 is the plain rule', () => {
+    const weekly = { kind: 'weekdays' as const, days: [1], everyWeeks: 1, anchor };
+    expect(isCycleStart({ year: 2026, month: 11, day: 9 }, weekly, TZ)).toBe(true);
   });
 });
 

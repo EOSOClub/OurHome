@@ -342,9 +342,14 @@ export function canModify(
   return own ? access.deleteOwn : access.deleteOthers;
 }
 
-/** True when the page grants anything at all (used for check-off style actions). */
-export function hasAnyAccess(access: PageAccess): boolean {
-  return ACCESS_ACTIONS.some((a) => access[a]);
+/**
+ * True when the page grants anything at all (used for check-off style
+ * actions). Only the switches that page shows count: the built-in grid has
+ * Approve on for every page, but record pages never show or save it, so
+ * counting it meant turning every switch off still left access.
+ */
+export function hasAnyAccess(access: PageAccess, page: AccessPage): boolean {
+  return PAGE_ACTIONS[page].some((a) => access[a]);
 }
 
 /**

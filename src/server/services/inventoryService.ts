@@ -3,10 +3,11 @@ import { assertCategoryRef, assertPlaceRef } from '@/server/services/householdRe
 import { prisma } from '@/server/db/prisma';
 import { placeColumns, placeRefs } from '@/lib/places';
 import type { CategoryDTO, InventoryItemDTO } from '@/lib/types';
-import type {
-  CreateInventoryCategoryInput,
-  CreateInventoryItemInput,
-  UpdateInventoryItemInput,
+import {
+  MAX_QUANTITY,
+  type CreateInventoryCategoryInput,
+  type CreateInventoryItemInput,
+  type UpdateInventoryItemInput,
 } from '@/lib/validation/inventory';
 import { logActivity } from '@/server/services/activityService';
 import { ConflictError, NotFoundError } from '@/server/services/errors';
@@ -22,6 +23,17 @@ const itemInclude = {
 export type InventoryItemWithRelations = Prisma.InventoryItemGetPayload<{
   include: typeof itemInclude;
 }>;
+
+/**
+ * A stock level kept to six decimals. Quantities are floats, and adding them
+ * leaves binary leftovers (0.1 + 0.2 = 0.30000000000000004), which showed up
+ * as "now 0.19999999999999998" in Activity and on the item. Six places is far
+ * finer than anyone enters (whole units, halves, 0.25 lbs, 1/16 = 0.0625), so
+ * only the leftovers go.
+ */
+export function roundQuantity(n: number): number {
+  return Math.round(n * 1e6) / 1e6;
+}
 
 /** A stock level is "low" only when it's at or below a set threshold. */
 function computeIsLow(quantity: number, lowThreshold: number): boolean {
@@ -287,7 +299,9 @@ export async function adjustQuantity(
   let isLow = false;
   for (let attempt = 0; ; attempt += 1) {
     const existing = await findItemInHousehold(itemId, householdId, db);
-    newQuantity = Math.max(0, existing.quantity + delta);
+    // Within 0..MAX_QUANTITY, the same bounds as a quantity typed in: a
+    // restock on top of a full item would otherwise go past the cap.
+    newQuantity = Math.min(MAX_QUANTITY, Math.max(0, roundQuantity(existing.quantity + delta)));
     wasLow = existing.isLow;
     isLow = computeIsLow(newQuantity, existing.lowThreshold);
 
@@ -325,7 +339,7 @@ export async function adjustQuantity(
       verb,
       subjectType: 'inventory_item',
       subjectId: item.id,
-      message: `${verb} ${Math.abs(delta)}${unit} of “${item.name}” (now ${newQuantity})`,
+      message: `${verb} ${roundQuantity(Math.abs(delta))}${unit} of “${item.name}” (now ${newQuantity})`,
       metadata: {
         delta,
         quantity: newQuantity,

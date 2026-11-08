@@ -33,6 +33,23 @@ function scalarFields(model: string): Set<string> {
   return new Set(m.fields.filter((f) => f.kind === 'scalar' || f.kind === 'enum').map((f) => f.name));
 }
 
+/**
+ * Each model's reference fields (the scalar side of a relation, like
+ * ShoppingItem.listId): field → whether it's required. Plain id fields with no
+ * relation (createdById) and ids inside text aren't in it.
+ */
+function referenceFields(model: string): Map<string, boolean> {
+  const m = Prisma.dmmf.datamodel.models.find((x) => x.name === model);
+  if (!m) throw new Error(`Unknown model ${model}`);
+  const refs = new Map<string, boolean>();
+  for (const rel of m.fields) {
+    for (const from of rel.relationFromFields ?? []) {
+      refs.set(from, m.fields.find((f) => f.name === from)?.isRequired ?? false);
+    }
+  }
+  return refs;
+}
+
 /** The models written when restoring, in insert order (parents before children). */
 export const RESTORE_ORDER = [
   'Household',
@@ -195,13 +212,41 @@ export function planRestore(
   const rows = {} as Record<RestoreModel, Row[]>;
   for (const model of RESTORE_ORDER) {
     const allowed = fieldsOf(model);
+    const refs = referenceFields(model);
     rows[model] = source[model].map((row) => {
       const out: Row = {};
       for (const [key, value] of Object.entries(row)) {
-        if (allowed.has(key) && value !== undefined) out[key] = rewire(value);
+        if (!allowed.has(key) || value === undefined) continue;
+        // `rewire` keeps an id the export doesn't contain, so a hand-edited
+        // file could hang a row on another household's list, task, request or
+        // bill. A real export has every parent a required link needs (they
+        // cascade), so such a file is refused; an optional link is cleared.
+        // householdId is set for every row below.
+        const required = key === 'householdId' ? undefined : refs.get(key);
+        const unknown = value !== null && !Array.isArray(value) && !(typeof value === 'string' && idMap.has(value));
+        if (required !== undefined && unknown) {
+          if (required) {
+            throw new ConflictError(
+              `That file can’t be restored: ${model}.${key} points at a record that isn’t in the file (${String(value)}). It may have been edited by hand.`,
+            );
+          }
+          out[key] = null;
+          continue;
+        }
+        out[key] = rewire(value);
       }
       return out;
     });
+  }
+
+  // Every restored row belongs to the restored household. `rewire` only maps
+  // ids the export itself contains, so a householdId naming any other
+  // household (a hand-edited file) would otherwise pass through unchanged
+  // and plant rows, even a second Head of House, in that household.
+  const restoredHouseholdId = idMap.get(household.id)!;
+  for (const model of RESTORE_ORDER) {
+    if (model === 'Household' || !fieldsOf(model).has('householdId')) continue;
+    for (const row of rows[model]) row.householdId = restoredHouseholdId;
   }
 
   // A check still waiting can't be decided after a restore: its photo isn't

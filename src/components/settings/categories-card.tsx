@@ -137,7 +137,7 @@ export function CategoriesCard({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="size-8 text-muted-foreground"
+                    className="size-11 text-muted-foreground sm:size-8"
                     aria-label={`Edit ${c.name}`}
                     onClick={() => setEditing(c)}
                   >
@@ -146,7 +146,7 @@ export function CategoriesCard({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="size-8 text-muted-foreground hover:text-destructive"
+                    className="size-11 text-muted-foreground hover:text-destructive sm:size-8"
                     aria-label={`Delete ${c.name}`}
                     disabled={remove.isPending}
                     onClick={() => setPendingDelete(c)}
@@ -211,6 +211,8 @@ function CategoryDialog({
     <Dialog
       open
       onClose={onClose}
+      // A stray tap outside must not throw away what was typed.
+      preventOutsideClose
       title={category ? 'Edit category' : 'New category'}
       footer={
         <>
@@ -287,7 +289,7 @@ function CategoryDialog({
               value={color}
               onChange={(e) => setColor(e.target.value)}
               className="max-w-[10rem] font-mono"
-              aria-label="Colour as hex"
+              aria-label="Color as hex"
               {...fe.invalid('color')}
             />
           </div>

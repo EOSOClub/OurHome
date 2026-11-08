@@ -161,14 +161,14 @@ describe('resolveAccess', () => {
     };
     for (const r of ['manager', 'adult'] as const) {
       const a = resolveAccess(r, null, null);
-      expect(hasAnyAccess(a.tasks)).toBe(false);
+      expect(hasAnyAccess(a.tasks, 'tasks')).toBe(false);
       for (const p of ['calendar', 'shopping', 'shoppingLists', 'inventory', 'bills'] as const) {
         expect(shown(a, p)).toEqual(everything);
       }
     }
     const guest = resolveAccess('guest', null, null);
     for (const p of ACCESS_PAGES) {
-      if (p !== 'requests') expect(hasAnyAccess(guest[p])).toBe(false);
+      if (p !== 'requests') expect(hasAnyAccess(guest[p], p)).toBe(false);
     }
   });
 
@@ -179,17 +179,32 @@ describe('resolveAccess', () => {
       expect(shown(teen, p)).toEqual(own);
     }
     for (const p of ['tasks', 'shoppingLists', 'bills'] as const) {
-      expect(hasAnyAccess(teen[p])).toBe(false);
+      expect(hasAnyAccess(teen[p], p)).toBe(false);
     }
   });
 
   it('lets children only add shopping items (and tick them off)', () => {
     const child = resolveAccess('child', null, null);
     expect(child.shopping).toEqual(page({ create: true }));
-    expect(hasAnyAccess(child.shopping)).toBe(true);
+    expect(hasAnyAccess(child.shopping, 'shopping')).toBe(true);
     for (const p of ['tasks', 'calendar', 'shoppingLists', 'inventory', 'bills'] as const) {
-      expect(hasAnyAccess(child[p])).toBe(false);
+      expect(hasAnyAccess(child[p], p)).toBe(false);
     }
+  });
+
+  it('takes all access away when every switch the page shows is off', () => {
+    // The built-in grid has Approve on for record pages, but the editor never
+    // shows or saves it there; it must not keep access alive on its own.
+    const off = { create: false, editOwn: false, deleteOwn: false, editOthers: false, deleteOthers: false };
+    for (const r of ['manager', 'adult'] as const) {
+      const a = resolveAccess(r, { [r]: { shopping: off, inventory: off } }, null);
+      expect(a.shopping.approve).toBe(true);
+      expect(hasAnyAccess(a.shopping, 'shopping')).toBe(false);
+      expect(hasAnyAccess(a.inventory, 'inventory')).toBe(false);
+      expect(hasAnyAccess(a.bills, 'bills')).toBe(true);
+    }
+    // On Requests, Approve is a real switch and does count.
+    expect(hasAnyAccess(page({ approve: true }), 'requests')).toBe(true);
   });
 
   it('lets every role submit requests; only managers approve media by default', () => {
@@ -235,7 +250,7 @@ describe('resolveAccess', () => {
 
   it('grants nothing to unknown roles', () => {
     const a = resolveAccess('admin', null, { tasks: { create: true } });
-    for (const p of ACCESS_PAGES) expect(hasAnyAccess(a[p])).toBe(false);
+    for (const p of ACCESS_PAGES) expect(hasAnyAccess(a[p], p)).toBe(false);
   });
 });
 

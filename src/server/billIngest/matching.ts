@@ -1,5 +1,7 @@
 import { Prisma } from '@prisma/client';
 import type { BillIngestInput } from '@/lib/validation/billIngest';
+import { otherBiller } from '@/server/billIngest/common';
+import { roundCents } from '@/lib/money';
 
 // How a receipt finds the bill it pays when the importer has to work that out
 // itself (the Paperless import), and the card-fee band used both to accept a
@@ -15,6 +17,15 @@ const FEE_MAX_FLAT = 6;
 /** Upper bound on a plausible fee for a bill of the given balance. */
 export function feeCeiling(billAmount: number): number {
   return Math.max(FEE_MAX_FLAT, billAmount * FEE_MAX_PCT);
+}
+
+/**
+ * Money is whole cents. Sums and differences of amounts don't stay whole
+ * (100 + 3.45 back to a fee gives 3.450000000000003), so what's worked out
+ * here is rounded before it's stored.
+ */
+export function cents(n: number): number {
+  return roundCents(n);
 }
 
 export type MatchedBill = Prisma.BillGetPayload<{ include: { recurrence: true } }>;
@@ -41,6 +52,12 @@ export async function findMatchingBill(
     where: { householdId, reference },
     include: { recurrence: true },
   });
+  // Invoice numbers are only unique per biller: another biller's bill with
+  // the same number isn't the one this pays (common.ts otherBiller).
+  if (match && otherBiller(match, doc)) {
+    const same = await tx.bill.findMany({ where: { householdId, reference }, include: { recurrence: true } });
+    match = same.find((b) => !otherBiller(b, doc)) ?? null;
+  }
   if (!match && doc.accountNo) {
     // Only open bills - a payment clears what's still owed. (Ordering by status
     // here is a trap: "paid" sorts before "unpaid", which would misroute the
@@ -99,7 +116,7 @@ export function splitFee(
     applied = amount;
     fee = 0;
   }
-  return { applied, fee };
+  return { applied: cents(applied), fee: cents(fee) };
 }
 
 /**
@@ -110,5 +127,5 @@ export function splitFee(
  */
 export function sentFee(doc: BillIngestInput, amount: number): { applied: number; fee: number } {
   const fee = doc.fee ?? 0;
-  return { applied: doc.baseAmount ?? Math.max(0, amount - fee), fee };
+  return { applied: cents(doc.baseAmount ?? Math.max(0, amount - fee)), fee: cents(fee) };
 }

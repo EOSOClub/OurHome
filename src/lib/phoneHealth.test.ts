@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   PHONE_LOW_PCT,
+  PHONE_PROBLEMS,
   PHONE_QUICK_QUIET_MS,
   PHONE_QUIET_MS,
   SILENT_PROBLEMS,
@@ -261,6 +262,12 @@ describe('phone problems', () => {
   it('names the child in the alert', () => {
     expect(phoneAlertText('quiet', 'Mia').title).toBe('Mia’s phone hasn’t checked in');
     expect(phoneAlertText('location_off', 'Mia').body).toMatch(/Mia’s sharing is required/);
+  });
+
+  it('gives every problem its own text: only location_off says location is off', () => {
+    const titles = PHONE_PROBLEMS.map((p) => phoneAlertText(p, 'Mia').title);
+    expect(new Set(titles).size).toBe(PHONE_PROBLEMS.length);
+    expect(PHONE_PROBLEMS.filter((p) => phoneAlertText(p, 'Mia').title === 'Mia’s location is off')).toEqual(['location_off']);
   });
 });
 

@@ -4,6 +4,7 @@
 import type { TaskSubmissionEntryDTO } from '@/lib/types';
 import { ApiError } from '@/lib/api';
 import { formatPoints, toCenti } from '@/lib/taskPoints';
+import { APP_LOCALE } from '@/lib/format';
 
 /**
  * The machine codes the server puts on its check refusals (409,
@@ -38,9 +39,9 @@ export function plusPoints(points: number): string {
 export function checkTime(iso: string, timeZone?: string, now: Date = new Date()): string {
   const at = new Date(iso);
   const day = (d: Date) => d.toLocaleDateString('en-CA', { timeZone });
-  const time = at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', timeZone });
+  const time = at.toLocaleTimeString(APP_LOCALE, { hour: 'numeric', minute: '2-digit', timeZone });
   if (day(at) === day(now)) return time;
-  return `${at.toLocaleDateString(undefined, { weekday: 'short', timeZone })} ${time}`;
+  return `${at.toLocaleDateString(APP_LOCALE, { weekday: 'short', timeZone })} ${time}`;
 }
 
 /** "Decide by Tue 12:00 AM or it counts as done" (the cycle end). */

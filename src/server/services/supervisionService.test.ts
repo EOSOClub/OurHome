@@ -341,6 +341,50 @@ describe('setSupervisors', () => {
     expect(logActivity).not.toHaveBeenCalled();
     expect(push.pushSync).not.toHaveBeenCalled();
   });
+
+  it('a save at the same moment as another is told plainly (409), with nothing sent after', async () => {
+    const { Prisma } = await import('@prisma/client');
+    prisma.user.findFirst.mockResolvedValueOnce(sam);
+    prisma.user.findMany.mockResolvedValueOnce([gran]);
+    prisma.supervision.findMany.mockResolvedValueOnce([]);
+    prisma.$transaction.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError('conflict', { code: 'P2034', clientVersion: 'test' }),
+    );
+    await expect(setSupervisors(H, head, { supervisedId: 'sam', supervisorIds: ['gran'] })).rejects.toMatchObject({
+      name: 'ConflictError',
+      message: 'Someone else changed this at the same moment. Try again.',
+    });
+    expect(push.pushSync).not.toHaveBeenCalled();
+  });
+
+  it('two saves at once that add the same supervisor: the second finds it done, no error', async () => {
+    const { Prisma } = await import('@prisma/client');
+    prisma.user.findFirst.mockResolvedValueOnce(sam);
+    prisma.user.findMany.mockResolvedValueOnce([gran]);
+    // Read before the other save committed, then again after its link clashed.
+    prisma.supervision.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([{ supervisorId: 'gran', supervisedId: 'sam' }]);
+    prisma.$transaction.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError('dup', { code: 'P2002', clientVersion: 'test' }),
+    );
+    await expect(setSupervisors(H, head, { supervisedId: 'sam', supervisorIds: ['gran'] })).resolves.toBeDefined();
+    // Nothing left to write: the other save did it.
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('a clash where the other save wrote only part of this one: the rest is saved', async () => {
+    const { Prisma } = await import('@prisma/client');
+    prisma.user.findFirst.mockResolvedValueOnce(sam);
+    prisma.user.findMany.mockResolvedValueOnce([gran, pat]);
+    prisma.supervision.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([{ supervisorId: 'gran', supervisedId: 'sam' }]);
+    prisma.$transaction.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError('dup', { code: 'P2002', clientVersion: 'test' }),
+    );
+    await setSupervisors(H, head, { supervisedId: 'sam', supervisorIds: ['gran', 'pat'] });
+    expect(tx.supervision.createMany).toHaveBeenCalledTimes(1);
+    expect(tx.supervision.createMany).toHaveBeenCalledWith({
+      data: [{ householdId: H, supervisorId: 'pat', supervisedId: 'sam', createdById: 'head' }],
+    });
+  });
 });
 
 describe('dropBrokenSupervision', () => {
@@ -980,6 +1024,39 @@ describe('required sharing', () => {
     expect(push.pushSync).not.toHaveBeenCalled();
   });
 
+  it('takes a block another supervisor made at the same moment as done', async () => {
+    const { Prisma } = await import('@prisma/client');
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    usage.usageLabel.mockResolvedValueOnce('Roblox');
+    prisma.$transaction.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError('dup', { code: 'P2002', clientVersion: 'test' }),
+    );
+    await expect(
+      setAppBlocked(H, { id: 'alex' }, { supervisedId: 'sam', app: 'com.roblox.client', blocked: true }),
+    ).resolves.toBeDefined();
+    // The one that got there first woke the phone.
+    expect(push.pushSync).not.toHaveBeenCalled();
+    // A transaction that lost the race the other way is told plainly (409), not 500.
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    usage.usageLabel.mockResolvedValueOnce('Roblox');
+    prisma.$transaction.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError('conflict', { code: 'P2034', clientVersion: 'test' }),
+    );
+    await expect(
+      setAppBlocked(H, { id: 'alex' }, { supervisedId: 'sam', app: 'com.roblox.client', blocked: true }),
+    ).rejects.toMatchObject({ name: 'ConflictError' });
+  });
+
+  it('takes a limit another supervisor set at the same moment as done', async () => {
+    const { Prisma } = await import('@prisma/client');
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    prisma.$transaction.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError('dup', { code: 'P2002', clientVersion: 'test' }),
+    );
+    await expect(setAppLimit(H, { id: 'alex' }, { supervisedId: 'sam', app: '*', minutes: 180 })).resolves.toBeDefined();
+    expect(push.pushSync).not.toHaveBeenCalled();
+  });
+
   it('refuses blocking from anyone who does not supervise them', async () => {
     findLinks.mockResolvedValueOnce(linkTo(jo, 'on'));
     await expect(
@@ -1211,6 +1288,34 @@ describe('required sharing', () => {
       expect.objectContaining({ message: 'stopped Sam spending points on screen time' }),
       tx,
     );
+  });
+
+  it('points for time saved by two adults at once: a plain 409, never a 500; stopping twice is just stopped', async () => {
+    const { Prisma } = await import('@prisma/client');
+    const known = (code: string) => new Prisma.PrismaClientKnownRequestError(code, { code, clientVersion: 'test' });
+    const SAME = { name: 'ConflictError', message: 'Someone else changed this at the same moment. Try again.' };
+    // A write conflict, and two first saves both creating the row (its userId is unique).
+    for (const code of ['P2034', 'P2002']) {
+      findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+      prisma.$transaction.mockRejectedValueOnce(known(code));
+      await expect(
+        setPointsForTime(H, { id: 'alex' }, { supervisedId: 'sam', minutesPerPoint: 5, dailyCap: 30 }),
+      ).rejects.toMatchObject(SAME);
+    }
+    // A rate change on a row the other adult just stopped.
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    prisma.pointsForTime.findUnique.mockResolvedValueOnce({ id: 'p1', minutesPerPoint: 5, dailyCap: 30 });
+    prisma.$transaction.mockRejectedValueOnce(known('P2025'));
+    await expect(
+      setPointsForTime(H, { id: 'alex' }, { supervisedId: 'sam', minutesPerPoint: 10, dailyCap: 30 }),
+    ).rejects.toMatchObject(SAME);
+    // Stopped by both at once: the second finds it already stopped.
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    prisma.pointsForTime.findUnique.mockResolvedValueOnce({ id: 'p1', minutesPerPoint: 5, dailyCap: 30 });
+    prisma.$transaction.mockRejectedValueOnce(known('P2025'));
+    await expect(
+      setPointsForTime(H, { id: 'alex' }, { supervisedId: 'sam', minutesPerPoint: null, dailyCap: 30 }),
+    ).resolves.toBeDefined();
   });
 
   it('refuses points for time without the Points feature, or from someone who doesn’t supervise them', async () => {

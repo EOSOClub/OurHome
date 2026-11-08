@@ -2,6 +2,14 @@ import { localTimeAt, parseLocalDate } from '@/lib/taskCycles';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * The one locale every label is formatted in. Pages render on the server and
+ * then hydrate in the browser; with the runtime's default locale a browser set
+ * to another one (e.g. en-GB) produced different text ("US$12.00",
+ * "7 Nov 2026") and React reported a hydration mismatch.
+ */
+export const APP_LOCALE = 'en-US';
+
 /** `url` if it is http(s), else undefined: safe to put in an `href`. */
 export function safeHref(url: string | null | undefined): string | undefined {
   return url && /^https?:\/\//i.test(url) ? url : undefined;
@@ -12,7 +20,7 @@ export function formatMoney(
   amount: number,
   currency?: string | null,
 ): string {
-  return new Intl.NumberFormat(undefined, {
+  return new Intl.NumberFormat(APP_LOCALE, {
     style: 'currency',
     currency: currency || 'USD',
   }).format(amount);
@@ -21,7 +29,7 @@ export function formatMoney(
 /** Absolute calendar date label, e.g. "Jul 2, 2026". */
 export function formatDate(date: Date | string | null | undefined, timeZone?: string): string {
   if (!date) return '-';
-  return new Date(date).toLocaleDateString(undefined, {
+  return new Date(date).toLocaleDateString(APP_LOCALE, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -89,7 +97,7 @@ export function formatDueDate(date: Date | string | null | undefined, timeZone?:
   if (diffDays < -1) return `Overdue by ${Math.abs(diffDays)} days`;
   if (diffDays <= 7) return `Due in ${diffDays} days`;
 
-  return `Due ${due.toLocaleDateString(undefined, {
+  return `Due ${due.toLocaleDateString(APP_LOCALE, {
     month: 'short',
     day: 'numeric',
     timeZone,
@@ -143,7 +151,7 @@ export function formatRelativeTime(date: Date | string, timeZone?: string): stri
   if (hours < 24) return `${hours}h ago`;
   const days = Math.round(hours / 24);
   if (days < 7) return `${days}d ago`;
-  return new Date(date).toLocaleDateString(undefined, {
+  return new Date(date).toLocaleDateString(APP_LOCALE, {
     month: 'short',
     day: 'numeric',
     timeZone,

@@ -18,15 +18,19 @@ export interface ReadyTask {
   rotationUserIds?: string | null;
 }
 
-/** The notice text, e.g., `It's your turn - due Sat, Oct 10.` */
-export function taskReadyBody(task: ReadyTask, timeZone?: string): string {
+/**
+ * The notice text, e.g., `It's your turn - due Sat, Oct 10.` [timeZone] is the
+ * household's (settings.timezone): required, because without it the day is
+ * the server's (UTC), a day off for an evening due time in the Americas.
+ */
+export function taskReadyBody(task: ReadyTask, timeZone: string): string {
   const lead = task.rotationUserIds ? 'It’s your turn' : 'Ready for you';
   if (!task.dueDate) return `${lead}.`;
   const due = task.dueDate.toLocaleDateString('en-US', {
     weekday: 'short',
     month: 'short',
     day: 'numeric',
-    ...(timeZone ? { timeZone } : {}),
+    timeZone,
   });
   return `${lead} - due ${due}.`;
 }
@@ -51,7 +55,8 @@ export async function announceTaskReady(
   householdId: string,
   task: ReadyTask,
   actorId: string | null,
-  timeZone?: string,
+  /** The household's zone, for the due day in the text (see taskReadyBody). */
+  timeZone: string,
 ): Promise<string | null> {
   await clearTaskReady(db, householdId, task.id);
   if (!task.assigneeId || task.assigneeId === actorId) return null;

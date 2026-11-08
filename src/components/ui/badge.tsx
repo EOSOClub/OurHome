@@ -12,10 +12,9 @@ const badgeVariants = cva(
         secondary: 'border-transparent bg-muted text-muted-foreground',
         outline: 'border-border text-foreground',
         destructive: 'border-transparent bg-destructive/15 text-destructive',
-        success:
-          'border-transparent bg-[var(--color-success)]/15 text-[var(--color-success)]',
-        warning:
-          'border-transparent bg-[var(--color-warning)]/15 text-[var(--color-warning)]',
+        // Text uses the darker *-text shades so it stays readable in light mode.
+        success: 'border-transparent bg-success/15 text-success-text',
+        warning: 'border-transparent bg-warning/15 text-warning-text',
       },
     },
     defaultVariants: { variant: 'default' },

@@ -15,6 +15,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { FieldNote } from '@/components/ui/field-note';
 import { Label } from '@/components/ui/label';
+import { LoadError } from '@/components/ui/load-error';
 import { Select } from '@/components/ui/select';
 import { toast } from '@/components/ui/toast';
 import { SUPERVISION_HINT, SupervisorChecks, toggled } from '@/components/members/supervisors';
@@ -229,7 +230,7 @@ export function AddChildWizard({
           <Baby className="size-6" /> Set up a child
         </h1>
         <p className="text-sm text-muted-foreground">
-          Add a child or teen, choose who looks after them, then set up the OurHome app on their phone. Nothing is
+          Add a child or teen, choose who looks after them, then set up the Our Home app on their phone. Nothing is
           added until step 3.
         </p>
         <StepBar current={step} />
@@ -460,8 +461,8 @@ export function AddChildWizard({
 }
 
 const RULE_HINTS: Record<keyof PhoneRules, string> = {
-  keepRunning: 'Stops OurHome being closed on their phone.',
-  preventUninstall: 'Stops OurHome being removed without the parent PIN. A parent sets the PIN on their phone.',
+  keepRunning: 'Stops Our Home being closed on their phone.',
+  preventUninstall: 'Stops Our Home being removed without the parent PIN. A parent sets the PIN on their phone.',
   batteryUnrestricted: 'Stops battery saving from holding back rings and alerts.',
 };
 
@@ -517,7 +518,7 @@ function InstallStep({
   return (
     <>
       <CardHeader>
-        <CardTitle>Put OurHome on {made.name}’s phone</CardTitle>
+        <CardTitle>Put Our Home on {made.name}’s phone</CardTitle>
         <CardDescription>
           {made.name} is added. Do these on their phone, with them, because a parent sets the PIN in the last part.
         </CardDescription>
@@ -589,7 +590,7 @@ function InstallStep({
               <p className="mt-1 text-muted-foreground">They choose their own password straight away.</p>
             </li>
             <li>
-              Get the OurHome app: this server hasn’t built it yet, so there’s no download on the Profile page. Ask
+              Get the Our Home app: this server hasn’t built it yet, so there’s no download on the Profile page. Ask
               whoever runs your server.
             </li>
             <li>Open the downloaded file to install it. Android asks once to allow installs from the browser.</li>
@@ -685,7 +686,7 @@ function ProgressStep({
   onAnother: () => void;
 }) {
   // The same list People you look after shows; refetched often while open here.
-  const { data, isPending } = useQuery({
+  const { data, isPending, isError, isFetching, refetch } = useQuery({
     queryKey: LOOK_AFTER_KEY,
     queryFn: () => apiFetch<LookAfterDTO>('/api/supervision/mine'),
     refetchInterval: PROGRESS_REFETCH_MS,
@@ -703,7 +704,14 @@ function ProgressStep({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {isPending ? (
+        {/* A failed load (no data yet) must not read as "you no longer supervise them". */}
+        {isError && !data ? (
+          <LoadError
+            message={`Couldn't load ${made.name}'s phone setup. Check your connection and try again.`}
+            onRetry={() => void refetch()}
+            retrying={isFetching}
+          />
+        ) : isPending ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" /> Loading…
           </div>
@@ -715,7 +723,7 @@ function ProgressStep({
           </p>
         )}
         {complete ? (
-          <div className="flex items-center gap-2 rounded-md border border-[var(--color-success)]/40 bg-[var(--color-success)]/10 p-3 text-sm">
+          <div className="flex items-center gap-2 rounded-md border border-success/40 bg-success/10 p-3 text-sm">
             <PartyPopper className="size-4 shrink-0" /> {made.name}’s phone is set up.
           </div>
         ) : null}

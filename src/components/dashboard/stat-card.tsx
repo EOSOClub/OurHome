@@ -19,8 +19,9 @@ export function StatCard({
   const toneClass = {
     default: 'text-primary bg-primary/10',
     danger: 'text-destructive bg-destructive/10',
-    warning: 'text-[var(--color-warning)] bg-[var(--color-warning)]/10',
-    success: 'text-[var(--color-success)] bg-[var(--color-success)]/10',
+    // Darker *-text shades so the icon stays visible on the light tint.
+    warning: 'text-warning-text bg-warning/10',
+    success: 'text-success-text bg-success/10',
   }[tone];
 
   const card = (

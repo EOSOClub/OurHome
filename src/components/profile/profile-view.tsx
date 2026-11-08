@@ -47,6 +47,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from '@/components/ui/toast';
 import { useHouseholdZone } from '@/components/household-zone';
+import { APP_LOCALE } from '@/lib/format';
 
 const STAT_LINK_CLASS =
   'block rounded-lg transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
@@ -180,7 +181,7 @@ function OverviewCard({ overview }: { overview: ProfileOverview }) {
     { label: 'Household', value: overview.householdName ?? '-' },
     {
       label: 'Member since',
-      value: new Date(overview.memberSince).toLocaleDateString(undefined, {
+      value: new Date(overview.memberSince).toLocaleDateString(APP_LOCALE, {
         timeZone,
         year: 'numeric',
         month: 'long',

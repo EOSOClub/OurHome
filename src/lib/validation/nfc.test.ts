@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { nfcAppScanSchema, nfcSetupSchema, registerNfcTagSchema, tagIdSchema } from '@/lib/validation/nfc';
+import { nfcScanWebhookSchema } from '@/lib/validation/events';
+import { adjustQuantitySchema } from '@/lib/validation/inventory';
 
 const itemId = 'cmabcdefghijklmnopqrstuvw';
 const roomId = 'cmzyxwvutsrqponmlkjihgfed';
@@ -20,6 +22,17 @@ describe('nfcAppScanSchema', () => {
   it('rejects a zero amount', () => {
     expect(nfcAppScanSchema.safeParse({ tagId: 'uid:01', amount: 0 }).success).toBe(false);
     expect(nfcAppScanSchema.safeParse({ tagId: 'uid:01', amount: -0.5 }).success).toBe(true);
+  });
+
+  it('caps a restock at the most an item can hold, in the app, Home Assistant and the stock buttons', () => {
+    expect(nfcAppScanSchema.safeParse({ tagId: 'uid:01', amount: 1_000_000 }).success).toBe(true);
+    expect(nfcAppScanSchema.safeParse({ tagId: 'uid:01', amount: 1e9 }).success).toBe(false);
+    expect(nfcScanWebhookSchema.safeParse({ tagId: 'uid:01', amount: 1e9 }).success).toBe(false);
+    expect(nfcScanWebhookSchema.safeParse({ tagId: 'uid:01', amount: 2.5 }).success).toBe(true);
+    expect(adjustQuantitySchema.safeParse({ itemId, delta: 1e9 }).success).toBe(false);
+    expect(adjustQuantitySchema.safeParse({ itemId, delta: 12 }).success).toBe(true);
+    // Taking away more than there is just empties the item, so that stays open.
+    expect(adjustQuantitySchema.safeParse({ itemId, delta: -1e9 }).success).toBe(true);
   });
 });
 

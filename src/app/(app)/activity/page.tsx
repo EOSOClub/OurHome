@@ -14,6 +14,7 @@ import {
   type ActivityArea,
 } from '@/lib/activityAreas';
 import { cn } from '@/lib/utils';
+import { recordId } from '@/lib/validation/ids';
 
 // The household's activity log (moved off the dashboard): every change anyone
 // made, newest first, filtered by area and person. Filters and paging are
@@ -22,14 +23,17 @@ import { cn } from '@/lib/utils';
 type Params = { area?: string | string[]; user?: string | string[]; before?: string | string[] };
 
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
+const asRecordId = (v: string | undefined) => (v && recordId.safeParse(v).success ? v : undefined);
 
 export default async function ActivityPage({ searchParams }: { searchParams: Promise<Params> }) {
   const user = await requireUser();
   const params = await searchParams;
   const areaParam = one(params.area);
   const area = areaParam && isActivityArea(areaParam) ? areaParam : undefined;
-  const actorId = one(params.user) || undefined;
-  const before = one(params.before) || undefined;
+  // Checked as record ids, as the API does: a hand-typed `?user=abc` would
+  // otherwise reach the database as a malformed id and fail the whole page.
+  const actorId = asRecordId(one(params.user));
+  const before = asRecordId(one(params.before));
 
   const [page, members, settings] = await Promise.all([
     listActivity(user.householdId!, { area, actorId, before }),

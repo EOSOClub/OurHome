@@ -13,6 +13,7 @@ const prisma = {
     deleteMany: vi.fn(),
   },
   account: { create: vi.fn() },
+  notification: { deleteMany: vi.fn() },
   $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(prisma)),
 };
 vi.mock('@/server/db/prisma', () => ({ prisma }));
@@ -39,7 +40,9 @@ vi.mock('@/server/services/pushService', () => ({ pushSync }));
 const settleOrphanedSubmissions = vi.fn(async () => 0);
 vi.mock('@/server/services/taskSubmissionService', () => ({ settleOrphanedSubmissions }));
 
-const { createMember, removeMember, setMemberRole, transferHeadship, updateMember } = await import('./userService');
+const { createMember, removeMember, resetMemberPassword, setMemberRole, transferHeadship, updateMember } = await import(
+  './userService'
+);
 
 const HOUSEHOLD = 'household1';
 const head = { id: 'cmhead00000000000000000001', role: 'head' };
@@ -107,6 +110,19 @@ describe('createMember with supervisors', () => {
     prisma.user.create.mockResolvedValueOnce(row({ id: 'newkid', name: 'Mia', role: 'child' }));
     await createMember(HOUSEHOLD, head, kidInput);
     expect(logActivity).toHaveBeenCalledWith(expect.objectContaining({ message: 'added Child “Mia”' }), prisma);
+  });
+
+  it('gives a member added without an email the stand-in address, and keeps a real one as typed', async () => {
+    prisma.user.create.mockResolvedValueOnce(row({ id: 'newkid', name: 'Mia', role: 'child' }));
+    await createMember(HOUSEHOLD, head, { ...kidInput, username: 'Mia' });
+    expect(prisma.user.create).toHaveBeenLastCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ email: 'mia@household.local' }) }),
+    );
+    prisma.user.create.mockResolvedValueOnce(row({ id: 'newkid', name: 'Mia', role: 'child' }));
+    await createMember(HOUSEHOLD, head, { ...kidInput, email: ' Mia@Example.com ' });
+    expect(prisma.user.create).toHaveBeenLastCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ email: 'mia@example.com' }) }),
+    );
   });
 });
 
@@ -216,6 +232,102 @@ describe('updateMember', () => {
   });
 });
 
+describe('updateMember: a member added without an email is renamed', () => {
+  const kid = 'cmkid000000000000000000001';
+  const sam = row({ id: kid, role: 'child', username: 'sam', displayUsername: 'sam', email: 'sam@household.local' });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('moves the stand-in email to the new username, so the old one is free again', async () => {
+    prisma.user.findFirst.mockResolvedValueOnce(sam).mockResolvedValueOnce(null);
+    prisma.user.update.mockResolvedValueOnce(row({ ...sam, username: 'samuel', email: 'samuel@household.local' }));
+    // The edit form sends the stand-in back as it was.
+    await updateMember(HOUSEHOLD, head, { id: kid, username: 'Samuel', email: 'sam@household.local' });
+    expect(prisma.user.findFirst).toHaveBeenLastCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ OR: [{ username: 'samuel' }, { email: 'samuel@household.local' }] }) }),
+    );
+    expect(prisma.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ username: 'samuel', email: 'samuel@household.local' }) }),
+    );
+  });
+
+  it('says the username is taken when its stand-in email is already used', async () => {
+    prisma.user.findFirst.mockResolvedValueOnce(sam).mockResolvedValueOnce({ id: 'other', username: 'someone' });
+    await expect(updateMember(HOUSEHOLD, head, { id: kid, username: 'samuel' })).rejects.toMatchObject({
+      message: 'That username is already taken. Try another.',
+      field: 'username',
+    });
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it('keeps a real email, and an email typed with the rename', async () => {
+    prisma.user.findFirst.mockResolvedValueOnce(row({ ...sam, email: 'sam@example.com' })).mockResolvedValueOnce(null);
+    prisma.user.update.mockResolvedValueOnce(row({ ...sam, username: 'samuel', email: 'sam@example.com' }));
+    await updateMember(HOUSEHOLD, head, { id: kid, username: 'samuel', email: 'sam@example.com' });
+    expect(prisma.user.update).toHaveBeenLastCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ email: 'sam@example.com' }) }),
+    );
+    prisma.user.findFirst.mockResolvedValueOnce(sam).mockResolvedValueOnce(null);
+    prisma.user.update.mockResolvedValueOnce(row({ ...sam, username: 'samuel', email: 'new@example.com' }));
+    await updateMember(HOUSEHOLD, head, { id: kid, username: 'samuel', email: 'new@example.com' });
+    expect(prisma.user.update).toHaveBeenLastCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ email: 'new@example.com' }) }),
+    );
+  });
+});
+
+describe('the server admin in their own household', () => {
+  // The admin handed Head of House on and is now a Manager.
+  const admin = 'cmadmin0000000000000000001';
+  const adminRow = () => row({ id: admin, name: 'Alex', role: 'manager', username: 'alex', email: 'alex@example.com', isServerAdmin: true });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('the new head cannot reset their password', async () => {
+    prisma.user.findFirst.mockResolvedValueOnce(adminRow());
+    await expect(resetMemberPassword(HOUSEHOLD, head, { id: admin, password: 'password1' })).rejects.toThrow(
+      'This member runs the server; only they can change that.',
+    );
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('the new head cannot change their email or username', async () => {
+    prisma.user.findFirst.mockResolvedValueOnce(adminRow());
+    await expect(updateMember(HOUSEHOLD, head, { id: admin, email: 'head@example.com' })).rejects.toThrow(
+      'This member runs the server; only they can change that.',
+    );
+    prisma.user.findFirst.mockResolvedValueOnce(adminRow());
+    await expect(updateMember(HOUSEHOLD, head, { id: admin, username: 'alex2' })).rejects.toThrow(
+      'This member runs the server; only they can change that.',
+    );
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it('the new head can still change their name, with the form sending the rest back unchanged', async () => {
+    prisma.user.findFirst.mockResolvedValueOnce(adminRow()).mockResolvedValueOnce(null);
+    prisma.user.update.mockResolvedValueOnce(row({ ...adminRow(), name: 'Alexander' }));
+    await updateMember(HOUSEHOLD, head, { id: admin, name: 'Alexander', username: 'Alex', email: 'ALEX@example.com' });
+    expect(prisma.user.update).toHaveBeenCalled();
+  });
+
+  it('the new head cannot remove them', async () => {
+    prisma.user.findFirst.mockResolvedValueOnce(adminRow());
+    await expect(removeMember(HOUSEHOLD, head, admin)).rejects.toThrow(/runs the server/);
+    expect(prisma.user.delete).not.toHaveBeenCalled();
+  });
+
+  it('they still change their own username', async () => {
+    prisma.user.findFirst.mockResolvedValueOnce(adminRow()).mockResolvedValueOnce(null);
+    prisma.user.update.mockResolvedValueOnce(row({ ...adminRow(), username: 'alex2' }));
+    await updateMember(HOUSEHOLD, { id: admin, role: 'manager' }, { id: admin, username: 'alex2' });
+    expect(prisma.user.update).toHaveBeenCalled();
+  });
+});
+
 describe('role changes and supervision', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -278,6 +390,16 @@ describe('removeMember and supervision', () => {
     expect(pushSync).not.toHaveBeenCalled();
     // A removed child's own checks are still settled (withdrawn).
     expect(settleOrphanedSubmissions).toHaveBeenCalledWith(HOUSEHOLD);
+  });
+
+  it('deletes the notices addressed to them, so they never become household-wide', async () => {
+    prisma.user.findFirst.mockResolvedValueOnce(row({ id: alex, name: 'Alex', role: 'adult' }));
+    await removeMember(HOUSEHOLD, head, alex);
+    expect(prisma.notification.deleteMany).toHaveBeenCalledWith({ where: { householdId: HOUSEHOLD, userId: alex } });
+    // Before the account goes: the schema would otherwise null their userId.
+    expect(prisma.notification.deleteMany.mock.invocationCallOrder[0]).toBeLessThan(
+      prisma.user.delete.mock.invocationCallOrder[0],
+    );
   });
 });
 

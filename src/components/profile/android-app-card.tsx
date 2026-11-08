@@ -1,5 +1,6 @@
 import { Download, Smartphone } from 'lucide-react';
 import type { AppRelease } from '@/server/services/appDownloadService';
+import { APP_LOCALE } from '@/lib/format';
 import { buttonVariants } from '@/components/ui/button';
 import {
   Card,
@@ -13,7 +14,7 @@ import {
 // rendered when a build exists. A plain link: the browser downloads the APK
 // with the session cookie, and /api/app/download checks it.
 export function AndroidAppCard({ release }: { release: AppRelease }) {
-  const built = new Date(release.builtAt).toLocaleDateString(undefined, {
+  const built = new Date(release.builtAt).toLocaleDateString(APP_LOCALE, {
     year: 'numeric',
     month: 'long',
     day: 'numeric',

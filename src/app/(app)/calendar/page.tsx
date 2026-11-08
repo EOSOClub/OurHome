@@ -5,6 +5,7 @@ import { listOccurrences } from '@/server/services/calendarService';
 import { listChoreItems } from '@/server/services/calendarItemsService';
 import { getHouseholdFeatures } from '@/server/services/serverAdminService';
 import { CalendarView } from '@/components/calendar/calendar-view';
+import { monthGridBounds } from '@/components/calendar/month-grid';
 import { getPointsSettings } from '@/server/services/pointsService';
 import { fromWall } from '@/server/services/recurrenceService';
 import { dateKey } from '@/lib/format';
@@ -38,8 +39,12 @@ export default async function CalendarPage({
     : dMatch
       ? Number(dMatch[2]) - 1
       : nowMonth - 1;
-  const start = fromWall(new Date(Date.UTC(year, month, 1)), timezone);
-  const end = new Date(fromWall(new Date(Date.UTC(year, month + 1, 1)), timezone).getTime() - 1);
+  // Every day the month grid shows, its greyed days too: the same range the
+  // calendar fetches for a month (monthGridBounds), so a tap on a greyed day
+  // lists what's on it.
+  const grid = monthGridBounds({ year, month });
+  const start = fromWall(grid.first, timezone);
+  const end = new Date(fromWall(grid.afterLast, timezone).getTime() - 1);
 
   const [occurrences, members, chores, features] = await Promise.all([
     listOccurrences(householdId, start, end),

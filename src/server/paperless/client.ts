@@ -6,6 +6,8 @@ import { isPublicFetchTarget } from '@/server/services/linkPreview';
 
 const API_VERSION = 9;
 const TIMEOUT_MS = 20_000;
+/** How many times a list that changed while it was read is read again (listAll). */
+const LIST_ATTEMPTS = 3;
 
 export interface PaperlessConfig {
   /** How this server reaches Paperless, e.g., http://paperless:8000 on the Docker network. */
@@ -77,18 +79,45 @@ export class PaperlessClient {
     return (await res.json()) as T;
   }
 
-  /** Every result of a list endpoint, following `next` links. */
+  /**
+   * Every result of a list endpoint, following `next` links. Pages are by
+   * number, so a list that changes while it's read (a document edited in
+   * Paperless drops out of the import's window) moves the rest up a place and
+   * one would be missed between two pages. Its total then differs from one
+   * page to the next, and the list is read again from the start.
+   */
   async listAll<T>(path: string, params: Record<string, string> = {}): Promise<T[]> {
     const query = new URLSearchParams({ page_size: '100', ...params });
-    let next: string | null = `${path}?${query}`;
-    const out: T[] = [];
-    while (next) {
-      const page: Page<T> = await this.get<Page<T>>(next);
-      out.push(...page.results);
-      // `next` is an absolute URL built from whatever host Paperless thinks it
-      // is; keep only the path + query and stay on our configured address.
-      next = page.next ? new URL(page.next).pathname + new URL(page.next).search : null;
+    for (let attempt = 0; attempt < LIST_ATTEMPTS; attempt++) {
+      let next: string | null = `${path}?${query}`;
+      let total: number | null = null;
+      let changed = false;
+      const out: T[] = [];
+      while (next) {
+        const page: Page<T> = await this.get<Page<T>>(next);
+        if (total !== null && page.count !== total) {
+          changed = true;
+          break;
+        }
+        total = page.count;
+        out.push(...page.results);
+        next = page.next ? this.pathOf(page.next) : null;
+      }
+      if (!changed) return out;
     }
-    return out;
+    throw new PaperlessError('The list from Paperless kept changing while it was read. The import tries again next time.');
+  }
+
+  /**
+   * `next` is an absolute URL built from whatever host Paperless thinks it
+   * is; keep only the path + query and stay on our configured address. A
+   * Paperless served under a path (PAPERLESS_FORCE_SCRIPT_NAME) puts that path
+   * in its links too, and our address already ends in it.
+   */
+  private pathOf(link: string): string {
+    const u = new URL(link);
+    const base = new URL(this.cfg.url).pathname.replace(/\/+$/, '');
+    const path = base && u.pathname.startsWith(`${base}/`) ? u.pathname.slice(base.length) : u.pathname;
+    return path + u.search;
   }
 }

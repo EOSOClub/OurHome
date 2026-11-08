@@ -7,6 +7,8 @@ import { activeProvider, prisma } from '@/server/db/prisma';
 import { sendEmail } from '@/server/email/mailer';
 import { APP_NAME } from '@/server/config';
 import { isLocalHostname } from '@/server/security/network';
+import { isPlaceholderEmail } from '@/lib/placeholderEmail';
+import { USERNAME_PATTERN } from '@/lib/validation/user';
 
 const ONE_WEEK = 60 * 60 * 24 * 7;
 const ONE_DAY = 60 * 60 * 24;
@@ -51,6 +53,12 @@ export const auth = betterAuth({
     resetPasswordTokenExpiresIn: 60 * 60, // 1 hour
     revokeSessionsOnPasswordReset: true,
     sendResetPassword: async ({ user, url }) => {
+      // A member added without an email has a stand-in address nobody reads
+      // (placeholderEmail.ts); the Head of House resets theirs in Members.
+      if (isPlaceholderEmail(user.email)) {
+        console.warn(`[auth] password reset asked for ${user.id}, who has no real email; nothing sent.`);
+        return;
+      }
       await sendEmail({
         to: user.email,
         subject: `Reset your ${APP_NAME} password`,
@@ -61,6 +69,15 @@ Someone requested a password reset for your ${APP_NAME} account. Use the link be
 ${url}
 
 If you didn't request this, you can safely ignore this email.`,
+      });
+    },
+    // A password chosen through Forgot password is their own too: lift the
+    // forced change and end the setup link, as after change-password below.
+    // Better Auth calls this only once the reset has succeeded.
+    onPasswordReset: async ({ user }) => {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { mustChangePassword: false, setupLinkHash: null, setupLinkExpiresAt: null },
       });
     },
   },
@@ -134,8 +151,11 @@ If you didn't request this, you can safely ignore this email.`,
     }),
   },
   // nextCookies() must be last - it bridges Better Auth cookie writes into
-  // Next.js server actions.
-  plugins: [username(), nextCookies()],
+  // Next.js server actions. Usernames are checked with the app's own pattern
+  // (usernameSchema): Better Auth's default refuses a hyphen, so a member
+  // the app created as "mary-jo" could never sign in. Its 3-30 length
+  // defaults already match.
+  plugins: [username({ usernameValidator: (name) => USERNAME_PATTERN.test(name) }), nextCookies()],
 });
 
 export type Session = typeof auth.$Infer.Session;

@@ -17,7 +17,7 @@ import { useHrefEnabled } from '@/components/household-features';
 const CHORD_TIMEOUT_MS = 1500;
 
 const navShortcuts = [
-  { key: 'd', href: '/dashboard', label: 'Dashboard' },
+  { key: 'd', href: '/dashboard', label: 'Home' },
   { key: 't', href: '/tasks', label: 'Tasks' },
   { key: 's', href: '/shopping', label: 'Shopping' },
   { key: 'i', href: '/inventory', label: 'Inventory' },

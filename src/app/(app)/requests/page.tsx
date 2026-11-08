@@ -5,8 +5,14 @@ import { getUserAccess } from '@/server/services/permissionService';
 import { getModuleViews } from '@/server/services/requestModuleService';
 import { RequestsView } from '@/components/requests/requests-view';
 
-export default async function RequestsPage() {
+export default async function RequestsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ request?: string | string[] }>;
+}) {
   const user = await requireFeature('requests');
+  // ?request=<id> (from a notification) opens on that request.
+  const { request } = await searchParams;
   const access = await getUserAccess(user);
   const householdId = user.householdId!;
 
@@ -29,6 +35,7 @@ export default async function RequestsPage() {
       currentUserId={user.id}
       isHead={user.role === 'head'}
       members={members}
+      focusId={typeof request === 'string' ? request : null}
     />
   );
 }

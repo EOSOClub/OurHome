@@ -2,6 +2,7 @@ import { prisma } from '@/server/db/prisma';
 import { auth } from '@/server/auth/auth';
 import { ConflictError, ForbiddenError, NotFoundError } from '@/server/services/errors';
 import type { UpdateProfileInput } from '@/lib/validation/user';
+import { placeholderEmailFor } from '@/lib/placeholderEmail';
 import { publicProfile, type PublicProfile } from '@/lib/profile';
 
 export interface ProfileOverview {
@@ -83,14 +84,24 @@ export async function updateProfile(
 ): Promise<ProfileOverview> {
   const displayUsername = input.username?.trim();
   const username = displayUsername?.toLowerCase();
-  const email = input.email?.trim().toLowerCase();
+  const typedEmail = input.email?.trim().toLowerCase();
 
-  if (email) {
-    const current = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
-    if (current && current.email.toLowerCase() !== email) {
-      await assertCurrentPassword(userId, input.currentPassword);
-    }
+  const current = await prisma.user.findUnique({ where: { id: userId }, select: { email: true, username: true } });
+  const currentEmail = current?.email.toLowerCase();
+  if (typedEmail && currentEmail !== undefined && currentEmail !== typedEmail) {
+    await assertCurrentPassword(userId, input.currentPassword);
   }
+  // A stand-in email (no email given, lib/placeholderEmail) follows a rename,
+  // as in Members (userService.updateMember): left on the old username, it
+  // would refuse a new member who takes that username later without an
+  // email. Not when a different email was typed.
+  const renamed = !!username && !!current?.username && username !== current.username;
+  const email =
+    renamed &&
+    currentEmail === placeholderEmailFor(current!.username!) &&
+    (!typedEmail || typedEmail === currentEmail)
+      ? placeholderEmailFor(username!)
+      : typedEmail;
 
   if (username || email) {
     const or: { username?: string; email?: string }[] = [];
@@ -102,7 +113,8 @@ export async function updateProfile(
     });
     if (clash) {
       // Say which one, so the form marks that field.
-      if (username && clash.username === username) {
+      // A moved stand-in email is part of the username, so its clash is too.
+      if (username && (clash.username === username || email !== typedEmail)) {
         throw new ConflictError('That username is already taken. Try another.', 'username');
       }
       throw new ConflictError('That email is already used by another account.', 'email');

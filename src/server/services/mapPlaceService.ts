@@ -2,7 +2,7 @@ import { prisma } from '@/server/db/prisma';
 import { logActivity } from '@/server/services/activityService';
 import { ConflictError, NotFoundError } from '@/server/services/errors';
 import { pushSync } from '@/server/services/pushService';
-import { MAP_PLACE_KIND_LABELS, isMapPlaceKind } from '@/lib/location';
+import { MAP_PLACE_KIND_LABELS, distanceM, isMapPlaceKind } from '@/lib/location';
 import type { AddressMatchDTO, MapPlaceDTO } from '@/lib/types';
 import type { DeleteMapPlaceInput, SaveMapPlaceInput } from '@/lib/validation/location';
 
@@ -87,6 +87,9 @@ export async function saveMapPlace(
     const existing = await prisma.mapPlace.findFirst({ where: { id: input.id, householdId } });
     if (!existing) throw new NotFoundError('Map place not found.');
     await prisma.mapPlace.update({ where: { id: input.id }, data });
+    if (existing.lat !== input.lat || existing.lng !== input.lng || existing.radiusM !== input.radiusM) {
+      await clearMembersOutside(householdId, { id: input.id, lat: input.lat, lng: input.lng, radiusM: input.radiusM });
+    }
     await logActivity({
       householdId,
       actorId,
@@ -113,6 +116,39 @@ export async function saveMapPlace(
   return listMapPlaces(householdId);
 }
 
+/**
+ * No longer at a known place. The stored point goes too: for someone at a
+ * place it's where they arrived, and kept on an away row the map would show
+ * it as where they left from, at a time nobody left.
+ */
+const NOT_AT_A_PLACE = { state: 'away', placeId: null, lat: null, lng: null, accuracyM: null, pointAt: null };
+
+/**
+ * A place moved or shrank: anyone recorded there whose last point is now
+ * outside the circle (beyond its accuracy) is no longer at it. The phone only
+ * reports a dwell when it re-registers its geofences, never an exit from a
+ * fence it wasn't inside, so nothing else would clear them. Anyone whose point
+ * isn't known is left as they are; anyone really inside gets the dwell back.
+ */
+async function clearMembersOutside(
+  householdId: string,
+  place: { id: string; lat: number; lng: number; radiusM: number },
+): Promise<void> {
+  const here = await prisma.memberLocation.findMany({
+    where: { householdId, placeId: place.id, state: 'place' },
+    select: { userId: true, lat: true, lng: true, accuracyM: true },
+  });
+  const outside = here
+    .filter((m) => m.lat != null && m.lng != null)
+    .filter((m) => distanceM({ lat: m.lat!, lng: m.lng! }, place) > place.radiusM + (m.accuracyM ?? 0))
+    .map((m) => m.userId);
+  if (!outside.length) return;
+  await prisma.memberLocation.updateMany({
+    where: { householdId, placeId: place.id, userId: { in: outside } },
+    data: NOT_AT_A_PLACE,
+  });
+}
+
 /** Phones watch the map places: wake them to pick up the change now. */
 function placesChanged(householdId: string): void {
   pushSync(householdId, { everyone: true }, 'map_places');
@@ -129,7 +165,7 @@ export async function deleteMapPlace(
     // Anyone recorded there is no longer at a known place.
     prisma.memberLocation.updateMany({
       where: { householdId, placeId: place.id },
-      data: { state: 'away', placeId: null },
+      data: NOT_AT_A_PLACE,
     }),
     prisma.mapPlace.delete({ where: { id: place.id } }),
   ]);

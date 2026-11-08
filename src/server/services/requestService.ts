@@ -6,6 +6,7 @@ import {
   ConflictError,
   ForbiddenError,
   NotFoundError,
+  plainWriteConflict,
 } from '@/server/services/errors';
 import { getUserAccess, membersWithAccess } from '@/server/services/permissionService';
 import { getPointsSettings } from '@/server/services/pointsService';
@@ -22,7 +23,7 @@ import {
   householdMemberIds,
   supervisorsByMember,
 } from '@/server/services/requestModuleService';
-import { addShoppingItem } from '@/server/services/shoppingService';
+import { createPreparedShoppingItem, prepareShoppingItem } from '@/server/services/shoppingService';
 import { isFeatureEnabled } from '@/server/services/serverAdminService';
 import { MEDIA_TYPE_LABELS, type MediaType, type RequestCategory } from '@/lib/enums';
 import {
@@ -600,8 +601,13 @@ export async function updateRequest(
       details: issue ? (input.details || existing.details) : null,
     };
   } else {
-    await assertAssignable(householdId, modules, input.assigneeId, userId, existing.assigneeId);
     const reassigned = input.assigneeId !== existing.assigneeId;
+    // A new assignee would reopen a finished job and lose when it was done;
+    // the head can't reassign a finished one either. Its text may still change.
+    if (reassigned && existing.status === 'completed') {
+      throw new ConflictError('This request is already done, so it can’t go to someone else. Ask again if it needs doing again.', 'assigneeId');
+    }
+    await assertAssignable(householdId, modules, input.assigneeId, userId, existing.assigneeId);
     data = {
       title: input.title,
       details: input.details ?? null,
@@ -722,20 +728,29 @@ export async function acceptRequest(
   }
   const rescheduling = existing.status === 'accepted';
 
-  const request = await prisma.request.update({
-    where: { id: input.id },
-    data: {
-      status: 'accepted',
-      dueAt: input.dueAt ?? null,
-      acceptedAt: existing.acceptedAt ?? new Date(),
-      changedById: actor.id,
-    },
-    include: requestInclude,
+  // Claimed from the status read, like approve and decline: an accept that
+  // overlaps a "mark done" or a decline must not reopen the request.
+  const request = await answerTransaction(async (tx) => {
+    await claimAnswer(tx, existing, 'accepted', actor.id);
+    return tx.request.update({
+      where: { id: input.id },
+      data: {
+        status: 'accepted',
+        dueAt: input.dueAt ?? null,
+        acceptedAt: existing.acceptedAt ?? new Date(),
+        changedById: actor.id,
+      },
+      include: requestInclude,
+    });
   });
 
   let message: string;
   if (input.dueAt) {
-    const when = input.dueAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    // The household's day, not the server's (UTC in Docker): a date picked as
+    // noon Chicago is fine either way, but a done-by time late in the
+    // evening read as the next day in Activity.
+    const { timezone } = await getPointsSettings(householdId);
+    const when = input.dueAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: timezone });
     message = rescheduling
       ? `moved ${describe(request)} to ${when}`
       : `accepted ${describe(request)}, done by ${when}`;
@@ -765,19 +780,24 @@ export async function acceptRequest(
 async function acceptMedia(
   householdId: string,
   modules: RequestModuleSettings,
-  existing: { id: string; status: string | null },
+  existing: { id: string; householdId: string; status: string | null },
   actor: RequestActor,
 ): Promise<RequestWithPeople> {
   if (existing.status === 'accepted') throw new ConflictError('This request is already accepted.');
-  const request = await prisma.request.update({
-    where: { id: existing.id },
-    data: {
-      status: 'accepted',
-      acceptedAt: new Date(),
-      decidedBy: { connect: { id: actor.id } },
-      changedById: actor.id,
-    },
-    include: requestInclude,
+  // Claimed from the status read: an accept that overlaps a "mark added" or a
+  // decline must not turn the request back to accepted.
+  const request = await answerTransaction(async (tx) => {
+    await claimAnswer(tx, existing, 'accepted', actor.id);
+    return tx.request.update({
+      where: { id: existing.id },
+      data: {
+        status: 'accepted',
+        acceptedAt: new Date(),
+        decidedBy: { connect: { id: actor.id } },
+        changedById: actor.id,
+      },
+      include: requestInclude,
+    });
   });
   await logActivity({
     householdId,
@@ -793,16 +813,17 @@ async function acceptMedia(
 }
 
 /**
- * Purchase approved with a list: puts it on that shopping list as the
- * approver, who needs Shopping "Add" (and the Shopping feature on). Returns
- * the list's name.
+ * Purchase approved with a list: checks and prepares putting it on that
+ * shopping list as the approver, who needs Shopping "Add" (and the Shopping
+ * feature on). Returns the list's name and the item, which completeRequest
+ * writes once the approval itself is in.
  */
-async function addPurchaseToList(
+async function preparePurchaseForList(
   householdId: string,
   actor: RequestActor,
   r: { title: string; quantity: number | null; url: string | null; imageUrl: string | null; price: number | null; requesterId: string },
   listId: string,
-): Promise<string> {
+) {
   const [access, shoppingOn, requester] = await Promise.all([
     getUserAccess({ id: actor.id, householdId }),
     isFeatureEnabled(householdId, 'shopping'),
@@ -813,7 +834,7 @@ async function addPurchaseToList(
   }
   const list = await prisma.shoppingList.findFirst({ where: { id: listId, householdId }, select: { name: true } });
   if (!list) throw new NotFoundError('That shopping list is gone. Pick another one.');
-  await addShoppingItem(householdId, actor.id, {
+  const item = await prepareShoppingItem(householdId, {
     listId,
     name: r.title,
     quantity: r.quantity ?? 1,
@@ -825,7 +846,46 @@ async function addPurchaseToList(
     recurring: false,
     categoryId: null,
   });
-  return list.name;
+  return { listName: list.name, item };
+}
+
+/**
+ * Moves a request on from the status it was read in, or refuses. Two answers
+ * at once (two deciders, a double tap, an app retry) both pass the checks on
+ * the read; only the first may count, so a purchase can't go on the shopping
+ * list twice, or end declined with its item already on the list.
+ */
+const JUST_CHANGED = 'This request just changed. Refresh to see where it stands.';
+
+/**
+ * The transaction an answer runs in. Two answers at exactly the same moment
+ * can also end in a database write conflict instead of claimAnswer's count of
+ * 0; that's the same situation, so it gets the same message, not a 500.
+ */
+function answerTransaction<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+  return plainWriteConflict(() => prisma.$transaction(fn), JUST_CHANGED);
+}
+
+async function claimAnswer(
+  tx: Prisma.TransactionClient,
+  existing: { id: string; householdId: string; status: string | null },
+  status: 'accepted' | 'completed' | 'declined',
+  actorId: string,
+) {
+  const { count } = await tx.request.updateMany({
+    where: {
+      id: existing.id,
+      householdId: existing.householdId,
+      // Old media requests have no status at all.
+      ...(existing.status
+        ? { status: existing.status }
+        : { OR: [{ status: null }, { status: { isSet: false } }] }),
+    },
+    data: { status, changedById: actorId },
+  });
+  if (count === 0) {
+    throw new ConflictError(JUST_CHANGED);
+  }
 }
 
 /**
@@ -844,22 +904,28 @@ export async function completeRequest(
   const existing = await getHandledRequest(householdId, modules, id, actor);
   assertStillOpen(existing);
   const approve = isRequestCategory(existing.category) && approveSettings(modules, existing.category) !== null;
-  // On the list first: if that's refused, nothing is approved yet.
-  const addedToList =
+  // The list checked first: if that's refused, nothing is approved yet.
+  const purchase =
     existing.category === 'purchase' && input.listId
-      ? await addPurchaseToList(householdId, actor, existing, input.listId)
+      ? await preparePurchaseForList(householdId, actor, existing, input.listId)
       : null;
+  const addedToList = purchase?.listName ?? null;
 
-  const request = await prisma.request.update({
-    where: { id },
-    data: {
-      status: 'completed',
-      completedAt: new Date(),
-      ...(approve ? { decidedBy: { connect: { id: actor.id } } } : {}),
-      ...(addedToList ? { addedToList } : {}),
-      changedById: actor.id,
-    },
-    include: requestInclude,
+  const request = await answerTransaction(async (tx) => {
+    await claimAnswer(tx, existing, 'completed', actor.id);
+    // On the list only once this answer is the one that counts.
+    if (purchase) await createPreparedShoppingItem(householdId, actor.id, purchase.item, tx);
+    return tx.request.update({
+      where: { id },
+      data: {
+        status: 'completed',
+        completedAt: new Date(),
+        ...(approve ? { decidedBy: { connect: { id: actor.id } } } : {}),
+        ...(addedToList ? { addedToList } : {}),
+        changedById: actor.id,
+      },
+      include: requestInclude,
+    });
   });
 
   let message: string;
@@ -905,16 +971,19 @@ export async function declineRequest(
   }
   assertStillOpen(existing);
 
-  const request = await prisma.request.update({
-    where: { id: input.id },
-    data: {
-      status: 'declined',
-      declinedAt: new Date(),
-      decidedBy: { connect: { id: actor.id } },
-      reply: input.reply,
-      changedById: actor.id,
-    },
-    include: requestInclude,
+  const request = await answerTransaction(async (tx) => {
+    await claimAnswer(tx, existing, 'declined', actor.id);
+    return tx.request.update({
+      where: { id: input.id },
+      data: {
+        status: 'declined',
+        declinedAt: new Date(),
+        decidedBy: { connect: { id: actor.id } },
+        reply: input.reply,
+        changedById: actor.id,
+      },
+      include: requestInclude,
+    });
   });
 
   await logActivity({

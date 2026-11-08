@@ -1,7 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+// The transaction reads the same rows as the reads before it (prisma's stand-ins below).
 const tx = {
-  extraTime: { create: vi.fn(async () => ({ id: 'x1' })) },
+  extraTime: {
+    create: vi.fn(async () => ({ id: 'x1' })),
+    groupBy: vi.fn<(arg: unknown) => ReturnType<typeof prisma.extraTime.groupBy>>(() => prisma.extraTime.groupBy()),
+    findMany: vi.fn<(arg: unknown) => ReturnType<typeof prisma.extraTime.findMany>>(() => prisma.extraTime.findMany()),
+  },
+  pointAward: {
+    groupBy: vi.fn<(arg: unknown) => ReturnType<typeof prisma.pointAward.groupBy>>(() => prisma.pointAward.groupBy()),
+  },
   notification: { createMany: vi.fn() },
 };
 const prisma = {
@@ -113,9 +121,12 @@ describe('points for screen time', () => {
   it('buys minutes: spends the points, logs it, tells each supervisor and wakes the phones', async () => {
     prisma.pointsForTime.findUnique.mockResolvedValue(rule);
     supervised();
-    balance(1000);
-    balance(1000, 300);
+    balance(1000); // checked first
+    balance(1000); // checked again in the transaction
+    balance(1000, 300); // shown after
     const result = await buyExtraTime(H, 'riley', { minutes: 15, day: DAY }, now);
+    expect(tx.pointAward.groupBy).toHaveBeenCalledTimes(1);
+    expect(tx.extraTime.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: 'riley', day: DAY } }));
     expect(tx.extraTime.create).toHaveBeenCalledWith({
       data: { householdId: H, userId: 'riley', day: DAY, minutes: 15, pointsCenti: 300, byId: 'riley' },
     });
@@ -154,5 +165,51 @@ describe('points for screen time', () => {
     await expect(buy(15)).rejects.toThrow(/That costs 3 points, and you have 2\.5/);
     await expect(buy(15, '2026-10-20')).rejects.toThrow(/date looks wrong/);
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('checks again inside the transaction: points or time spent at the same moment are not spent twice', async () => {
+    const buy = () => buyExtraTime(H, 'riley', { minutes: 15, day: DAY }, now);
+    prisma.pointsForTime.findUnique.mockResolvedValue(rule);
+    supervised();
+    // Enough points when first checked; another purchase spent 8 of them meanwhile.
+    balance(1000);
+    balance(1000, 800);
+    await expect(buy()).rejects.toThrow('That costs 3 points, and you have 2.');
+    // Room under the cap when first checked; 20 minutes were bought meanwhile.
+    balance(1000);
+    balance(1000);
+    prisma.extraTime.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([{ minutes: 20, pointsCenti: 400 }]);
+    await expect(buy()).rejects.toThrow('You can buy 10 min more today.');
+    expect(tx.extraTime.create).not.toHaveBeenCalled();
+  });
+
+  it('runs one purchase per member at a time, so the second sees the first', async () => {
+    prisma.pointsForTime.findUnique.mockResolvedValue(rule);
+    supervised();
+    // Plenty of points for both, every time they are read.
+    prisma.pointAward.groupBy.mockResolvedValue([{ userId: 'riley', _sum: { pointsCenti: 5000 } }]);
+    let finish = () => {};
+    const order: string[] = [];
+    prisma.$transaction.mockImplementationOnce(async (fn: (t: typeof tx) => Promise<unknown>) => {
+      order.push('first starts');
+      await new Promise<void>((resolve) => (finish = resolve));
+      const out = await fn(tx);
+      order.push('first ends');
+      return out;
+    });
+    prisma.$transaction.mockImplementationOnce(async (fn: (t: typeof tx) => Promise<unknown>) => {
+      order.push('second starts');
+      return fn(tx);
+    });
+    const first = buyExtraTime(H, 'riley', { minutes: 5, day: DAY }, now);
+    const second = buyExtraTime(H, 'riley', { minutes: 5, day: DAY }, now);
+    // Both pass their first checks, then the second waits for the first.
+    await vi.waitFor(() => expect(order).toEqual(['first starts']));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(order).toEqual(['first starts']);
+    finish();
+    await Promise.all([first, second]);
+    expect(order).toEqual(['first starts', 'first ends', 'second starts']);
+    prisma.pointAward.groupBy.mockResolvedValue([]);
   });
 });

@@ -4,6 +4,8 @@
  * The Android app mirrors PROFILE_COLORS in data/ProfileStyle.kt.
  */
 
+import { APP_LOCALE } from '@/lib/format';
+
 /** Accent colors a member can pick for their avatar (key → hex). */
 export const PROFILE_COLORS = {
   slate: '#64748b',
@@ -42,7 +44,7 @@ export function formatBirthday(v: string | null | undefined): string | null {
   if (!v || !isBirthday(v)) return null;
   const [month, day] = v.split('-').map(Number);
   const d = new Date(Date.UTC(2000, month - 1, day));
-  return d.toLocaleDateString(undefined, { month: 'long', day: 'numeric', timeZone: 'UTC' });
+  return d.toLocaleDateString(APP_LOCALE, { month: 'long', day: 'numeric', timeZone: 'UTC' });
 }
 
 /** Initials fallback when there's no emoji: "Jane Doe" → "JD". */

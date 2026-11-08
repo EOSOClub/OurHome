@@ -3,6 +3,7 @@ import { USER_ROLES } from '@/lib/enums';
 import {
   batteryLabel,
   clampRadius,
+  distanceM,
   fitLiveCheck,
   fixAge,
   homeReminderDue,
@@ -145,6 +146,14 @@ describe('map places', () => {
     expect(saveMapPlaceSchema.safeParse({ ...valid, lng: -181 }).success).toBe(false);
     expect(saveMapPlaceSchema.safeParse({ ...valid, radiusM: 50 }).success).toBe(false);
     expect(saveMapPlaceSchema.safeParse({ ...valid, kind: 'school' }).success).toBe(false);
+  });
+
+  it('measures metres between two points', () => {
+    expect(distanceM(valid, valid)).toBe(0);
+    // A thousandth of a degree of latitude is about 111 m anywhere.
+    expect(distanceM(valid, { lat: 41.881, lng: -87.63 })).toBeCloseTo(111.2, 0);
+    // Chicago to Milwaukee, about 130 km.
+    expect(distanceM(valid, { lat: 43.04, lng: -87.91 }) / 1000).toBeCloseTo(130.6, 0);
   });
 });
 

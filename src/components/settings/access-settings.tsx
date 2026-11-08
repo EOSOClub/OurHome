@@ -70,13 +70,14 @@ function AccessChoice({
       ))}
       {!value && !settings.publicUrl ? (
         <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
-          No https:// address is set up yet (<code>better_auth.url</code> in settings.yml), so other
+          No https:// address is set up yet (<code>better_auth.url</code> in the server&apos;s settings
+          file, settings.yml), so other
           devices won’t be able to sign in at all. Only http://localhost on the
           server will work.
         </p>
       ) : null}
       {!value && settings.connection === 'http' ? (
-        <p className="rounded-md border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 p-3 text-sm">
+        <p className="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm">
           You’re connected over plain HTTP, so you’ll be signed out here.
           {settings.publicUrl ? ` Continue at ${settings.publicUrl}.` : ''}
         </p>

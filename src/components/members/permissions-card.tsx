@@ -28,7 +28,9 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Label } from '@/components/ui/label';
+import { LoadError } from '@/components/ui/load-error';
 import { Select } from '@/components/ui/select';
 import { toast } from '@/components/ui/toast';
 
@@ -54,10 +56,12 @@ export function PermissionsCard({ membersVersion }: { membersVersion: string }) 
   // Adding, removing or changing someone's role changes this list and their grids,
   // so the member roster is part of the key.
   const queryKey = ['permissions', membersVersion];
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey,
     queryFn: () => apiFetch<AccessSettingsMatrixDTO>('/api/permissions'),
   });
+  // Who to switch to once the head confirms dropping unsaved ticks.
+  const [pendingTarget, setPendingTarget] = useState<Target | null>(null);
 
   const member = selected.startsWith('member:')
     ? data?.members.find((m) => m.id === selected.slice('member:'.length))
@@ -138,7 +142,12 @@ export function PermissionsCard({ membersVersion }: { membersVersion: string }) 
           <Select
             id="permissions-target"
             value={target}
-            onChange={(e) => setTarget(e.target.value as Target)}
+            onChange={(e) => {
+              const next = e.target.value as Target;
+              // Switching drops unsaved ticks, so ask first rather than lose them silently.
+              if (dirty) setPendingTarget(next);
+              else setTarget(next);
+            }}
             disabled={isLoading}
           >
             <optgroup label="Role defaults">
@@ -169,7 +178,13 @@ export function PermissionsCard({ membersVersion }: { membersVersion: string }) 
           </p>
         </div>
 
-        {!draft ? (
+        {!draft && isError ? (
+          <LoadError
+            message="Couldn't load permissions. Check your connection and try again."
+            onRetry={() => void refetch()}
+            retrying={isFetching}
+          />
+        ) : !draft ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" /> Loading permissions…
           </div>
@@ -207,7 +222,7 @@ export function PermissionsCard({ membersVersion }: { membersVersion: string }) 
                           <label
                             className={cn(
                               'inline-flex size-9 cursor-pointer items-center justify-center rounded-md',
-                              differs && 'bg-[var(--color-warning)]/15 ring-1 ring-[var(--color-warning)]',
+                              differs && 'bg-warning/15 ring-1 ring-warning',
                             )}
                           >
                             <input
@@ -266,6 +281,20 @@ export function PermissionsCard({ membersVersion }: { membersVersion: string }) 
             </Badge>
           ) : null}
         </div>
+        <ConfirmDialog
+          open={pendingTarget !== null}
+          onClose={() => setPendingTarget(null)}
+          onConfirm={() => {
+            if (pendingTarget) setTarget(pendingTarget);
+            setEdit(null);
+            setPendingTarget(null);
+          }}
+          title="Discard your changes?"
+          description="You changed some boxes but haven't saved them. Switching who you're editing throws those changes away."
+          confirmLabel="Discard and switch"
+          cancelLabel="Keep editing"
+          destructive
+        />
       </CardContent>
     </Card>
   );

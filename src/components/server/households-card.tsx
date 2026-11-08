@@ -107,6 +107,14 @@ export function HouseholdsCard({ initial }: { initial: HouseholdSummaryDTO[] }) 
         </div>
       </CardHeader>
       <CardContent>
+        {/* Visible, not only the button's tooltip: a tooltip never shows on a touch screen. */}
+        {households.some((h) => !h.isOwn && h.features.includes('bills')) ? (
+          <p className="mb-3 text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">Imports: allow local</span> lets a household&apos;s
+            bill imports (Paperless, OurHomeInbox) use addresses on this server&apos;s own network, such as
+            Docker or your home network. Only allow households you trust.
+          </p>
+        ) : null}
         <ul className="divide-y divide-border rounded-lg border border-border">
           {households.map((h) => (
             <li key={h.id} className="flex flex-wrap items-center gap-3 px-3 py-3">
@@ -288,7 +296,9 @@ function CreateHouseholdDialog({ onClose, onCreated }: { onClose: () => void; on
     !passwordError;
 
   return (
-    <Dialog open onClose={onClose} title="New household">
+    // preventOutsideClose (here and in the other form dialogs below): a stray
+    // tap outside must not throw away what was typed.
+    <Dialog open onClose={onClose} preventOutsideClose title="New household">
       <form
         className="space-y-4"
         onSubmit={(e) => {
@@ -301,7 +311,7 @@ function CreateHouseholdDialog({ onClose, onCreated }: { onClose: () => void; on
           <Label htmlFor="hh-name">Household name</Label>
           <Input
             id="hh-name"
-            autoFocus
+            data-autofocus
             value={householdName}
             onChange={(e) => setHouseholdName(e.target.value)}
             {...fe.invalid('householdName')}
@@ -406,6 +416,7 @@ function FeaturesDialog({
     <Dialog
       open
       onClose={onClose}
+      preventOutsideClose
       title={`Features for “${household.name}”`}
       description="Turned-off features disappear from this household’s website and app. Nothing is deleted; turn one back on and its data is still there."
     >
@@ -478,7 +489,7 @@ function ResetHeadDialog({ household, onClose }: { household: HouseholdSummaryDT
   });
   const passwordError = fe.get('password') ?? fieldProblem(passwordSchema, password);
   return (
-    <Dialog open onClose={onClose} title={`Reset ${household.head?.name ?? 'head'}’s password`}>
+    <Dialog open onClose={onClose} preventOutsideClose title={`Reset ${household.head?.name ?? 'head'}’s password`}>
       <form
         className="space-y-4"
         onSubmit={(e) => {
@@ -491,7 +502,7 @@ function ResetHeadDialog({ household, onClose }: { household: HouseholdSummaryDT
           <Label htmlFor="reset-head-password">Temporary password</Label>
           <Input
             id="reset-head-password"
-            autoFocus
+            data-autofocus
             type="text"
             autoComplete="off"
             value={password}
@@ -550,7 +561,7 @@ function DeleteHouseholdDialog({
   });
   const matches = typed.trim() === household.name.trim();
   return (
-    <Dialog open onClose={onClose} title={`Delete “${household.name}”?`}>
+    <Dialog open onClose={onClose} preventOutsideClose title={`Delete “${household.name}”?`}>
       <form
         className="space-y-4"
         onSubmit={(e) => {
@@ -574,7 +585,7 @@ function DeleteHouseholdDialog({
           <Label htmlFor="delete-household-name">Type the household’s name to confirm</Label>
           <Input
             id="delete-household-name"
-            autoFocus
+            data-autofocus
             autoComplete="off"
             value={typed}
             placeholder={household.name}
@@ -697,7 +708,7 @@ function RestoreHouseholdDialog({ onClose, onRestored }: { onClose: () => void; 
   const fileProblem = fileError ?? fe.get('data');
   const valid = !!preview && name.trim().length > 0 && !!password && !passwordError;
   return (
-    <Dialog open onClose={onClose} title="Restore a household">
+    <Dialog open onClose={onClose} preventOutsideClose title="Restore a household">
       <form
         className="space-y-4"
         onSubmit={(e) => {

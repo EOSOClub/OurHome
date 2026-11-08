@@ -78,6 +78,8 @@ export const PHONE_PROBLEMS = [
   'close_guard_off',
   'uninstall_guard_off',
   'emergency_unlock_started',
+  // 2 hours into the 5-hour period, so 3 hours left (what the alert says).
+  // Named for the phone's "2h_elapsed"; kept, as stored alerts carry it.
   'emergency_unlock_2h',
   'emergency_unlock_1h',
   'emergency_unlock_30m_left',
@@ -113,8 +115,16 @@ const EMERGENCY_PROBLEMS: Record<EmergencyUnlockStage, PhoneProblem> = {
   unlocked: 'emergency_unlock_unlocked',
 };
 
+/** The countdown milestones of a running emergency unlock period. */
+type EmergencyCountdown =
+  | 'emergency_unlock_30m_left'
+  | 'emergency_unlock_1h'
+  | 'emergency_unlock_2h'
+  | 'emergency_unlock_4h_left'
+  | 'emergency_unlock_7h_left';
+
 /** How long a running emergency unlock period has left at each countdown milestone. */
-const EMERGENCY_LEFT: Partial<Record<PhoneProblem, string>> = {
+const EMERGENCY_LEFT: Record<EmergencyCountdown, string> = {
   emergency_unlock_30m_left: '30 minutes',
   emergency_unlock_1h: '1 hour',
   emergency_unlock_2h: '3 hours',
@@ -374,103 +384,105 @@ export function phoneProblems(phone: PhoneSnapshot | null, expect: PhoneExpectat
   return out;
 }
 
-/** The alert's text for [name]'s phone. */
+/**
+ * The alert's text for [name]'s phone. One case per problem, with no
+ * fallback: a new PHONE_PROBLEMS entry doesn't compile until it has its own
+ * text (before, it was sent as "location is off").
+ */
 export function phoneAlertText(problem: PhoneProblem, name: string): { title: string; body: string } {
-  if (problem === 'quiet') {
-    return {
-      title: `${name}’s phone hasn’t checked in`,
-      body: `${name}’s phone has stopped checking in. It may be off, flat or out of signal, or OurHome may have been closed, signed out or uninstalled there.`,
-    };
+  switch (problem) {
+    case 'quiet':
+      return {
+        title: `${name}’s phone hasn’t checked in`,
+        body: `${name}’s phone has stopped checking in. It may be off, flat or out of signal, or OurHome may have been closed, signed out or uninstalled there.`,
+      };
+    case 'app_removed':
+      return {
+        title: `OurHome may have been removed from ${name}’s phone`,
+        body: `${name}’s phone stopped answering, and Firebase says OurHome is no longer installed there (or its data was cleared). Check their phone.`,
+      };
+    case 'switched_off':
+      return {
+        title: `${name}’s phone was switched off`,
+        body: `${name}’s phone told OurHome it was switching off, and it hasn’t come back since.`,
+      };
+    case 'battery_flat':
+      return {
+        title: `${name}’s phone probably ran out of battery`,
+        body: `${name}’s phone went quiet with its battery nearly empty and not charging. It checks in again once it’s charged and on.`,
+      };
+    case 'no_signal':
+      return {
+        title: `${name}’s phone may be out of signal`,
+        body: `${name}’s phone went quiet with little or no signal. It checks in again once it’s back in coverage.`,
+      };
+    case 'notifications_off':
+      return {
+        title: `Notifications are off for OurHome on ${name}’s phone`,
+        body: `${name}’s phone doesn’t let OurHome show notifications, so they miss the household’s alerts and can’t stop a ring from the notification. On their phone, open OurHome and follow Set up this phone.`,
+      };
+    case 'location_off':
+      return {
+        title: `${name}’s location is off`,
+        body: `${name}’s sharing is required, but their phone no longer lets OurHome use location all the time, so the household can’t see where they are.`,
+      };
+    case 'usage_off':
+      return {
+        title: `${name}’s app usage can’t be measured`,
+        body: `${name}’s app usage is shared, but their phone no longer gives OurHome Usage access, so their screen time can’t be seen.`,
+      };
+    case 'web_filter_off':
+      return {
+        title: `${name}’s phone isn’t filtering websites`,
+        body: `The web filter you chose for ${name} is off on their phone (its Private DNS was changed), so websites aren’t filtered there. On their phone, open OurHome and follow Set up this phone.`,
+      };
+    case 'battery_low':
+      return {
+        title: `${name}’s phone battery is low`,
+        body: `${name}’s phone is at ${PHONE_LOW_PCT}% or less and not charging. Remind them to charge it, so they can still be reached.`,
+      };
+    case 'battery_restricted':
+      return {
+        title: `Battery saving may hold OurHome back on ${name}’s phone`,
+        body: `Battery saving on ${name}’s phone can delay rings, live checks and alerts, or stop OurHome in the background. On their phone, open Profile in OurHome and allow Unrestricted battery.`,
+      };
+    case 'close_guard_off':
+      return {
+        title: `${name} can close OurHome on their phone`,
+        body: `“Keep Our Home running” is off on ${name}’s phone, so Android’s Stop button can close OurHome there. On their phone, open Profile in OurHome and follow the steps under Keep Our Home running.`,
+      };
+    case 'uninstall_guard_off':
+      return {
+        title: `OurHome can be uninstalled on ${name}’s phone`,
+        body: `The uninstall guard is off on ${name}’s phone, so OurHome can be removed there without your PIN. On their phone, open Profile in OurHome to turn it back on.`,
+      };
+    case 'emergency_unlock_started':
+      return {
+        title: `${name} started an emergency unlock`,
+        body: `${name} started the emergency unlock on their phone. It can’t be cancelled: when it ends, OurHome can be uninstalled there without your PIN.`,
+      };
+    case 'emergency_unlock_30m_left':
+    case 'emergency_unlock_1h':
+    case 'emergency_unlock_2h':
+    case 'emergency_unlock_4h_left':
+    case 'emergency_unlock_7h_left': {
+      const left = EMERGENCY_LEFT[problem];
+      return {
+        title: `Emergency unlock on ${name}’s phone: ${left} left`,
+        body: `The emergency unlock on ${name}’s phone ends in about ${left === '1 hour' ? 'an hour' : left}. Then OurHome can be uninstalled there without your PIN.`,
+      };
+    }
+    case 'emergency_unlock_unlocked':
+      return {
+        title: `Emergency unlock finished on ${name}’s phone`,
+        body: `The emergency unlock on ${name}’s phone has finished, so OurHome can now be uninstalled there without your PIN.`,
+      };
+    default: {
+      // Every problem has its case above; a missing one fails to compile here.
+      const unhandled: never = problem;
+      throw new Error(`No alert text for phone problem ${String(unhandled)}`);
+    }
   }
-  if (problem === 'app_removed') {
-    return {
-      title: `OurHome may have been removed from ${name}’s phone`,
-      body: `${name}’s phone stopped answering, and Firebase says OurHome is no longer installed there (or its data was cleared). Check their phone.`,
-    };
-  }
-  if (problem === 'switched_off') {
-    return {
-      title: `${name}’s phone was switched off`,
-      body: `${name}’s phone told OurHome it was switching off, and it hasn’t come back since.`,
-    };
-  }
-  if (problem === 'battery_flat') {
-    return {
-      title: `${name}’s phone probably ran out of battery`,
-      body: `${name}’s phone went quiet with its battery nearly empty and not charging. It checks in again once it’s charged and on.`,
-    };
-  }
-  if (problem === 'no_signal') {
-    return {
-      title: `${name}’s phone may be out of signal`,
-      body: `${name}’s phone went quiet with little or no signal. It checks in again once it’s back in coverage.`,
-    };
-  }
-  if (problem === 'notifications_off') {
-    return {
-      title: `Notifications are off for OurHome on ${name}’s phone`,
-      body: `${name}’s phone doesn’t let OurHome show notifications, so they miss the household’s alerts and can’t stop a ring from the notification. On their phone, open OurHome and follow Set up this phone.`,
-    };
-  }
-  if (problem === 'usage_off') {
-    return {
-      title: `${name}’s app usage can’t be measured`,
-      body: `${name}’s app usage is shared, but their phone no longer gives OurHome Usage access, so their screen time can’t be seen.`,
-    };
-  }
-  if (problem === 'web_filter_off') {
-    return {
-      title: `${name}’s phone isn’t filtering websites`,
-      body: `The web filter you chose for ${name} is off on their phone (its Private DNS was changed), so websites aren’t filtered there. On their phone, open OurHome and follow Set up this phone.`,
-    };
-  }
-  if (problem === 'battery_low') {
-    return {
-      title: `${name}’s phone battery is low`,
-      body: `${name}’s phone is at ${PHONE_LOW_PCT}% or less and not charging. Remind them to charge it, so they can still be reached.`,
-    };
-  }
-  if (problem === 'battery_restricted') {
-    return {
-      title: `Battery saving may hold OurHome back on ${name}’s phone`,
-      body: `Battery saving on ${name}’s phone can delay rings, live checks and alerts, or stop OurHome in the background. On their phone, open Profile in OurHome and allow Unrestricted battery.`,
-    };
-  }
-  if (problem === 'close_guard_off') {
-    return {
-      title: `${name} can close OurHome on their phone`,
-      body: `“Keep Our Home running” is off on ${name}’s phone, so Android’s Stop button can close OurHome there. On their phone, open Profile in OurHome and follow the steps under Keep Our Home running.`,
-    };
-  }
-  if (problem === 'uninstall_guard_off') {
-    return {
-      title: `OurHome can be uninstalled on ${name}’s phone`,
-      body: `The uninstall guard is off on ${name}’s phone, so OurHome can be removed there without your PIN. On their phone, open Profile in OurHome to turn it back on.`,
-    };
-  }
-  if (problem === 'emergency_unlock_started') {
-    return {
-      title: `${name} started an emergency unlock`,
-      body: `${name} started the emergency unlock on their phone. It can’t be cancelled: when it ends, OurHome can be uninstalled there without your PIN.`,
-    };
-  }
-  const left = EMERGENCY_LEFT[problem];
-  if (left) {
-    return {
-      title: `Emergency unlock on ${name}’s phone: ${left} left`,
-      body: `The emergency unlock on ${name}’s phone ends in about ${left === '1 hour' ? 'an hour' : left}. Then OurHome can be uninstalled there without your PIN.`,
-    };
-  }
-  if (problem === 'emergency_unlock_unlocked') {
-    return {
-      title: `Emergency unlock finished on ${name}’s phone`,
-      body: `The emergency unlock on ${name}’s phone has finished, so OurHome can now be uninstalled there without your PIN.`,
-    };
-  }
-  return {
-    title: `${name}’s location is off`,
-    body: `${name}’s sharing is required, but their phone no longer lets OurHome use location all the time, so the household can’t see where they are.`,
-  };
 }
 
 /** A short line for the card: "Phone problem" or null when all is well. */

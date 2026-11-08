@@ -9,7 +9,10 @@ const prisma = {
     delete: vi.fn(),
   },
   shoppingList: { findMany: vi.fn(async (): Promise<{ id: string }[]> => []) },
-  memberLocation: { updateMany: vi.fn((args: unknown) => args) },
+  memberLocation: {
+    updateMany: vi.fn((args: unknown) => args),
+    findMany: vi.fn(async (): Promise<{ userId: string; lat: number | null; lng: number | null; accuracyM: number | null }[]> => []),
+  },
   $transaction: vi.fn(async (ops: unknown[]) => ops),
 };
 vi.mock('@/server/db/prisma', () => ({ prisma }));
@@ -63,14 +66,58 @@ describe('mapPlaceService', () => {
     expect(pushSync).toHaveBeenCalledWith('h1', { everyone: true }, 'map_places');
   });
 
-  it('makes anyone at a deleted place away', async () => {
+  it('makes anyone at a deleted place away, with no point', async () => {
     prisma.mapPlace.findFirst.mockResolvedValueOnce({ id: 'p1', name: 'Gym' });
     await deleteMapPlace('h1', 'u1', { id: 'cplace000000000000000000a' });
+    // The stored point is where they arrived, not where they left: kept, the
+    // map would show a "Left" pin at a time nobody left. So it goes too.
     expect(prisma.memberLocation.updateMany).toHaveBeenCalledWith({
       where: { householdId: 'h1', placeId: 'p1' },
-      data: { state: 'away', placeId: null },
+      data: { state: 'away', placeId: null, lat: null, lng: null, accuracyM: null, pointAt: null },
     });
     expect(pushSync).toHaveBeenCalledWith('h1', { everyone: true }, 'map_places');
+  });
+
+  describe('moving or shrinking a place', () => {
+    const home = { id: 'cplace000000000000000000h', name: 'Home', kind: 'home' as const, lat: 41.9, lng: -87.7, radiusM: 300, shoppingListIds: [] };
+    beforeEach(() => {
+      // No other home; then the place being changed.
+      prisma.mapPlace.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(home);
+      prisma.memberLocation.findMany.mockResolvedValue([
+        // Arrived about 250 m north of the old pin.
+        { userId: 'inside', lat: 41.90225, lng: -87.7, accuracyM: 10 },
+        // Arrived at the pin itself.
+        { userId: 'centre', lat: 41.9, lng: -87.7, accuracyM: 10 },
+        // No point known: left as it is.
+        { userId: 'unknown', lat: null, lng: null, accuracyM: null },
+      ]);
+    });
+
+    it('clears anyone whose last point is now outside the circle', async () => {
+      await saveMapPlace('h1', 'u1', { ...home, radiusM: 150 });
+      expect(prisma.memberLocation.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { householdId: 'h1', placeId: home.id, state: 'place' } }),
+      );
+      expect(prisma.memberLocation.updateMany).toHaveBeenCalledWith({
+        where: { householdId: 'h1', placeId: home.id, userId: { in: ['inside'] } },
+        data: { state: 'away', placeId: null, lat: null, lng: null, accuracyM: null, pointAt: null },
+      });
+    });
+
+    it('clears everyone with a point when the pin moves far away', async () => {
+      await saveMapPlace('h1', 'u1', { ...home, lat: 41.93 });
+      expect(prisma.memberLocation.updateMany.mock.calls[0][0]).toMatchObject({
+        where: { userId: { in: ['inside', 'centre'] } },
+      });
+    });
+
+    it('leaves everyone when only the name changes, or everyone is still inside', async () => {
+      await saveMapPlace('h1', 'u1', { ...home, name: 'Our house' });
+      expect(prisma.memberLocation.findMany).not.toHaveBeenCalled();
+      prisma.mapPlace.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(home);
+      await saveMapPlace('h1', 'u1', { ...home, radiusM: 500 });
+      expect(prisma.memberLocation.updateMany).not.toHaveBeenCalled();
+    });
   });
 
   it('reads Nominatim answers and skips malformed hits', () => {

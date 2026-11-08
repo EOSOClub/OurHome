@@ -142,11 +142,22 @@ function parseResult(text: string | null): PaperlessSyncResult | null {
 // (PaperlessConnection, Settings → Paperless) comes first. The server-wide one
 // from settings.yml/.env (paperlessConfig) is kept for the household it was
 // set up for - PAPERLESS_HOUSEHOLD_ID, else the server admin's - so existing
-// installations keep importing without re-entering anything.
+// installations keep importing without re-entering anything, until that
+// household's Head of House presses Disconnect (Household.paperlessServerOff).
 
-/** The household the server-wide settings.yml/.env connection belongs to. */
+/**
+ * The household the server-wide settings.yml/.env connection belongs to, or
+ * null when there is none or that household disconnected it.
+ */
 async function legacyHousehold(): Promise<string | null> {
   if (!paperlessConfig()) return null;
+  const id = await assignedHousehold();
+  if (!id) return null;
+  const household = await prisma.household.findUnique({ where: { id }, select: { paperlessServerOff: true } });
+  return household?.paperlessServerOff === true ? null : id;
+}
+
+async function assignedHousehold(): Promise<string | null> {
   const configured = process.env.PAPERLESS_HOUSEHOLD_ID?.trim();
   if (configured) return configured;
   await ensureServerAdmin();
@@ -391,11 +402,18 @@ export async function savePaperlessConnection(
   return getPaperlessStatus(householdId, true);
 }
 
-/** Forget the household's own Paperless (and its import progress). */
+/**
+ * Disconnect the household's Paperless: its own saved connection and its import
+ * progress are deleted, and if the server-wide Paperless is this household's,
+ * it stops being used here too, so nothing is left connected. Bills already
+ * imported stay. Connecting its own again works as before.
+ */
 export async function removePaperlessConnection(householdId: string): Promise<PaperlessStatusDTO> {
+  const usesServer = (await legacyHousehold().catch(() => null)) === householdId;
   await prisma.$transaction([
     prisma.paperlessConnection.deleteMany({ where: { householdId } }),
     prisma.paperlessSync.deleteMany({ where: { householdId } }),
+    ...(usesServer ? [prisma.household.update({ where: { id: householdId }, data: { paperlessServerOff: true } })] : []),
   ]);
   return getPaperlessStatus(householdId, true);
 }

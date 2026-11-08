@@ -195,7 +195,7 @@ function ConnectionSection({ status }: { status: PaperlessStatusDTO }) {
     onSuccess: (next) => {
       setConfirmDisconnect(false);
       queryClient.setQueryData(STATUS_KEY, next);
-      toast.success('Paperless disconnected');
+      toast.success('Paperless disconnected. Bills it brought in stay.');
     },
   });
 
@@ -225,7 +225,7 @@ function ConnectionSection({ status }: { status: PaperlessStatusDTO }) {
         </p>
         {conn!.source === 'server' ? (
           <p className="text-xs text-muted-foreground">
-            From the server&apos;s settings. Connect your own to replace it.
+            From the server&apos;s settings. Connect your own to replace it, or disconnect it.
           </p>
         ) : null}
       </div>
@@ -234,11 +234,9 @@ function ConnectionSection({ status }: { status: PaperlessStatusDTO }) {
           <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
             <Pencil /> {conn!.source === 'server' ? 'Connect your own' : 'Change'}
           </Button>
-          {conn!.source === 'household' ? (
-            <Button variant="ghost" size="sm" disabled={disconnect.isPending} onClick={() => setConfirmDisconnect(true)}>
-              <Unplug /> Disconnect
-            </Button>
-          ) : null}
+          <Button variant="ghost" size="sm" disabled={disconnect.isPending} onClick={() => setConfirmDisconnect(true)}>
+            <Unplug /> Disconnect
+          </Button>
         </div>
       ) : null}
       {/* Reconnecting needs the token pasted again, so ask first. */}
@@ -247,7 +245,11 @@ function ConnectionSection({ status }: { status: PaperlessStatusDTO }) {
         onClose={() => setConfirmDisconnect(false)}
         onConfirm={() => disconnect.mutate()}
         title="Disconnect Paperless?"
-        description="Bills it already brought in stay. You'll need to paste the token again to reconnect."
+        description={
+          conn!.source === 'server'
+            ? "Bills it already brought in stay. The server's Paperless won't be used for your household again; to import from Paperless later, connect your own here with its address and token."
+            : "Bills it already brought in stay. You'll need to paste the token again to reconnect."
+        }
         confirmLabel="Disconnect"
         destructive
         pending={disconnect.isPending}

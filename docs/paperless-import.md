@@ -25,6 +25,8 @@ Connecting a different Paperless starts the import fresh from that moment.
 - **The `settings.yml` / `.env` connection below** still works: it serves the
   household in `PAPERLESS_HOUSEHOLD_ID`, or else the server admin's, until that
   household saves its own. Existing installations keep importing with no changes.
+  Disconnect on that household's Settings card turns it off for the household
+  (`Household.paperlessServerOff`); its own saved connection still works.
 - One household's Paperless being down never stops the others' imports.
 
 ## How it works

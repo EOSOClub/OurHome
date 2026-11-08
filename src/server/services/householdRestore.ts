@@ -275,6 +275,8 @@ export function planRestore(
   if (opts.name?.trim()) hh.name = opts.name.trim();
   delete hh.disabledAt;
   delete hh.paperlessPrivateNetwork;
+  // About the old server's own Paperless settings, not this one's.
+  delete hh.paperlessServerOff;
   if (typeof hh.roleAccess === 'string') hh.roleAccess = renameLegacyRoleKey(hh.roleAccess);
   for (const user of rows.User) {
     user.mustChangePassword = true;

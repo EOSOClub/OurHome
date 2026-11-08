@@ -41,6 +41,10 @@ model Household {
   // the server probe its own network. The server admin's household is always
   // allowed. (Named for Paperless, the first import; kept to avoid a rename.)
   paperlessPrivateNetwork Boolean?
+  // Set when the Head of House pressed Disconnect while this household used the
+  // server-wide Paperless (settings.yml/.env): it is no longer used for this
+  // household. Its own saved Paperless (PaperlessConnection) still works.
+  paperlessServerOff Boolean?
   // Set by the server admin: features this household doesn't use (Feature in
   // src/lib/features.ts). Empty = everything on.
   disabledFeatures String[] @default([])

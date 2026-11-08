@@ -203,7 +203,8 @@ All models have services and UI: `Household`, `User`/`Session`/`Account`/
   household connects its own Paperless (Head of House, Settings); the token is
   encrypted (`security/secrets.ts`, AES-GCM, key from `BETTER_AUTH_SECRET`).
   The settings.yml/.env connection is a fallback for `PAPERLESS_HOUSEHOLD_ID`
-  or the server admin's household. Each household has its own cursor/status
+  or the server admin's household, unless that household pressed Disconnect
+  (`Household.paperlessServerOff`). Each household has its own cursor/status
   (`PaperlessSync`) and runs separately in the sweep. Outbound calls for a
   household not trusted with the server's private network
   (`Household.paperlessPrivateNetwork`, server admin's household always) pass

@@ -89,3 +89,48 @@ describe('readJsonCapped', () => {
     expect(await res.json()).toEqual({ ok: false, error: { message: 'That’s too big to send.' } });
   });
 });
+
+describe('rate limiting', () => {
+  it('drops expired buckets once there are many, so memory stays bounded', async () => {
+    const { rateLimit, rateLimitBucketCount } = await import('./http');
+    vi.useFakeTimers();
+    try {
+      for (let i = 0; i < 5_000; i++) rateLimit(`test:old:${i}`, 1_000, 10);
+      expect(rateLimitBucketCount()).toBeGreaterThanOrEqual(5_000);
+      vi.advanceTimersByTime(2_000);
+      rateLimit('test:new', 1_000, 10);
+      expect(rateLimitBucketCount()).toBeLessThan(100);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('limits each member on their own, even when every device shares an address', async () => {
+    const route = withAuth(async () => new Response('ok'));
+    const call = (id: string) => {
+      session.getServerSession.mockResolvedValueOnce({ user: { id, role: 'adult', householdId: 'hh' } });
+      return route({ headers: new Headers(), url: 'http://home.test/api/limit-check' } as never);
+    };
+    for (let i = 0; i < 120; i++) expect((await call('busy')).status).toBe(200);
+    expect((await call('busy')).status).toBe(429);
+    // Same (unknown) address, another member: not held back by the first.
+    expect((await call('other')).status).toBe(200);
+  });
+});
+
+describe('isCrossSiteWrite', () => {
+  it('refuses changes a browser says came from another site, and nothing else', async () => {
+    const { isCrossSiteWrite } = await import('./http');
+    const req = (method: string, site?: string) =>
+      ({ method, headers: new Headers(site ? { 'sec-fetch-site': site } : {}) }) as unknown as Request;
+    expect(isCrossSiteWrite(req('POST', 'cross-site'))).toBe(true);
+    expect(isCrossSiteWrite(req('DELETE', 'same-site'))).toBe(true);
+    expect(isCrossSiteWrite(req('POST', 'same-origin'))).toBe(false);
+    // Typed into the address bar or opened from a bookmark.
+    expect(isCrossSiteWrite(req('POST', 'none'))).toBe(false);
+    // The Android app and other non-browser callers send no such header.
+    expect(isCrossSiteWrite(req('POST'))).toBe(false);
+    // Reads are never refused for this.
+    expect(isCrossSiteWrite(req('GET', 'cross-site'))).toBe(false);
+  });
+});

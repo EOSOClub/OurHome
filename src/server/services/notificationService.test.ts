@@ -20,7 +20,7 @@ vi.mock('@/server/services/serverAdminService', () => ({
 const push = { pushSync: vi.fn() };
 vi.mock('@/server/services/pushService', () => push);
 
-const { markRead } = await import('./notificationService');
+const { markRead, visibleTo, addressedTypes } = await import('./notificationService');
 
 const ID_A = 'c' + 'a'.repeat(24);
 const ID_B = 'c' + 'b'.repeat(24);
@@ -77,5 +77,21 @@ describe('markReadSchema', () => {
     expect(markReadSchema.safeParse({ id: ID_A, all: true }).success).toBe(false);
     expect(markReadSchema.safeParse({ id: ID_A, ids: [ID_B] }).success).toBe(false);
     expect(markReadSchema.safeParse({ ids: [] }).success).toBe(false);
+  });
+});
+
+describe('visibleTo and notices with no owner', () => {
+  // A notice whose owner was removed has userId null (schema SetNull). Only
+  // system notices are household-wide; anything written for one person must
+  // not turn into a household-wide one.
+  it('shows ownerless rows only when they are not addressed or managed types', () => {
+    const where = visibleTo('hh', 'me') as { OR: [unknown, { AND: [unknown, { OR: [{ type: { notIn: string[] } }, unknown] }] }] };
+    const hidden = where.OR[1].AND[1].OR[0].type.notIn;
+    for (const t of ['parent_pin', 'new_app', 'limit_reached', 'extra_time', 'request_update', 'request_note', 'task_ready', 'bug_report', 'phone_alert', 'task_review', 'task_reviewed']) {
+      expect(hidden).toContain(t);
+    }
+    expect(hidden).toContain('overdue'); // managed: goes by its audience
+    expect(hidden).not.toContain('system');
+    expect(addressedTypes()).not.toContain('system');
   });
 });

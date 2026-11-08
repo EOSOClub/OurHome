@@ -1,6 +1,15 @@
 import { type NextRequest } from 'next/server';
 import { ZodError } from 'zod';
-import { clientIp, fail, ok, rateLimit, validationFailed } from '@/server/api/http';
+import {
+  PUBLIC_BODY_MAX_BYTES,
+  clientIp,
+  fail,
+  ok,
+  rateLimit,
+  readJsonCapped,
+  validationFailed,
+} from '@/server/api/http';
+import { PayloadTooLargeError } from '@/server/services/errors';
 import { submitContactMessage } from '@/server/services/contactService';
 import { verifyTurnstile } from '@/server/security/turnstile';
 import { contactSchema } from '@/lib/validation/contact';
@@ -23,12 +32,13 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   let input;
   try {
-    const raw = await req.json().catch(() => ({}));
+    const raw = await readJsonCapped(req, PUBLIC_BODY_MAX_BYTES);
     input = contactSchema.parse(raw);
   } catch (err) {
     if (err instanceof ZodError) {
       return validationFailed(err);
     }
+    if (err instanceof PayloadTooLargeError) return fail('That message is too long.', 413);
     return fail('Invalid request', 400);
   }
 

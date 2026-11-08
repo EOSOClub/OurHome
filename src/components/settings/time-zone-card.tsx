@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation } from '@tanstack/react-query';
 import { CalendarClock, Loader2 } from 'lucide-react';
@@ -9,13 +9,71 @@ import { apiFetch } from '@/lib/api';
 import { toast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { FieldNote } from '@/components/ui/field-note';
 import { useFieldErrors } from '@/lib/use-field-errors';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+// Picked from a list, not typed: a free-text zone was easy to get wrong. The
+// server still checks whatever is sent.
+const NO_ZONES: readonly string[] = [];
+// For a browser without Intl.supportedValuesOf: the common zones.
+const FALLBACK_ZONES = [
+  'UTC',
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Phoenix',
+  'America/Los_Angeles',
+  'America/Anchorage',
+  'Pacific/Honolulu',
+  'America/Halifax',
+  'America/St_Johns',
+  'America/Mexico_City',
+  'America/Sao_Paulo',
+  'Europe/London',
+  'Europe/Dublin',
+  'Europe/Paris',
+  'Europe/Berlin',
+  'Europe/Madrid',
+  'Europe/Rome',
+  'Europe/Athens',
+  'Europe/Moscow',
+  'Africa/Johannesburg',
+  'Asia/Dubai',
+  'Asia/Kolkata',
+  'Asia/Shanghai',
+  'Asia/Tokyo',
+  'Asia/Singapore',
+  'Australia/Perth',
+  'Australia/Sydney',
+  'Pacific/Auckland',
+];
+let zoneCache: readonly string[] | null = null;
+
+function browserZones(): readonly string[] {
+  if (zoneCache) return zoneCache;
+  let list: string[];
+  try {
+    list = typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : FALLBACK_ZONES;
+  } catch {
+    list = FALLBACK_ZONES;
+  }
+  // Some browsers leave UTC out of the list.
+  zoneCache = list.includes('UTC') ? list : ['UTC', ...list];
+  return zoneCache;
+}
+
+function subscribeNever() {
+  return () => {};
+}
+
+/** The list, with the current zone kept selectable even when it isn't in it. */
+function zoneOptions(zones: readonly string[], current: string): readonly string[] {
+  return current && !zones.includes(current) ? [current, ...zones] : zones;
+}
 
 /** Head only: the household's calendar (time zone, first day of the week).
  *  Stored with the points rate, so it saves through the same endpoint. */
@@ -25,6 +83,9 @@ export function TimeZoneCard({ initial }: { initial: PointsSettingsDTO }) {
   const [weekStartsOn, setWeekStartsOn] = useState(initial.weekStartsOn);
   const [savedZone, setSavedZone] = useState(initial.timezone);
   const fe = useFieldErrors('tz-card');
+  // The browser's list, read after hydration: the server's list can differ
+  // from the browser's, and a mismatch would break hydration.
+  const zones = useSyncExternalStore(subscribeNever, browserZones, () => NO_ZONES);
 
   const save = useMutation({
     mutationFn: () =>
@@ -59,13 +120,18 @@ export function TimeZoneCard({ initial }: { initial: PointsSettingsDTO }) {
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2" data-field="timezone">
             <Label htmlFor="tz">Time zone</Label>
-            <Input
+            <Select
               id="tz"
               value={timezone}
               onChange={(e) => setTimezone(e.target.value)}
-              placeholder="America/Chicago"
               {...fe.invalid('timezone')}
-            />
+            >
+              {zoneOptions(zones, timezone).map((z) => (
+                <option key={z} value={z}>
+                  {z.replaceAll('_', ' ')}
+                </option>
+              ))}
+            </Select>
             <FieldNote
               id={fe.noteId('timezone')}
               error={fe.get('timezone')}

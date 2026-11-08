@@ -2,7 +2,15 @@ import { randomUUID } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/server/db/prisma';
 import { logActivity } from '@/server/services/activityService';
-import { ConflictError, ForbiddenError, NotFoundError } from '@/server/services/errors';
+import {
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  SAME_MOMENT,
+  isRecordGone,
+  isUniqueClash,
+  plainWriteConflict,
+} from '@/server/services/errors';
 import { canPush, pushSync, pushToMember } from '@/server/services/pushService';
 import {
   SUPERVISED_SELECT,
@@ -138,17 +146,24 @@ export async function setSupervisors(
   const wanted = [...new Set(input.supervisorIds)];
   const supervisors = await loadSupervisors(householdId, wanted);
 
-  const current = await prisma.supervision.findMany({
-    where: { supervisedId: supervised.id },
-    select: { supervisorId: true },
-  });
-  const currentIds = new Set(current.map((c) => c.supervisorId));
-  const added = wanted.filter((id) => !currentIds.has(id));
-  const removed = [...currentIds].filter((id) => !wanted.includes(id));
+  /** What saving [wanted] changes, from the links as they stand now. */
+  const changes = async () => {
+    const current = await prisma.supervision.findMany({
+      where: { supervisedId: supervised.id },
+      select: { supervisorId: true },
+    });
+    const currentIds = new Set(current.map((c) => c.supervisorId));
+    return {
+      added: wanted.filter((id) => !currentIds.has(id)),
+      removed: [...currentIds].filter((id) => !wanted.includes(id)),
+    };
+  };
+  const { added, removed } = await changes();
 
   if (added.length || removed.length) {
     const names = supervisors.sort(byRankThenName).map((s) => s.name);
-    await prisma.$transaction(async (tx) => {
+    // Two saves of this list at the same moment: the second is told plainly (409).
+    const save = (added: string[], removed: string[]) => plainWriteConflict(() => prisma.$transaction(async (tx) => {
       if (removed.length) {
         await tx.supervision.deleteMany({
           where: { supervisedId: supervised.id, supervisorId: { in: removed } },
@@ -181,6 +196,19 @@ export async function setSupervisors(
         },
         tx,
       );
+    }));
+    await save(added, removed).catch(async (err: unknown) => {
+      // The other save committed first and wrote a link this one adds (the
+      // unique supervisor + child pair), so this one wrote nothing. Read the
+      // links again and save only what is still missing: when the other save
+      // did it all, this one is simply done.
+      if (!isUniqueClash(err)) throw err;
+      const left = await changes();
+      if (!left.added.length && !left.removed.length) return;
+      await save(left.added, left.removed).catch((again: unknown) => {
+        if (isUniqueClash(again)) throw new ConflictError(SAME_MOMENT);
+        throw again;
+      });
     });
     // Who gets this child's phone alerts just changed.
     await refreshPhoneAlerts(householdId, new Date(), [supervised.id]);
@@ -638,23 +666,30 @@ export async function setAppBlocked(
     }
     const label = await usageLabel(kid.id, input.app);
     if (!label) throw new NotFoundError(`That app isn’t in ${kid.name}’s app usage.`);
-    await prisma.$transaction(async (tx) => {
-      await tx.blockedApp.create({
-        data: { householdId, userId: kid.id, app: input.app, label, blockedById: actor.id },
-      });
-      await logActivity(
-        {
-          householdId,
-          actorId: actor.id,
-          verb: 'updated',
-          subjectType: 'member',
-          subjectId: kid.id,
-          message: `blocked ${label} on ${kid.name}’s phone`,
-        },
-        tx,
+    try {
+      await plainWriteConflict(() =>
+        prisma.$transaction(async (tx) => {
+          await tx.blockedApp.create({
+            data: { householdId, userId: kid.id, app: input.app, label, blockedById: actor.id },
+          });
+          await logActivity(
+            {
+              householdId,
+              actorId: actor.id,
+              verb: 'updated',
+              subjectType: 'member',
+              subjectId: kid.id,
+              message: `blocked ${label} on ${kid.name}’s phone`,
+            },
+            tx,
+          );
+        }),
       );
-    });
-    changed = true;
+      changed = true;
+    } catch (err) {
+      // Another supervisor blocked it at the same moment: it's done, and theirs woke the phone.
+      if (!isUniqueClash(err)) throw err;
+    }
   } else if (!input.blocked && existing) {
     await prisma.$transaction(async (tx) => {
       await tx.blockedApp.delete({ where: { id: existing.id } });
@@ -744,15 +779,24 @@ export async function setAppLimit(
   }
   if (save) {
     const write = save;
-    await prisma.$transaction(async (tx) => {
-      await write(tx);
-      await logActivity(
-        { householdId, actorId: actor.id, verb: 'updated', subjectType: 'member', subjectId: kid.id, message },
-        tx,
+    let saved = true;
+    try {
+      await plainWriteConflict(() =>
+        prisma.$transaction(async (tx) => {
+          await write(tx);
+          await logActivity(
+            { householdId, actorId: actor.id, verb: 'updated', subjectType: 'member', subjectId: kid.id, message },
+            tx,
+          );
+        }),
       );
-    });
+    } catch (err) {
+      // Another supervisor gave it a limit at the same moment: theirs stands, and woke the phone.
+      if (!isUniqueClash(err)) throw err;
+      saved = false;
+    }
     // Their phone checks in at once and learns the new limits.
-    pushSync(householdId, { userIds: [kid.id] }, 'supervision');
+    if (saved) pushSync(householdId, { userIds: [kid.id] }, 'supervision');
   }
   return lookAfterOverview(householdId, actor.id);
 }
@@ -904,14 +948,26 @@ export async function setPointsForTime(
   if (write && message) {
     const save = write;
     const line = message;
-    await prisma.$transaction(async (tx) => {
+    const stopping = input.minutesPerPoint === null;
+    // [existing] was read before this transaction, so two adults saving at
+    // once race: a write conflict, or both creating the row (userId is
+    // unique), is told plainly (409). Stopping it twice at once finds it
+    // already gone, which is what was asked; a rate change on a row someone
+    // just stopped is a lost race like the others.
+    const saved = await plainWriteConflict(() => prisma.$transaction(async (tx) => {
       await save(tx);
       await logActivity(
         { householdId, actorId: actor.id, verb: 'updated', subjectType: 'member', subjectId: kid.id, message: line },
         tx,
       );
-    });
-    pushSync(householdId, { userIds: [kid.id] }, 'supervision');
+    }))
+      .then(() => true)
+      .catch((err: unknown) => {
+        if (isRecordGone(err) && stopping) return false;
+        if (isUniqueClash(err) || isRecordGone(err)) throw new ConflictError(SAME_MOMENT);
+        throw err;
+      });
+    if (saved) pushSync(householdId, { userIds: [kid.id] }, 'supervision');
   }
   return lookAfterOverview(householdId, actor.id);
 }

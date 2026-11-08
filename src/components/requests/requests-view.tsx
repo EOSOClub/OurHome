@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   CalendarClock,
@@ -62,7 +62,7 @@ import { EmptyState } from '@/components/empty-state';
 import { useHouseholdZone } from '@/components/household-zone';
 import { NAV_BADGES_KEY } from '@/components/app-nav';
 import type { NavBadges } from '@/server/services/navBadgeService';
-import { isOverdue } from '@/lib/format';
+import { APP_LOCALE, dateKey, isOverdue, timeKey, zonedInstant } from '@/lib/format';
 
 export type RequestPayload =
   | {
@@ -104,6 +104,9 @@ export type RequestPayload =
 
 const MEDIA_ICONS: Record<MediaType, typeof Film> = { movie: Film, tv: Tv };
 
+/** The request a link opened the page on (?request=<id>), for its row to scroll to and ring. */
+const FocusedRequest = createContext<string | null>(null);
+
 /** Yes-or-no kinds, shown in this order above Maintenance and Media. */
 const DECISION_KINDS = ['permission', 'purchase'] as const;
 const CATEGORY_ICONS: Record<RequestCategory, typeof Film> = {
@@ -120,11 +123,11 @@ const DECISION_SECTIONS = [
 
 // In the household's zone, so the server render and the browser agree.
 const shortDate = (iso: string, timeZone?: string) =>
-  new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric', timeZone });
+  new Date(iso).toLocaleDateString(APP_LOCALE, { month: 'short', day: 'numeric', year: 'numeric', timeZone });
 
 /** `Sat, Oct 24, 6:00 PM` in the household's zone. */
 const shortDateTime = (iso: string, timeZone?: string) =>
-  new Date(iso).toLocaleString(undefined, {
+  new Date(iso).toLocaleString(APP_LOCALE, {
     weekday: 'short',
     month: 'short',
     day: 'numeric',
@@ -139,24 +142,25 @@ const whenLabel = (r: { startsAt: string | null; endsAt: string | null }, timeZo
     ? `${shortDateTime(r.startsAt, timeZone)}${r.endsAt ? ` until ${shortDateTime(r.endsAt, timeZone)}` : ''}`
     : null;
 
-/** An ISO time → a datetime-local value ("YYYY-MM-DDTHH:mm") in this browser's time. */
-const localInput = (iso: string | null) => {
-  if (!iso) return '';
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-};
+// Date and time inputs are read and written in the household's zone
+// (Settings), the one the pages show and the server reads dates in, whatever
+// zone the device is in.
+
+/** An ISO time → a datetime-local value ("YYYY-MM-DDTHH:mm") in the household's zone. */
+const localInput = (iso: string | null, timeZone?: string) =>
+  iso ? `${dateKey(iso, timeZone)}T${timeKey(iso, timeZone)}` : '';
+
+/** A datetime-local value ("YYYY-MM-DDTHH:mm") → the ISO time it names in the household's zone. */
+const zonedIso = (value: string, timeZone?: string) =>
+  zonedInstant(value.slice(0, 10), value.slice(11, 16), timeZone).toISOString();
 
 const money = (n: number) => `$${n.toFixed(2)}`;
 
-/** A date-input value ("YYYY-MM-DD") → noon local, matching the other forms. */
-const noonIso = (date: string) => new Date(`${date}T12:00`).toISOString();
+/** A date-input value ("YYYY-MM-DD") → 12:00 household time, matching the other forms. */
+const noonIso = (date: string, timeZone?: string) => zonedInstant(date, '12:00', timeZone).toISOString();
 
-/** Today as a date-input value in local time. */
-const todayInput = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
+/** Today as a date-input value, in the household's zone. */
+const todayInput = (timeZone?: string) => dateKey(new Date(), timeZone);
 
 export function RequestsView({
   initialRequests,
@@ -164,7 +168,10 @@ export function RequestsView({
   currentUserId,
   isHead,
   members,
+  focusId = null,
 }: {
+  /** Opened from a link to one request (?request=<id>, e.g. a notification): it's scrolled to and highlighted. */
+  focusId?: string | null;
   initialRequests: RequestDTO[];
   /**
    * The kinds of request that are on (Settings → Request types), as this
@@ -259,7 +266,7 @@ export function RequestsView({
   const deleteMutation = useMutation({
     mutationFn: (id: string) => post<{ id: string }>('/api/requests/delete', { id }),
     onSuccess: () => {
-      toast.success('Request removed');
+      toast.success('Request deleted');
       setConfirmDelete(null);
       void invalidate();
     },
@@ -385,6 +392,7 @@ export function RequestsView({
   );
 
   return (
+    <FocusedRequest.Provider value={focusId}>
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Requests</h1>
@@ -532,6 +540,7 @@ export function RequestsView({
             modules={modules}
             members={members}
             submitLabel="Save changes"
+            idPrefix="request-edit"
             pending={updateMutation.isPending}
             errors={editForm}
             onCancel={() => setEditing(null)}
@@ -585,13 +594,14 @@ export function RequestsView({
         open={confirmDelete !== null}
         onClose={() => setConfirmDelete(null)}
         onConfirm={() => confirmDelete && deleteMutation.mutate(confirmDelete.id)}
-        title="Remove this request?"
-        description={confirmDelete ? `“${confirmDelete.title}” will be removed for everyone.` : undefined}
-        confirmLabel="Remove"
+        title="Delete this request?"
+        description={confirmDelete ? `“${confirmDelete.title}” will be deleted for everyone.` : undefined}
+        confirmLabel="Delete"
         destructive
         pending={deleteMutation.isPending}
       />
     </div>
+    </FocusedRequest.Provider>
   );
 }
 
@@ -674,7 +684,7 @@ function OwnerActions({ title, onEdit, onDelete }: { title: string; onEdit: () =
       <Button variant="ghost" size="icon" onClick={onEdit} aria-label={`Edit ${title}`}>
         <Pencil className="size-4" />
       </Button>
-      <Button variant="ghost" size="icon" onClick={onDelete} aria-label={`Remove ${title}`}>
+      <Button variant="ghost" size="icon" onClick={onDelete} aria-label={`Delete ${title}`}>
         <Trash2 className="size-4" />
       </Button>
     </>
@@ -711,8 +721,16 @@ function RequestItem({
   body: ReactNode;
   actions: ReactNode;
 }) {
+  // Opened from a link to this request (a notification): scrolled to and ringed.
+  const focused = useContext(FocusedRequest) === r.id;
+  useEffect(() => {
+    if (focused) document.getElementById(`request-${r.id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [focused, r.id]);
   return (
-    <li className={cn('px-3 py-2.5', highlight && 'bg-primary/5')}>
+    <li
+      id={`request-${r.id}`}
+      className={cn('px-3 py-2.5', highlight && 'bg-primary/5', focused && 'rounded-lg ring-2 ring-inset ring-primary')}
+    >
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         {leading}
         <div className="min-w-0 flex-1">
@@ -735,7 +753,9 @@ function RequestItem({
 function RequestNotes({ request: r, currentUserId, isHead }: { request: RequestDTO; currentUserId: string; isHead: boolean }) {
   const timeZone = useHouseholdZone();
   const queryClient = useQueryClient();
-  const [shown, setShown] = useState(() => !isFinished(r));
+  // A link to this request (often about a new note) shows its notes even when finished.
+  const linked = useContext(FocusedRequest) === r.id;
+  const [shown, setShown] = useState(() => linked || !isFinished(r));
   const [writing, setWriting] = useState(false);
   const [body, setBody] = useState('');
   const [removing, setRemoving] = useState<RequestDTO['notes'][number] | null>(null);
@@ -805,8 +825,9 @@ function RequestNotes({ request: r, currentUserId, isHead }: { request: RequestD
                   <button
                     type="button"
                     onClick={() => setRemoving(n)}
-                    aria-label="Remove this note"
-                    className="-mr-1 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                    aria-label="Delete this note"
+                    // 44px to tap on a phone; the small button from sm up.
+                    className="-mr-1 flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground sm:size-7"
                   >
                     <Trash2 className="size-3.5" />
                   </button>
@@ -864,9 +885,9 @@ function RequestNotes({ request: r, currentUserId, isHead }: { request: RequestD
         open={removing !== null}
         onClose={() => setRemoving(null)}
         onConfirm={() => removing && removeMutation.mutate(removing.id)}
-        title="Remove this note?"
-        description={removing ? `“${removing.body}” will be removed for everyone.` : undefined}
-        confirmLabel="Remove"
+        title="Delete this note?"
+        description={removing ? `“${removing.body}” will be deleted for everyone.` : undefined}
+        confirmLabel="Delete"
         destructive
         pending={removeMutation.isPending}
       />
@@ -982,7 +1003,7 @@ function MediaRow({
           ) : null}
           {/* A declined request can't be edited, only removed. */}
           {isOwn && status === 'declined' ? (
-            <Button variant="ghost" size="icon" onClick={onDelete} aria-label={`Remove ${r.title}`}>
+            <Button variant="ghost" size="icon" onClick={onDelete} aria-label={`Delete ${r.title}`}>
               <Trash2 className="size-4" />
             </Button>
           ) : isOwn ? (
@@ -1101,7 +1122,7 @@ function MaintenanceRow({
           ) : null}
           {/* A declined request can't be edited, only removed. */}
           {isRequester && r.status === 'declined' ? (
-            <Button variant="ghost" size="icon" onClick={onDelete} aria-label={`Remove ${r.title}`}>
+            <Button variant="ghost" size="icon" onClick={onDelete} aria-label={`Delete ${r.title}`}>
               <Trash2 className="size-4" />
             </Button>
           ) : isRequester ? (
@@ -1113,7 +1134,7 @@ function MaintenanceRow({
             </Button>
           ) : null}
           {headActions ? (
-            <Button variant="ghost" size="icon" onClick={onDelete} aria-label={`Remove ${r.title}`}>
+            <Button variant="ghost" size="icon" onClick={onDelete} aria-label={`Delete ${r.title}`}>
               <Trash2 className="size-4" />
             </Button>
           ) : null}
@@ -1300,7 +1321,7 @@ function DecisionRow({
           {isOwn && open ? (
             <OwnerActions title={r.title} onEdit={onEdit} onDelete={onDelete} />
           ) : isOwn ? (
-            <Button variant="ghost" size="icon" onClick={onDelete} aria-label={`Remove ${r.title}`}>
+            <Button variant="ghost" size="icon" onClick={onDelete} aria-label={`Delete ${r.title}`}>
               <Trash2 className="size-4" />
             </Button>
           ) : null}
@@ -1384,8 +1405,11 @@ function AcceptDialog({
   /** null: accepted (or saved) without a date. */
   onAccept: (dueAt: string | null) => void;
 }) {
-  const [date, setDate] = useState('');
-  const min = todayInput();
+  // Changing the date starts from the one it has (the dialog remounts per
+  // request). Read in the household's zone, the same way noonIso saves it.
+  const timeZone = useHouseholdZone();
+  const [date, setDate] = useState(() => (request?.dueAt ? dateKey(request.dueAt, timeZone) : ''));
+  const min = todayInput(timeZone);
   const valid = date === '' ? !requireDueDate : date >= min;
   const rescheduling = request?.status === 'accepted';
   const close = () => {
@@ -1404,7 +1428,7 @@ function AcceptDialog({
           <Button variant="ghost" onClick={close} disabled={pending}>
             Cancel
           </Button>
-          <Button disabled={!valid || pending} onClick={() => onAccept(date ? noonIso(date) : null)}>
+          <Button disabled={!valid || pending} onClick={() => onAccept(date ? noonIso(date, timeZone) : null)}>
             {pending ? <Loader2 className="animate-spin" /> : null}
             {rescheduling ? 'Save date' : 'Accept'}
           </Button>
@@ -1519,7 +1543,14 @@ export function RequestForm({
   errors,
   onSubmit,
   onCancel,
+  idPrefix = 'request',
 }: {
+  /**
+   * Starts every field's id, so the new-request card and the edit dialog
+   * (both on the page at once) don't share ids and their labels stay with
+   * their own fields.
+   */
+  idPrefix?: string;
   initial?: RequestDTO;
   /** The kinds of request that are on, as this member sees them. */
   modules: RequestModuleView[];
@@ -1570,9 +1601,12 @@ export function RequestForm({
   const [imageUrl, setImageUrl] = useState<string | null>(initial?.imageUrl ?? null);
   const [price, setPrice] = useState(initial?.price != null ? String(initial.price) : '');
   const [quantity, setQuantity] = useState(initial?.quantity ? String(initial.quantity) : '1');
-  // Permission: from and until, as datetime-local values.
-  const [startsAt, setStartsAt] = useState(localInput(initial?.startsAt ?? null));
-  const [endsAt, setEndsAt] = useState(localInput(initial?.endsAt ?? null));
+  // Permission: from and until, as datetime-local values in the household's zone.
+  const timeZone = useHouseholdZone();
+  const [startsAt, setStartsAt] = useState(localInput(initial?.startsAt ?? null, timeZone));
+  const [endsAt, setEndsAt] = useState(localInput(initial?.endsAt ?? null, timeZone));
+  // They pressed the button with something missing: those fields are marked.
+  const [tried, setTried] = useState(false);
   const categoryModule = modules.find((m) => m.id === category);
   // Editing: the request's own kind, even if this member couldn't ask for it now.
   const categoryOptions = initial
@@ -1621,6 +1655,10 @@ export function RequestForm({
       : 'Release year';
 
   function submit() {
+    if (!(mediaReady || maintenanceReady || purchaseReady || permissionReady)) {
+      setTried(true);
+      return;
+    }
     // mediaReady also narrows mediaType past ''.
     if (category === 'media' && mediaReady) {
       onSubmit({
@@ -1652,23 +1690,54 @@ export function RequestForm({
         category,
         title: title.trim(),
         details: details.trim() || null,
-        startsAt: startsAt ? new Date(startsAt).toISOString() : null,
-        endsAt: startsAt && endsAt ? new Date(endsAt).toISOString() : null,
+        startsAt: startsAt ? zonedIso(startsAt, timeZone) : null,
+        endsAt: startsAt && endsAt ? zonedIso(endsAt, timeZone) : null,
       });
     }
   }
+
+  // The button stays on: pressing it with something missing marks what's
+  // missing, so nobody (children use this) is left with a grey button and no
+  // reason. Each mark goes as soon as its field is filled in.
+  const ready = mediaReady || maintenanceReady || purchaseReady || permissionReady;
+  const missing: Record<string, string> = {};
+  if (category === '') missing.category = 'Choose what you would like to request.';
+  if (category === 'media') {
+    if (mediaType === '') missing.mediaType = 'Choose the type of media.';
+    else {
+      if (!title.trim()) missing.title = 'Enter the name.';
+      if (year === '') missing.year = 'Enter the year it came out.';
+      if (needsSeason && season === '') missing.season = 'Enter the season.';
+      if (issue && !problem.trim()) missing.details = 'Say what’s wrong.';
+    }
+  } else if (category !== '' && !title.trim()) {
+    missing.title =
+      category === 'maintenance'
+        ? 'Say what needs doing.'
+        : category === 'purchase'
+          ? 'Say what you would like.'
+          : 'Say what you would like to do.';
+  }
+  if (category === 'maintenance' && assigneeId === '') missing.assigneeId = 'Choose who should do it.';
+  /** What's missing from [key], once they've pressed the button. */
+  const mark = (key: string): string | null => (tried ? (missing[key] ?? null) : null);
+  /** errors.invalid, plus red while it's marked missing. */
+  const invalid = (key: string) => ({
+    'aria-invalid': errors.has(key) || !!mark(key) || undefined,
+    'aria-describedby': errors.noteId(key),
+  });
 
   // Why each is red: the server's word first, then what's checked here.
   const seasonError =
     errors.get('season') ??
     (seasonValid || (needsSeason && season === '')
-      ? null
+      ? mark('season')
       : needsSeason
         ? 'Enter a season from 1 to 100.'
         : 'Enter a season from 1 to 100, or leave it blank.');
   const episodeError = errors.get('episode') ?? (episodeValid ? null : 'Enter an episode from 1 to 1000, or leave it blank.');
   const yearError =
-    errors.get('year') ?? (year !== '' && !yearValid ? 'Enter a 4-digit year from 1870 to 2100.' : null);
+    errors.get('year') ?? (year !== '' && !yearValid ? 'Enter a 4-digit year from 1870 to 2100.' : mark('year'));
 
   return (
     <form
@@ -1677,12 +1746,14 @@ export function RequestForm({
         e.preventDefault();
         submit();
       }}
+      // The browser stops on its own first empty required box: mark the rest too.
+      onInvalidCapture={() => setTried(true)}
       {...errors.formProps}
     >
       <div className="space-y-1.5" data-field="category">
-        <Label htmlFor="request-category">What would you like to request?</Label>
+        <Label htmlFor={`${idPrefix}-category`}>What would you like to request?</Label>
         <Select
-          id="request-category"
+          id={`${idPrefix}-category`}
           value={category}
           disabled={initial !== undefined}
           onChange={(e) => {
@@ -1692,7 +1763,7 @@ export function RequestForm({
             if (start.mediaType && !mediaType) setMediaType(start.mediaType);
             if (start.assigneeId && !assigneeId) setAssigneeId(start.assigneeId);
           }}
-          {...errors.invalid('category')}
+          {...invalid('category')}
         >
           <option value="" disabled>
             Choose…
@@ -1704,14 +1775,14 @@ export function RequestForm({
           ))}
         </Select>
         {/* The head's note for this kind (Settings → Request types). */}
-        <FieldNote id={errors.noteId('category')} error={errors.get('category')} hint={categoryModule?.note ?? undefined} />
+        <FieldNote id={errors.noteId('category')} error={errors.get('category') ?? mark('category')} hint={categoryModule?.note ?? undefined} />
       </div>
 
       {category === 'media' ? (
         <div className="space-y-1.5" data-field="issue">
-          <Label htmlFor="request-media-purpose">What do you need?</Label>
+          <Label htmlFor={`${idPrefix}-media-purpose`}>What do you need?</Label>
           <Select
-            id="request-media-purpose"
+            id={`${idPrefix}-media-purpose`}
             value={issue ? 'issue' : 'add'}
             disabled={initial !== undefined}
             onChange={(e) => setIssue(e.target.value === 'issue')}
@@ -1724,12 +1795,12 @@ export function RequestForm({
 
       {category === 'media' ? (
         <div className="space-y-1.5" data-field="mediaType">
-          <Label htmlFor="request-media-type">Type of media</Label>
+          <Label htmlFor={`${idPrefix}-media-type`}>Type of media</Label>
           <Select
-            id="request-media-type"
+            id={`${idPrefix}-media-type`}
             value={mediaType}
             onChange={(e) => setMediaType(e.target.value as MediaType | '')}
-            {...errors.invalid('mediaType')}
+            {...invalid('mediaType')}
           >
             <option value="" disabled>
               Choose…
@@ -1740,24 +1811,24 @@ export function RequestForm({
               </option>
             ))}
           </Select>
-          <FieldNote id={errors.noteId('mediaType')} error={errors.get('mediaType')} />
+          <FieldNote id={errors.noteId('mediaType')} error={errors.get('mediaType') ?? mark('mediaType')} />
         </div>
       ) : null}
 
       {category === 'media' && mediaType !== '' ? (
         <>
           <div className="space-y-1.5" data-field="title">
-            <Label htmlFor="request-title">Name</Label>
+            <Label htmlFor={`${idPrefix}-title`}>Name</Label>
             <Input
-              id="request-title"
+              id={`${idPrefix}-title`}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder={mediaType === 'tv' ? 'e.g. Severance' : 'e.g. Dune'}
               maxLength={200}
               required
-              {...errors.invalid('title')}
+              {...invalid('title')}
             />
-            <FieldNote id={errors.noteId('title')} error={errors.get('title')} />
+            <FieldNote id={errors.noteId('title')} error={errors.get('title') ?? mark('title')} />
           </div>
           {tvProblem ? (
             <label className="flex items-center gap-2 text-sm" data-field="wholeShow">
@@ -1774,9 +1845,9 @@ export function RequestForm({
             {needsSeason ? (
               <>
                 <div className="space-y-1.5" data-field="season">
-                  <Label htmlFor="request-season">Season</Label>
+                  <Label htmlFor={`${idPrefix}-season`}>Season</Label>
                   <Input
-                    id="request-season"
+                    id={`${idPrefix}-season`}
                     inputMode="numeric"
                     value={season}
                     onChange={(e) => setSeason(e.target.value.replace(/\D/g, '').slice(0, 3))}
@@ -1788,9 +1859,9 @@ export function RequestForm({
                   <FieldNote id={errors.noteId('season')} error={seasonError} />
                 </div>
                 <div className="space-y-1.5" data-field="episode">
-                  <Label htmlFor="request-episode">Episode (optional)</Label>
+                  <Label htmlFor={`${idPrefix}-episode`}>Episode (optional)</Label>
                   <Input
-                    id="request-episode"
+                    id={`${idPrefix}-episode`}
                     inputMode="numeric"
                     value={episode}
                     onChange={(e) => setEpisode(e.target.value.replace(/\D/g, '').slice(0, 4))}
@@ -1807,9 +1878,9 @@ export function RequestForm({
               </>
             ) : mediaType === 'tv' && !tvProblem ? (
               <div className="space-y-1.5" data-field="season">
-                <Label htmlFor="request-season">Season (optional)</Label>
+                <Label htmlFor={`${idPrefix}-season`}>Season (optional)</Label>
                 <Input
-                  id="request-season"
+                  id={`${idPrefix}-season`}
                   inputMode="numeric"
                   value={season}
                   onChange={(e) => setSeason(e.target.value.replace(/\D/g, '').slice(0, 3))}
@@ -1825,9 +1896,9 @@ export function RequestForm({
               </div>
             ) : null}
             <div className="space-y-1.5" data-field="year">
-              <Label htmlFor="request-year">{yearLabel}</Label>
+              <Label htmlFor={`${idPrefix}-year`}>{yearLabel}</Label>
               <Input
-                id="request-year"
+                id={`${idPrefix}-year`}
                 inputMode="numeric"
                 value={year}
                 onChange={(e) => setYear(e.target.value.replace(/\D/g, '').slice(0, 4))}
@@ -1841,17 +1912,17 @@ export function RequestForm({
           </div>
           {issue ? (
             <div className="space-y-1.5" data-field="details">
-              <Label htmlFor="request-problem">What&apos;s wrong?</Label>
+              <Label htmlFor={`${idPrefix}-problem`}>What&apos;s wrong?</Label>
               <Textarea
-                id="request-problem"
+                id={`${idPrefix}-problem`}
                 value={problem}
                 onChange={(e) => setProblem(e.target.value)}
                 placeholder="e.g. No sound after 20 minutes, or the subtitles are out of sync"
                 maxLength={2000}
                 required
-                {...errors.invalid('details')}
+                {...invalid('details')}
               />
-              <FieldNote id={errors.noteId('details')} error={errors.get('details')} />
+              <FieldNote id={errors.noteId('details')} error={errors.get('details') ?? mark('details')} />
             </div>
           ) : null}
         </>
@@ -1860,37 +1931,37 @@ export function RequestForm({
       {category === 'maintenance' ? (
         <>
           <div className="space-y-1.5" data-field="title">
-            <Label htmlFor="request-title">What needs doing?</Label>
+            <Label htmlFor={`${idPrefix}-title`}>What needs doing?</Label>
             <Input
-              id="request-title"
+              id={`${idPrefix}-title`}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. Fix the leaky kitchen faucet"
               maxLength={200}
               required
-              {...errors.invalid('title')}
+              {...invalid('title')}
             />
-            <FieldNote id={errors.noteId('title')} error={errors.get('title')} />
+            <FieldNote id={errors.noteId('title')} error={errors.get('title') ?? mark('title')} />
           </div>
           <div className="space-y-1.5" data-field="details">
-            <Label htmlFor="request-details">Details (optional)</Label>
+            <Label htmlFor={`${idPrefix}-details`}>Details (optional)</Label>
             <Textarea
-              id="request-details"
+              id={`${idPrefix}-details`}
               value={details}
               onChange={(e) => setDetails(e.target.value)}
               placeholder="Where it is, what's wrong, anything that helps"
               maxLength={2000}
-              {...errors.invalid('details')}
+              {...invalid('details')}
             />
-            <FieldNote id={errors.noteId('details')} error={errors.get('details')} />
+            <FieldNote id={errors.noteId('details')} error={errors.get('details') ?? mark('details')} />
           </div>
           <div className="space-y-1.5" data-field="assigneeId">
-            <Label htmlFor="request-assignee">Who should do it?</Label>
+            <Label htmlFor={`${idPrefix}-assignee`}>Who should do it?</Label>
             <Select
-              id="request-assignee"
+              id={`${idPrefix}-assignee`}
               value={assigneeId}
               onChange={(e) => setAssigneeId(e.target.value)}
-              {...errors.invalid('assigneeId')}
+              {...invalid('assigneeId')}
             >
               <option value="" disabled>
                 Choose someone…
@@ -1903,7 +1974,7 @@ export function RequestForm({
             </Select>
             <FieldNote
               id={errors.noteId('assigneeId')}
-              error={errors.get('assigneeId')}
+              error={errors.get('assigneeId') ?? mark('assigneeId')}
               hint={assignees.length === 0 ? "There's no one you can ask yet." : undefined}
             />
             {initial?.status === 'accepted' && assigneeId !== initial.assignee?.id ? (
@@ -1918,21 +1989,21 @@ export function RequestForm({
       {category === 'purchase' ? (
         <>
           <div className="space-y-1.5" data-field="title">
-            <Label htmlFor="request-title">What would you like?</Label>
+            <Label htmlFor={`${idPrefix}-title`}>What would you like?</Label>
             <Input
-              id="request-title"
+              id={`${idPrefix}-title`}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. LEGO Space set"
               maxLength={200}
               required
-              {...errors.invalid('title')}
+              {...invalid('title')}
             />
-            <FieldNote id={errors.noteId('title')} error={errors.get('title')} />
+            <FieldNote id={errors.noteId('title')} error={errors.get('title') ?? mark('title')} />
           </div>
           <div data-field="url imageUrl">
             <LinkField
-              id="request-url"
+              id={`${idPrefix}-url`}
               label="Link (optional)"
               previewPath="/api/requests/preview"
               url={url}
@@ -1951,9 +2022,9 @@ export function RequestForm({
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5" data-field="price">
-              <Label htmlFor="request-price">Est. price (optional)</Label>
+              <Label htmlFor={`${idPrefix}-price`}>Est. price (optional)</Label>
               <Input
-                id="request-price"
+                id={`${idPrefix}-price`}
                 type="number"
                 min={0}
                 step="0.01"
@@ -1970,9 +2041,9 @@ export function RequestForm({
               />
             </div>
             <div className="space-y-1.5" data-field="quantity">
-              <Label htmlFor="request-quantity">How many</Label>
+              <Label htmlFor={`${idPrefix}-quantity`}>How many</Label>
               <Input
-                id="request-quantity"
+                id={`${idPrefix}-quantity`}
                 type="number"
                 min={1}
                 max={999}
@@ -1988,16 +2059,16 @@ export function RequestForm({
             </div>
           </div>
           <div className="space-y-1.5" data-field="details">
-            <Label htmlFor="request-details">Why (optional)</Label>
+            <Label htmlFor={`${idPrefix}-details`}>Why (optional)</Label>
             <Textarea
-              id="request-details"
+              id={`${idPrefix}-details`}
               value={details}
               onChange={(e) => setDetails(e.target.value)}
               placeholder="What it's for, anything that helps decide"
               maxLength={2000}
-              {...errors.invalid('details')}
+              {...invalid('details')}
             />
-            <FieldNote id={errors.noteId('details')} error={errors.get('details')} />
+            <FieldNote id={errors.noteId('details')} error={errors.get('details') ?? mark('details')} />
           </div>
         </>
       ) : null}
@@ -2005,23 +2076,23 @@ export function RequestForm({
       {category === 'permission' ? (
         <>
           <div className="space-y-1.5" data-field="title">
-            <Label htmlFor="request-title">What would you like to do?</Label>
+            <Label htmlFor={`${idPrefix}-title`}>What would you like to do?</Label>
             <Input
-              id="request-title"
+              id={`${idPrefix}-title`}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. Sleepover at Sam's"
               maxLength={200}
               required
-              {...errors.invalid('title')}
+              {...invalid('title')}
             />
-            <FieldNote id={errors.noteId('title')} error={errors.get('title')} />
+            <FieldNote id={errors.noteId('title')} error={errors.get('title') ?? mark('title')} />
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5" data-field="startsAt">
-              <Label htmlFor="request-starts">From (optional)</Label>
+              <Label htmlFor={`${idPrefix}-starts`}>From (optional)</Label>
               <Input
-                id="request-starts"
+                id={`${idPrefix}-starts`}
                 type="datetime-local"
                 value={startsAt}
                 onChange={(e) => setStartsAt(e.target.value)}
@@ -2034,9 +2105,9 @@ export function RequestForm({
               />
             </div>
             <div className="space-y-1.5" data-field="endsAt">
-              <Label htmlFor="request-ends">Until (optional)</Label>
+              <Label htmlFor={`${idPrefix}-ends`}>Until (optional)</Label>
               <Input
-                id="request-ends"
+                id={`${idPrefix}-ends`}
                 type="datetime-local"
                 value={endsAt}
                 min={startsAt || undefined}
@@ -2048,16 +2119,16 @@ export function RequestForm({
             </div>
           </div>
           <div className="space-y-1.5" data-field="details">
-            <Label htmlFor="request-details">Details (optional)</Label>
+            <Label htmlFor={`${idPrefix}-details`}>Details (optional)</Label>
             <Textarea
-              id="request-details"
+              id={`${idPrefix}-details`}
               value={details}
               onChange={(e) => setDetails(e.target.value)}
               placeholder="Where, who with, how you'll get there"
               maxLength={2000}
-              {...errors.invalid('details')}
+              {...invalid('details')}
             />
-            <FieldNote id={errors.noteId('details')} error={errors.get('details')} />
+            <FieldNote id={errors.noteId('details')} error={errors.get('details') ?? mark('details')} />
           </div>
         </>
       ) : null}
@@ -2068,11 +2139,16 @@ export function RequestForm({
             Cancel
           </Button>
         ) : null}
-        <Button type="submit" disabled={!(mediaReady || maintenanceReady || purchaseReady || permissionReady) || pending}>
+        <Button type="submit" disabled={pending}>
           {pending ? <Loader2 className="animate-spin" /> : null}
           {submitLabel}
         </Button>
       </div>
+      {tried && !ready ? (
+        <p className="text-right text-sm text-destructive" role="alert">
+          Fill in or fix the marked boxes above first.
+        </p>
+      ) : null}
     </form>
   );
 }

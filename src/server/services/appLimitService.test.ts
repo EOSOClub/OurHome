@@ -14,8 +14,11 @@ const prisma = {
   notification: {
     findMany: vi.fn(async (): Promise<unknown[]> => []),
     createMany: vi.fn(),
+    create: vi.fn(),
   },
 };
+const { Prisma } = await import('@prisma/client');
+const duplicateKey = () => new Prisma.PrismaClientKnownRequestError('dup', { code: 'P2002', clientVersion: 'test' });
 vi.mock('@/server/db/prisma', () => ({ prisma }));
 const push = { pushSync: vi.fn() };
 vi.mock('@/server/services/pushService', () => push);
@@ -113,6 +116,16 @@ describe('daily limits', () => {
       subjectId: 'riley',
     });
     expect(rows[1].title).toBe('Riley used up their app time for today');
+    expect(push.pushSync).toHaveBeenCalledWith(H, { userIds: ['alex', 'sam'] }, 'reminder');
+  });
+
+  it('takes an alert another check-in wrote at the same moment as already sent', async () => {
+    prisma.supervision.findMany.mockResolvedValueOnce([link('alex'), link('sam')]);
+    prisma.appLimit.findMany.mockResolvedValueOnce([{ app: YT, label: 'YouTube', minutes: 60 }]);
+    prisma.notification.createMany.mockRejectedValueOnce(duplicateKey());
+    prisma.notification.create.mockRejectedValueOnce(duplicateKey()).mockResolvedValueOnce({});
+    await reportLimitsReached(H, 'riley', { day: '2026-10-12', apps: [YT] }, now);
+    expect(prisma.notification.create).toHaveBeenCalledTimes(2);
     expect(push.pushSync).toHaveBeenCalledWith(H, { userIds: ['alex', 'sam'] }, 'reminder');
   });
 

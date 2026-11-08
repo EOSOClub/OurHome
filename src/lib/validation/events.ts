@@ -1,12 +1,15 @@
 import { z } from 'zod';
+import { MAX_QUANTITY } from '@/lib/validation/inventory';
 
 // Payload Home Assistant POSTs to /api/webhooks/nfc when a tag is scanned.
 // `amount` is a signed decimal delta entered by the user at scan time
-// (negative removes stock, positive restocks; fractional allowed).
+// (negative removes stock, positive restocks; fractional allowed). A restock
+// is capped like a quantity (see adjustQuantitySchema).
 export const nfcScanWebhookSchema = z.object({
   tagId: z.string().trim().min(1).max(100),
   amount: z
     .number()
+    .max(MAX_QUANTITY)
     .refine((n) => n !== 0, 'Scan amount must be non-zero.'),
   note: z.string().trim().max(500).optional().nullable(),
   // App username of the person who scanned (sent by Home Assistant, mapped

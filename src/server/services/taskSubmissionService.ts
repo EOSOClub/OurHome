@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/server/db/prisma';
+import { dateOnOrBefore } from '@/server/db/dateFilters';
 import { logActivity } from '@/server/services/activityService';
 import { ConflictError, ForbiddenError, NotFoundError, UnprocessableError } from '@/server/services/errors';
 import { NOT_VOIDED, effectivePoints, getPointsSettings } from '@/server/services/pointsService';
@@ -17,7 +18,7 @@ import {
   checkConflict,
   clearReviewBells,
   currentSupervisors,
-  healAwaitingReview,
+  healListedTask,
   needsCheck,
   parseEntries,
   retryOnWaitingClash,
@@ -272,7 +273,13 @@ export async function decideSubmission(
 
   if (completionId) {
     // Paid as of when it was sent: a cycle that ended since rolls over now.
-    await rollTaskCycles(householdId, new Date(), before.taskId);
+    // The approval has committed, so a roll lost to another roll at that
+    // moment (409) is no reason to answer it as failed: that other roll, or
+    // the next list or sweep, rolls it over.
+    await rollTaskCycles(householdId, new Date(), before.taskId).catch((err: unknown) => {
+      if (!(err instanceof ConflictError)) throw err;
+      console.warn(`[tasks] rolling task ${before.taskId} after approving check ${input.submissionId} lost a race; left to the next roll`);
+    });
     pushTaskReady(householdId, [ready]);
   }
   wakeForChecks(householdId, wake);
@@ -377,6 +384,8 @@ export async function withdrawSubmission(householdId: string, actor: Actor, subm
   });
   if (!before) throw new NotFoundError('That check wasn’t found.');
   await rollTaskCycles(householdId, new Date(), before.taskId);
+  // The household's zone, for the due day in the "your turn" notice.
+  const settings = await getPointsSettings(householdId);
   const now = new Date();
   const wake: string[] = [];
   let ready: string | null = null;
@@ -403,7 +412,7 @@ export async function withdrawSubmission(householdId: string, actor: Actor, subm
           tx,
         );
         if (task.status !== 'completed' && task.status !== 'archived') {
-          ready = await announceTaskReady(tx, householdId, task, actor.id);
+          ready = await announceTaskReady(tx, householdId, task, actor.id, settings.timezone);
         }
       }
     })
@@ -430,7 +439,16 @@ export async function settleOrphanedSubmissions(householdId: string, now: Date =
     where: { householdId, status: 'awaiting_review' },
     select: { id: true, status: true },
   });
-  for (const task of stuck) await healAwaitingReview(prisma, householdId, task);
+  for (const task of stuck) {
+    try {
+      // Each in its own transaction, written only while it still waits: an
+      // approval between the list and here must not be undone (healListedTask).
+      await prisma.$transaction((tx) => healListedTask(tx, householdId, task.id));
+    } catch (err) {
+      // A lost race (the task changed at that moment) is settled next sweep.
+      console.error(`[tasks] opening task ${task.id} again failed; retrying next sweep`, err);
+    }
+  }
 
   // Both kinds: a whole task sent, and step points waiting ("steps").
   const waiting = await prisma.taskSubmission.findMany({
@@ -522,7 +540,10 @@ export async function deleteExpiredPhotos(householdId: string, now: Date = new D
   const photos = await prisma.taskPhoto.findMany({ where: { householdId }, select: { submissionId: true } });
   if (photos.length === 0) return 0;
   const due = await prisma.taskSubmission.findMany({
-    where: { householdId, id: { in: photos.map((p) => p.submissionId) }, photoDeleteAt: { lte: now } },
+    // dateOnOrBefore, never a bare `lte`: that also matches a check still
+    // waiting (no photoDeleteAt yet) or back in To check after an undo (null),
+    // and its photo would go before an adult saw it.
+    where: { householdId, id: { in: photos.map((p) => p.submissionId) }, photoDeleteAt: dateOnOrBefore(now) },
     select: { id: true },
   });
   if (due.length === 0) return 0;

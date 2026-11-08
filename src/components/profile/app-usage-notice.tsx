@@ -31,7 +31,7 @@ export function AppUsageNotice() {
       contentClassName="space-y-3 pt-0 text-sm text-muted-foreground"
     >
       <p>
-        The OurHome app on your phone sends how long you spend in each app, about every 15 minutes. You and the
+        The Our Home app on your phone sends how long you spend in each app, about every 15 minutes. You and the
         adults who look after you can see it, and only the last {USAGE_KEEP_DAYS} days are kept. They&apos;re also
         told when you install a new app. They can also block apps, give apps a daily limit, and set times when
         apps close, like bedtime; your phone tells you when that happens.

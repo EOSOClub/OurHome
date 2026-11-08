@@ -1,4 +1,5 @@
 import { prisma } from '@/server/db/prisma';
+import { STALE_GRACE_MS, reminderRuns } from '@/server/services/reminderRuns';
 import { dateBefore, dateOnOrBefore } from '@/server/db/dateFilters';
 import { sendEmail } from '@/server/email/mailer';
 import { buildReminderEmail } from '@/server/email/notificationEmail';
@@ -12,13 +13,15 @@ import { getHouseholdFeatures } from '@/server/services/serverAdminService';
 import { listOccurrences } from '@/server/services/calendarService';
 import { isWriteConflict } from '@/server/services/taskService';
 import { addDays, daysBetween, localDateOf, localTimeAt, startOfLocalDate } from '@/lib/taskCycles';
+import { isPlaceholderEmail } from '@/lib/placeholderEmail';
 
 // Turns current household state (overdue tasks, low / soon-depleted inventory,
 // upcoming/overdue unpaid bills, free trials about to end, calendar events
 // whose reminder time came) into
 // notifications. The *selection* logic is
 // kept as pure functions so it can be unit-tested without a database (see
-// reminderService.test.ts); only `generateReminders` touches Prisma.
+// reminderService.test.ts); only `generateReminders` (and
+// `refreshRemindersForRead`, which calls it) touches Prisma.
 
 /** Days of look-ahead: an item predicted to run out within this many days gets a reminder. */
 export const REORDER_WINDOW_DAYS = 3;
@@ -398,6 +401,80 @@ export type ReminderEmailSender = (args: {
   text: string;
 }) => Promise<void>;
 
+// --- One run at a time per household -----------------------------------------
+//
+// Reminders are rebuilt by the 15-minute sweep (reminderSweep) and on reads
+// (GET /api/notifications, the bell page). The bell polls every minute in
+// every open tab, so without a limit several runs for one household overlapped:
+// each read the "already sent" keys before the others wrote theirs, and the
+// same new reminder was emailed and pushed more than once. So:
+// - runs for one household never overlap: a run waits for the one going;
+// - a read shares the run already going, and skips the rebuild altogether if
+//   one started in the last READ_REFRESH_MS and nothing changed since (the
+//   sweep still runs every 15 minutes regardless);
+// - any change logged to the activity feed marks the household stale
+//   (reminderRuns.markRemindersStale), so a reminder whose cause was just
+//   fixed (a bill paid) leaves the bell on the next read, not a minute later.
+// The state lives in reminderRuns.ts.
+
+/** A read skips the rebuild when a run for the household started this recently. */
+export const READ_REFRESH_MS = 60 * 1000;
+
+const runs = reminderRuns;
+
+/**
+ * Rebuild the household's reminders now (see reconcileReminders). Always
+ * runs, which the sweep relies on; when a run for the household is already
+ * going, this one starts after it finishes, so two never overlap.
+ */
+export function generateReminders(
+  householdId: string,
+  send: ReminderEmailSender = sendEmail,
+): Promise<void> {
+  const previous = runs.inFlight.get(householdId);
+  const run: Promise<void> = (previous ? previous.catch(() => undefined) : Promise.resolve())
+    .then(() => {
+      runs.lastStarted.set(householdId, Date.now());
+      return reconcileReminders(householdId, send);
+    })
+    .catch((err: unknown) => {
+      // A failed run doesn't count as fresh: the next read tries again.
+      runs.lastStarted.delete(householdId);
+      throw err;
+    })
+    .finally(() => {
+      // Only the latest run clears the slot; one queued behind it keeps it.
+      if (runs.inFlight.get(householdId) === run) runs.inFlight.delete(householdId);
+    });
+  runs.inFlight.set(householdId, run);
+  runs.requestedAt.set(householdId, Date.now());
+  return run;
+}
+
+/**
+ * Rebuild the household's reminders for a read (the bell, the notifications
+ * page): shares a run already going, skips one that started under
+ * READ_REFRESH_MS ago, and otherwise runs as generateReminders does.
+ */
+export function refreshRemindersForRead(
+  householdId: string,
+  send: ReminderEmailSender = sendEmail,
+): Promise<void> {
+  const staleAt = runs.staleAt.get(householdId) ?? Number.NEGATIVE_INFINITY;
+  const going = runs.inFlight.get(householdId);
+  if (going) {
+    // Shared only when it was asked for after the last change; otherwise it
+    // was built from the old state, so a new run is queued behind it.
+    if ((runs.requestedAt.get(householdId) ?? Number.NEGATIVE_INFINITY) > staleAt) return going;
+    return generateReminders(householdId, send);
+  }
+  const last = runs.lastStarted.get(householdId);
+  if (last !== undefined && last > staleAt + STALE_GRACE_MS && Date.now() - last < READ_REFRESH_MS) {
+    return Promise.resolve();
+  }
+  return generateReminders(householdId, send);
+}
+
 /**
  * Reconcile the household's generated notifications with current state:
  * upsert a notification for each candidate (idempotent via the
@@ -410,9 +487,9 @@ export type ReminderEmailSender = (args: {
  * channel `in_app` - they remain the source of truth; email failures are logged
  * and never break generation. `send` is injectable for tests.
  */
-export async function generateReminders(
+async function reconcileReminders(
   householdId: string,
-  send: ReminderEmailSender = sendEmail,
+  send: ReminderEmailSender,
 ): Promise<void> {
   const now = new Date();
   const horizon = new Date(now.getTime() + REORDER_WINDOW_DAYS * 86_400_000);
@@ -571,7 +648,10 @@ export async function generateReminders(
       await Promise.all(
         created.flatMap((c) => {
           const { subject, text } = buildReminderEmail(c);
-          return reminderRecipients(c, members).map((m) =>
+          // Members added without an email (usually children) have a stand-in
+          // address nobody reads: they get the bell and the phone, not mail.
+          const mailable = reminderRecipients(c, members).filter((m) => !isPlaceholderEmail(m.email));
+          return mailable.map((m) =>
             send({ to: m.email, subject, text }).catch((err) => {
               console.warn(
                 `[reminders] failed to email ${m.email} for ${c.dedupeKey}:`,

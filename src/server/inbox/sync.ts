@@ -8,6 +8,7 @@ import { ingestFinancialDoc } from '@/server/billIngest/ingest';
 import { withdrawEmailDoc } from '@/server/inbox/withdraw';
 import { removedHere, sendInboxChanges } from '@/server/inbox/changes';
 import { hasPaperless, paperlessMayUsePrivateNetwork } from '@/server/services/paperlessSync';
+import { getPointsSettings } from '@/server/services/pointsService';
 import type { InboxOutcome, InboxStatusDTO, InboxSyncResultDTO } from '@/lib/types';
 
 // Imports bills and bill payments from OurHomeInbox, the email bill reader
@@ -162,8 +163,10 @@ async function syncOnce(householdId: string): Promise<InboxSyncResultDTO | null>
     // knows before it pairs anything else. A failure keeps them queued for the
     // next run, is shown on the card, and doesn't stop the import.
     const report = await sendInboxChanges(householdId, client);
+    // Plain days (due, paid) become noon in the household's zone, not the server's.
+    const { timezone } = await getPointsSettings(householdId);
     for (let page = 0; page < MAX_PAGES; page++) {
-      const reply = parseDocumentsReply(await client.documents(after, PAGE), after, cfg.publicUrl);
+      const reply = parseDocumentsReply(await client.documents(after, PAGE), after, cfg.publicUrl, timezone);
       result.checked += reply.entries.length;
       for (const entry of reply.entries) {
         const { outcome, skip } = await handle(householdId, entry);

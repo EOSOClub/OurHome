@@ -6,9 +6,16 @@ import { Button } from '@/components/ui/button';
 
 /**
  * Minimal accessible modal - no external dependency. Closes on Escape or
- * backdrop click and locks body scroll while open. Render it conditionally or
+ * backdrop click and locks body scroll while open. Form dialogs pass
+ * `preventOutsideClose` so a stray tap outside the panel does not throw away
+ * what was typed; Escape and the X still close them. Render it conditionally or
  * pass `open`. Focus moves into the panel on open, is trapped inside it, and
- * returns to the previously focused element on close. When dialogs stack
+ * returns to the previously focused element on close. To start on a given
+ * field, mark it `data-autofocus` (not `autoFocus`: React 19 doesn't write the
+ * attribute on the client, so it can't be found, and its own focus call runs
+ * before the dialog notes where focus was, which broke the return). When the
+ * first field is disabled (e.g. inside a `<fieldset disabled>` for a viewer
+ * who can't edit), the panel itself takes focus. When dialogs stack
  * (e.g. a ConfirmDialog above an edit Dialog), only the top-most one responds
  * to Escape.
  */
@@ -19,6 +26,17 @@ const openStack: symbol[] = [];
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+/**
+ * The panel's focusable controls. `:not([disabled])` above checks only the
+ * attribute; `:disabled` also catches a control disabled by its fieldset,
+ * which can't take focus.
+ */
+function focusablesIn(panel: HTMLElement): HTMLElement[] {
+  return Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+    (el) => !el.matches(':disabled'),
+  );
+}
+
 export function Dialog({
   open,
   onClose,
@@ -26,6 +44,7 @@ export function Dialog({
   description,
   children,
   footer,
+  preventOutsideClose = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -33,6 +52,8 @@ export function Dialog({
   description?: string;
   children: React.ReactNode;
   footer?: React.ReactNode;
+  /** Ignore backdrop clicks (Escape and the X still close). */
+  preventOutsideClose?: boolean;
 }) {
   const panelRef = React.useRef<HTMLDivElement>(null);
   const idRef = React.useRef<symbol | null>(null);
@@ -53,12 +74,17 @@ export function Dialog({
 
     const previouslyFocused = document.activeElement as HTMLElement | null;
     const panel = panelRef.current;
-    // Focus the first focusable control past the header's close button, or
-    // the panel itself as a fallback.
+    // Focus the field marked data-autofocus, else the first focusable control
+    // past the header's close button. A field React already focused through
+    // autoFocus keeps it. A disabled target can't take focus (it stayed on
+    // the page behind the backdrop), so the panel itself takes it then.
     if (panel) {
-      const focusables = panel.querySelectorAll<HTMLElement>(FOCUSABLE);
-      const autofocus = panel.querySelector<HTMLElement>('[autofocus]');
-      (autofocus ?? focusables[1] ?? focusables[0] ?? panel).focus();
+      const marked = panel.querySelector<HTMLElement>('[data-autofocus]');
+      if (marked || !panel.contains(document.activeElement)) {
+        const focusables = panel.querySelectorAll<HTMLElement>(FOCUSABLE);
+        const target = marked ?? focusables[1] ?? focusables[0];
+        (target && !target.matches(':disabled') ? target : panel).focus();
+      }
     }
 
     const onKey = (e: KeyboardEvent) => {
@@ -70,7 +96,7 @@ export function Dialog({
       }
       if (e.key === 'Tab' && panel) {
         if (openStack[openStack.length - 1] !== id) return;
-        const focusables = panel.querySelectorAll<HTMLElement>(FOCUSABLE);
+        const focusables = focusablesIn(panel);
         if (focusables.length === 0) return;
         const first = focusables[0];
         const last = focusables[focusables.length - 1];
@@ -107,7 +133,7 @@ export function Dialog({
     >
       <div
         className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={onClose}
+        onClick={preventOutsideClose ? undefined : onClose}
       />
       <div
         ref={panelRef}
@@ -136,7 +162,8 @@ export function Dialog({
         </div>
         <div className="px-5 py-4">{children}</div>
         {footer ? (
-          <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
+          // flex-wrap: three buttons overflowed the panel on a phone.
+          <div className="flex flex-wrap justify-end gap-2 border-t border-border px-5 py-3">
             {footer}
           </div>
         ) : null}

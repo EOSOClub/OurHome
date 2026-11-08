@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { recordId } from '@/lib/validation/ids';
 import { NFC_REPRESENTS, NFC_SCAN_ACTIONS } from '@/lib/enums';
+import { MAX_QUANTITY } from '@/lib/validation/inventory';
 
 // A physical tag id. Tags written by the Home Assistant companion app carry a
 // UUID (read by HA and by the Android app alike); for tags without one, the
@@ -42,16 +43,18 @@ export const nfcTagIdSchema = z.object({ id: recordId });
 
 export const nfcLookupQuerySchema = z.object({ tagId: tagIdSchema });
 
-// Apply a scan: a signed decimal delta, like the HA webhook's `amount`.
+// Apply a scan: a signed decimal delta, like the HA webhook's `amount`. A
+// restock is capped like a quantity (see adjustQuantitySchema).
 export const nfcAppScanSchema = z.object({
   tagId: tagIdSchema,
   amount: z
     .number()
+    .max(MAX_QUANTITY)
     .refine((n) => n !== 0, 'Scan amount must be non-zero.'),
   note: z.string().trim().max(500).optional().nullable(),
 });
 
-const quantity = z.number().min(0).max(1_000_000);
+const quantity = z.number().min(0).max(MAX_QUANTITY);
 
 // Set up a tag in one step: bind it to an existing item, create the item, or
 // make it a location tag for a room.

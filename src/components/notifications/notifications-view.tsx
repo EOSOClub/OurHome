@@ -100,15 +100,16 @@ const READ_FILTERS: { value: ReadFilter; label: string }[] = [
 
 /**
  * Where a notification's subject lives, from ActivityEntry-style subject types
- * (see the writers in src/server/services/reminderService.ts). Tasks open on
- * the task itself. Unknown types get no link.
+ * (see the writers in src/server/services/reminderService.ts). Tasks and
+ * requests open on the item itself. Unknown types get no link.
  */
 function subjectHref(n: NotificationDTO): string | null {
   switch (n.subjectType) {
     case 'task':
       return n.subjectId ? `/tasks?task=${encodeURIComponent(n.subjectId)}` : '/tasks';
     case 'request':
-      return '/requests';
+      // Opens on the request itself (scrolled to and ringed).
+      return n.subjectId ? `/requests?request=${encodeURIComponent(n.subjectId)}` : '/requests';
     case 'event':
       return '/calendar';
     case 'household':

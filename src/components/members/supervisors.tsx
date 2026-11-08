@@ -32,7 +32,14 @@ export function useSupervision(membersVersion: string, enabled: boolean) {
     // Keep showing the list while a roster change refetches it.
     placeholderData: keepPreviousData,
   });
-  return { data: query.data, queryKey };
+  // The error state and retry, so a failed load says so instead of spinning forever.
+  return {
+    data: query.data,
+    queryKey,
+    isError: query.isError,
+    isFetching: query.isFetching,
+    refetch: query.refetch,
+  };
 }
 
 /** "Supervised by Alex, Sam", or a nudge when nobody is. */

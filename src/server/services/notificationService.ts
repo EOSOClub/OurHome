@@ -9,6 +9,7 @@ import { NotFoundError } from '@/server/services/errors';
 import { MANAGED_TYPES } from '@/server/services/reminderService';
 import { getHouseholdFeatures } from '@/server/services/serverAdminService';
 import { hiddenSubjectTypes } from '@/lib/features';
+import { NOTIFICATION_TYPES, type NotificationType } from '@/lib/enums';
 import { pushSync } from '@/server/services/pushService';
 
 /**
@@ -29,6 +30,19 @@ function unreadBy(userId: string): Prisma.NotificationWhereInput {
       { NOT: { readByUserIds: { has: userId } } },
     ],
   };
+}
+
+/**
+ * Types that are only ever written for one person (a requester, a child's
+ * supervisors, the head). A row of one of these with no owner is left over
+ * from a removed member (the schema nulls `userId` when a user is deleted),
+ * so it is shown to nobody rather than to the whole household. Only `system`
+ * notices are household-wide; generated reminders go by their audience.
+ * A function, not a constant: reminderService sits in an import cycle with
+ * this module, so MANAGED_TYPES may not exist yet while this one loads.
+ */
+export function addressedTypes(): NotificationType[] {
+  return NOTIFICATION_TYPES.filter((t) => t !== 'system' && !MANAGED_TYPES.includes(t));
 }
 
 /**
@@ -56,7 +70,7 @@ export function visibleTo(
           { OR: [{ userId: null }, { userId: { isSet: false } }] },
           {
             OR: [
-              { type: { notIn: MANAGED_TYPES } },
+              { type: { notIn: [...MANAGED_TYPES, ...addressedTypes()] } },
               { audienceUserIds: { has: userId } },
             ],
           },

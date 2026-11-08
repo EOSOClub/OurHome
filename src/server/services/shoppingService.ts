@@ -158,6 +158,15 @@ export async function addShoppingItem(
   userId: string,
   input: AddShoppingItemInput,
 ): Promise<ShoppingItemWithRelations> {
+  return createPreparedShoppingItem(householdId, userId, await prepareShoppingItem(householdId, input));
+}
+
+/**
+ * addShoppingItem's checks and link preview, before anything is written. Kept
+ * apart so a caller can do them outside its own transaction (the preview can
+ * take seconds) and write the item inside it (createPreparedShoppingItem).
+ */
+export async function prepareShoppingItem(householdId: string, input: AddShoppingItemInput) {
   const list = await assertListInHousehold(input.listId, householdId);
   await assertCategoryRef(prisma, householdId, input.categoryId);
 
@@ -167,8 +176,19 @@ export async function addShoppingItem(
   if (input.url && !imageUrl) {
     imageUrl = (await fetchLinkPreview(input.url)).imageUrl;
   }
+  return { list, input, imageUrl };
+}
 
-  const item = await prisma.shoppingItem.create({
+export type PreparedShoppingItem = Awaited<ReturnType<typeof prepareShoppingItem>>;
+
+/** Writes an item prepareShoppingItem checked, in `db` (a transaction or not). */
+export async function createPreparedShoppingItem(
+  householdId: string,
+  userId: string,
+  { list, input, imageUrl }: PreparedShoppingItem,
+  db: Prisma.TransactionClient = prisma,
+): Promise<ShoppingItemWithRelations> {
+  const item = await db.shoppingItem.create({
     data: {
       listId: list.id,
       name: input.name,
@@ -185,14 +205,17 @@ export async function addShoppingItem(
     include: itemInclude,
   });
 
-  await logActivity({
-    householdId,
-    actorId: userId,
-    verb: 'created',
-    subjectType: 'shopping_item',
-    subjectId: item.id,
-    message: `added “${item.name}” to ${list.name}`,
-  });
+  await logActivity(
+    {
+      householdId,
+      actorId: userId,
+      verb: 'created',
+      subjectType: 'shopping_item',
+      subjectId: item.id,
+      message: `added “${item.name}” to ${list.name}`,
+    },
+    db,
+  );
 
   return item;
 }
@@ -250,6 +273,18 @@ export async function setItemPurchased(
   const existing = await findItemInHousehold(input.itemId, householdId);
 
   return prisma.$transaction(async (tx) => {
+    // Two people ticking it at once both read it unticked: only the tick that
+    // actually flips it counts as the purchase, so it is recorded once.
+    const flipped =
+      input.purchased &&
+      !existing.purchased &&
+      (
+        await tx.shoppingItem.updateMany({
+          where: { id: input.itemId, purchased: false },
+          data: { purchased: true },
+        })
+      ).count === 1;
+
     const item = await tx.shoppingItem.update({
       where: { id: input.itemId },
       data: {
@@ -262,7 +297,7 @@ export async function setItemPurchased(
     // Record household purchase history on the transition into "purchased".
     // Purchase has no back-link to the shopping item, so unchecking leaves the
     // history row in place rather than guessing which record to remove.
-    if (input.purchased && !existing.purchased) {
+    if (flipped) {
       await tx.purchase.create({
         data: {
           householdId,

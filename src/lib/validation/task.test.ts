@@ -36,6 +36,23 @@ describe('task status', () => {
   });
 });
 
+describe('runs in cycles', () => {
+  it('is refused for a yearly task, in plain words, rather than saved and never cycling', () => {
+    const yearly = { title: 'Gutters', recurrence: { kind: 'yearly', rollover: true } };
+    const res = createTaskSchema.safeParse(yearly);
+    expect(res.success).toBe(false);
+    expect(res.error?.issues[0]).toMatchObject({ path: ['recurrence', 'rollover'], message: 'A yearly task can’t run in cycles.' });
+    expect(updateTaskSchema.safeParse({ taskId: ID, recurrence: { kind: 'yearly', rollover: true } }).success).toBe(false);
+  });
+
+  it('a yearly task without cycles, and cycles on other kinds, are fine as before', () => {
+    expect(createTaskSchema.safeParse({ title: 'Gutters', recurrence: { kind: 'yearly' } }).success).toBe(true);
+    expect(createTaskSchema.safeParse({ title: 'Gutters', recurrence: { kind: 'yearly', rollover: false } }).success).toBe(true);
+    expect(createTaskSchema.safeParse({ title: 'Bins', recurrence: { kind: 'daily', rollover: true } }).success).toBe(true);
+    expect(createTaskSchema.safeParse({ title: 'Lawn', recurrence: { kind: 'weekly', interval: 2, rollover: true, cycleWeekdays: [1] } }).success).toBe(true);
+  });
+});
+
 describe('completing and sending for a check', () => {
   it('accepts what older apps send, and the new fields', () => {
     expect(completeTaskSchema.parse({ taskId: ID })).toEqual({ taskId: ID });

@@ -601,6 +601,11 @@ export interface BillPaymentDTO {
   confirmationNo: string | null;
   /** OurHomeInbox judged it late; the bill page says "Paid late". */
   paidLate: boolean;
+  /**
+   * Part of the bill's current balance (`paidTotal`): every payment of a
+   * one-off bill, only the current cycle's of a recurring one.
+   */
+  countsTowardBalance: boolean;
   paidBy: MemberDTO | null;
 }
 

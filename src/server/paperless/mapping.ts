@@ -1,4 +1,5 @@
 import type { BillIngestInput } from '@/lib/validation/billIngest';
+import { localTimeAt } from '@/lib/taskCycles';
 
 // Pure translation from a Paperless-ngx document (API v9) to the bill
 // importer's input, plus the "is it ready to import?" rules. No I/O, so it is
@@ -38,6 +39,8 @@ export interface MappingContext {
   correspondents: Map<number, string>;
   /** Public Paperless address for "Open in Paperless" links; null = no links. */
   publicUrl: string | null;
+  /** The household's IANA time zone: dates become noon there (see parseDay). */
+  timeZone: string;
 }
 
 export type Evaluation =
@@ -58,13 +61,21 @@ export function parseMonetary(value: unknown): { amount: number; currency: strin
   return { amount: Number(m[2]), currency: m[1] ?? null };
 }
 
-/** A date custom field / v9 `created` ("YYYY-MM-DD") as noon local time. */
-export function parseDay(value: unknown): Date | null {
+/**
+ * A date custom field / v9 `created` ("YYYY-MM-DD") as noon in the
+ * household's time zone.
+ *
+ * Noon, like dates picked in the web UI, so no timezone shifts it a day, and
+ * noon in the HOUSEHOLD's zone, not the server's: the app reads a due date at
+ * exactly 12:00 local as "due all day" (isDateOnly in lib/format). Noon on a
+ * server running in UTC (Docker) is 06:00 or 07:00 in Chicago, which read as
+ * a timed due and showed the bill overdue from that morning on.
+ */
+export function parseDay(value: unknown, timeZone: string): Date | null {
   if (typeof value !== 'string') return null;
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
   if (!m) return null;
-  // Noon, like dates picked in the web UI, so no timezone shifts it a day.
-  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12);
+  const d = localTimeAt({ year: Number(m[1]), month: Number(m[2]), day: Number(m[3]) }, 12, 0, timeZone);
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
@@ -104,8 +115,8 @@ export function evaluateDocument(doc: PaperlessDocument, ctx: MappingContext): E
   if (!money) return { ready: false, reason: 'no Amount yet' };
   if (money.amount < 0) return { ready: false, reason: 'negative Amount' };
 
-  const created = parseDay(doc.created);
-  const dueDate = kind === 'bill' ? parseDay(fieldValue(doc, ctx.fields.dueDate)) : null;
+  const created = parseDay(doc.created, ctx.timeZone);
+  const dueDate = kind === 'bill' ? parseDay(fieldValue(doc, ctx.fields.dueDate), ctx.timeZone) : null;
   const correspondent = doc.correspondent != null ? ctx.correspondents.get(doc.correspondent) ?? null : null;
   const base = ctx.publicUrl?.replace(/\/+$/, '');
 

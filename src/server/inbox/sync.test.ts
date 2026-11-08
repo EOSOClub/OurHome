@@ -65,6 +65,10 @@ const ingest = {
 };
 vi.mock('@/server/billIngest/ingest', () => ingest);
 vi.mock('@/server/inbox/withdraw', () => ingest);
+// The household's zone, which plain days are pinned to (noon there).
+vi.mock('@/server/services/pointsService', () => ({
+  getPointsSettings: vi.fn(async () => ({ timezone: 'America/Chicago', weekStartsOn: 0, minutesPerPoint: 15 })),
+}));
 
 // The feed: each ask gets the next queued reply (or a thrown error).
 const replies: unknown[] = [];
@@ -127,6 +131,15 @@ describe('runInboxSync', () => {
     expect(result?.imported).toEqual({ created: 1, linked: 1 });
     expect(sync?.after).toBe(2);
     expect(sync?.lastError).toBeNull();
+  });
+
+  it('pins a plain due day to noon in the household zone, whatever zone the server runs in', async () => {
+    const bill = ready(1);
+    replies.push({ documents: [{ ...bill, document: { ...bill.document, dueDate: '2026-11-20' } }], next: 1, more: false });
+    await runInboxSync('h1');
+    const [, doc] = ingest.ingestFinancialDoc.mock.calls[0] as unknown as [string, { dueDate: Date }];
+    // 12:00 in Chicago (CST, UTC-6) on Nov 20.
+    expect(doc.dueDate.toISOString()).toBe('2026-11-20T18:00:00.000Z');
   });
 
   it('asks again straight away while there is more, from the number it was given', async () => {

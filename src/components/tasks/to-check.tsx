@@ -159,7 +159,7 @@ function ToCheckRow({
           {item.child.name} · {steps ? `Steps on “${item.task.title}”` : `“${item.task.title}”`}
         </p>
         {cycleEnd ? (
-          <p className="text-xs font-medium text-amber-700 dark:text-amber-400">Counted as done when the day ended</p>
+          <p className="text-xs font-medium text-warning-text">Counted as done when the day ended</p>
         ) : null}
         {steps ? (
           <>

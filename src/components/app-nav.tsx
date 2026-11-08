@@ -204,12 +204,42 @@ function BottomNav({
     if (!moreOpen) return;
     sheetRef.current?.querySelector<HTMLElement>('a')?.focus();
     const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Tab') {
+        // Keep Tab inside the open sheet and its More toggle, so keyboard focus
+        // can't wander to the page hidden behind the backdrop.
+        const items = [
+          ...(sheetRef.current?.querySelectorAll<HTMLElement>('a[href]') ?? []),
+          ...(moreRef.current ? [moreRef.current] : []),
+        ];
+        if (items.length === 0) return;
+        const at = items.indexOf(document.activeElement as HTMLElement);
+        const next =
+          at === -1
+            ? 0
+            : e.shiftKey
+              ? (at - 1 + items.length) % items.length
+              : (at + 1) % items.length;
+        e.preventDefault();
+        items[next].focus();
+        return;
+      }
       if (e.key !== 'Escape') return;
       setMoreOpen(false);
       moreRef.current?.focus();
     };
     document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
+    // The sheet is hidden from lg up (the sidebar takes over). Widening the
+    // window (or turning a tablet) with it open left the Tab trap on with
+    // nothing visible to focus, so Tab did nothing anywhere: close it then.
+    const wide = window.matchMedia('(min-width: 64rem)');
+    const onWide = () => {
+      if (wide.matches) setMoreOpen(false);
+    };
+    wide.addEventListener('change', onWide);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      wide.removeEventListener('change', onWide);
+    };
   }, [moreOpen]);
 
   const tabClass = (active: boolean) =>
@@ -225,7 +255,11 @@ function BottomNav({
         <div
           aria-hidden
           className="fixed inset-0 z-10 bg-black/40 lg:hidden"
-          onClick={() => setMoreOpen(false)}
+          onClick={() => {
+            setMoreOpen(false);
+            // Focus goes back where it came from, as with Escape.
+            moreRef.current?.focus();
+          }}
         />
       ) : null}
 

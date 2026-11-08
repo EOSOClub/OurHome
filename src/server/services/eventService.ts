@@ -4,10 +4,11 @@ import type { NfcScanWebhookInput } from '@/lib/validation/events';
 import {
   adjustQuantity,
   createInventoryItem,
+  findItemInHousehold,
   itemToDTO,
 } from '@/server/services/inventoryService';
 import { parseTagItemId, registerNfcTag } from '@/server/services/nfcService';
-import { NotFoundError } from '@/server/services/errors';
+import { ConflictError, isUniqueClash, NotFoundError } from '@/server/services/errors';
 
 /**
  * Ingest an NFC scan from Home Assistant: resolve the tag → bound inventory
@@ -96,21 +97,48 @@ async function autoRegisterFromScan(
   input: NfcScanWebhookInput,
   source: 'home_assistant' | 'nfc',
 ): Promise<InventoryItemDTO> {
-  const created = await createInventoryItem(householdId, actorId, {
-    name,
-    unit: null,
-    quantity: Math.max(0, input.amount),
-    lowThreshold: 0,
-    reorderIntervalDays: null,
-    categoryId: null,
-  });
+  // Claim the tag before making the item: two first scans at once (Home
+  // Assistant firing twice, two phones) both found no tag, and each made an
+  // item, leaving one orphaned or failing on the tag's unique index. The
+  // unique index lets only one claim in; the other gets the winner's item.
+  try {
+    await prisma.nfcTag.create({
+      data: { householdId, tagId: input.tagId, label: name, represents: 'consumable', roomId: null, config: '{}' },
+    });
+  } catch (err) {
+    if (!isUniqueClash(err)) throw err;
+    const tag = await prisma.nfcTag.findUnique({
+      where: { householdId_tagId: { householdId, tagId: input.tagId } },
+    });
+    const itemId = tag ? parseTagItemId(tag) : null;
+    if (!itemId) throw new ConflictError('This tag is being set up right now. Scan it again in a moment.');
+    return itemToDTO(await findItemInHousehold(itemId, householdId));
+  }
 
-  await registerNfcTag(householdId, actorId, {
-    tagId: input.tagId,
-    label: name,
-    itemId: created.id,
-    represents: 'consumable',
-  });
+  let created: Awaited<ReturnType<typeof createInventoryItem>>;
+  try {
+    created = await createInventoryItem(householdId, actorId, {
+      name,
+      unit: null,
+      quantity: Math.max(0, input.amount),
+      lowThreshold: 0,
+      reorderIntervalDays: null,
+      categoryId: null,
+    });
+
+    await registerNfcTag(householdId, actorId, {
+      tagId: input.tagId,
+      label: name,
+      itemId: created.id,
+      represents: 'consumable',
+    });
+  } catch (err) {
+    // Nothing got bound: let go of the claim so the next scan can try again.
+    await prisma.nfcTag
+      .deleteMany({ where: { householdId, tagId: input.tagId, config: '{}' } })
+      .catch(() => undefined);
+    throw err;
+  }
 
   await prisma.eventLog.create({
     data: {

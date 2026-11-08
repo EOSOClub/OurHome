@@ -58,6 +58,8 @@ export function ReportBugDialog({ open, onClose }: { open: boolean; onClose: () 
       <Dialog
         open={open}
         onClose={close}
+        // A stray tap outside must not throw away the report being typed.
+        preventOutsideClose
         title="Report a bug"
         description="Tell us what went wrong. We'll include the page you're on."
         footer={

@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/server/db/prisma';
+import { createAllOnce } from '@/server/services/errors';
 import { pushSync } from '@/server/services/pushService';
 import { namesOf } from '@/server/services/appBlockService';
 import { canBeSupervised, canSupervise } from '@/lib/permissions';
@@ -122,8 +123,9 @@ export async function reportLimitsReached(
   const sent = new Set(have.map((n) => n.dedupeKey));
   const fresh = wanted.filter((w) => !sent.has(keyFor(w.limit.app, w.supervisorId)));
   if (fresh.length === 0) return { told: 0 };
-  await prisma.notification.createMany({
-    data: fresh.map(({ limit, supervisorId }) => ({
+  // Two overlapping check-ins can carry the same limit: the second one's clash is already sent.
+  await createAllOnce(
+    fresh.map(({ limit, supervisorId }) => ({
       householdId,
       userId: supervisorId,
       type: LIMIT_REACHED_TYPE,
@@ -135,7 +137,9 @@ export async function reportLimitsReached(
       readAt: null,
       createdAt: now,
     })),
-  });
+    (data) => prisma.notification.createMany({ data }),
+    (data) => prisma.notification.create({ data }),
+  );
   pushSync(householdId, { userIds: [...new Set(fresh.map((f) => f.supervisorId))] }, 'reminder');
   return { told: fresh.length };
 }

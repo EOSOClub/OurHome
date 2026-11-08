@@ -88,7 +88,7 @@ function ToastItem({ data }: { data: ToastData }) {
       <Icon
         className={cn(
           'size-5 shrink-0',
-          data.variant === 'success' && 'text-success',
+          data.variant === 'success' && 'text-success-text',
           data.variant === 'error' && 'text-destructive',
           data.variant === 'info' && 'text-muted-foreground',
         )}
@@ -97,7 +97,8 @@ function ToastItem({ data }: { data: ToastData }) {
       {data.action ? (
         <button
           type="button"
-          className="shrink-0 rounded-md px-2 py-1 text-sm font-medium text-primary hover:bg-accent"
+          // 44px tall on phones; the negative margin keeps the toast compact.
+          className="-my-2 min-h-11 shrink-0 rounded-md px-3 text-sm font-medium text-primary hover:bg-accent sm:my-0 sm:min-h-0 sm:px-2 sm:py-1"
           onClick={() => {
             data.action?.onClick();
             dismiss(data.id);
@@ -109,7 +110,7 @@ function ToastItem({ data }: { data: ToastData }) {
       <button
         type="button"
         aria-label="Dismiss notification"
-        className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+        className="-my-2 -mr-2 flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground sm:m-0 sm:size-auto sm:p-1"
         onClick={() => dismiss(data.id)}
       >
         <X className="size-4" />

@@ -9,6 +9,7 @@ const prisma = {
   notification: {
     findMany: vi.fn(async (): Promise<unknown[]> => []),
     createMany: vi.fn(),
+    create: vi.fn(),
   },
   appUsageDay: {
     upsert: vi.fn(),
@@ -392,6 +393,16 @@ describe('new apps on a child’s phone', () => {
     prisma.user.findFirst.mockResolvedValue({ name: 'Riley', shareAppUsage: true });
     prisma.supervision.findMany.mockResolvedValue([]);
     prisma.notification.findMany.mockResolvedValue([]);
+  });
+
+  it('takes an alert the same report wrote a moment earlier as already sent', async () => {
+    const { Prisma } = await import('@prisma/client');
+    const duplicateKey = () => new Prisma.PrismaClientKnownRequestError('dup', { code: 'P2002', clientVersion: 'test' });
+    prisma.supervision.findMany.mockResolvedValueOnce([link('alex'), link('sam')]);
+    prisma.notification.createMany.mockRejectedValueOnce(duplicateKey());
+    prisma.notification.create.mockRejectedValueOnce(duplicateKey()).mockResolvedValueOnce({});
+    await reportNewApps('h1', 'riley', { apps: [roblox] }, noon);
+    expect(prisma.notification.create).toHaveBeenCalledTimes(2);
   });
 
   it('tells each adult who looks after them, once, and wakes their phones', async () => {

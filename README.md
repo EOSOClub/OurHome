@@ -98,15 +98,18 @@ flowchart LR
 
 ## 🐳 Deploy with Docker
 
-Deployment lives in a `docker/` folder that is **gitignored**, so your real config and secrets never enter the repo. Start from the public template:
+Deployment lives in a `docker/` folder that is **gitignored**, so your real config and secrets never enter the repo. Start from the public template. The server only needs the deploy template and the two settings templates on disk, because the app is built from GitHub, so download just those (about 500 KB):
 
 ```bash
-git clone https://github.com/EOSOClub/OurHome.git OurHomeWeb
+git clone --depth 1 --filter=blob:none --sparse https://github.com/EOSOClub/OurHome.git OurHomeWeb
 cd OurHomeWeb
+printf '%s\n' /docker.example/ /settings.example.yml /.env.example /.gitignore | git sparse-checkout set --no-cone --stdin
 cp -r docker.example docker
 cd docker
 ./deploy.sh                            # Windows: .\deploy.ps1
 ```
+
+In PowerShell, give the paths directly instead: `git sparse-checkout set --no-cone /docker.example/ /settings.example.yml /.env.example /.gitignore`. Already cloned the whole repo? Run the `sparse-checkout` command in it to trim it; `settings.yml`, `.env`, `docker/` and `android/` are kept. `git pull` still updates the files you kept. To build from your own checkout with `-l`, bring back everything with `git sparse-checkout disable`.
 
 The first run walks you through every setting (what it's for, what the value looks like, links to set up Firebase, Turnstile and email) and writes `settings.yml` and `.env` for you. Then `deploy.sh` (or `deploy.ps1`) builds the app **from GitHub**, starts it, waits until it responds, and prints its address. Later runs ask once whether to change settings; `-s` jumps to the walkthrough, `-n` rebuilds from scratch, `-b` picks a branch, `-l` builds the local checkout.
 

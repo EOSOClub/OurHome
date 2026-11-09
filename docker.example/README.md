@@ -11,12 +11,27 @@ Prerequisites: Docker with Compose v2, and a MongoDB **replica set** the server
 can reach (see [What runs](#what-runs)).
 
 ```bash
-git clone https://github.com/EOSOClub/OurHome.git
+git clone --depth 1 --filter=blob:none --sparse https://github.com/EOSOClub/OurHome.git
 cd OurHome
+printf '%s\n' /docker.example/ /settings.example.yml /.env.example /.gitignore | git sparse-checkout set --no-cone --stdin
 cp -r docker.example docker
 cd docker
 ./deploy.sh                 # Windows: .\deploy.ps1
 ```
+
+This downloads only what the server needs (about 500 KB): this folder, the
+`settings.example.yml` and `.env.example` templates, and `.gitignore`. The app
+itself is built from GitHub, so the rest of the code never has to be on disk.
+
+- **PowerShell:** give the paths directly instead of through `printf`:
+  `git sparse-checkout set --no-cone /docker.example/ /settings.example.yml /.env.example /.gitignore`
+  (PowerShell's pipe adds a hidden mark to the first line that breaks it, and
+  Git Bash turns paths given directly into Windows paths, hence the two forms).
+- **Already cloned the whole repo?** Run the `sparse-checkout` command in it to
+  trim it. `settings.yml`, `.env`, `docker/` and `android/` are kept.
+- **`git pull`** still updates the files you kept.
+- **`-l`** (build from this checkout) needs all the code: run
+  `git sparse-checkout disable` first.
 
 The first run creates `settings.yml` and `.env` from their templates and walks
 you through every setting: what each one is for, an example of what the value

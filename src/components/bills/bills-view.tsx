@@ -45,6 +45,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { StatCard } from '@/components/dashboard/stat-card';
 import { EmptyState } from '@/components/empty-state';
 import { PaymentDialog } from '@/components/bills/payment-dialog';
+import { balanceLeft } from '@/components/bills/payment-amounts';
 import { useHouseholdZone } from '@/components/household-zone';
 
 const KEY = ['bills'];
@@ -516,9 +517,20 @@ function BillRow({
         ) : null}
       </div>
 
-      <span className="text-right font-semibold tabular-nums">
-        {formatMoney(bill.amount, bill.currency)}
-      </span>
+      {/* Part paid: the headline figure is what's still owed; the full amount
+          stays in the "Paid ... of ..." line above. */}
+      {partial ? (
+        <span className="flex flex-col items-end leading-tight">
+          <span className="font-semibold tabular-nums">
+            {formatMoney(balanceLeft(bill), bill.currency)}
+          </span>
+          <span className="text-xs text-muted-foreground">left to pay</span>
+        </span>
+      ) : (
+        <span className="text-right font-semibold tabular-nums">
+          {formatMoney(bill.amount, bill.currency)}
+        </span>
+      )}
       <Badge variant={statusVariant}>{statusLabel}</Badge>
 
       {access.create || canDelete ? (

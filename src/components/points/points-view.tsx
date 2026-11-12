@@ -94,12 +94,18 @@ export function PointsView({
   });
 
   const voidForm = useFieldErrors('void');
+  // Closing starts the next one clean: the reason and its error belonged to
+  // the award that was open.
+  const closeVoid = () => {
+    setVoiding(null);
+    setReason('');
+    voidForm.clear();
+  };
   const voidMutation = useMutation({
     mutationFn: (vars: { awardId: string; reason: string }) =>
       apiFetch<PointAwardDTO>('/api/points/awards/void', { method: 'POST', body: JSON.stringify(vars) }),
     onSuccess: () => {
-      setVoiding(null);
-      setReason('');
+      closeVoid();
       toast.success('Points voided');
       void queryClient.invalidateQueries({ queryKey: ['points'] });
     },
@@ -262,11 +268,13 @@ export function PointsView({
 
       <Dialog
         open={!!voiding}
-        onClose={() => setVoiding(null)}
+        onClose={closeVoid}
+        // A stray tap outside must not throw away the reason being typed.
+        preventOutsideClose
         title="Void these points?"
         footer={
           <>
-            <Button variant="ghost" onClick={() => setVoiding(null)} disabled={voidMutation.isPending}>
+            <Button variant="ghost" onClick={closeVoid} disabled={voidMutation.isPending}>
               Cancel
             </Button>
             <Button

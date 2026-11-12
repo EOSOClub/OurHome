@@ -1,6 +1,9 @@
+'use client';
+
 import { Download, Smartphone } from 'lucide-react';
 import type { AppRelease } from '@/server/services/appDownloadService';
 import { APP_LOCALE } from '@/lib/format';
+import { useHouseholdZone } from '@/components/household-zone';
 import { buttonVariants } from '@/components/ui/button';
 import {
   Card,
@@ -14,10 +17,14 @@ import {
 // rendered when a build exists. A plain link: the browser downloads the APK
 // with the session cookie, and /api/app/download checks it.
 export function AndroidAppCard({ release }: { release: AppRelease }) {
+  // In the household's zone, so the server render and the browser agree on
+  // the day (an evening build read as the next day on the server).
+  const timeZone = useHouseholdZone();
   const built = new Date(release.builtAt).toLocaleDateString(APP_LOCALE, {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
+    timeZone,
   });
   const size = `${(release.sizeBytes / 1_048_576).toFixed(1)} MB`;
 

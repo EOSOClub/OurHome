@@ -133,7 +133,9 @@ export function TasksView({
   const searchParams = useSearchParams();
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<TaskDTO | null>(null);
-  const [completingId, setCompletingId] = useState<string | null>(null);
+  // Every completion still on its way. One id let an earlier card's button
+  // come back while its own request was still running.
+  const [completing, setCompleting] = useState<Set<string>>(() => new Set());
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<TaskDTO | null>(null);
   const [search, setSearch] = useState(searchParams.get('q') ?? '');
@@ -274,7 +276,7 @@ export function TasksView({
   // Deliberately not optimistic: completing a recurring task doesn't flip its
   // status - the server resets it to pending with a recurrence-computed next
   // due date (or finalizes it when the rule has ended), which the client can't
-  // predict. The `completingId` spinner covers the wait instead.
+  // predict. The `completing` spinner covers the wait instead.
   const completeMutation = useMutation({
     // checks: 1 says this app can send a task for a check (Task Photo Proof);
     // the server then answers 409 "now needs a check" instead of completing.
@@ -283,8 +285,13 @@ export function TasksView({
         method: 'POST',
         body: JSON.stringify({ taskId, checks: 1 }),
       }),
-    onMutate: (taskId) => setCompletingId(taskId),
-    onSettled: () => setCompletingId(null),
+    onMutate: (taskId) => setCompleting((ids) => new Set(ids).add(taskId)),
+    onSettled: (_task, _err, taskId) =>
+      setCompleting((ids) => {
+        const next = new Set(ids);
+        next.delete(taskId);
+        return next;
+      }),
     onSuccess: (task) => {
       invalidate();
       void queryClient.invalidateQueries({ queryKey: ['points'] });
@@ -564,7 +571,7 @@ export function TasksView({
           key={task.id}
           task={task}
           focused={task.id === focusId}
-          completing={completingId === task.id}
+          completing={completing.has(task.id)}
           deleting={deletingId === task.id}
           // The heading says where; a task in several places still lists them all.
           hidePlace={task.places.length <= 1}
@@ -886,7 +893,7 @@ export function TasksView({
                 key={task.id}
                 task={task}
                 focused={task.id === focusId}
-                completing={completingId === task.id}
+                completing={completing.has(task.id)}
                 deleting={deletingId === task.id}
                 {...cardHandlers}
               />

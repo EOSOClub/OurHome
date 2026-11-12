@@ -7,6 +7,7 @@ import {
   QueryClientProvider,
 } from '@tanstack/react-query';
 import { Toaster, toast } from '@/components/ui/toast';
+import { SessionKeepAlive } from '@/components/session-keep-alive';
 
 export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(
@@ -35,6 +36,7 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       {children}
+      <SessionKeepAlive />
       <Toaster />
     </QueryClientProvider>
   );

@@ -73,11 +73,27 @@ export async function syncBillEvent(
  * event named exactly like the bill, on its due day (household zone), linked
  * to nothing. They count as the bill being on the calendar.
  */
+type CopyRow = {
+  id: string;
+  title: string;
+  startAt: Date;
+  billId: string | null;
+  createdById: string | null;
+};
+
+/**
+ * Whether the caller may change an old copy, given who made it. An old copy
+ * is an ordinary event that only looks like the bill's, so it needs the same
+ * Calendar access as changing that event by hand. A copy the caller may not
+ * change is left alone, not refused: the bill still goes on or off.
+ */
+export type MayModifyCopy = (ownerId: string | null) => boolean;
+
 function oldCopiesOf(
   bill: { name: string; dueDate: Date | null },
-  events: { id: string; title: string; startAt: Date; billId: string | null }[],
+  events: CopyRow[],
   timeZone: string,
-) {
+): CopyRow[] {
   if (!bill.dueDate) return [];
   const day = dateKey(bill.dueDate, timeZone);
   return events.filter(
@@ -90,7 +106,7 @@ function candidateCopies(db: Db, householdId: string, names: string[]) {
   return db.event.findMany({
     // billId is checked in code: an unset field isn't `null` to MongoDB.
     where: { householdId, allDay: true, title: { in: names } },
-    select: { id: true, title: true, startAt: true, billId: true },
+    select: { id: true, title: true, startAt: true, billId: true, createdById: true },
   });
 }
 
@@ -125,11 +141,13 @@ async function findBill(tx: Tx, householdId: string, id: string) {
 /**
  * Put a bill on the calendar, on its due date. An old copy of it is taken
  * over (linked) rather than added a second time; already on it, nothing changes.
+ * `mayEdit` says which old copies the caller may take over (it retitles them).
  */
 export async function addBillToCalendar(
   householdId: string,
   userId: string,
   id: string,
+  mayEdit: MayModifyCopy = () => true,
 ): Promise<void> {
   const { timezone } = await getPointsSettings(householdId);
   await prisma.$transaction(async (tx) => {
@@ -139,7 +157,9 @@ export async function addBillToCalendar(
     }
     const linked = await tx.event.findFirst({ where: { householdId, billId: id }, select: { id: true } });
     if (linked) return;
-    const [copy] = oldCopiesOf(bill, await candidateCopies(tx, householdId, [bill.name]), timezone);
+    const [copy] = oldCopiesOf(bill, await candidateCopies(tx, householdId, [bill.name]), timezone).filter(
+      (c) => mayEdit(c.createdById ?? null),
+    );
     if (copy) await tx.event.update({ where: { id: copy.id }, data: { billId: id } });
     await syncBillEvent(tx, householdId, bill, 'manual');
     await logActivity(
@@ -156,16 +176,22 @@ export async function addBillToCalendar(
   });
 }
 
-/** Take a bill off the calendar: its linked entry, and any old copy of it. */
+/**
+ * Take a bill off the calendar: its linked entry, and any old copy of it that
+ * `mayDelete` allows (the linked entry has no maker and always goes).
+ */
 export async function removeBillFromCalendar(
   householdId: string,
   userId: string,
   id: string,
+  mayDelete: MayModifyCopy = () => true,
 ): Promise<void> {
   const { timezone } = await getPointsSettings(householdId);
   await prisma.$transaction(async (tx) => {
     const bill = await findBill(tx, householdId, id);
-    const copies = oldCopiesOf(bill, await candidateCopies(tx, householdId, [bill.name]), timezone);
+    const copies = oldCopiesOf(bill, await candidateCopies(tx, householdId, [bill.name]), timezone).filter(
+      (c) => mayDelete(c.createdById ?? null),
+    );
     await tx.event.deleteMany({
       where: {
         householdId,

@@ -77,6 +77,7 @@ import {
   computeNextRunAt,
   formatIntList,
   parseIntList,
+  repeatSame,
   type NormalizedRule,
 } from '@/server/services/recurrenceService';
 import {
@@ -1137,7 +1138,17 @@ export async function updateTask(
       if (rest.type === undefined) typeOverride = 'one_time';
     } else if (recurrence) {
       const dueDate = rest.dueDate ?? existing.dueDate;
-      const data = recurrenceData(recurrence, dueDate);
+      // The form sends the repeat with every save. Same repeat and same due
+      // date: the stored anchor stays (see repeatSame); a new due date or a
+      // new repeat starts counting from the due date, as before.
+      const dueUnchanged =
+        rest.dueDate === undefined ||
+        (rest.dueDate?.getTime() ?? null) === (existing.dueDate?.getTime() ?? null);
+      const keepAnchor = !!existing.recurrence && dueUnchanged && repeatSame(existing.recurrence, recurrence);
+      const data = {
+        ...recurrenceData(recurrence, dueDate),
+        ...(keepAnchor ? { anchorDate: existing.recurrence!.anchorDate } : {}),
+      };
       if (existing.recurrenceId) {
         rule = await tx.recurrenceRule.update({
           where: { id: existing.recurrenceId },

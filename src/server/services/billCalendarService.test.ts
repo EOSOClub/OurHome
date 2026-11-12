@@ -138,6 +138,26 @@ describe('putting a bill on the calendar', () => {
     await removeBillFromCalendar(HH, 'u1', bill.id);
     expect(db.event.map((e) => e.title).sort()).toEqual(['Bill due: Gas', 'Party']);
   });
+
+  it('leaves someone else’s same-named event alone when the caller may not change it', async () => {
+    const bill = seedBill();
+    const theirs = seedOldCopy();
+    theirs.createdById = 'u2';
+    const ownOnly = (ownerId: string | null) => ownerId === 'u1';
+
+    // Add: their event is not linked or retitled; the bill gets its own entry.
+    await addBillToCalendar(HH, 'u1', bill.id, ownOnly);
+    expect(db.event.find((e) => e.id === theirs.id)).toMatchObject({ billId: null, title: 'Electric' });
+    expect(db.event.filter((e) => e.billId === bill.id)).toHaveLength(1);
+
+    // Remove: the bill's own entry goes, theirs stays.
+    await removeBillFromCalendar(HH, 'u1', bill.id, ownOnly);
+    expect(db.event.map((e) => e.id)).toEqual([theirs.id]);
+
+    // With the access to delete others' events, it goes too.
+    await removeBillFromCalendar(HH, 'u1', bill.id, () => true);
+    expect(db.event).toHaveLength(0);
+  });
 });
 
 describe('bills made or changed with a calendar entry', () => {

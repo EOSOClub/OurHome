@@ -1,5 +1,37 @@
 import { describe, expect, it } from 'vitest';
-import { parsePreview } from './linkPreview';
+import { isPublicFetchTarget, parsePreview } from './linkPreview';
+
+// IP literals only, so nothing is looked up on the network.
+describe('isPublicFetchTarget', () => {
+  const ok = (u: string) => isPublicFetchTarget(new URL(u));
+
+  it('refuses private, loopback and metadata addresses', async () => {
+    for (const u of ['http://127.0.0.1/', 'http://10.0.0.5:8123/', 'http://192.168.1.10/', 'http://169.254.169.254/', 'http://[::1]/']) {
+      expect(await ok(u), u).toBe(false);
+    }
+  });
+
+  // The URL parser rewrites [::ffff:127.0.0.1] as [::ffff:7f00:1]; that hex
+  // form read as a public IPv6 address and reached the home network.
+  it('refuses the same addresses written as IPv4-mapped IPv6', async () => {
+    for (const u of [
+      'http://[::ffff:127.0.0.1]:8000/',
+      'http://[::ffff:10.0.0.5]/',
+      'http://[::ffff:a9fe:a9fe]/',
+      'http://[::ffff:c0a8:101]/',
+      'http://[::ffff:192.168.1.10]:8123/',
+      'http://[::7f00:1]/',
+    ]) {
+      expect(await ok(u), u).toBe(false);
+    }
+  });
+
+  it('still allows public addresses, mapped or not', async () => {
+    expect(await ok('http://8.8.8.8/')).toBe(true);
+    expect(await ok('http://[::ffff:8.8.8.8]/')).toBe(true);
+    expect(await ok('http://[2606:4700:4700::1111]/')).toBe(true);
+  });
+});
 
 // Trimmed from a real Amazon product page (October 2026): no og: tags, the
 // picture on #landingImage and the price in the "price to pay" block.

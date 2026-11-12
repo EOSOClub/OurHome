@@ -68,4 +68,31 @@ describe('PaperlessClient paging', () => {
     const client = new PaperlessClient({ url: 'http://paperless:8000', token: 't', publicUrl: null });
     await expect(client.listAll('/api/documents/')).rejects.toBeInstanceOf(PaperlessError);
   });
+
+  it('stops when a server never stops sending next (it held up every household’s sweep)', async () => {
+    // Always "one more page", never a result: the count is never reached.
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => page(1_000_000, [], 'http://paperless:8000/api/tags/?page=2'));
+    const client = new PaperlessClient({ url: 'http://paperless:8000', token: 't', publicUrl: null });
+    await expect(client.listAll('/api/tags/')).rejects.toBeInstanceOf(PaperlessError);
+    expect(fetchSpy.mock.calls.length).toBeLessThanOrEqual(500);
+  });
+
+  it('does not follow next once everything it counted has arrived', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => page(2, [1, 2], 'http://paperless:8000/api/tags/?page=2'));
+    const client = new PaperlessClient({ url: 'http://paperless:8000', token: 't', publicUrl: null });
+    await expect(client.listAll<number>('/api/tags/')).resolves.toEqual([1, 2]);
+    expect(fetchSpy).toHaveBeenCalledOnce();
+  });
+
+  it('refuses an answer bigger than it reads', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('{}', { status: 200, headers: { 'content-length': String(21 * 1024 * 1024) } }),
+    );
+    const client = new PaperlessClient({ url: 'http://paperless:8000', token: 't', publicUrl: null });
+    await expect(client.get('/api/tags/')).rejects.toBeInstanceOf(PaperlessError);
+  });
 });

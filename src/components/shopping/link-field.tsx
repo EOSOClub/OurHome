@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Loader2, Sparkles } from 'lucide-react';
 import type { LinkPreviewDTO } from '@/lib/types';
 import { apiFetch, ApiError, fieldErrors } from '@/lib/api';
@@ -41,6 +41,11 @@ export function LinkField({
   // "Fetch details" refused the link itself (not a link it simply couldn't read).
   const [fetchError, setFetchError] = useState<string | null>(null);
   const shownError = error ?? fetchError;
+  // The link as it is now, for a reply that lands after it was changed.
+  const urlRef = useRef(url);
+  useEffect(() => {
+    urlRef.current = url;
+  }, [url]);
 
   async function fetchPreview() {
     const trimmed = url.trim();
@@ -53,11 +58,15 @@ export function LinkField({
         previewPath,
         { method: 'POST', body: JSON.stringify({ url: trimmed }) },
       );
+      // The link was changed while this was on its way: the details belong to
+      // the old one (its picture got attached to the new link).
+      if (urlRef.current.trim() !== trimmed) return;
       onPreview(preview);
       if (!preview.title && !preview.imageUrl && preview.price == null) {
         setNote("Couldn't read that link - fill the details in manually.");
       }
     } catch (err) {
+      if (urlRef.current.trim() !== trimmed) return;
       const message = err instanceof ApiError ? err.message : 'Failed to fetch link details.';
       // A link the server calls invalid is marked; a page it couldn't reach is just a note.
       if (fieldErrors(err).url) setFetchError(fieldErrors(err).url);

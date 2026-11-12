@@ -21,7 +21,7 @@ import {
 import {
   PHONE_RULE_COLUMNS,
   PHONE_RULE_LABELS,
-  freshestPhone,
+  alwaysAllowedByAll,
   phoneRules,
   setupProgress,
   setupRequired,
@@ -754,13 +754,17 @@ export async function setAppBlocked(
   return lookAfterOverview(householdId, actor.id);
 }
 
-/** Whether [kidId]'s freshest phone always keeps [app] open (its phone, messages, home screen, OurHome). */
+/**
+ * Whether [kidId]'s phones always keep [app] open (its phone, messages, home
+ * screen, OurHome): every device of theirs that sent a list says so
+ * (alwaysAllowedByAll), not just whichever checked in last.
+ */
 async function keptOpen(householdId: string, kidId: string, app: string): Promise<boolean> {
   const phones = await prisma.phoneStatus.findMany({
     where: { householdId, userId: kidId },
-    select: { lastSeenAt: true, alwaysAllowed: true },
+    select: { alwaysAllowed: true },
   });
-  return freshestPhone(phones)?.alwaysAllowed.includes(app) ?? false;
+  return alwaysAllowedByAll(phones).includes(app);
 }
 
 /**
@@ -808,7 +812,10 @@ export async function setAppLimit(
           `${kid.name}’s phone always keeps this app open: phone calls, messages, the home screen and OurHome have no limit.`,
         );
       }
-      const named = await usageLabel(kid.id, input.app);
+      // The name comes from their usage. Undo sends the one the page had,
+      // for an app that has left the usage since the limit was removed
+      // (always, once sharing usage is off): without it Undo failed.
+      const named = (await usageLabel(kid.id, input.app)) ?? input.label;
       if (!named) throw new NotFoundError(`That app isn’t in ${kid.name}’s app usage.`);
       label = named;
     }
@@ -870,6 +877,9 @@ export async function saveSchedule(
   }
   const named = new Map(((await usageApps(householdId, [kid.id])).get(kid.id) ?? []).map((a) => [a.app, a.label]));
   for (const a of existing ? allowedApps(existing.allowed) : []) if (!named.has(a.app)) named.set(a.app, a.label);
+  // Undo of a removed schedule sends the names it had, for apps that have
+  // left the usage since. The usage's own name wins when there is one.
+  for (const a of input.labels ?? []) if (!named.has(a.app)) named.set(a.app, a.label);
   const apps = [...new Set(input.allowed)];
   if (apps.some((a) => !named.has(a))) throw new NotFoundError(`That app isn’t in ${kid.name}’s app usage.`);
   const data = {

@@ -20,10 +20,28 @@ export function formatMoney(
   amount: number,
   currency?: string | null,
 ): string {
-  return new Intl.NumberFormat(APP_LOCALE, {
-    style: 'currency',
-    currency: currency || 'USD',
-  }).format(amount);
+  const format = (code: string) =>
+    new Intl.NumberFormat(APP_LOCALE, { style: 'currency', currency: code }).format(amount);
+  try {
+    return format(currency || 'USD');
+  } catch {
+    // A stored currency that isn't a 3-letter code ("US$") throws a
+    // RangeError, which took the whole page down. Show the amount anyway.
+    return format('USD');
+  }
+}
+
+/**
+ * The currency for a total over several amounts: the one they all share
+ * (none set counts as USD), or undefined when they differ. A household whose
+ * bills are all in euros gets its totals in euros; mixed currencies keep the
+ * dollar total they always had.
+ */
+export function sharedCurrency(
+  currencies: (string | null | undefined)[],
+): string | undefined {
+  const codes = new Set(currencies.map((c) => (c || 'USD').toUpperCase()));
+  return codes.size === 1 ? [...codes][0] : undefined;
 }
 
 /** Absolute calendar date label, e.g. "Jul 2, 2026". */
@@ -67,6 +85,33 @@ export function dateKey(date: Date | string, timeZone?: string): string {
   return new Date(zoned(new Date(date), timeZone).day).toISOString().slice(0, 10);
 }
 
+/**
+ * Every day ("YYYY-MM-DD", in `timeZone`) something from `start` to `end`
+ * is on: one day without an end, else each day through the end's. A timed
+ * end exactly at midnight belongs to the day before (a party ending at 12:00
+ * AM isn't on the next day). Capped at a year.
+ */
+export function coveredDayKeys(
+  start: Date | string,
+  end: Date | string | null | undefined,
+  allDay: boolean,
+  timeZone?: string,
+): string[] {
+  const first = dateKey(start, timeZone);
+  if (!end) return [first];
+  const endAt = new Date(end);
+  const atMidnight = !allDay && timeKey(endAt, timeZone) === '00:00' && endAt > new Date(start);
+  const last = dateKey(atMidnight ? new Date(endAt.getTime() - 1) : endAt, timeZone);
+  const keys = [first];
+  // Day keys are plain calendar dates, so they are stepped in UTC.
+  const day = new Date(`${first}T00:00:00.000Z`);
+  while (keys[keys.length - 1] < last && keys.length < 366) {
+    day.setUTCDate(day.getUTCDate() + 1);
+    keys.push(day.toISOString().slice(0, 10));
+  }
+  return keys;
+}
+
 /** "HH:MM" (24-hour) of `date` in `timeZone`, for a time input. */
 export function timeKey(date: Date | string, timeZone?: string): string {
   const t = zoned(new Date(date), timeZone);
@@ -83,6 +128,36 @@ export function zonedInstant(date: string, time: string, timeZone?: string): Dat
   const m = /^(\d{2}):(\d{2})$/.exec(time);
   if (!timeZone || !local || !m) return new Date(`${date}T${time}`);
   return localTimeAt(local, Number(m[1]), Number(m[2]), timeZone);
+}
+
+/**
+ * The last millisecond of a date input's day ("YYYY-MM-DD") in `timeZone`.
+ * A repeat's "Ends on" date is sent as this, so the repeat on that day still
+ * happens whatever its time (12:00 dropped every repeat after noon).
+ * `dateKey` of the result reads back the same date.
+ */
+export function endOfDayInstant(date: string, timeZone?: string): Date {
+  const local = parseLocalDate(date);
+  if (!local) return new Date(`${date}T23:59:59.999`);
+  const next = new Date(Date.UTC(local.year, local.month - 1, local.day + 1)).toISOString().slice(0, 10);
+  return new Date(zonedInstant(next, '00:00', timeZone).getTime() - 1);
+}
+
+/**
+ * What an event or task form sends for its repeat's "Ends on" date: the end
+ * of that day, or the stored value untouched when the date wasn't changed.
+ * Untouched matters: "This and following" ends the earlier part of a series
+ * just before the split, and re-saving that as the whole day brought back the
+ * date the later part starts with.
+ */
+export function repeatUntil(
+  date: string,
+  original: Date | string | null | undefined,
+  timeZone?: string,
+): string | null {
+  if (!date) return null;
+  if (original && dateKey(original, timeZone) === date) return new Date(original).toISOString();
+  return endOfDayInstant(date, timeZone).toISOString();
 }
 
 /** Human-friendly due-date label, worded from today's point of view. */
@@ -147,15 +222,22 @@ export function isOverdue(
   return zoned(due, timeZone).day < zoned(now, timeZone).day;
 }
 
-/** True when `date` is now-or-future and within `days` days from now. */
+/**
+ * True when `date` falls on today or one of the next `days` days, as days in
+ * `timeZone` (the household's). Whole days, not exact times: a bill is stored
+ * at 12:00 on its due date, so comparing instants dropped a bill due today
+ * from "Due this week" from noon on, while it still showed as "Due today".
+ */
 export function isDueWithinDays(
   date: Date | string | null | undefined,
   days: number,
+  timeZone?: string,
+  now: Date = new Date(),
 ): boolean {
   if (!date) return false;
-  const t = new Date(date).getTime();
-  const now = Date.now();
-  return t >= now && t <= now + days * DAY_MS;
+  const day = zoned(new Date(date), timeZone).day;
+  const today = zoned(now, timeZone).day;
+  return day >= today && day <= today + days * DAY_MS;
 }
 
 /** Compact "time ago" label for the activity feed. */

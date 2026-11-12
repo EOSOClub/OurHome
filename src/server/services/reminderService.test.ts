@@ -85,6 +85,16 @@ describe('buildEventReminders', () => {
     expect(buildEventReminders([allDay], iso('2026-06-25T13:00:00.000Z'), tz)[0].body).toBe('Today, all day.');
   });
 
+  it('keeps an all-day reminder at 9:00 across a daylight saving change', () => {
+    // All day Thu Nov 5 (midnight CST), a week before. Clocks go back on
+    // Nov 1, so Oct 29 is still on daylight time: 9:00 there is 14:00Z, not
+    // the 15:00Z that 7 x 24 hours back from 9:00 CST gives (10:00 local).
+    const allDay = event({ allDay: true, start: iso('2026-11-05T06:00:00.000Z'), end: null, reminderMinutes: 10080 });
+    expect(eventReminderWindow(allDay, tz)?.fireAt).toEqual(iso('2026-10-29T14:00:00.000Z'));
+    // "On the day" is unchanged.
+    expect(eventReminderWindow({ ...allDay, reminderMinutes: 0 }, tz)?.fireAt).toEqual(iso('2026-11-05T15:00:00.000Z'));
+  });
+
   it('gives each date of a repeating event its own reminder, with the place', () => {
     const a = event({ location: 'Main St' });
     const b = event({ start: iso('2026-06-24T20:30:00.000Z'), end: null });
@@ -94,6 +104,26 @@ describe('buildEventReminders', () => {
       'event_reminder:event:ev1:2026-06-24T20:30:00.000Z',
     ]);
     expect(out[0].body).toMatch(/\(Main St\)\.$/);
+  });
+
+  it('a date changed on its own keeps the key it had in the series, so it is not sent again', () => {
+    // 3:20 PM: inside the reminder window of both the old time and the new.
+    const at = iso('2026-06-24T20:20:00.000Z');
+    // The 3:00 PM date as the series lists it.
+    const [inSeries] = buildEventReminders([event()], at, tz);
+    // "This event": a new row for that date, moved to 3:30 PM.
+    const own = event({
+      eventId: 'ev2',
+      start: iso('2026-06-24T20:30:00.000Z'),
+      end: null,
+      seriesId: 'ev1',
+      originalStart: iso('2026-06-24T20:00:00.000Z'),
+    });
+    const [changed] = buildEventReminders([own], at, tz);
+    expect(changed.dedupeKey).toBe(inSeries.dedupeKey);
+    // It opens the changed date, and reads its new time.
+    expect(changed.subjectId).toBe('ev2');
+    expect(changed.body).toMatch(/^Today at 3:30\s?PM\.$/);
   });
 
   it('emails it as "Coming up" with a calendar link', () => {

@@ -13,6 +13,7 @@ import {
 import { paperlessNames } from '@/server/paperless/names';
 import { ingestFinancialDoc } from '@/server/billIngest/ingest';
 import { getPointsSettings } from '@/server/services/pointsService';
+import { syncFailureMessage } from '@/server/api/syncError';
 import { DEFAULT_TIMEZONE } from '@/lib/taskCycles';
 import type { PaperlessStatusDTO, PaperlessSyncResultDTO } from '@/lib/types';
 
@@ -259,10 +260,14 @@ function runFor(householdId: string): Promise<PaperlessSyncResult | null> {
   return run;
 }
 
+/** What the Settings card says after a failure that isn't for its reader (the log has it). */
+const STORED_FAILURE = 'Paperless import failed. The server log has the details.';
+
 async function syncOnce(householdId: string): Promise<PaperlessSyncResult | null> {
   const connection = await connectionFor(householdId).catch(async (err: unknown) => {
-    // A connection that can't be used (unreadable token) is shown on the card.
-    const message = err instanceof Error ? err.message : String(err);
+    // A connection that can't be used (unreadable token) is shown on the card,
+    // in plain words: never a raw database error (syncFailureMessage).
+    const message = syncFailureMessage(err, STORED_FAILURE, 'paperless');
     await prisma.paperlessSync.updateMany({ where: { householdId }, data: { lastRunAt: new Date(), lastError: message } });
     throw err;
   });
@@ -322,7 +327,7 @@ async function syncOnce(householdId: string): Promise<PaperlessSyncResult | null
     console.log(`[paperless] household ${householdId}: checked ${result.checked} document(s): ${counts}`);
     return result;
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = syncFailureMessage(err, STORED_FAILURE, 'paperless');
     await prisma.paperlessSync.update({
       where: { householdId },
       data: { cursor, lastRunAt: now, lastResult: JSON.stringify(result), lastError: message },

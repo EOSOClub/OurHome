@@ -62,6 +62,24 @@ export function parseIntList(value: string | null | undefined): number[] | undef
 }
 
 /** Serialize a number array back into the delimited storage form. */
+/**
+ * True when a form's repeat is the one already stored (the end date aside).
+ * A task or bill then keeps its stored anchor on a save that also leaves the
+ * due date alone. Re-anchoring on every save put "monthly on the 31st" on the
+ * 28th for good once it was edited while sitting on a short month's date.
+ */
+export function repeatSame(
+  stored: { kind: string; interval: number; byWeekday?: string | null; byMonthday?: string | null },
+  input: { kind: string; interval: number; byWeekday?: number[] | null; byMonthday?: number[] | null },
+): boolean {
+  return (
+    stored.kind === input.kind &&
+    stored.interval === input.interval &&
+    (stored.byWeekday ?? null) === formatIntList(input.byWeekday) &&
+    (stored.byMonthday ?? null) === formatIntList(input.byMonthday)
+  );
+}
+
 export function formatIntList(values: number[] | undefined | null): string | null {
   if (!values || values.length === 0) return null;
   return Array.from(new Set(values))

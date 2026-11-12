@@ -195,6 +195,19 @@ describe('planRestore', () => {
     expect(plan.usernames).toEqual(['pat', 'sam']);
   });
 
+  it('drops server-level switches a hand-edited file puts on the household', () => {
+    const file = sampleExport();
+    Object.assign(file.household, { allowHttp: false, accessReviewedAt: '2026-01-01T00:00:00.000Z', disabledFeatures: ['bills'] });
+    const all = (model: string) =>
+      model === 'Household' ? new Set([...FIELDS.Household, 'allowHttp', 'accessReviewedAt', 'disabledFeatures']) : fields(model);
+    const hh = planRestore(file, { newId: newIds(), fields: all }).rows.Household[0];
+    // `allowHttp: false` would have turned the whole server HTTPS only.
+    expect(hh).not.toHaveProperty('allowHttp');
+    expect(hh).not.toHaveProperty('accessReviewedAt');
+    expect(hh).not.toHaveProperty('disabledFeatures');
+    expect(hh.name).toBe('The Smiths');
+  });
+
   it('notes what has to be reconnected or reset', () => {
     expect(plan.notes.join(' ')).toMatch(/Home Assistant/);
     expect(plan.notes.join(' ')).toMatch(/Paperless/);

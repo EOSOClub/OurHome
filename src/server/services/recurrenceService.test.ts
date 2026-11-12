@@ -7,6 +7,7 @@ import {
   completeOccurrence,
   toWall,
   parseIntList,
+  repeatSame,
   type NormalizedRule,
 } from '@/server/services/recurrenceService';
 
@@ -20,6 +21,30 @@ function rule(partial: Partial<NormalizedRule>): NormalizedRule {
     ...partial,
   };
 }
+
+describe('repeatSame (a save that keeps the stored anchor)', () => {
+  const stored = { kind: 'monthly', interval: 1, byWeekday: null, byMonthday: null };
+
+  it('is true for the same repeat, whatever the end date', () => {
+    expect(repeatSame(stored, { kind: 'monthly', interval: 1 })).toBe(true);
+    expect(repeatSame({ ...stored, byMonthday: '1,15' }, { kind: 'monthly', interval: 1, byMonthday: [15, 1] })).toBe(true);
+  });
+
+  it('is false for another kind, interval or set of days', () => {
+    expect(repeatSame(stored, { kind: 'weekly', interval: 1 })).toBe(false);
+    expect(repeatSame(stored, { kind: 'monthly', interval: 2 })).toBe(false);
+    expect(repeatSame(stored, { kind: 'monthly', interval: 1, byMonthday: [5] })).toBe(false);
+  });
+
+  // Why it matters: "monthly", first due Jan 31, sitting on Feb 28.
+  it('the kept anchor goes back to the 31st; a re-anchored one stays on the 28th', () => {
+    const feb28 = iso('2026-02-28T12:00:00.000Z');
+    const kept = rule({ kind: 'monthly', anchorDate: iso('2026-01-31T12:00:00.000Z') });
+    expect(nextAfterOccurrence(kept, feb28)?.toISOString()).toBe('2026-03-31T12:00:00.000Z');
+    const reAnchored = rule({ kind: 'monthly', anchorDate: feb28 });
+    expect(nextAfterOccurrence(reAnchored, feb28)?.toISOString()).toBe('2026-03-28T12:00:00.000Z');
+  });
+});
 
 describe('parseIntList / formatIntList', () => {
   it('parses delimited strings into sorted unique numbers', () => {

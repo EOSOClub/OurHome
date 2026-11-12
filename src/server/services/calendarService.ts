@@ -7,6 +7,8 @@ import { addDays, localDateOf, startOfLocalDate } from '@/lib/taskCycles';
 import {
   computeNextRunAt,
   formatIntList,
+  fromWall,
+  toWall,
   parseIntList,
   type NormalizedRule,
 } from '@/server/services/recurrenceService';
@@ -431,6 +433,8 @@ async function updateRow(
   changes: EventChanges,
   attendees: string[] | undefined,
   recurrence: UpdateEventInput['recurrence'],
+  /** The household's zone, for a series edit: its removed dates move with it. */
+  timeZone?: string,
 ): Promise<EventWithRelations> {
   const id = existing.id;
   let recurrenceId: string | null | undefined; // undefined = unchanged
@@ -468,11 +472,26 @@ async function updateRow(
     (startMoved ||
       recurrence === null ||
       (!!recurrence && repeatChanged(existing.recurrence, recurrence)));
+  // Dates removed one at a time ("This event", delete) have no row, only an
+  // entry in excludedStarts. When only the time moved they are still removed:
+  // they move with the series. Clearing them brought every one of them back.
+  let movedExcluded: Date[] = [];
+  const repeatKept = recurrence === undefined || (!!recurrence && !repeatChanged(existing.recurrence!, recurrence));
+  if (dropExceptions && startMoved && repeatKept && timeZone) {
+    const rows = await tx.event.findMany({
+      where: { householdId, seriesId: id },
+      select: { originalStart: true },
+    });
+    const changed = new Set(rows.map((r) => r.originalStart?.getTime()));
+    movedExcluded = existing.excludedStarts
+      .filter((d) => !changed.has(d.getTime()))
+      .map((d) => shiftedLike(d, existing.startAt, changes.startAt!, timeZone));
+  }
   if (dropExceptions) {
     await tx.event.deleteMany({ where: { householdId, seriesId: id } });
   }
 
-  const updated = await tx.event.update({
+  let updated = await tx.event.update({
     where: { id },
     data: {
       title: changes.title?.trim(),
@@ -489,10 +508,57 @@ async function updateRow(
     include: eventInclude,
   });
 
+  if (movedExcluded.length) {
+    const rule = buildRule(updated.recurrence, timeZone);
+    const still = rule ? movedExcluded.filter((d) => isOccurrence(rule, [], d)) : [];
+    if (still.length) {
+      updated = await tx.event.update({
+        where: { id },
+        data: { excludedStarts: { set: still } },
+        include: eventInclude,
+      });
+    }
+  }
+
   if (recurrence === null && existing.recurrenceId) {
     await tx.recurrenceRule.delete({ where: { id: existing.recurrenceId } });
   }
   return updated;
+}
+
+/**
+ * Where a series split at `from` ("This and following") ends: the last moment
+ * of the day before, in the household's zone. A repeat has one date a day at
+ * most, so nothing before `from` is cut. It used to be `from` less a
+ * millisecond, which the dialog read back as ending ON the split day; saving
+ * that as a date brought the split day's date back into the earlier part.
+ */
+function endOfDayBefore(from: Date, timeZone: string): Date {
+  return new Date(startOfLocalDate(localDateOf(from, timeZone), timeZone).getTime() - 1);
+}
+
+/** `d` moved by as much clock time, in the household's zone, as `from` moved to `to`. */
+function shiftedLike(d: Date, from: Date, to: Date, timeZone: string): Date {
+  const delta = toWall(to, timeZone).getTime() - toWall(from, timeZone).getTime();
+  return fromWall(new Date(toWall(d, timeZone).getTime() + delta), timeZone);
+}
+
+/**
+ * A date moved to another day must still be one of the repeat's days. A
+ * "weekly on Tuesdays" date moved to a Wednesday with Tuesday still picked
+ * was not: "This and following" lost that week's date, and "All events" saved
+ * without moving anything. Refused, so the day can be picked under Repeat.
+ */
+function assertMovedDayRepeats(rule: NormalizedRule | null, movedTo: Date, timeZone: string) {
+  if (!rule) return;
+  const day = localDateOf(movedTo, timeZone);
+  const next = computeNextRunAt(rule, new Date(startOfLocalDate(day, timeZone).getTime() - 1));
+  if (!next || next >= startOfLocalDate(addDays(day, 1), timeZone)) {
+    throw new ConflictError(
+      'This event repeats on set days. Pick the new day under Repeat as well, so the moved date stays on the calendar.',
+      'recurrence',
+    );
+  }
 }
 
 /**
@@ -594,9 +660,19 @@ export async function updateEvent(
     }
 
     const rule = buildRule(series.recurrence, timezone);
+    // Where the opened date lands once the whole series has moved with it.
+    const assertOpenedDateRepeats = (row: EventWithRelations) => {
+      if (!date || !opened || !changes.startAt || changes.startAt.getTime() === opened.getTime()) return;
+      assertMovedDayRepeats(
+        buildRule(row.recurrence, timezone),
+        shiftedLike(date, opened, changes.startAt, timezone),
+        timezone,
+      );
+    };
     if (!rule || scope === 'all' || !date) {
       const effective = rule && opened ? shiftSeries(series, opened, changes) : changes;
-      const row = await updateRow(tx, householdId, series, effective, attendees, recurrence);
+      const row = await updateRow(tx, householdId, series, effective, attendees, recurrence, timezone);
+      if (rule) assertOpenedDateRepeats(row);
       await editOpenedDate(tx);
       return { event: row, message: `updated event “${row.title}”` };
     }
@@ -604,7 +680,8 @@ export async function updateEvent(
     const first = firstOccurrence(series, rule);
     if (scope === 'following' && first && date <= first) {
       // From the first date on is the whole series.
-      const row = await updateRow(tx, householdId, series, shiftSeries(series, opened!, changes), attendees, recurrence);
+      const row = await updateRow(tx, householdId, series, shiftSeries(series, opened!, changes), attendees, recurrence, timezone);
+      assertOpenedDateRepeats(row);
       await editOpenedDate(tx);
       return { event: row, message: `updated event “${row.title}”` };
     }
@@ -641,7 +718,7 @@ export async function updateEvent(
       recurrence === undefined ? ruleFieldsOf(series.recurrence!) : recurrence;
     await tx.recurrenceRule.update({
       where: { id: series.recurrenceId! },
-      data: { until: new Date(from.getTime() - 1) },
+      data: { until: endOfDayBefore(from, timezone) },
     });
     const newRule = repeat
       ? await tx.recurrenceRule.create({ data: recurrenceData(repeat, shiftedStart) })
@@ -666,6 +743,7 @@ export async function updateEvent(
       select: { id: true, originalStart: true },
     });
     const newNormalized = buildRule(newRule, timezone);
+    if (shiftedStart.getTime() !== from.getTime()) assertMovedDayRepeats(newNormalized, shiftedStart, timezone);
     const keep =
       !!newNormalized &&
       shiftedStart.getTime() === from.getTime() &&
@@ -690,7 +768,18 @@ export async function updateEvent(
       where: { id: series.id },
       data: { excludedStarts: { set: series.excludedStarts.filter((d) => d < from) } },
     });
-    const keptExcluded = later.filter(fits);
+    // Dates removed one at a time have no row. Kept as they are when the
+    // later part keeps its time; when only the time moved (same repeat) they
+    // move with it, so a removed date doesn't come back.
+    const repeatSame = !!newNormalized && !repeatChanged(series.recurrence!, repeat!);
+    const rowless = later.filter((d) => !laterOverrides.some((o) => o.originalStart!.getTime() === d.getTime()));
+    const keptExcluded = keep
+      ? later.filter(fits)
+      : repeatSame
+        ? rowless
+            .map((d) => shiftedLike(d, from, shiftedStart, timezone))
+            .filter((d) => isOccurrence(newNormalized!, [], d))
+        : [];
     // The opened date, if kept, gets the dialog's changes (its own time stays).
     await editOpenedDate(tx);
     const result = keptExcluded.length
@@ -771,7 +860,7 @@ export async function deleteEvent(
     // "This and following": the series ends just before the date.
     await tx.recurrenceRule.update({
       where: { id: series.recurrenceId! },
-      data: { until: new Date(date!.getTime() - 1) },
+      data: { until: endOfDayBefore(date!, timezone) },
     });
     await tx.event.deleteMany({
       where: { householdId, seriesId: series.id, originalStart: { gte: date } },

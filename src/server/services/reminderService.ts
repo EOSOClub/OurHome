@@ -258,6 +258,25 @@ export interface EventReminderLike {
   reminderMinutes: number | null;
   attendeeIds: string[];
   createdById: string | null;
+  /**
+   * Set on a date of a series changed on its own ("This event"): the series
+   * it belongs to and the date it replaces. Its reminder keeps the key that
+   * date had in the series, so the edit doesn't send the reminder again.
+   */
+  seriesId?: string | null;
+  originalStart?: Date | null;
+}
+
+/**
+ * The key of one date's reminder. A date changed on its own is a new row with
+ * a new id; keyed on that, an edit made after the reminder went out counted
+ * as a new reminder and alerted everyone a second time.
+ */
+export function eventReminderKey(o: EventReminderLike): string {
+  const own = !!o.seriesId && !!o.originalStart;
+  const id = own ? o.seriesId : o.eventId;
+  const start = own ? o.originalStart! : o.start;
+  return `event_reminder:event:${id}:${start.toISOString()}`;
 }
 
 /** All-day events remind counting back from this local time on their day. */
@@ -285,8 +304,13 @@ export function eventReminderWindow(
   }
   const day = localDateOf(o.start, timeZone);
   const lastDay = localDateOf(o.end ?? o.start, timeZone);
+  // Whole days are counted back on the calendar, then 9:00 on that day:
+  // subtracting 24-hour blocks came out at 8:00 or 10:00 across a daylight
+  // saving change.
+  const days = Math.floor(o.reminderMinutes / 1440);
+  const rest = (o.reminderMinutes % 1440) * 60_000;
   return {
-    fireAt: new Date(localTimeAt(day, ALL_DAY_REMINDER_HOUR, 0, timeZone).getTime() - before),
+    fireAt: new Date(localTimeAt(addDays(day, -days), ALL_DAY_REMINDER_HOUR, 0, timeZone).getTime() - rest),
     until: startOfLocalDate(addDays(lastDay, 1), timeZone),
   };
 }
@@ -322,7 +346,7 @@ export function buildEventReminders(
     if (!window || now < window.fireAt || now >= window.until) continue;
     const where = o.location ? ` (${o.location})` : '';
     out.push({
-      dedupeKey: `event_reminder:event:${o.eventId}:${o.start.toISOString()}`,
+      dedupeKey: eventReminderKey(o),
       type: 'event_reminder',
       title: o.title,
       body: `${eventWhen(o, now, timeZone)}${where}.`,
@@ -595,6 +619,8 @@ async function reconcileReminders(
       reminderMinutes: o.reminderMinutes,
       attendeeIds: o.attendees.map((a) => a.id),
       createdById: o.createdById,
+      seriesId: o.seriesId,
+      originalStart: o.originalStart ? new Date(o.originalStart) : null,
     }));
   const candidates = [
     ...withManagers([
@@ -701,8 +727,15 @@ async function writeReminders(householdId: string, candidates: ReminderCandidate
         // Refresh the human-readable fields if state changed; leave the read
         // state (readByUserIds) alone so a notification someone dismissed
         // doesn't come back for them while it persists. The audience follows
-        // reassignment and grid changes.
-        update: { title: c.title, body: c.body, type: c.type, audienceUserIds: c.audienceUserIds },
+        // reassignment and grid changes. The subject follows too: a date of
+        // a series changed on its own keeps its key but is a new event row.
+        update: {
+          title: c.title,
+          body: c.body,
+          type: c.type,
+          subjectId: c.subjectId,
+          audienceUserIds: c.audienceUserIds,
+        },
         create: {
           householdId,
           type: c.type,

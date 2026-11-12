@@ -14,10 +14,12 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { toast } from '@/components/ui/toast';
 import { LIVE_CHECKS_KEY } from '@/components/profile/location-card';
+import { useHouseholdZone } from '@/components/household-zone';
 import { everyLabel, minutesLabel } from '@/components/settings/live-check-card';
 
-function clock(iso: string): string {
-  return new Date(iso).toLocaleTimeString(APP_LOCALE, { hour: 'numeric', minute: '2-digit' });
+/** A clock time in the household's zone, like every other time the pages show. */
+function clock(iso: string, timeZone?: string): string {
+  return new Date(iso).toLocaleTimeString(APP_LOCALE, { hour: 'numeric', minute: '2-digit', timeZone });
 }
 
 function statusText(check: LiveCheckDTO): string {
@@ -41,6 +43,7 @@ export function LiveChecksCard({
   onFocus: (check: LiveCheckDTO) => void;
 }) {
   const queryClient = useQueryClient();
+  const timeZone = useHouseholdZone();
   const [starting, setStarting] = useState<{ id: string; name: string } | null>(null);
   const [minutes, setMinutes] = useState(overview.choices.defaultMinutes);
   const [intervalSec, setIntervalSec] = useState(overview.choices.defaultIntervalSec);
@@ -53,7 +56,7 @@ export function LiveChecksCard({
       }),
     onSuccess: (check) => {
       setStarting(null);
-      toast.success(`Checking on ${check.targetName} until ${clock(check.endsAt)}`);
+      toast.success(`Checking on ${check.targetName} until ${clock(check.endsAt, timeZone)}`);
       void queryClient.invalidateQueries({ queryKey: LIVE_CHECKS_KEY });
     },
   });
@@ -90,7 +93,7 @@ export function LiveChecksCard({
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              Until {clock(check.endsAt)} · {statusText(check)}
+              Until {clock(check.endsAt, timeZone)} ·{statusText(check)}
             </p>
           </div>
         ))}

@@ -78,6 +78,9 @@ export function ToCheck({ items }: { items: TaskSubmissionDTO[] }) {
     onSettled: refresh,
   });
 
+  // Every approval still on its way. One "latest" id let an earlier row's
+  // button come back while its own request was still running.
+  const [approving, setApproving] = useState<Set<string>>(() => new Set());
   const approve = useMutation({
     mutationFn: (item: TaskSubmissionDTO) =>
       apiFetch<Decided>('/api/tasks/submissions/decide', {
@@ -91,9 +94,17 @@ export function ToCheck({ items }: { items: TaskSubmissionDTO[] }) {
         completionId ? { label: 'Undo', onClick: () => undo.mutate(completionId) } : undefined,
       );
     },
+    onMutate: (item) => setApproving((ids) => new Set(ids).add(item.id)),
     // A local onError keeps the global toast away; say it here, plainly.
     onError: (err) => toast.error(err instanceof Error ? err.message : 'Something went wrong.'),
-    onSettled: refresh,
+    onSettled: (_result, _err, item) => {
+      setApproving((ids) => {
+        const next = new Set(ids);
+        next.delete(item.id);
+        return next;
+      });
+      refresh();
+    },
   });
 
   if (items.length === 0) return null;
@@ -108,7 +119,7 @@ export function ToCheck({ items }: { items: TaskSubmissionDTO[] }) {
             <ToCheckRow
               key={item.id}
               item={item}
-              busy={approve.isPending && approve.variables?.id === item.id}
+              busy={approving.has(item.id)}
               onApprove={() => approve.mutate(item)}
               onSendBack={() => setSendBack(item)}
             />
@@ -319,6 +330,8 @@ function SendBackDialog({
     <Dialog
       open
       onClose={onClose}
+      // A stray tap outside must not throw away the note being typed.
+      preventOutsideClose
       title={`Send “${item.task.title}” back to ${item.child.name}`}
       footer={
         <>

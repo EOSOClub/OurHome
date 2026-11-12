@@ -10,7 +10,7 @@ import { APP_LOCALE } from '@/lib/format';
 import { Button } from '@/components/ui/button';
 import { SectionCard } from '@/components/ui/collapsible-card';
 import { toast } from '@/components/ui/toast';
-import { RelativeTime } from '@/components/household-zone';
+import { RelativeTime, useHouseholdZone } from '@/components/household-zone';
 
 const CONSENT_KEY = ['location-consent'];
 export const LIVE_CHECKS_KEY = ['live-checks'];
@@ -23,6 +23,8 @@ export const LIVE_CHECKS_KEY = ['live-checks'];
  */
 export function LocationCard({ initial }: { initial: LocationConsent }) {
   const queryClient = useQueryClient();
+  // Clock times in the household's zone, like every other time the pages show.
+  const timeZone = useHouseholdZone();
   const { data: consent = initial } = useQuery({
     queryKey: CONSENT_KEY,
     queryFn: () => apiFetch<LocationConsent>('/api/location/consent'),
@@ -78,7 +80,7 @@ export function LocationCard({ initial }: { initial: LocationConsent }) {
           <span className="flex items-center gap-2">
             <Radio className="size-4 text-primary" />
             {onMe.requesterName} is checking where you are until{' '}
-            {new Date(onMe.endsAt).toLocaleTimeString(APP_LOCALE, { hour: 'numeric', minute: '2-digit' })}.
+            {new Date(onMe.endsAt).toLocaleTimeString(APP_LOCALE, { hour: 'numeric', minute: '2-digit', timeZone })}.
           </span>
           {/* Older servers don't say; then sharing being required decides, as before. */}
           {(onMe.canStopOnMe ?? !locked) ? (

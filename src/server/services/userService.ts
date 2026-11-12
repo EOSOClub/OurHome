@@ -421,6 +421,11 @@ export async function removeMember(
     // household (notificationService.visibleTo): a removed parent's alerts
     // about a child's phone would reach everyone, the child included.
     await tx.notification.deleteMany({ where: { householdId, userId: target.id } });
+    // Points queued for steps they ticked go too (no relation, so nothing
+    // cascades): left behind, the next completion paid those steps to an
+    // account that no longer exists. Without them, whoever completes the
+    // task is paid for the steps.
+    await tx.pendingCredit.deleteMany({ where: { householdId, userId: target.id } });
     // Cascades remove sessions/accounts; assigned tasks are set null by schema.
     await tx.user.delete({ where: { id: target.id } });
     // Nobody left to supervise them: their controls are theirs again

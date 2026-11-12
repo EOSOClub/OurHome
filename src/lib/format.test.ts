@@ -1,14 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   APP_LOCALE,
+  coveredDayKeys,
   dateKey,
   dueIsAllDay,
+  endOfDayInstant,
   formatDate,
   formatDueDate,
   formatMoney,
   formatRelativeTime,
   isDateOnly,
+  isDueWithinDays,
   isOverdue,
+  sharedCurrency,
   timeKey,
   zonedInstant,
 } from '@/lib/format';
@@ -100,6 +104,75 @@ describe('isOverdue', () => {
   });
 });
 
+describe('formatMoney with a currency that is not a 3-letter code', () => {
+  it('shows the amount instead of throwing (it took the whole page down)', () => {
+    for (const bad of ['US$', '$', 'dollars']) {
+      expect(() => formatMoney(5, bad)).not.toThrow();
+      expect(formatMoney(5, bad)).toBe('$5.00');
+    }
+    // Real codes are unchanged.
+    expect(formatMoney(5, 'EUR')).toBe('€5.00');
+    expect(formatMoney(5, null)).toBe('$5.00');
+  });
+
+  it('totals take the currency every bill shares, and stay in dollars when they differ', () => {
+    expect(sharedCurrency(['EUR', 'eur', 'EUR'])).toBe('EUR');
+    // None set counts as dollars.
+    expect(sharedCurrency([null, undefined, 'USD'])).toBe('USD');
+    expect(sharedCurrency(['EUR', null])).toBeUndefined();
+    expect(sharedCurrency(['EUR', 'GBP'])).toBeUndefined();
+    expect(sharedCurrency([])).toBeUndefined();
+    expect(formatMoney(12, sharedCurrency(['EUR', 'EUR']))).toBe('€12.00');
+  });
+
+  it('a new bill takes a 3-letter code only, stored in capitals', async () => {
+    const { createBillSchema } = await import('@/lib/validation/bills');
+    const base = { name: 'Water', amount: 40 };
+    expect(createBillSchema.parse({ ...base, currency: 'eur' }).currency).toBe('EUR');
+    expect(createBillSchema.safeParse({ ...base, currency: 'US$' }).success).toBe(false);
+    expect(createBillSchema.parse(base).currency).toBeUndefined();
+  });
+});
+
+describe('isDueWithinDays', () => {
+  const dueNoon = at('2026-03-10T17:00:00Z'); // Mar 10, 12:00 Chicago: a date-only pick
+
+  it('keeps a bill due today in the week after noon has passed', () => {
+    expect(isDueWithinDays(dueNoon, 7, tz, at('2026-03-10T20:00:00Z'))).toBe(true); // 3 pm that day
+    expect(isDueWithinDays(dueNoon, 7, tz, at('2026-03-10T13:00:00Z'))).toBe(true); // 8 am that day
+  });
+
+  it('counts whole days in the zone', () => {
+    const now = at('2026-03-10T20:00:00Z'); // Mar 10, 3 pm Chicago
+    expect(isDueWithinDays(at('2026-03-17T17:00:00Z'), 7, tz, now)).toBe(true); // in 7 days
+    expect(isDueWithinDays(at('2026-03-18T17:00:00Z'), 7, tz, now)).toBe(false); // in 8 days
+    expect(isDueWithinDays(at('2026-03-09T17:00:00Z'), 7, tz, now)).toBe(false); // yesterday
+    // Tokyo is already on Mar 11 at this moment, so Mar 10 there is yesterday.
+    expect(isDueWithinDays(at('2026-03-10T03:00:00Z'), 7, 'Asia/Tokyo', now)).toBe(false);
+    expect(isDueWithinDays(at('2026-03-11T03:00:00Z'), 7, 'Asia/Tokyo', now)).toBe(true);
+  });
+
+  it('is false without a date', () => {
+    expect(isDueWithinDays(null, 7, tz)).toBe(false);
+  });
+});
+
+describe('endOfDayInstant', () => {
+  it('is the last millisecond of the day in the zone', () => {
+    expect(endOfDayInstant('2026-03-10', tz).toISOString()).toBe('2026-03-11T04:59:59.999Z');
+    expect(endOfDayInstant('2026-01-10', tz).toISOString()).toBe('2026-01-11T05:59:59.999Z');
+    expect(endOfDayInstant('2026-11-10', 'Asia/Tokyo').toISOString()).toBe('2026-11-10T14:59:59.999Z');
+  });
+
+  it('reads back as the same date, on DST change days and month ends too', () => {
+    for (const day of ['2026-03-07', '2026-03-08', '2026-10-31', '2026-11-01', '2026-12-31', '2028-02-29']) {
+      expect(dateKey(endOfDayInstant(day, tz), tz)).toBe(day);
+      expect(timeKey(endOfDayInstant(day, tz), tz)).toBe('23:59');
+    }
+    expect(dateKey(endOfDayInstant('2026-11-10', 'Asia/Tokyo'), 'Asia/Tokyo')).toBe('2026-11-10');
+  });
+});
+
 describe('dueIsAllDay', () => {
   it('reads the flag, else the 12:00 marker; nothing is all day without a date', () => {
     const dueNoon = at('2026-03-10T17:00:00Z');
@@ -121,6 +194,41 @@ describe('formatDueDate in a zone', () => {
     vi.setSystemTime(at('2026-03-11T01:00:00Z'));
     expect(formatDueDate(at('2026-03-10T17:00:00Z'), tz)).toBe('Due today');
     expect(formatDueDate(at('2026-03-11T17:00:00Z'), tz)).toBe('Due tomorrow');
+  });
+});
+
+describe('coveredDayKeys', () => {
+  const tz = 'America/Chicago'; // UTC-6 in November after the 1st
+  it('is one day without an end, or when it ends the same day', () => {
+    expect(coveredDayKeys('2026-11-20T21:00:00.000Z', null, false, tz)).toEqual(['2026-11-20']);
+    expect(coveredDayKeys('2026-11-20T21:00:00.000Z', '2026-11-20T23:00:00.000Z', false, tz)).toEqual(['2026-11-20']);
+  });
+
+  it('lists every day of an all-day trip, its last day included', () => {
+    // Fri Nov 20 00:00 to Sun Nov 22 23:59, Chicago.
+    expect(coveredDayKeys('2026-11-20T06:00:00.000Z', '2026-11-23T05:59:00.000Z', true, tz)).toEqual([
+      '2026-11-20',
+      '2026-11-21',
+      '2026-11-22',
+    ]);
+  });
+
+  it('a timed end at midnight stays on the day before; a minute later is on the next', () => {
+    // 8:00 PM Fri to 12:00 AM Sat.
+    expect(coveredDayKeys('2026-11-21T02:00:00.000Z', '2026-11-21T06:00:00.000Z', false, tz)).toEqual(['2026-11-20']);
+    expect(coveredDayKeys('2026-11-21T02:00:00.000Z', '2026-11-21T06:01:00.000Z', false, tz)).toEqual([
+      '2026-11-20',
+      '2026-11-21',
+    ]);
+  });
+
+  it('crosses a month end and a clock change by the calendar', () => {
+    // Oct 31 to Nov 2: clocks go back on Nov 1.
+    expect(coveredDayKeys('2026-10-31T15:00:00.000Z', '2026-11-02T16:00:00.000Z', false, tz)).toEqual([
+      '2026-10-31',
+      '2026-11-01',
+      '2026-11-02',
+    ]);
   });
 });
 

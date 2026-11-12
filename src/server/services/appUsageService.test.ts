@@ -227,7 +227,9 @@ describe('app icons', () => {
     const call = prisma.appIcon.upsert.mock.calls[0][0];
     expect(call.where).toEqual({ householdId_app: { householdId: 'h1', app: yt.app } });
     expect(Buffer.from(call.create.png)).toEqual(png());
-    expect(call.update).toEqual({ png: call.create.png });
+    // An app that already has an icon keeps it: icons are the household's,
+    // so one member's upload must not replace what the others see.
+    expect(call.update).toEqual({});
   });
 
   it('refuses icons while their usage isn’t shared', async () => {

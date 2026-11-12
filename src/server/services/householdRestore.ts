@@ -277,6 +277,12 @@ export function planRestore(
   delete hh.paperlessPrivateNetwork;
   // About the old server's own Paperless settings, not this one's.
   delete hh.paperlessServerOff;
+  // Never in a real export, and not a household's to set: the legacy
+  // `allowHttp` could switch the whole server to HTTPS only, and the others
+  // are the server admin's (which features are on, the access review).
+  delete hh.allowHttp;
+  delete hh.accessReviewedAt;
+  delete hh.disabledFeatures;
   if (typeof hh.roleAccess === 'string') hh.roleAccess = renameLegacyRoleKey(hh.roleAccess);
   for (const user of rows.User) {
     user.mustChangePassword = true;

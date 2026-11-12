@@ -343,6 +343,77 @@ describe('editing "This and following"', () => {
     expect(db.event).toHaveLength(2);
   });
 
+  it('ends the earlier part on the day before, so re-saving its end date brings nothing back', async () => {
+    const id = await weeklySeries();
+    const rule = { kind: 'weekly' as const, interval: 1, timezone: 'UTC' };
+    await updateEvent(HH, 'u1', { id, scope: 'following', occurrenceStart: week(2), title: 'Piano 2', startAt: week(2), recurrence: rule });
+    const until = db.rule.find((r) => r.id === db.event.find((e) => e.id === id)!.recurrenceId)!.until as Date;
+    // The split date is Mon Nov 16: the earlier part ends with Sun Nov 15.
+    expect(until).toEqual(at('2026-11-15T23:59:59.999Z'));
+    // The dialog shows that as "Ends on Nov 15" and sends the same value back.
+    await updateEvent(HH, 'u1', {
+      id,
+      scope: 'all',
+      occurrenceStart: MON,
+      startAt: MON,
+      title: 'Piano 1',
+      recurrence: { ...rule, until },
+    });
+    expect(await starts()).toEqual([
+      ['2026-11-02T15:00:00.000Z', 'Piano 1'],
+      ['2026-11-09T15:00:00.000Z', 'Piano 1'],
+      ['2026-11-16T15:00:00.000Z', 'Piano 2'],
+      ['2026-11-23T15:00:00.000Z', 'Piano 2'],
+      ['2026-11-30T15:00:00.000Z', 'Piano 2'],
+    ]);
+  });
+
+  it('a date removed on its own stays removed when the later dates move', async () => {
+    const id = await weeklySeries();
+    await deleteEvent(HH, 'u1', { id, scope: 'this', occurrenceStart: week(3) });
+    const later = new Date(week(2).getTime() + 3_600_000);
+    await updateEvent(HH, 'u1', {
+      id,
+      scope: 'following',
+      occurrenceStart: week(2),
+      startAt: later,
+      recurrence: { kind: 'weekly', interval: 1, timezone: 'UTC' },
+    });
+    // Nov 23 was removed; it must not come back at the new time.
+    expect((await starts()).map(([s]) => s)).toEqual([
+      '2026-11-02T15:00:00.000Z',
+      '2026-11-09T15:00:00.000Z',
+      '2026-11-16T16:00:00.000Z',
+      '2026-11-30T16:00:00.000Z',
+    ]);
+  });
+
+  it('refuses a date moved to a day the repeat does not have, and takes it with the day picked', async () => {
+    const mondays = { kind: 'weekly' as const, interval: 1, timezone: 'UTC', byWeekday: [1] };
+    const tuesday = new Date(week(2).getTime() + 86_400_000);
+    const id = await weeklySeries({ recurrence: mondays });
+    await expect(
+      updateEvent(HH, 'u1', { id, scope: 'following', occurrenceStart: week(2), startAt: tuesday, recurrence: mondays }),
+    ).rejects.toThrow(/Pick the new day under Repeat/);
+
+    db.event = [];
+    db.rule = [];
+    const id2 = await weeklySeries({ recurrence: mondays });
+    await updateEvent(HH, 'u1', {
+      id: id2,
+      scope: 'following',
+      occurrenceStart: week(2),
+      startAt: tuesday,
+      recurrence: { ...mondays, byWeekday: [2] },
+    });
+    expect((await starts()).map(([s]) => s)).toEqual([
+      '2026-11-02T15:00:00.000Z',
+      '2026-11-09T15:00:00.000Z',
+      '2026-11-17T15:00:00.000Z',
+      '2026-11-24T15:00:00.000Z',
+    ]);
+  });
+
   it('carries later single-date changes over when the time stays', async () => {
     const id = await weeklySeries();
     await updateEvent(HH, 'u1', { id, scope: 'this', occurrenceStart: week(3), title: 'Recital' });
@@ -478,6 +549,47 @@ describe('editing "All events"', () => {
     });
     expect((await starts()).map(([s]) => s)[0]).toBe('2026-11-02T17:00:00.000Z');
     expect(db.event[0].startAt).toEqual(at('2026-11-02T17:00:00.000Z'));
+  });
+
+  it('a date removed on its own stays removed when the series moves', async () => {
+    const id = await weeklySeries();
+    const rule = { kind: 'weekly' as const, interval: 1, timezone: 'UTC' };
+    await deleteEvent(HH, 'u1', { id, scope: 'this', occurrenceStart: week(3) });
+    const moved = new Date(MON.getTime() + 30 * 60_000);
+    await updateEvent(HH, 'u1', { id, scope: 'all', occurrenceStart: MON, startAt: moved, recurrence: rule });
+    expect(db.event[0].excludedStarts).toEqual([at('2026-11-23T15:30:00.000Z')]);
+    expect((await starts()).map(([s]) => s)).toEqual([
+      '2026-11-02T15:30:00.000Z',
+      '2026-11-09T15:30:00.000Z',
+      '2026-11-16T15:30:00.000Z',
+      '2026-11-30T15:30:00.000Z',
+    ]);
+  });
+
+  it('refuses a move to a day the repeat does not have (nothing used to move)', async () => {
+    const mondays = { kind: 'weekly' as const, interval: 1, timezone: 'UTC', byWeekday: [1] };
+    const id = await weeklySeries({ recurrence: mondays });
+    await expect(
+      updateEvent(HH, 'u1', {
+        id,
+        scope: 'all',
+        occurrenceStart: week(2),
+        startAt: new Date(week(2).getTime() + 86_400_000),
+        recurrence: mondays,
+      }),
+    ).rejects.toThrow(/Pick the new day under Repeat/);
+    // A new time on the same day is still fine.
+    db.event = [];
+    db.rule = [];
+    const id2 = await weeklySeries({ recurrence: mondays });
+    await updateEvent(HH, 'u1', {
+      id: id2,
+      scope: 'all',
+      occurrenceStart: week(2),
+      startAt: new Date(week(2).getTime() + 3_600_000),
+      recurrence: mondays,
+    });
+    expect((await starts()).map(([s]) => s)[0]).toBe('2026-11-02T16:00:00.000Z');
   });
 
   it('keeps single-date changes on a text-only edit, drops them on a time change', async () => {

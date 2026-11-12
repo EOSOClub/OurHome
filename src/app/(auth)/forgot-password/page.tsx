@@ -31,7 +31,10 @@ export default function ForgotPasswordPage() {
     setLoading(true);
     const { error } = await requestPasswordReset({
       email,
-      redirectTo: `${window.location.origin}/reset-password`,
+      // A path, not this page's address: the emailed link is built on the
+      // server's public address, and it refused a home-network address here
+      // (403 INVALID_CALLBACK_URL), so the link never worked from one.
+      redirectTo: '/reset-password',
     });
     setLoading(false);
     if (error) {

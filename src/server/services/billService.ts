@@ -9,6 +9,7 @@ import {
   nextAfterOccurrence,
   formatIntList,
   parseIntList,
+  repeatSame,
   type NormalizedRule,
 } from '@/server/services/recurrenceService';
 import { localDateOf, localTimeAt } from '@/lib/taskCycles';
@@ -340,13 +341,24 @@ export async function updateBill(
   const { id, recurrence, assignedUserId, ...rest } = input;
   // Only used when the bill repeats and has no due date (see below).
   const noon = recurrence && !rest.dueDate ? await noonToday(householdId) : null;
+  // For rolling a paid bill on when Repeat is turned on (below).
+  const timeZone = recurrence ? (await getPointsSettings(householdId)).timezone : undefined;
 
   const bill = await prisma.$transaction(async (tx) => {
     const existing = await tx.bill.findFirst({
       where: { id, householdId },
-      select: { id: true, recurrenceId: true, dueDate: true, kind: true },
+      select: { id: true, recurrenceId: true, dueDate: true, kind: true, status: true, recurrence: true },
     });
     if (!existing) throw new NotFoundError(`Bill ${id} not found.`);
+    const dueChanged =
+      rest.dueDate !== undefined &&
+      (rest.dueDate?.getTime() ?? null) !== (existing.dueDate?.getTime() ?? null);
+    // Repeat turned on for a bill that is already paid: what was paid was
+    // this occurrence, so the bill moves on to its next due date, unpaid, as
+    // it does when a repeating bill is paid. Left alone it stayed "paid" on
+    // the old date for good and never came due again.
+    const startNextCycle =
+      !existing.recurrenceId && !!recurrence && existing.status === 'paid' && rest.status === undefined;
     // Only a subscription has a free trial; one switched to a bill loses it.
     const kind = rest.kind ?? existing.kind;
     if (kind !== 'subscription' && rest.trialEndsAt) {
@@ -358,7 +370,14 @@ export async function updateBill(
       recurrenceId = null;
     } else if (recurrence) {
       const anchor = rest.dueDate ?? existing.dueDate ?? noon ?? new Date();
-      const data = recurrenceData(recurrence, anchor);
+      // The form sends the repeat with every save. Same repeat and same due
+      // date: the stored anchor stays (see repeatSame), so a bill on the 31st
+      // doesn't settle on the 28th after an edit made in a short month.
+      const keepAnchor = !!existing.recurrence && !dueChanged && repeatSame(existing.recurrence, recurrence);
+      const data = {
+        ...recurrenceData(recurrence, anchor),
+        ...(keepAnchor ? { anchorDate: existing.recurrence!.anchorDate } : {}),
+      };
       if (existing.recurrenceId) {
         await tx.recurrenceRule.update({ where: { id: existing.recurrenceId }, data });
       } else {
@@ -402,14 +421,16 @@ export async function updateBill(
     // balance counts only the payments for its due date (cyclePaymentsWhere),
     // so leaving them on the old date would drop them from the balance and
     // make the bill look rolled on (billIngest hasRolledOn).
-    if (rest.dueDate && existing.dueDate && rest.dueDate.getTime() !== existing.dueDate.getTime()) {
+    // (Not when a paid bill starts repeating: its payments were for the
+    // occurrence that is done, and stay with it.)
+    if (!startNextCycle && rest.dueDate && existing.dueDate && rest.dueDate.getTime() !== existing.dueDate.getTime()) {
       await tx.billPayment.updateMany({
         where: { billId: id, cycleDueDate: existing.dueDate },
         data: { cycleDueDate: rest.dueDate },
       });
     }
 
-    const updated = await tx.bill.update({
+    let updated = await tx.bill.update({
       where: { id },
       data: {
         name: rest.name?.trim(),
@@ -431,6 +452,22 @@ export async function updateBill(
 
     if (recurrence === null && existing.recurrenceId) {
       await tx.recurrenceRule.delete({ where: { id: existing.recurrenceId } });
+    }
+
+    if (startNextCycle && updated.dueDate && updated.recurrence) {
+      // A due date picked in this same edit is taken as the next one; else
+      // the next date after the one that was paid. None left (the repeat has
+      // already ended): the bill stays paid.
+      const rule = normalizeRule(updated.recurrence, timeZone);
+      const next = dueChanged || !rule ? updated.dueDate : nextAfterOccurrence(rule, updated.dueDate);
+      if (next) {
+        await tx.recurrenceRule.update({ where: { id: updated.recurrence.id }, data: { nextRunAt: next } });
+        updated = await tx.bill.update({
+          where: { id },
+          data: { status: 'unpaid', dueDate: next },
+          include: billInclude,
+        });
+      }
     }
 
     // Keep the bill's calendar entry (if it has one) in step: its date, and

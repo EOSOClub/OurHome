@@ -132,8 +132,16 @@ function normalizeHost(host: string): string {
 /** True for loopback / private / link-local / unique-local / CGNAT addresses. */
 function isPrivateIp(ip: string): boolean {
   const addr = ip.toLowerCase();
-  // IPv4 (also unwrap IPv4-mapped IPv6, e.g. ::ffff:192.168.0.1).
-  const mapped = addr.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+  // IPv4 (also unwrap IPv4-mapped IPv6, e.g. ::ffff:192.168.0.1). The URL
+  // parser rewrites the mapped form in hex ([::ffff:192.168.0.1] becomes
+  // ::ffff:c0a8:1), which read as a public IPv6 address and got past this.
+  // (The older "IPv4-compatible" form, ::c0a8:1, is unwrapped the same way.)
+  const hex = addr.match(/^::(?:ffff:)?([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  const hi = hex ? parseInt(hex[1], 16) : 0;
+  const lo = hex ? parseInt(hex[2], 16) : 0;
+  const mapped = hex
+    ? [null, `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`]
+    : addr.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
   const m = (mapped?.[1] ?? addr).match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
   if (m) {
     const a = Number(m[1]);

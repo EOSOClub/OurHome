@@ -94,7 +94,11 @@ export async function ingestBill(
       }
 
       const bill = await tx.bill.update({ where: { id: existing.id }, data: update, select: billSel });
-      const eventId = await syncBillEvent(tx, householdId, bill, opts.source);
+      // Moves its calendar entry along; a bill someone took off the calendar
+      // stays off it (as when a payment rolls it on, receipt.ts).
+      const eventId = (await tx.event.count({ where: { householdId, billId: bill.id } }))
+        ? await syncBillEvent(tx, householdId, bill, opts.source)
+        : undefined;
       await logActivity(
         { householdId, actorId: null, verb: 'updated', subjectType: 'bill', subjectId: bill.id, message: `updated bill “${bill.name}” from ${from}` },
         tx,

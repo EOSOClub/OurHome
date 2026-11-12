@@ -25,7 +25,16 @@ export const billIngestSchema = z.object({
   // OurHomeInbox (contract v2): true when it judged the payment late. Kept on
   // the payment; the bill page shows "Paid late".
   paidLate: z.boolean().optional().nullable(),
-  currency: z.string().trim().max(8).optional().nullable(),
+  // A 3-letter code, else none (the importer then uses its default): a "$"
+  // read off an email must not fail the document or be stored, since it can't
+  // be formatted as money.
+  currency: z
+    .string()
+    .trim()
+    .max(8)
+    .optional()
+    .nullable()
+    .transform((s) => (s && /^[A-Za-z]{3}$/.test(s) ? s.toUpperCase() : null)),
   dueDate: z.coerce.date().optional().nullable(),
   paidDate: z.coerce.date().optional().nullable(),
   emailDate: z.coerce.date().optional().nullable(),

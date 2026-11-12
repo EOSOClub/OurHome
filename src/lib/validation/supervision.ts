@@ -66,6 +66,9 @@ export const setAppBlockedSchema = z.object({
 });
 export type SetAppBlockedInput = z.infer<typeof setAppBlockedSchema>;
 
+/** An app's display name, as stored with its usage. */
+const appLabel = z.string().trim().min(1).max(200);
+
 /**
  * Set a daily limit on a supervised child's phone or remove it (minutes
  * null). app: its package name, or "*" for all apps together.
@@ -74,6 +77,9 @@ export const setAppLimitSchema = z.object({
   supervisedId: z.string().min(1),
   app: z.string().trim().min(1).max(200),
   minutes: z.number().int().min(LIMIT_MIN).max(LIMIT_MAX).nullable(),
+  // The app's name as the page had it, sent by Undo: used only when the app
+  // has left their stored usage since, so a removed limit can still go back.
+  label: appLabel.optional(),
 });
 export type SetAppLimitInput = z.infer<typeof setAppLimitSchema>;
 
@@ -91,6 +97,12 @@ export const saveScheduleSchema = z
     start: z.number().int().min(0).max(1439),
     end: z.number().int().min(0).max(1439),
     allowed: z.array(z.string().trim().min(1).max(200)).max(MAX_ALLOWED),
+    // The allowed apps' names as the page had them, sent by Undo: used only
+    // for an app that has left their stored usage since.
+    labels: z
+      .array(z.object({ app: z.string().trim().min(1).max(200), label: appLabel }))
+      .max(MAX_ALLOWED)
+      .optional(),
   })
   .refine((s) => s.start !== s.end, { message: 'The end has to be a different time from the start.', path: ['end'] });
 export type SaveScheduleInput = z.infer<typeof saveScheduleSchema>;

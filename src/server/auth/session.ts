@@ -27,7 +27,15 @@ export const getServerSession = cache(async () => {
   // cookie cache: that copy is up to 5 minutes old, so a demoted manager kept
   // their powers, and a removed member (sessions deleted) kept access, until
   // it expired. Permission checks must see the live role and session.
-  return auth.api.getSession({ headers: h, query: { disableCookieCache: true } });
+  //
+  // disableRefresh: this read never extends the session or writes a cookie.
+  // Extending it here went wrong both ways. In a page render the database
+  // session moved on but the cookie could not be written, so the browser's
+  // copy still ran out a week after sign-in. In an API route the cookie was
+  // written, but without the Secure flag only the auth route adds. The
+  // session is extended through /api/auth/get-session instead: the website
+  // asks it on each load (SessionKeepAlive), the app when it starts.
+  return auth.api.getSession({ headers: h, query: { disableCookieCache: true, disableRefresh: true } });
 });
 
 /**

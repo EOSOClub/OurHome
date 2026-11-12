@@ -7,6 +7,26 @@ import { recordId } from '@/lib/validation/ids';
 export const MAX_QUANTITY = 1_000_000;
 const quantity = z.number().min(0).max(MAX_QUANTITY);
 
+/**
+ * A stock level kept to six decimals. Quantities are floats, and adding them
+ * leaves binary leftovers (0.1 + 0.2 = 0.30000000000000004), which showed up
+ * as "now 0.19999999999999998" in Activity and on the item. Six places is far
+ * finer than anyone enters (whole units, halves, 0.25 lbs, 1/16 = 0.0625), so
+ * only the leftovers go.
+ */
+export function roundQuantity(n: number): number {
+  return Math.round(n * 1e6) / 1e6;
+}
+
+/**
+ * A stock level after a change: rounded, and within 0..MAX_QUANTITY (the same
+ * bounds as a quantity typed in). The server stores this; the page shows the
+ * same number while the request is on its way.
+ */
+export function adjustedQuantity(quantity: number, delta: number): number {
+  return Math.min(MAX_QUANTITY, Math.max(0, roundQuantity(quantity + delta)));
+}
+
 export const createInventoryItemSchema = z.object({
   name: z.string().trim().min(1).max(200),
   unit: z.string().trim().max(40).optional().nullable(),

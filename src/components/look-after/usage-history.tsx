@@ -13,6 +13,8 @@ import {
   weekdayLabel,
 } from '@/lib/appUsage';
 import { cn } from '@/lib/utils';
+import { dateKey } from '@/lib/format';
+import { useHouseholdZone } from '@/components/household-zone';
 
 // Someone's app usage over the last week: a bar per day (tap one to pick it),
 // then every app kept for the picked day. Shown to a supervisor on "People
@@ -61,8 +63,9 @@ export function AppList({ apps, action }: { apps: UsageAppDTO[]; action?: AppAct
 
 export function UsageHistory({ history, appAction }: { history: UsageHistoryDTO; appAction?: AppAction }) {
   const [picked, setPicked] = useState<string | null>(null);
-  // en-CA writes the viewer's local date as YYYY-MM-DD, like the phone's day.
-  const today = new Date().toLocaleDateString('en-CA');
+  // Today in the household's zone, as YYYY-MM-DD like the phone's day (the
+  // same "today" the cards above use).
+  const today = dateKey(new Date(), useHouseholdZone());
   // The newest day until another is picked (or when the picked one has aged out).
   const shown = history.days.find((d) => d.day === picked) ?? history.days[0];
   if (!shown) {

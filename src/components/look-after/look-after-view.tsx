@@ -39,7 +39,7 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { toast } from '@/components/ui/toast';
 import { LIVE_CHECKS_KEY } from '@/components/profile/location-card';
-import { RelativeTime } from '@/components/household-zone';
+import { RelativeTime, useHouseholdZone } from '@/components/household-zone';
 import { useHouseholdFeatures } from '@/components/household-features';
 import {
   PHONE_PROBLEM_LABELS,
@@ -49,6 +49,7 @@ import {
   type PhoneRule,
 } from '@/lib/phoneHealth';
 import { formatMinutes, usageDayLabel } from '@/lib/appUsage';
+import { dateKey } from '@/lib/format';
 import { ALL_APPS, ALL_APPS_LABEL, limitLabel, limitOptions, limitsSummary } from '@/lib/appLimits';
 import { CAP_CHOICES, GIVE_STEPS, RATE_CHOICES } from '@/lib/pointsTime';
 import { formatPoints } from '@/lib/taskPoints';
@@ -240,12 +241,12 @@ function useTapped<T>() {
 }
 
 /** The App usage card's title line: their latest day, and what's blocked. */
-function usageSummary(person: Person): string {
+function usageSummary(person: Person, today: string): string {
   const latest = person.appUsage.latest;
   const usage = !person.appUsage.shared
     ? 'Not shared'
     : latest
-      ? `${usageDayLabel(latest.day, new Date().toLocaleDateString('en-CA'))}: ${formatMinutes(latest.totalMinutes)} in apps`
+      ? `${usageDayLabel(latest.day, today)}: ${formatMinutes(latest.totalMinutes)} in apps`
       : 'No app usage from their phone yet';
   return person.blocking.apps.length > 0 ? `${usage} · ${blockedSummary(person.blocking.apps)}` : usage;
 }
@@ -258,6 +259,8 @@ function usageSummary(person: Person): string {
 function PersonCard({ person, canRing, until, onRang }: RingButtonProps & { canRing: boolean }) {
   const latest = person.appUsage.latest;
   const locationOn = useHouseholdFeatures().includes('location');
+  // Today in the household's zone, so the server and the browser agree.
+  const today = dateKey(new Date(), useHouseholdZone());
   return (
     <li>
       <Card
@@ -279,7 +282,7 @@ function PersonCard({ person, canRing, until, onRang }: RingButtonProps & { canR
             {!person.appUsage.shared
               ? 'App usage not shared'
               : latest
-                ? `${usageDayLabel(latest.day, new Date().toLocaleDateString('en-CA'))}: ${formatMinutes(latest.totalMinutes)} in apps`
+                ? `${usageDayLabel(latest.day, today)}: ${formatMinutes(latest.totalMinutes)} in apps`
                 : 'No app usage from their phone yet'}
           </span>
           {person.blocking.apps.length > 0 ? (
@@ -471,6 +474,7 @@ function RingLine({ ring }: { ring: RingDTO }) {
  */
 function UsageLine({ person }: { person: Person }) {
   const [open, setOpen] = useState(false);
+  const timeZone = useHouseholdZone();
   const latest = person.appUsage.latest;
   const action: AppAction = (app) => <BlockButton person={person} app={app} />;
   if (!latest) {
@@ -480,8 +484,9 @@ function UsageLine({ person }: { person: Person }) {
       </p>
     );
   }
-  // en-CA writes the viewer's local date as YYYY-MM-DD, like the phone's day.
-  const dayLabel = usageDayLabel(latest.day, new Date().toLocaleDateString('en-CA'));
+  // Today in the household's zone (YYYY-MM-DD, like the phone's day), so the
+  // server render and the browser agree.
+  const dayLabel = usageDayLabel(latest.day, dateKey(new Date(), timeZone));
   return (
     <div className="space-y-1.5">
       <p className="text-xs text-muted-foreground">
@@ -646,10 +651,11 @@ function useAppLimit(person: Person) {
     // A fetch already on its way mustn't put the old limits back.
     onMutate: () => queryClient.cancelQueries({ queryKey: LOOK_AFTER_KEY }),
     // was: the minutes a one-tap Remove took away, so its toast can undo it.
-    mutationFn: ({ app, minutes }: { app: string; label: string; minutes: number | null; was?: number }) =>
+    // label goes along so Undo still works once the app has left their usage.
+    mutationFn: ({ app, label, minutes }: { app: string; label: string; minutes: number | null; was?: number }) =>
       apiFetch<LookAfterDTO>('/api/supervision/app-limits', {
         method: 'POST',
-        body: JSON.stringify({ supervisedId: person.id, app, minutes }),
+        body: JSON.stringify({ supervisedId: person.id, app, minutes, label: label || undefined }),
       }),
     onSuccess: (next, { app, label, minutes, was }) => {
       queryClient.setQueryData(LOOK_AFTER_KEY, next);
@@ -889,6 +895,8 @@ function Schedules({ person }: { person: Person }) {
           start: schedule.start,
           end: schedule.end,
           allowed: schedule.allowed.map((a) => a.app),
+          // Their names too: an app may have left the usage since.
+          labels: schedule.allowed.map((a) => ({ app: a.app, label: a.label })),
         }),
       }),
     onSuccess: (next, schedule) => {
@@ -1437,6 +1445,8 @@ function RingButton({ person, until, onRang }: RingButtonProps) {
 function PersonDetail({ person, canRing, until, onRang }: RingButtonProps & { canRing: boolean }) {
   const queryClient = useQueryClient();
   const locationOn = useHouseholdFeatures().includes('location');
+  // Today in the household's zone, so the server and the browser agree.
+  const today = dateKey(new Date(), useHouseholdZone());
 
   // A fetch already on its way (window focus) mustn't put the old value back.
   const cancelRefetch = () => queryClient.cancelQueries({ queryKey: LOOK_AFTER_KEY });
@@ -1515,7 +1525,7 @@ function PersonDetail({ person, canRing, until, onRang }: RingButtonProps & { ca
         <CollapsibleCard
           icon={<ChartColumn className="size-4" />}
           title="App usage"
-          description={usageSummary(person)}
+          description={usageSummary(person, today)}
           // Opens by itself while their blocked apps open anyway.
           openWhen={person.blocking.works === false && person.blocking.apps.length > 0}
           contentClassName="space-y-4"

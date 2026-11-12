@@ -24,7 +24,7 @@ import type { FieldErrorsState } from '@/lib/use-field-errors';
 import { LocationMultiSelect, placeIdLists, placeValues } from '@/components/location-select';
 import { usePointsShown } from '@/components/household-features';
 import { useHouseholdZone } from '@/components/household-zone';
-import { dateKey, timeKey, zonedInstant } from '@/lib/format';
+import { dateKey, repeatUntil, timeKey, zonedInstant } from '@/lib/format';
 import {
   PointsEditor,
   draftFromTask,
@@ -254,7 +254,9 @@ export function CreateTaskForm({
         interval: Math.max(1, interval),
         // The server uses the household's zone; this just says the same.
         timezone: timeZone ?? 'UTC',
-        until: until ? zonedInstant(until, '12:00', timeZone).toISOString() : null,
+        // The whole end date counts (12:00 dropped a task due later that
+        // day); an unchanged date is sent back as stored.
+        until: repeatUntil(until, initial?.recurrence?.until, timeZone),
         ...(recurKind === 'weekly' && weekdays.length > 0
           ? { byWeekday: weekdays }
           : {}),

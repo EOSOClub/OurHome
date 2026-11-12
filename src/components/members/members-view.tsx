@@ -535,6 +535,7 @@ function MemberRow({
   supervision: Supervision | null;
 }) {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [edit, setEdit] = useState({
     name: member.name,
@@ -649,6 +650,9 @@ function MemberRow({
     onSuccess: () => {
       toast.success(`${member.name} is now the Head of House`);
       void invalidate();
+      // The viewer is no longer the head: re-render the page and the menu
+      // with their new role, so head-only controls don't stay on screen.
+      router.refresh();
     },
   });
 

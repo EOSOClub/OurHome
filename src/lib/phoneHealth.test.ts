@@ -5,6 +5,7 @@ import {
   PHONE_QUICK_QUIET_MS,
   PHONE_QUIET_MS,
   SILENT_PROBLEMS,
+  alwaysAllowedByAll,
   freshestPhone,
   phoneAlertText,
   phoneProblems,
@@ -257,6 +258,16 @@ describe('phone problems', () => {
     const fresh = { id: 'b', lastSeenAt: hoursAgo(1) };
     expect(freshestPhone([old, fresh])?.id).toBe('b');
     expect(freshestPhone([])).toBeNull();
+  });
+
+  it('an app is always open only when every device that sent a list says so', () => {
+    const phone = { alwaysAllowed: ['dialer', 'launcher'] };
+    expect(alwaysAllowedByAll([phone])).toEqual(['dialer', 'launcher']);
+    // A made-up device naming another app can't add it; it can only shorten the list.
+    expect(alwaysAllowedByAll([phone, { alwaysAllowed: ['tiktok', 'dialer'] }])).toEqual(['dialer']);
+    // A device that sent no list (an older app) doesn't empty it.
+    expect(alwaysAllowedByAll([phone, { alwaysAllowed: [] }])).toEqual(['dialer', 'launcher']);
+    expect(alwaysAllowedByAll([])).toEqual([]);
   });
 
   it('names the child in the alert', () => {

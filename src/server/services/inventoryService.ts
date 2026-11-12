@@ -4,7 +4,8 @@ import { prisma } from '@/server/db/prisma';
 import { placeColumns, placeRefs } from '@/lib/places';
 import type { CategoryDTO, InventoryItemDTO } from '@/lib/types';
 import {
-  MAX_QUANTITY,
+  adjustedQuantity,
+  roundQuantity,
   type CreateInventoryCategoryInput,
   type CreateInventoryItemInput,
   type UpdateInventoryItemInput,
@@ -24,16 +25,8 @@ export type InventoryItemWithRelations = Prisma.InventoryItemGetPayload<{
   include: typeof itemInclude;
 }>;
 
-/**
- * A stock level kept to six decimals. Quantities are floats, and adding them
- * leaves binary leftovers (0.1 + 0.2 = 0.30000000000000004), which showed up
- * as "now 0.19999999999999998" in Activity and on the item. Six places is far
- * finer than anyone enters (whole units, halves, 0.25 lbs, 1/16 = 0.0625), so
- * only the leftovers go.
- */
-export function roundQuantity(n: number): number {
-  return Math.round(n * 1e6) / 1e6;
-}
+// Lives with the quantity rules so the page can round the same way.
+export { roundQuantity };
 
 /** A stock level is "low" only when it's at or below a set threshold. */
 function computeIsLow(quantity: number, lowThreshold: number): boolean {
@@ -218,28 +211,31 @@ export async function updateInventoryItem(
   householdId: string,
   userId: string,
   input: UpdateInventoryItemInput,
+  db: Db = prisma,
 ): Promise<InventoryItemWithRelations> {
   const { itemId, roomId, floorId, ...rest } = input;
-  const existing = await findItemInHousehold(itemId, householdId);
+  await findItemInHousehold(itemId, householdId, db);
   await assertCategoryRef(prisma, householdId, rest.categoryId);
   await assertPlaceRef(prisma, householdId, roomId, floorId);
   // Either key sent = a new place; both absent = unchanged.
   const place = roomId !== undefined || floorId !== undefined ? placeColumns(roomId, floorId) : undefined;
 
-  // Recompute the low flag against whichever of quantity/threshold changed.
-  const nextQuantity = rest.quantity ?? existing.quantity;
-  const nextThreshold = rest.lowThreshold ?? existing.lowThreshold;
+  let item: InventoryItemWithRelations;
+  for (let attempt = 0; ; attempt += 1) {
+    const existing = await findItemInHousehold(itemId, householdId, db);
 
-  // A changed reorder interval invalidates the depletion forecast; recompute
-  // it from the existing restocking history. (Restocking itself refreshes the
-  // forecast in adjustQuantity, the actual restocking path.)
-  const intervalProvided = rest.reorderIntervalDays !== undefined;
-  const intervalChanged =
-    intervalProvided && rest.reorderIntervalDays !== existing.reorderIntervalDays;
+    // Recompute the low flag against whichever of quantity/threshold changed.
+    const nextQuantity = rest.quantity ?? existing.quantity;
+    const nextThreshold = rest.lowThreshold ?? existing.lowThreshold;
 
-  const item = await prisma.inventoryItem.update({
-    where: { id: itemId },
-    data: {
+    // A changed reorder interval invalidates the depletion forecast; recompute
+    // it from the existing restocking history. (Restocking itself refreshes the
+    // forecast in adjustQuantity, the actual restocking path.)
+    const intervalProvided = rest.reorderIntervalDays !== undefined;
+    const intervalChanged =
+      intervalProvided && rest.reorderIntervalDays !== existing.reorderIntervalDays;
+
+    const data = {
       name: rest.name,
       unit: rest.unit,
       quantity: rest.quantity,
@@ -256,9 +252,27 @@ export async function updateInventoryItem(
         : {}),
       categoryId: rest.categoryId,
       ...(place ?? {}),
-    },
-    include: itemInclude,
-  });
+    };
+
+    // A quantity typed in is the new truth, so it is simply written.
+    if (rest.quantity !== undefined) {
+      item = await db.inventoryItem.update({ where: { id: itemId }, data, include: itemInclude });
+      break;
+    }
+    // No quantity sent (a rename, a new threshold): the low flag above was
+    // worked out from the quantity just read. Written only while that still
+    // holds, as adjustQuantity does; a scan or a +/- landing in between
+    // would otherwise leave the Low badge matching the old amount.
+    const { count } = await db.inventoryItem.updateMany({
+      where: { id: itemId, quantity: existing.quantity },
+      data,
+    });
+    if (count === 1) {
+      item = await db.inventoryItem.findUniqueOrThrow({ where: { id: itemId }, include: itemInclude });
+      break;
+    }
+    if (attempt >= 4) throw new ConflictError('The stock changed at the same moment; try again.');
+  }
 
   await logActivity({
     householdId,
@@ -301,7 +315,7 @@ export async function adjustQuantity(
     const existing = await findItemInHousehold(itemId, householdId, db);
     // Within 0..MAX_QUANTITY, the same bounds as a quantity typed in: a
     // restock on top of a full item would otherwise go past the cap.
-    newQuantity = Math.min(MAX_QUANTITY, Math.max(0, roundQuantity(existing.quantity + delta)));
+    newQuantity = adjustedQuantity(existing.quantity, delta);
     wasLow = existing.isLow;
     isLow = computeIsLow(newQuantity, existing.lowThreshold);
 

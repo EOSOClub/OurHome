@@ -35,7 +35,15 @@ export const createBillSchema = z.object({
   amount: amountSchema,
   // Optional - omitted by the bill form (server default "USD"); sent by the
   // Duplicate action so copies keep the source bill's currency.
-  currency: z.string().trim().min(1).max(10).optional().nullable(),
+  // A 3-letter code only: anything else can't be formatted as money and took
+  // the dashboard and Bills pages down for the whole household.
+  currency: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z]{3}$/, 'Use a 3-letter currency code like USD.')
+    .transform((s) => s.toUpperCase())
+    .optional()
+    .nullable(),
   dueDate: z.coerce.date().optional().nullable(),
   category: z.string().trim().max(60).optional().nullable(),
   autoPay: z.boolean().default(false),

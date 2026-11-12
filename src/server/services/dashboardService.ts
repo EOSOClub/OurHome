@@ -13,6 +13,7 @@ import { getHouseholdFeatures } from '@/server/services/serverAdminService';
 import { getRequestHandling, type RequestHandling } from '@/server/services/requestModuleService';
 import { REQUEST_MODULE_WORKFLOWS } from '@/lib/requestModules';
 import { countTasksToCheck } from '@/server/services/taskSubmissionService';
+import { countsTowardBalance } from '@/server/services/billService';
 
 // Not awaiting_review: a task sent for a check is done on the child's side,
 // so it is never overdue, due or open here while it waits for an adult's OK.
@@ -150,6 +151,7 @@ export async function getDashboard(
     openTasks,
     requests,
     points,
+    overdueDates,
     doneToday,
     doneTodayByMe,
     places,
@@ -182,7 +184,7 @@ export async function getDashboard(
       // actually coming up off the card. `gte` the epoch excludes both null
       // and unset (see db/dateFilters for why `not: null` does not).
       where: { householdId, status: 'unpaid', dueDate: { gte: new Date(0) } },
-      select: { id: true, name: true, amount: true, currency: true, dueDate: true },
+      select: { id: true, name: true, amount: true, currency: true, dueDate: true, recurrenceId: true },
       orderBy: { dueDate: 'asc' },
       take: 5,
     }),
@@ -237,6 +239,12 @@ export async function getDashboard(
       orderBy: { createdAt: 'asc' },
     }),
     pointsSummary(householdId, 'week', undefined, now),
+    // Every overdue task's date, for the count alone: the list above stops
+    // at 25, and so did the "Overdue" number.
+    prisma.task.findMany({
+      where: { householdId, status: { in: ACTIVE_STATUSES }, dueDate: dateBefore(now) },
+      select: { dueDate: true, dueAllDay: true },
+    }),
     prisma.taskCompletion.count({ where: completedToday }),
     prisma.taskCompletion.count({ where: { ...completedToday, userId: user.id } }),
     loadPlaceIndex(prisma, householdId),
@@ -246,6 +254,26 @@ export async function getDashboard(
   // The query finds anything due before now; all-day due dates only count as
   // overdue from the next day, like everywhere else.
   const overdueNow = overdue.filter((t) => isOverdue(t.dueDate, timezone, now, t.dueAllDay));
+
+  // What's already paid toward each bill's current cycle, so the card shows
+  // what is left like the Bills page does (same rule: countsTowardBalance).
+  const billPayments =
+    upcomingBills.length > 0
+      ? await prisma.billPayment.findMany({
+          where: { householdId, billId: { in: upcomingBills.map((b) => b.id) } },
+          select: { billId: true, amount: true, cycleDueDate: true },
+        })
+      : [];
+  const billRows = upcomingBills.map(({ recurrenceId, ...b }) => ({
+    ...b,
+    paidTotal: billPayments.reduce(
+      (sum, p) =>
+        p.billId === b.id && countsTowardBalance({ id: b.id, recurrenceId, dueDate: b.dueDate }, p.cycleDueDate)
+          ? sum + p.amount
+          : sum,
+      0,
+    ),
+  }));
 
   const myRow = points.members.find((m) => m.userId === user.id);
   const myRank = myRow && myRow.points > 0 ? points.members.indexOf(myRow) + 1 : null;
@@ -261,7 +289,9 @@ export async function getDashboard(
     features,
     counts: {
       pending: tasksOn ? pendingCount : 0,
-      overdue: tasksOn ? overdueNow.length : 0,
+      overdue: tasksOn
+        ? overdueDates.filter((t) => isOverdue(t.dueDate, timezone, now, t.dueAllDay)).length
+        : 0,
       recurring: tasksOn ? recurringCount : 0,
       lowInventory: on('inventory') ? lowInventoryCount : 0,
       openShopping: on('shopping') ? openShoppingCount : 0,
@@ -269,8 +299,10 @@ export async function getDashboard(
     },
     overdue: tasksOn ? withPlace(overdueNow, places) : [],
     upcoming: tasksOn ? withPlace(upcoming, places) : [],
-    upcomingBills: on('bills') ? upcomingBills : [],
-    upcomingEvents: on('calendar') ? upcomingEvents.slice(0, 6) : [],
+    upcomingBills: on('bills') ? billRows : [],
+    // Without a bill's calendar entry: the bill itself is in upcomingBills
+    // (when Bills is on), so it showed twice, and still said "due" once paid.
+    upcomingEvents: on('calendar') ? upcomingEvents.filter((o) => !o.billId).slice(0, 6) : [],
     me: {
       /** Mine, overdue or due today. */
       today: tasksOn ? withPlace(myTasks.filter((t) => t.dueDate && t.dueDate < endOfToday), places) : [],

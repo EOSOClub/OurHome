@@ -14,6 +14,7 @@ const prisma = {
   },
   account: { create: vi.fn() },
   notification: { deleteMany: vi.fn() },
+  pendingCredit: { deleteMany: vi.fn() },
   $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(prisma)),
 };
 vi.mock('@/server/db/prisma', () => ({ prisma }));
@@ -397,6 +398,16 @@ describe('removeMember and supervision', () => {
     expect(pushSync).not.toHaveBeenCalled();
     // A removed child's own checks are still settled (withdrawn).
     expect(settleOrphanedSubmissions).toHaveBeenCalledWith(HOUSEHOLD);
+  });
+
+  it('drops the points queued for steps they ticked, so they are not paid to a deleted account', async () => {
+    prisma.user.findFirst.mockResolvedValueOnce(row({ id: alex, name: 'Alex', role: 'adult' }));
+    await removeMember(HOUSEHOLD, head, alex);
+    // Theirs only, in this household.
+    expect(prisma.pendingCredit.deleteMany).toHaveBeenCalledWith({ where: { householdId: HOUSEHOLD, userId: alex } });
+    expect(prisma.pendingCredit.deleteMany.mock.invocationCallOrder[0]).toBeLessThan(
+      prisma.user.delete.mock.invocationCallOrder[0],
+    );
   });
 
   it('deletes the notices addressed to them, so they never become household-wide', async () => {

@@ -6,16 +6,17 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 
 /**
- * Segment-level error boundary for routes under (app). `unstable_retry`
- * re-fetches and re-renders the failed segment (this Next.js version's
- * recommended recovery over plain `reset`).
+ * Segment-level error boundary for routes under (app). `retry` re-fetches
+ * and re-renders the failed segment (this Next.js version's recommended
+ * recovery over plain `reset`). It was `unstable_retry` until Next 16.3,
+ * which no longer passes the old name.
  */
 export default function Error({
   error,
-  unstable_retry,
+  retry,
 }: {
   error: Error & { digest?: string };
-  unstable_retry: () => void;
+  retry: () => void;
 }) {
   useEffect(() => {
     console.error(error);
@@ -31,7 +32,7 @@ export default function Error({
         <p className="max-w-xs text-xs text-muted-foreground">
           An unexpected error occurred while loading this page.
         </p>
-        <Button size="sm" onClick={() => unstable_retry()}>
+        <Button size="sm" onClick={() => retry()}>
           Try again
         </Button>
       </CardContent>

@@ -110,6 +110,8 @@ export function PaymentDialog({
     <Dialog
       open
       onClose={onClose}
+      // A stray tap outside must not throw away the payment being typed.
+      preventOutsideClose
       title={payment ? 'Edit payment' : 'Record payment'}
       footer={
         <>

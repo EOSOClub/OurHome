@@ -285,6 +285,51 @@ describe('editing a bill keeps its balance right', () => {
     expect(prisma.bill.update.mock.calls[1][0].data.status).toBe('paid');
   });
 
+  it('moves a paid one-off bill on to its next due date when Repeat is turned on', async () => {
+    const OCT_6 = water.dueDate as Date;
+    const NOV_6 = new Date('2026-11-06T12:00:00Z');
+    payments = [{ id: 'p1', billId: 'b2', amount: 64.3, fee: null, cycleDueDate: OCT_6 }];
+    const rule = { ...recurrence, id: 'r9', byMonthday: null, anchorDate: OCT_6, nextRunAt: OCT_6 };
+    prisma.bill.findFirst.mockResolvedValueOnce({ id: 'b2', recurrenceId: null, dueDate: OCT_6, kind: 'bill', status: 'paid', recurrence: null });
+    prisma.bill.update
+      .mockResolvedValueOnce({ ...water, status: 'paid', recurrenceId: 'r9', recurrence: rule })
+      .mockResolvedValueOnce({ ...water, status: 'unpaid', dueDate: NOV_6, recurrenceId: 'r9', recurrence: rule });
+    // The form's save: same due date, Repeat now monthly.
+    const result = await updateBill('h1', 'u1', { id: 'b2', dueDate: OCT_6, recurrence: monthly } as never);
+    expect(prisma.bill.update.mock.calls[1][0].data).toEqual({ status: 'unpaid', dueDate: NOV_6 });
+    expect(prisma.recurrenceRule.update).toHaveBeenCalledWith({ where: { id: 'r9' }, data: { nextRunAt: NOV_6 } });
+    // October's payment was for October: nothing is paid toward November yet.
+    expect(result.status).toBe('unpaid');
+    expect(result.paidTotal).toBe(0);
+    expect(payments[0].cycleDueDate).toEqual(OCT_6);
+  });
+
+  it('leaves an unpaid one-off bill where it is when Repeat is turned on', async () => {
+    prisma.bill.findFirst.mockResolvedValueOnce({ id: 'b2', recurrenceId: null, dueDate: water.dueDate, kind: 'bill', status: 'unpaid', recurrence: null });
+    prisma.bill.update.mockResolvedValueOnce({ ...water, recurrenceId: 'r9', recurrence: { ...recurrence, id: 'r9' } });
+    await updateBill('h1', 'u1', { id: 'b2', dueDate: water.dueDate, recurrence: monthly } as never);
+    expect(prisma.bill.update).toHaveBeenCalledOnce();
+  });
+
+  it('keeps counting a monthly bill from the 31st after an edit made on a short month’s date', async () => {
+    const JAN_31 = new Date('2026-01-31T12:00:00Z');
+    const FEB_28 = new Date('2026-02-28T12:00:00Z');
+    const stored = { ...recurrence, byMonthday: null, anchorDate: JAN_31, nextRunAt: FEB_28 };
+    const existing = { id: 'b1', recurrenceId: 'r1', dueDate: FEB_28, kind: 'bill', status: 'unpaid', recurrence: stored };
+    // A rename: the form sends the same due date and the same repeat.
+    prisma.bill.findFirst.mockResolvedValueOnce(existing);
+    prisma.bill.update.mockResolvedValueOnce(bill({ dueDate: FEB_28, recurrence: stored }));
+    await updateBill('h1', 'u1', { id: 'b1', name: 'Mortgage (house)', dueDate: FEB_28, recurrence: monthly } as never);
+    expect(prisma.recurrenceRule.update.mock.calls[0][0].data.anchorDate).toEqual(JAN_31);
+
+    // A new due date starts the count from that date, as before.
+    const MAR_15 = new Date('2026-03-15T12:00:00Z');
+    prisma.bill.findFirst.mockResolvedValueOnce(existing);
+    prisma.bill.update.mockResolvedValueOnce(bill({ dueDate: MAR_15, recurrence: stored }));
+    await updateBill('h1', 'u1', { id: 'b1', dueDate: MAR_15, recurrence: monthly } as never);
+    expect(prisma.recurrenceRule.update.mock.calls[1][0].data.anchorDate).toEqual(MAR_15);
+  });
+
   it('marks which payments count toward the current balance', async () => {
     payments = [
       { id: 'p1', billId: 'b1', amount: 1850, fee: null, cycleDueDate: OCT_1 },

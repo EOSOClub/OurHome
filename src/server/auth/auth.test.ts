@@ -51,6 +51,60 @@ describe('signing in by username', () => {
   });
 });
 
+/** What Better Auth answers a call with: the error's status and message, or 'ok'. */
+async function answer(call: () => Promise<unknown>): Promise<{ status?: string; message?: string; code?: string } | 'ok'> {
+  try {
+    await call();
+    return 'ok';
+  } catch (err) {
+    const e = err as { status?: string; body?: { message?: string; code?: string } };
+    return { status: e.status, message: e.body?.message, code: e.body?.code };
+  }
+}
+
+// Nobody is signed in here, so a body the app's own check lets through is
+// answered UNAUTHORIZED by the route; one it refuses never gets that far.
+describe('Better Auth’s update-user route', () => {
+  const updateUser = (body: Record<string, unknown>) =>
+    answer(() => auth.api.updateUser({ body: body as never, headers: new Headers() }));
+
+  it('lets a name through to the route', async () => {
+    expect(await updateUser({ name: 'Sam' })).toMatchObject({ status: 'UNAUTHORIZED' });
+  });
+
+  it('refuses a username or display username (they go through the profile)', async () => {
+    for (const body of [{ username: 'dad' }, { displayUsername: 'dad' }, { name: 'Sam', displayUsername: 'dad' }]) {
+      expect(await updateUser(body)).toMatchObject({
+        status: 'BAD_REQUEST',
+        message: 'Change your username in your profile.',
+      });
+    }
+  });
+
+  it('refuses a blank or overlong name', async () => {
+    expect(await updateUser({ name: '   ' })).toMatchObject({ status: 'BAD_REQUEST', message: 'Enter a name.' });
+    expect(await updateUser({ name: 'x'.repeat(81) })).toMatchObject({ status: 'BAD_REQUEST' });
+  });
+});
+
+describe('changing a password', () => {
+  const change = (newPassword: string, currentPassword: string) =>
+    answer(() => auth.api.changePassword({ body: { newPassword, currentPassword }, headers: new Headers() }));
+
+  it('refuses the same password again, so a temporary one cannot be kept', async () => {
+    expect(await change('temp-pass-1', 'temp-pass-1')).toMatchObject({
+      status: 'BAD_REQUEST',
+      code: 'PASSWORD_UNCHANGED',
+    });
+    // The forced change is not lifted.
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('lets a different one through to the route', async () => {
+    expect(await change('new-pass-22', 'temp-pass-1')).toMatchObject({ status: 'UNAUTHORIZED' });
+  });
+});
+
 describe('a password chosen through Forgot password', () => {
   it('lifts the forced change and ends the phone setup link, as a password change does', async () => {
     const onPasswordReset = auth.options.emailAndPassword?.onPasswordReset;

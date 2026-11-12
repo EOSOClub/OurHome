@@ -16,7 +16,7 @@ import {
   PHONE_PROBLEMS,
   PHONE_QUICK_QUIET_MS,
   SILENT_PROBLEMS,
-  freshestPhone,
+  alwaysAllowedByAll,
   lastWordAt,
   phoneAlertText,
   phoneProblems,
@@ -420,8 +420,7 @@ async function judgePhones(
   const justStarted = sinceBoot >= 0 && sinceBoot < STREAM_BOOT_GRACE_MS;
   for (const kid of kids) {
     const kidPhones = phones.filter((p) => p.userId === kid.id);
-    const phone = freshestPhone(kidPhones);
-    if (!phone) continue;
+    if (kidPhones.length === 0) continue;
     const webFilter = webFilterOf(kid.webFilter);
     const expect = {
       sharing: sharingMode(kid.locationSharing),
@@ -445,7 +444,11 @@ async function judgePhones(
           mayStillStream: justStarted && p.stayConnected === true && p.streamAt != null,
         };
       });
-    const own = judged.find((d) => d.row === phone)!;
+    // The card's own phone is the first of that list: the one heard from
+    // last, its stream counted. Picked by check-in alone, it differed from the
+    // list's order, and the card's lines switched between devices.
+    const own = judged[0];
+    const phone = own.row;
     const { problems, lastKnown, quiet } = own;
     out.set(kid.id, {
       summary: {
@@ -456,7 +459,8 @@ async function judgePhones(
         stayConnected: phone.stayConnected === true,
         connected: connected.has(phone.installId),
         checks: setupChecks(phone, webFilter),
-        alwaysAllowed: phone.alwaysAllowed,
+        // What every device agrees on (see alwaysAllowedByAll).
+        alwaysAllowed: alwaysAllowedByAll(kidPhones),
         problems,
         lastKnown: quiet ? lastKnown : [],
         devices: judged.map((d) => ({

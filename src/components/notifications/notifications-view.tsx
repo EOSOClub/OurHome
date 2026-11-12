@@ -90,6 +90,9 @@ const TYPE_VARIANT: Record<
   task_reviewed: 'default',
 };
 
+/** The unread-only list (see NotificationsView); refetched with the shared key. */
+const UNREAD_KEY = [...NOTIFICATIONS_KEY, 'unread'] as const;
+
 type ReadFilter = 'all' | 'unread' | 'read';
 
 const READ_FILTERS: { value: ReadFilter; label: string }[] = [
@@ -153,8 +156,34 @@ export function NotificationsView({ initial }: { initial: NotificationList }) {
     initialData: initial,
   });
 
+  // The unread rows the pages loaded so far don't hold. The first page is the
+  // newest 50 of everything, so with enough read rows on top the Unread view
+  // was empty and said "all caught up" while the button counted unread ones.
+  // Asked for only then; under the shared key, so it refetches with the rest.
+  const loadedUnread =
+    (data?.items ?? []).filter((n) => !n.read).length +
+    older.filter((n) => !n.read).length;
+  const needUnread = filter === 'unread' && (data?.unreadCount ?? 0) > loadedUnread;
+  const unreadQuery = useQuery({
+    queryKey: UNREAD_KEY,
+    queryFn: () =>
+      apiFetch<NotificationList>('/api/notifications?unreadOnly=true&limit=100'),
+    enabled: needUnread,
+  });
+
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: NOTIFICATIONS_KEY });
+
+  /** Mark rows read in the unread-only list; returns it as it was, to roll back. */
+  const patchUnreadList = (isTarget: (n: NotificationDTO) => boolean) => {
+    const previous = queryClient.getQueryData<NotificationList>(UNREAD_KEY);
+    queryClient.setQueryData<NotificationList>(UNREAD_KEY, (old) =>
+      old
+        ? { ...old, items: old.items.map((n) => (isTarget(n) ? { ...n, read: true } : n)) }
+        : old,
+    );
+    return previous;
+  };
 
   const markOne = useMutation({
     mutationFn: (id: string) =>
@@ -173,7 +202,11 @@ export function NotificationsView({ initial }: { initial: NotificationList }) {
       const previousOlder = older;
       const wasUnread =
         previous?.items.some((n) => n.id === id && !n.read) ||
-        older.some((n) => n.id === id && !n.read);
+        older.some((n) => n.id === id && !n.read) ||
+        queryClient
+          .getQueryData<NotificationList>(UNREAD_KEY)
+          ?.items.some((n) => n.id === id && !n.read);
+      const previousUnread = patchUnreadList((n) => n.id === id);
       queryClient.setQueryData<NotificationList>(NOTIFICATIONS_KEY, (old) =>
         old
           ? {
@@ -190,13 +223,16 @@ export function NotificationsView({ initial }: { initial: NotificationList }) {
       setOlder((prev) =>
         prev.map((n) => (n.id === id ? { ...n, read: true } : n)),
       );
-      return { previous, previousOlder };
+      return { previous, previousOlder, previousUnread };
     },
     onError: (error, _id, context) => {
       if (context?.previous) {
         queryClient.setQueryData(NOTIFICATIONS_KEY, context.previous);
       }
       if (context?.previousOlder) setOlder(context.previousOlder);
+      if (context?.previousUnread) {
+        queryClient.setQueryData(UNREAD_KEY, context.previousUnread);
+      }
       // A local onError suppresses the global MutationCache toast; re-surface.
       toast.error(
         error instanceof Error ? error.message : 'Something went wrong.',
@@ -226,13 +262,17 @@ export function NotificationsView({ initial }: { initial: NotificationList }) {
           : old,
       );
       setOlder((prev) => prev.map((n) => (n.read ? n : { ...n, read: true })));
-      return { previous, previousOlder };
+      const previousUnread = patchUnreadList(() => true);
+      return { previous, previousOlder, previousUnread };
     },
     onError: (error, _vars, context) => {
       if (context?.previous) {
         queryClient.setQueryData(NOTIFICATIONS_KEY, context.previous);
       }
       if (context?.previousOlder) setOlder(context.previousOlder);
+      if (context?.previousUnread) {
+        queryClient.setQueryData(UNREAD_KEY, context.previousUnread);
+      }
       // A local onError suppresses the global MutationCache toast; re-surface.
       toast.error(
         error instanceof Error ? error.message : 'Something went wrong.',
@@ -252,7 +292,12 @@ export function NotificationsView({ initial }: { initial: NotificationList }) {
     seen.add(n.id);
     return true;
   });
-  const visible = items.filter((n) =>
+  // The Unread view adds the unread rows from further back, in date order
+  // after the loaded ones (they are all older than the first page).
+  const shown = needUnread
+    ? [...items, ...(unreadQuery.data?.items ?? []).filter((n) => !seen.has(n.id))]
+    : items;
+  const visible = shown.filter((n) =>
     filter === 'all' ? true : filter === 'read' ? n.read : !n.read,
   );
   const hasMore = olderHasMore ?? data?.hasMore ?? false;
@@ -334,7 +379,13 @@ export function NotificationsView({ initial }: { initial: NotificationList }) {
 
           {visible.length === 0 ? (
             <p className="px-1 text-sm text-muted-foreground">
-              {filter === 'unread' ? 'You’re all caught up.' : `No ${filter} notifications.`}
+              {filter !== 'unread'
+                ? `No ${filter} notifications.`
+                : unread === 0
+                  ? 'You’re all caught up.'
+                  : unreadQuery.isFetching
+                    ? 'Loading your unread notifications...'
+                    : 'Your unread notifications are further back. Use Load more to reach them.'}
             </p>
           ) : (
             <ul className="divide-y divide-border rounded-lg border border-border bg-card">

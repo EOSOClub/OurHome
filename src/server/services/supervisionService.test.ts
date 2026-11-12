@@ -1250,6 +1250,46 @@ describe('required sharing', () => {
     expect(push.pushSync).not.toHaveBeenCalled();
   });
 
+  it('Undo puts a removed limit or schedule back after the app has left their usage', async () => {
+    // Usage is empty (sharing was turned off, or the app wasn't used for 14 days).
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    usage.usageLabel.mockResolvedValueOnce(null);
+    await setAppLimit(H, { id: 'alex' }, { supervisedId: 'sam', app: 'com.roblox.client', minutes: 60, label: 'Roblox' });
+    expect(tx.appLimit.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ app: 'com.roblox.client', label: 'Roblox', minutes: 60 }),
+    });
+
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    await saveSchedule(H, { id: 'alex' }, {
+      supervisedId: 'sam',
+      name: 'School',
+      days: [1],
+      start: 480,
+      end: 900,
+      allowed: ['com.classroom'],
+      labels: [{ app: 'com.classroom', label: 'Classroom' }],
+    });
+    expect(tx.appSchedule.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ allowed: JSON.stringify([{ app: 'com.classroom', label: 'Classroom' }]) }),
+    });
+
+    // The usage's own name wins over the one sent.
+    findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));
+    usage.usageApps.mockResolvedValueOnce(new Map([['sam', [{ app: 'com.classroom', label: 'Google Classroom', icon: false }]]]));
+    await saveSchedule(H, { id: 'alex' }, {
+      supervisedId: 'sam',
+      name: 'Homework',
+      days: [1],
+      start: 960,
+      end: 1020,
+      allowed: ['com.classroom'],
+      labels: [{ app: 'com.classroom', label: 'Classroom' }],
+    });
+    expect(tx.appSchedule.create).toHaveBeenLastCalledWith({
+      data: expect.objectContaining({ allowed: JSON.stringify([{ app: 'com.classroom', label: 'Google Classroom' }]) }),
+    });
+  });
+
   it('refuses an app their usage doesn’t name, a missing schedule, and more than the most', async () => {
     const body = { supervisedId: 'sam', name: 'School', days: [1], start: 480, end: 900, allowed: [] as string[] };
     findLinks.mockResolvedValueOnce(linkTo(sam, 'on'));

@@ -39,7 +39,15 @@ import { Dialog } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { toast } from '@/components/ui/toast';
 import { useHouseholdZone } from '@/components/household-zone';
-import { APP_LOCALE, dateKey, formatDate, timeKey, zonedInstant } from '@/lib/format';
+import {
+  APP_LOCALE,
+  coveredDayKeys,
+  dateKey,
+  formatDate,
+  repeatUntil,
+  timeKey,
+  zonedInstant,
+} from '@/lib/format';
 import { ALL_DAY_REMINDERS, TIMED_REMINDERS } from '@/lib/validation/calendar';
 import { MONTHS, MonthPicker } from '@/components/calendar/month-picker';
 import { gridDayKey, monthGridBounds } from '@/components/calendar/month-grid';
@@ -154,14 +162,29 @@ function toggleIn(list: number[], value: number): number[] {
 
 /** One thing on a day: an event's date, or a chore's due date. */
 type Entry =
-  | { kind: 'event'; at: string; allDay: boolean; o: EventOccurrenceDTO }
+  | {
+      kind: 'event';
+      at: string;
+      allDay: boolean;
+      o: EventOccurrenceDTO;
+      /**
+       * Set on the later days of an event that runs over several: it started
+       * on an earlier day, and on its last day a timed one ends at `until`.
+       */
+      carried?: { until: string | null };
+    }
   | { kind: 'chore'; at: string; allDay: boolean; c: CalendarChoreDTO };
 type Who = 'everyone' | 'mine';
 type Kind = 'events' | 'chores' | 'bills';
 /** A range's events and chores, fetched together so they show up together. */
 type RangeData = { events: EventOccurrenceDTO[]; chores: CalendarChoreDTO[] };
 
-/** Entries by their day in the household's zone: all-day ones first, then by time. */
+/**
+ * Entries by their day in the household's zone: all-day ones first, then by
+ * time. An event that runs over several days is on each of them (it was only
+ * on its first, so a trip vanished after day one and one already under way
+ * didn't show at all); on the later days it sits with the all-day ones.
+ */
 function groupByDay(entries: Entry[], timeZone?: string): Map<string, Entry[]> {
   const sorted = [...entries].sort(
     (a, b) =>
@@ -169,12 +192,30 @@ function groupByDay(entries: Entry[], timeZone?: string): Map<string, Entry[]> {
       new Date(a.at).getTime() - new Date(b.at).getTime(),
   );
   const map = new Map<string, Entry[]>();
-  for (const e of sorted) {
-    // The day in the household zone (same on server and browser).
-    const key = dateKey(e.at, timeZone);
+  const put = (key: string, e: Entry, first: boolean) => {
     const list = map.get(key);
-    if (list) list.push(e);
-    else map.set(key, [e]);
+    if (!list) map.set(key, [e]);
+    // A carried-over entry goes ahead of the day's timed ones.
+    else if (first) {
+      const timed = list.findIndex((x) => !x.allDay);
+      list.splice(timed === -1 ? list.length : timed, 0, e);
+    } else list.push(e);
+  };
+  for (const e of sorted) {
+    // The days in the household zone (same on server and browser).
+    const days =
+      e.kind === 'event'
+        ? coveredDayKeys(e.o.start, e.o.end, e.o.allDay, timeZone)
+        : [dateKey(e.at, timeZone)];
+    days.forEach((key, i) => {
+      if (i === 0 || e.kind !== 'event') return put(key, e, false);
+      const last = i === days.length - 1;
+      put(
+        key,
+        { ...e, allDay: true, carried: { until: last && !e.o.allDay ? e.o.end : null } },
+        true,
+      );
+    });
   }
   return map;
 }
@@ -971,9 +1012,15 @@ function EntryRow({
   onOpen: (o: EventOccurrenceDTO) => void;
 }) {
   const timeZone = useHouseholdZone();
+  // The last day of a timed event that started earlier says when it ends.
+  const until = entry.kind === 'event' ? entry.carried?.until : null;
   const when = (
-    <span className="w-16 shrink-0 text-xs text-muted-foreground">
-      {entry.allDay ? 'All day' : timeLabel(entry.at, timeZone)}
+    <span className="min-w-16 shrink-0 whitespace-nowrap text-xs text-muted-foreground">
+      {until
+        ? `Until ${timeLabel(until, timeZone)}`
+        : entry.allDay
+          ? 'All day'
+          : timeLabel(entry.at, timeZone)}
     </span>
   );
   const rowClass =
@@ -1222,6 +1269,20 @@ function EventDialog({
       ? dateKey(occurrence.recurrence.until, timeZone)
       : '',
   );
+  // A new date for an event that repeats on its one picked day ("weekly on
+  // Tuesdays", "monthly on the 5th") takes the picked day along. Left on the
+  // old day, the moved date was no longer one of the repeat's days (the
+  // server refuses that). More than one picked day is left for the user.
+  const changeStartDate = (next: string) => {
+    const dayOf = (d: string) => new Date(`${d}T00:00:00Z`);
+    const from = dayOf(startDate);
+    const to = dayOf(next);
+    if (!Number.isNaN(from.getTime()) && !Number.isNaN(to.getTime())) {
+      if (weekdays.length === 1 && weekdays[0] === from.getUTCDay()) setWeekdays([to.getUTCDay()]);
+      if (monthdays.length === 1 && monthdays[0] === from.getUTCDate()) setMonthdays([to.getUTCDate()]);
+    }
+    setStartDate(next);
+  };
   // Minutes before, as the select's value; '' = no reminder.
   const [reminder, setReminder] = useState(
     occurrence?.reminderMinutes != null ? String(occurrence.reminderMinutes) : '',
@@ -1312,12 +1373,14 @@ function EventDialog({
           : undefined
         : {
             kind: repeat,
-            interval,
+            interval: Math.max(1, interval),
             // Stored for reference; the server repeats events in the
             // household's zone.
             timezone:
               timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-            until: until ? zonedInstant(until, '12:00', timeZone).toISOString() : null,
+            // The whole end date counts (12:00 dropped a repeat later that
+            // day); an unchanged date is sent back as stored.
+            until: repeatUntil(until, occurrence?.recurrence?.until, timeZone),
             ...(repeat === 'weekly' && weekdays.length > 0
               ? { byWeekday: weekdays }
               : {}),
@@ -1402,6 +1465,8 @@ function EventDialog({
     <Dialog
       open
       onClose={onClose}
+      // A stray tap outside must not throw away the event being typed.
+      preventOutsideClose
       title={occurrence ? KIND_LABELS[kind] : 'New'}
       description={
         occurrence?.recurring
@@ -1599,7 +1664,7 @@ function EventDialog({
               id="ev-start-date"
               type="date"
               value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
+              onChange={(e) => changeStartDate(e.target.value)}
               {...fe.invalid('startAt')}
             />
             <FieldNote id={fe.noteId('startAt')} error={fe.get('startAt')} />
@@ -1759,8 +1824,10 @@ function EventDialog({
                   type="number"
                   min={1}
                   max={365}
-                  value={interval}
-                  onChange={(e) => setInterval(Number(e.target.value) || 1)}
+                  // Empty while it's being retyped (saving reads that as 1):
+                  // snapping back to 1 turned "clear, then 2" into 12.
+                  value={interval || ''}
+                  onChange={(e) => setInterval(Number(e.target.value) || 0)}
                   className="w-20"
                   {...fe.invalid('recurrence')}
                 />

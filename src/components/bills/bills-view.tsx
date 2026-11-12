@@ -26,6 +26,7 @@ import {
   dateKey,
   formatDueDate,
   formatMoney,
+  sharedCurrency,
   isDueWithinDays,
   isOverdue,
   zonedInstant,
@@ -181,9 +182,11 @@ export function BillsView({
   const overdue = unpaid.filter((b) => isOverdue(b.dueDate, timeZone));
   const upcoming = unpaid.filter((b) => !isOverdue(b.dueDate, timeZone));
 
-  const dueThisWeek = upcoming.filter((b) => isDueWithinDays(b.dueDate, 7));
+  const dueThisWeek = upcoming.filter((b) => isDueWithinDays(b.dueDate, 7, timeZone));
 
   // Stats always cover every bill; only the buckets below honor the filters.
+  // Totals take the bills' own currency when they all share one.
+  const totalsCurrency = sharedCurrency(bills.map((b) => b.currency));
   const totalDue = sum(unpaid, outstanding);
   const overdueTotal = sum(overdue, outstanding);
   const dueThisWeekTotal = sum(dueThisWeek, outstanding);
@@ -214,9 +217,9 @@ export function BillsView({
         <div>
           <h1 className="text-2xl font-semibold">Bills &amp; expenses</h1>
           <p className="text-sm text-muted-foreground">
-            {unpaid.length} unpaid · {formatMoney(totalDue)} outstanding
+            {unpaid.length} unpaid · {formatMoney(totalDue, totalsCurrency)} outstanding
             {subscriptions.length > 0
-              ? ` · subscriptions ${formatMoney(subscriptionsMonthly)} a month`
+              ? ` · subscriptions ${formatMoney(subscriptionsMonthly, totalsCurrency)} a month`
               : ''}
           </p>
         </div>
@@ -228,22 +231,22 @@ export function BillsView({
       </div>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Outstanding" value={formatMoney(totalDue)} icon={Receipt} />
+        <StatCard label="Outstanding" value={formatMoney(totalDue, totalsCurrency)} icon={Receipt} />
         <StatCard
           label="Overdue"
-          value={formatMoney(overdueTotal)}
+          value={formatMoney(overdueTotal, totalsCurrency)}
           icon={AlertTriangle}
           tone={overdue.length > 0 ? 'danger' : 'default'}
         />
         <StatCard
           label="Due this week"
-          value={formatMoney(dueThisWeekTotal)}
+          value={formatMoney(dueThisWeekTotal, totalsCurrency)}
           icon={CalendarClock}
           tone={dueThisWeek.length > 0 ? 'warning' : 'default'}
         />
         <StatCard
           label="Paid this month"
-          value={formatMoney(paidThisMonth)}
+          value={formatMoney(paidThisMonth, totalsCurrency)}
           icon={CheckCircle2}
           tone="success"
         />
@@ -666,7 +669,7 @@ export function BillDialog({
             : undefined
           : {
               kind: repeat,
-              interval,
+              interval: Math.max(1, interval),
               // The server uses the household's zone; this just says the same.
               timezone: timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
               until: until ? noonIn(until, timeZone) : null,
@@ -717,6 +720,8 @@ export function BillDialog({
     <Dialog
       open
       onClose={onClose}
+      // A stray tap outside must not throw away the bill being typed.
+      preventOutsideClose
       title={bill ? (sub ? 'Edit subscription' : 'Edit bill') : sub ? 'New subscription' : 'New bill'}
       footer={
         <>
@@ -932,8 +937,10 @@ export function BillDialog({
                   type="number"
                   min={1}
                   max={365}
-                  value={interval}
-                  onChange={(e) => setInterval(Number(e.target.value) || 1)}
+                  // Empty while it's being retyped (saving reads that as 1):
+                  // snapping back to 1 turned "clear, then 2" into 12.
+                  value={interval || ''}
+                  onChange={(e) => setInterval(Number(e.target.value) || 0)}
                   className="w-20"
                   {...fe.invalid('recurrence')}
                 />

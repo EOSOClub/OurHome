@@ -307,6 +307,20 @@ export function freshestPhone<T extends { lastSeenAt: Date }>(phones: T[]): T | 
   return phones.reduce<T | null>((best, p) => (!best || p.lastSeenAt > best.lastSeenAt ? p : best), null);
 }
 
+/**
+ * The apps every one of a child's devices says it always keeps open (its
+ * phone, messages, home screen, Our Home), which is why they can't be blocked
+ * or limited. Every device that sent a list has to agree: a check-in is sent
+ * by the child's own session, so one made-up device listing an app must not
+ * be able to stop the adults blocking it. An extra device can only shorten
+ * this list.
+ */
+export function alwaysAllowedByAll(phones: { alwaysAllowed?: string[] | null }[]): string[] {
+  const lists = phones.map((p) => p.alwaysAllowed ?? []).filter((l) => l.length > 0);
+  if (lists.length === 0) return [];
+  return lists[0].filter((app) => lists.every((l) => l.includes(app)));
+}
+
 /** The last time the phone was heard from: a check-in, or its stream opening or closing. */
 export function lastWordAt(phone: PhoneSnapshot): Date {
   const stream = phone.streamAt;

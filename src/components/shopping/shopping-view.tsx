@@ -46,6 +46,8 @@ import {
 } from '@/components/shopping/shopping-item-row';
 
 const LISTS_KEY = ['shopping-lists'];
+/** Check-off requests, so the list refetches once after the last of a run. */
+const TOGGLE_KEY = ['shopping', 'toggle'] as const;
 // The lists are shared: poll so one person's changes reach everyone else's
 // screen. TanStack pauses the interval while the tab is in the background.
 const POLL_MS = 25_000;
@@ -263,16 +265,17 @@ export function ShoppingView({
   });
 
   const togglePurchased = useMutation({
+    mutationKey: TOGGLE_KEY,
     mutationFn: (item: ShoppingItemDTO) =>
       apiFetch<ShoppingItemDTO>('/api/shopping/items/purchase', {
         method: 'POST',
         body: JSON.stringify({ itemId: item.id, purchased: !item.purchased }),
       }),
     // Optimistically move the item between "to buy" and "in cart" so the
-    // check-off feels instant; onSettled re-syncs with the server either way.
+    // check-off feels instant; the fetch after the last tap re-syncs with the
+    // server either way.
     onMutate: async (item) => {
       await queryClient.cancelQueries({ queryKey: LISTS_KEY });
-      const previous = queryClient.getQueryData<ShoppingListDTO[]>(LISTS_KEY);
       const purchased = !item.purchased;
       queryClient.setQueryData<ShoppingListDTO[]>(LISTS_KEY, (old) =>
         old?.map((list) =>
@@ -296,18 +299,21 @@ export function ShoppingView({
             : list,
         ),
       );
-      return { previous };
     },
-    onError: (error, _item, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(LISTS_KEY, context.previous);
-      }
+    onError: (error) => {
+      // No snapshot rollback: it would also undo later ticks still on their
+      // way. The fetch below (once the last tap settles) restores the truth.
       // A local onError suppresses the global MutationCache toast; re-surface.
       toast.error(
         error instanceof Error ? error.message : 'Something went wrong.',
       );
     },
-    onSettled: () => invalidate(),
+    // Fetch again only after the last tick in flight: an earlier fetch could
+    // land before a later tick is saved, so items ticked quickly jumped back
+    // to "to buy" and then forward again.
+    onSettled: () => {
+      if (queryClient.isMutating({ mutationKey: TOGGLE_KEY }) <= 1) void invalidate();
+    },
   });
 
   // Deleting a single item is low-stakes, so skip the confirmation dialog: hide it

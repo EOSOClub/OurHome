@@ -112,7 +112,10 @@ export async function reportIcons(
     if (png.length > USAGE_ICON_MAX_BYTES || !isPng(png)) continue;
     await prisma.appIcon.upsert({
       where: { householdId_app: { householdId, app: icon.app } },
-      update: { png },
+      // A stored icon stays. Icons are shared by the household, and the phone
+      // only sends the ones the server said it lacks; replacing one let any
+      // member change the picture the adults see next to someone else's apps.
+      update: {},
       create: { householdId, app: icon.app, png },
     });
     saved++;

@@ -15,7 +15,7 @@ import {
   findItemInHousehold,
   itemToDTO,
 } from '@/server/services/inventoryService';
-import { ConflictError, NotFoundError } from '@/server/services/errors';
+import { ConflictError, ForbiddenError, NotFoundError } from '@/server/services/errors';
 
 /** Everything a tag stores as JSON text in `config`. */
 export interface TagConfig {
@@ -168,6 +168,34 @@ export async function lookupNfcTag(householdId: string, tagId: string): Promise<
     tag: tagToDTO(tag, new Map(item ? [[item.id, { id: item.id, name: item.name }]] : [])),
     item: item ? itemToDTO(item) : null,
   };
+}
+
+/**
+ * A tag setup from a member who may not change what a tag does (Inventory
+ * "Edit others'", owner 2026-11-08; the same rule as updateTagSettings).
+ * Binding a tag to an item is still theirs to do. Going through setup, they
+ * could also change an existing tag's scan action and shopping list, turn it
+ * into a room tag, or point a room tag somewhere else. Here an existing tag
+ * keeps its settings (the app sends them with every setup, so they are
+ * dropped, not refused) and anything to do with a room tag is refused.
+ */
+export async function limitTagSetup(
+  householdId: string,
+  input: NfcSetupInput,
+  mayChangeTag: boolean,
+): Promise<NfcSetupInput> {
+  if (mayChangeTag) return input;
+  const existing = await prisma.nfcTag.findUnique({
+    where: { householdId_tagId: { householdId, tagId: input.tagId } },
+    select: { represents: true, roomId: true },
+  });
+  const sameRoomTag =
+    !!existing && existing.represents === 'location' && !!input.roomId && existing.roomId === input.roomId;
+  if ((input.roomId || existing?.represents === 'location') && !sameRoomTag) {
+    throw new ForbiddenError('You can’t change what this tag does.');
+  }
+  if (!existing) return input;
+  return { ...input, scanAction: undefined, shoppingListId: undefined };
 }
 
 /**

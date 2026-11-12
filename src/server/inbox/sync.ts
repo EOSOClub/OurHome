@@ -9,6 +9,7 @@ import { withdrawEmailDoc } from '@/server/inbox/withdraw';
 import { removedHere, sendInboxChanges } from '@/server/inbox/changes';
 import { hasPaperless, paperlessMayUsePrivateNetwork } from '@/server/services/paperlessSync';
 import { getPointsSettings } from '@/server/services/pointsService';
+import { syncFailureMessage } from '@/server/api/syncError';
 import type { InboxOutcome, InboxStatusDTO, InboxSyncResultDTO } from '@/lib/types';
 
 // Imports bills and bill payments from OurHomeInbox, the email bill reader
@@ -140,10 +141,14 @@ async function handle(
   return { outcome: out.status };
 }
 
+/** What the Settings card says after a failure that isn't for its reader (the log has it). */
+const STORED_FAILURE = 'OurHomeInbox import failed. The server log has the details.';
+
 async function syncOnce(householdId: string): Promise<InboxSyncResultDTO | null> {
   const cfg = await connectionFor(householdId).catch(async (err: unknown) => {
-    // A connection that can't be used (unreadable token) is shown on the card.
-    const message = err instanceof Error ? err.message : String(err);
+    // A connection that can't be used (unreadable token) is shown on the card,
+    // in plain words: never a raw database error (syncFailureMessage).
+    const message = syncFailureMessage(err, STORED_FAILURE, 'inbox');
     await prisma.inboxSync.updateMany({ where: { householdId }, data: { lastRunAt: new Date(), lastError: message } });
     throw err;
   });
@@ -199,7 +204,7 @@ async function syncOnce(householdId: string): Promise<InboxSyncResultDTO | null>
     }
     return result;
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = syncFailureMessage(err, STORED_FAILURE, 'inbox');
     result.skipped = result.skipped.slice(0, MAX_SKIPPED);
     await prisma.inboxSync.update({
       where: { householdId },

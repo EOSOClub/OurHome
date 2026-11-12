@@ -110,6 +110,8 @@ export function SendCheckDialog({
     <Dialog
       open
       onClose={onClose}
+      // A stray tap outside must not throw away the photo and note.
+      preventOutsideClose
       title={`Send “${task.title}” for a check`}
       description="An adult will look at it before the points are paid."
       footer={

@@ -20,6 +20,7 @@ import type { PageAccess } from '@/lib/permissions';
 import { apiFetch } from '@/lib/api';
 import { useFieldErrors, type FieldErrorsState } from '@/lib/use-field-errors';
 import { groupByPlace } from '@/lib/places';
+import { adjustedQuantity } from '@/lib/validation/inventory';
 import { cn } from '@/lib/utils';
 import { LocationSelect, placeIds } from '@/components/location-select';
 import { PLACES_KEY } from '@/components/settings/places-card';
@@ -218,7 +219,9 @@ export function InventoryView({
       queryClient.setQueryData<InventoryItemDTO[]>(ITEMS_KEY, (old) =>
         old?.map((item) => {
           if (item.id !== itemId) return item;
-          const quantity = Math.max(0, item.quantity + delta);
+          // The number the server will store: rounded and capped the same
+          // way, so 0.1 + 0.2 never shows as 0.30000000000000004 meanwhile.
+          const quantity = adjustedQuantity(item.quantity, delta);
           return {
             ...item,
             quantity,

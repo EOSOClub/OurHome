@@ -8,6 +8,10 @@ const API_VERSION = 9;
 const TIMEOUT_MS = 20_000;
 /** How many times a list that changed while it was read is read again (listAll). */
 const LIST_ATTEMPTS = 3;
+/** Most pages of one list read in one go (100 a page: 50,000 rows). */
+const MAX_PAGES = 500;
+/** Most bytes read from one answer. A page of 100 documents is far smaller. */
+const MAX_BODY_BYTES = 20 * 1024 * 1024;
 
 export interface PaperlessConfig {
   /** How this server reaches Paperless, e.g., http://paperless:8000 on the Docker network. */
@@ -41,6 +45,32 @@ interface Page<T> {
 }
 
 export class PaperlessError extends Error {}
+
+/**
+ * The answer's text, read up to MAX_BODY_BYTES: a household can point this at
+ * any address, and an endless or huge answer would otherwise be read whole
+ * into memory.
+ */
+async function readCapped(res: Response, pathAndQuery: string): Promise<string> {
+  const tooBig = () =>
+    new PaperlessError(`Paperless sent more than this import reads for ${pathAndQuery.split('?')[0]}.`);
+  if (Number(res.headers.get('content-length')) > MAX_BODY_BYTES) throw tooBig();
+  if (!res.body) return res.text();
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+    size += chunk.value.byteLength;
+    if (size > MAX_BODY_BYTES) {
+      await reader.cancel().catch(() => undefined);
+      throw tooBig();
+    }
+    chunks.push(chunk.value);
+  }
+  return new TextDecoder().decode(Buffer.concat(chunks));
+}
 
 export class PaperlessClient {
   constructor(private readonly cfg: PaperlessConfig) {}
@@ -76,7 +106,7 @@ export class PaperlessClient {
     if (!res.ok) {
       throw new PaperlessError(`Paperless answered ${res.status} for ${pathAndQuery.split('?')[0]}.`);
     }
-    return (await res.json()) as T;
+    return JSON.parse(await readCapped(res, pathAndQuery)) as T;
   }
 
   /**
@@ -93,7 +123,13 @@ export class PaperlessClient {
       let total: number | null = null;
       let changed = false;
       const out: T[] = [];
+      let pages = 0;
       while (next) {
+        // A Paperless that never stops sending `next` held up the whole sweep
+        // (every household's reminders wait behind this import).
+        if (++pages > MAX_PAGES) {
+          throw new PaperlessError(`Paperless kept sending more pages of ${path.split('?')[0]} than this import reads.`);
+        }
         const page: Page<T> = await this.get<Page<T>>(next);
         if (total !== null && page.count !== total) {
           changed = true;
@@ -101,7 +137,8 @@ export class PaperlessClient {
         }
         total = page.count;
         out.push(...page.results);
-        next = page.next ? this.pathOf(page.next) : null;
+        // Everything it said there is has arrived: a further `next` is not followed.
+        next = page.next && out.length < page.count ? this.pathOf(page.next) : null;
       }
       if (!changed) return out;
     }

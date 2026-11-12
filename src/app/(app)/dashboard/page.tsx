@@ -438,7 +438,11 @@ function ComingUpCard({ data }: { data: DashboardData }) {
       title: b.name,
       detail: formatDueDate(b.dueDate, data.timezone),
       late: isOverdue(b.dueDate, data.timezone),
-      trailing: formatMoney(b.amount, b.currency),
+      // What is left to pay once part of it is paid, like the Bills page.
+      trailing:
+        b.paidTotal > 0
+          ? `${formatMoney(Math.max(0, b.amount - b.paidTotal), b.currency)} left`
+          : formatMoney(b.amount, b.currency),
     })),
   ]
     .sort((a, b) => a.at.getTime() - b.at.getTime())

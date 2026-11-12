@@ -40,7 +40,16 @@ export function StatCard({
         <Icon className="size-5" />
       </span>
       <div className="min-w-0">
-        <div className="text-2xl font-semibold leading-tight">{value}</div>
+        {/* A long value (a money total) is set smaller on a phone and may
+            wrap: at full size it ran past the card in a two-column grid. */}
+        <div
+          className={cn(
+            'break-words font-semibold leading-tight',
+            String(value).length > 7 ? 'text-lg sm:text-2xl' : 'text-2xl',
+          )}
+        >
+          {value}
+        </div>
         <div className="truncate text-xs text-muted-foreground">{label}</div>
       </div>
     </Card>

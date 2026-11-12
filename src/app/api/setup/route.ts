@@ -4,6 +4,7 @@ import {
   PUBLIC_BODY_MAX_BYTES,
   clientIp,
   fail,
+  isCrossSiteWrite,
   ok,
   rateLimit,
   readJsonCapped,
@@ -43,6 +44,12 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
   if (!isFromLocalNetwork(req.headers)) {
     return fail('Finish setup from a device on your home network.', 403);
+  }
+  // Another website open in a browser on the home network could otherwise
+  // post this form itself and claim a fresh server. The setup page (same
+  // origin) and scripts (no Sec-Fetch-Site) are unaffected.
+  if (isCrossSiteWrite(req)) {
+    return fail('Refused: this request came from another site.', 403);
   }
 
   try {

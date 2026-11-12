@@ -160,16 +160,21 @@ export function TaskCard({
   const headHint = isHead && waitingCheck && !sentByMe && !checkId;
   const takingBack = !!checkId && takingBackId === checkId;
 
+  // One add at a time: a double tap (or Enter then the button) added it twice.
+  const [addingStep, setAddingStep] = useState(false);
   async function submitSubtask() {
     const t = subtaskDraft.trim();
-    if (!t) return;
+    if (!t || addingStep) return;
     setSubtaskError(null);
+    setAddingStep(true);
     try {
       await onAddSubtask(task.id, t);
       // Only once it's added, so a refused title stays to fix.
       setSubtaskDraft('');
     } catch (err) {
       setSubtaskError(fieldErrors(err).title ?? (err instanceof Error ? err.message : 'Could not add it.'));
+    } finally {
+      setAddingStep(false);
     }
   }
 
@@ -395,7 +400,7 @@ export function TaskCard({
             {task.recurrence ? (
               <span className="inline-flex items-center gap-1 text-muted-foreground">
                 <Repeat className="size-3" />
-                {recurrenceLabel(task.recurrence)}
+                {recurrenceLabel(task.recurrence, timeZone)}
               </span>
             ) : (
               <Badge variant="outline">
@@ -472,6 +477,7 @@ export function TaskCard({
                     variant="outline"
                     size="sm"
                     onClick={() => void submitSubtask()}
+                    disabled={addingStep}
                     aria-label="Add checklist item"
                   >
                     <Plus />
@@ -490,9 +496,10 @@ export function TaskCard({
 }
 
 
-function recurrenceLabel(r: NonNullable<TaskDTO['recurrence']>): string {
+function recurrenceLabel(r: NonNullable<TaskDTO['recurrence']>, timeZone?: string): string {
   const base = baseRecurrenceLabel(r);
-  return r.until ? `${base}, ends ${formatUntil(r.until)}` : base;
+  // The end date in the household's zone, like the form that set it.
+  return r.until ? `${base}, ends ${formatUntil(r.until, timeZone)}` : base;
 }
 
 function baseRecurrenceLabel(r: NonNullable<TaskDTO['recurrence']>): string {

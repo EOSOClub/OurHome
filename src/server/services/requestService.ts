@@ -619,11 +619,7 @@ export async function updateRequest(
     };
   }
 
-  const request = await prisma.request.update({
-    where: { id: input.id },
-    data: { ...data, changedById: userId },
-    include: requestInclude,
-  });
+  const request = await writeIfUnchanged(existing, userId, data);
 
   await logActivity({
     householdId,
@@ -667,18 +663,13 @@ export async function reassignRequest(
   }
   const assignee = await assertAssignable(householdId, modules, input.assigneeId, existing.assigneeId, true);
 
-  const request = await prisma.request.update({
-    where: { id: input.id },
-    data: {
-      assignee: { connect: { id: assignee.id } },
-      // A new assignee hasn't agreed to anything yet.
-      status: 'pending',
-      dueAt: null,
-      acceptedAt: null,
-      completedAt: null,
-      changedById: actor.id,
-    },
-    include: requestInclude,
+  const request = await writeIfUnchanged(existing, actor.id, {
+    assignee: { connect: { id: assignee.id } },
+    // A new assignee hasn't agreed to anything yet.
+    status: 'pending',
+    dueAt: null,
+    acceptedAt: null,
+    completedAt: null,
   });
 
   await logActivity({
@@ -866,19 +857,49 @@ async function claimAnswer(
   actorId: string,
 ) {
   const { count } = await tx.request.updateMany({
-    where: {
-      id: existing.id,
-      householdId: existing.householdId,
-      // Old media requests have no status at all.
-      ...(existing.status
-        ? { status: existing.status }
-        : { OR: [{ status: null }, { status: { isSet: false } }] }),
-    },
+    where: stillAsRead(existing),
     data: { status, changedById: actorId },
   });
   if (count === 0) {
     throw new ConflictError(JUST_CHANGED);
   }
+}
+
+/** The request, only while it still has the status it was read with. */
+function stillAsRead(existing: { id: string; householdId: string; status: string | null }) {
+  return {
+    id: existing.id,
+    householdId: existing.householdId,
+    // Old media requests have no status at all.
+    ...(existing.status
+      ? { status: existing.status }
+      : { OR: [{ status: null }, { status: { isSet: false } }] }),
+  };
+}
+
+/**
+ * An edit or a reassignment, written only if the request still has the status
+ * its checks were made against. Without this, a reassign landing a moment
+ * after the assignee marked it done put a finished job back to "pending", and
+ * an edit landing after a yes changed what had been approved.
+ */
+function writeIfUnchanged(
+  existing: { id: string; householdId: string; status: string | null },
+  actorId: string,
+  data: Prisma.RequestUpdateInput,
+): Promise<RequestWithPeople> {
+  return answerTransaction(async (tx) => {
+    const { count } = await tx.request.updateMany({
+      where: stillAsRead(existing),
+      data: { changedById: actorId },
+    });
+    if (count === 0) throw new ConflictError(JUST_CHANGED);
+    return tx.request.update({
+      where: { id: existing.id },
+      data: { ...data, changedById: actorId },
+      include: requestInclude,
+    });
+  });
 }
 
 /**

@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -192,7 +193,12 @@ export function UserMenu({
         </div>
       ) : null}
 
-      <ReportBugDialog open={bugOpen} onClose={() => setBugOpen(false)} />
+      {/* Portalled to the body: this menu sits in the page header, whose
+          backdrop blur makes it the containing block for anything `fixed`
+          inside it, so the dialog's overlay was boxed into the header. */}
+      {bugOpen
+        ? createPortal(<ReportBugDialog open onClose={() => setBugOpen(false)} />, document.body)
+        : null}
     </div>
   );
 }

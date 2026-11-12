@@ -47,12 +47,20 @@ export function Tooltip({
   return (
     <span
       className={cn('relative inline-flex', className)}
-      onMouseEnter={show}
-      onMouseLeave={hide}
+      // A mouse only: a finger has no hover, and its tap left the tooltip
+      // stuck on screen (the bell stays in the header across pages).
+      onPointerEnter={(e) => {
+        if (e.pointerType === 'mouse') show();
+      }}
+      onPointerLeave={hide}
       // Focus/blur bubble through React's delegation, so keyboard focus on the
-      // wrapped control triggers these too.
-      onFocus={show}
+      // wrapped control triggers these too. Keyboard focus only: a tap or
+      // click also focuses the control.
+      onFocus={(e) => {
+        if ((e.target as Element).matches(':focus-visible')) show();
+      }}
       onBlur={hide}
+      onClick={hide}
       onKeyDown={(e) => {
         if (e.key === 'Escape') hide();
       }}

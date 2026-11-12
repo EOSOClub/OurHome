@@ -1,14 +1,14 @@
 import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { username } from 'better-auth/plugins';
-import { createAuthMiddleware, isAPIError } from 'better-auth/api';
+import { APIError, createAuthMiddleware, isAPIError } from 'better-auth/api';
 import { nextCookies } from 'better-auth/next-js';
 import { activeProvider, prisma } from '@/server/db/prisma';
 import { sendEmail } from '@/server/email/mailer';
 import { APP_NAME } from '@/server/config';
 import { isLocalHostname } from '@/server/security/network';
 import { isPlaceholderEmail } from '@/lib/placeholderEmail';
-import { USERNAME_PATTERN } from '@/lib/validation/user';
+import { USERNAME_PATTERN, nameSchema } from '@/lib/validation/user';
 
 const ONE_WEEK = 60 * 60 * 24 * 7;
 const ONE_DAY = 60 * 60 * 24;
@@ -139,6 +139,39 @@ If you didn't request this, you can safely ignore this email.`,
   // without changing anything). Their setup link ends with it: the phone it
   // was for is signed in.
   hooks: {
+    // Better Auth's own routes are open to every signed-in member, so the
+    // app's rules for them are checked here, before the route runs.
+    before: createAuthMiddleware(async (ctx) => {
+      const body = (ctx.body ?? {}) as Record<string, unknown>;
+      if (ctx.path === '/update-user') {
+        // The profile form changes the name through this route. A username is
+        // changed through /api/profile (profileService), which keeps the
+        // stand-in email in step; here it skipped that, and `displayUsername`
+        // (what Members shows) was not checked at all, so a member could show
+        // up under someone else's username.
+        if ('username' in body || 'displayUsername' in body) {
+          throw new APIError('BAD_REQUEST', { message: 'Change your username in your profile.' });
+        }
+        if ('name' in body) {
+          const name = nameSchema.safeParse(body.name);
+          if (!name.success) {
+            throw new APIError('BAD_REQUEST', { message: name.error.issues[0]?.message ?? 'Enter a name.' });
+          }
+        }
+      }
+      // "Changing" a password to the same one would lift the forced change
+      // below and leave the temporary password, which someone else chose, working.
+      if (
+        ctx.path === '/change-password' &&
+        typeof body.newPassword === 'string' &&
+        body.newPassword === body.currentPassword
+      ) {
+        throw new APIError('BAD_REQUEST', {
+          code: 'PASSWORD_UNCHANGED',
+          message: 'Choose a password different from the current one.',
+        });
+      }
+    }),
     after: createAuthMiddleware(async (ctx) => {
       if (ctx.path !== '/change-password' || isAPIError(ctx.context.returned)) return;
       const userId = ctx.context.session?.user.id;

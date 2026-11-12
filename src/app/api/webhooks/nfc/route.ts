@@ -8,7 +8,7 @@ import {
 import { ingestNfcScan } from '@/server/services/eventService';
 import { isFeatureEnabled } from '@/server/services/serverAdminService';
 import { nfcScanWebhookSchema } from '@/lib/validation/events';
-import { NotFoundError, PayloadTooLargeError } from '@/server/services/errors';
+import { ConflictError, NotFoundError, PayloadTooLargeError } from '@/server/services/errors';
 
 // Home Assistant calls this endpoint over the LAN when an NFC tag is scanned.
 // It authenticates with a shared bearer token (see HomeAssistantIntegration)
@@ -36,6 +36,9 @@ export async function POST(req: NextRequest): Promise<Response> {
     if (err instanceof NotFoundError) {
       return fail(err.message, 404);
     }
+    // A new tag's first scan sent twice, or a stock change that kept losing
+    // to another: "scan again", not a server error.
+    if (err instanceof ConflictError) return fail(err.message, 409);
     console.error('[webhook] nfc scan failed', err);
     return fail('Internal server error', 500);
   }

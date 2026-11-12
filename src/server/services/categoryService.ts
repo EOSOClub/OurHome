@@ -1,7 +1,7 @@
 import type { Category } from '@prisma/client';
 import { prisma } from '@/server/db/prisma';
 import { logActivity } from '@/server/services/activityService';
-import { ConflictError, NotFoundError } from '@/server/services/errors';
+import { ConflictError, NotFoundError, isUniqueClash } from '@/server/services/errors';
 import type { CategoryAdminDTO } from '@/lib/types';
 import type {
   CreateCategoryInput,
@@ -50,6 +50,16 @@ async function assertNameFree(
   }
 }
 
+/**
+ * The check above and the write are two steps: a double click got past the
+ * check twice, and the second write hit the database's unique name rule,
+ * which came out as a server error. Said as the same "already exists".
+ */
+function nameTaken(err: unknown, name: string, kind: string): never {
+  if (isUniqueClash(err)) throw new ConflictError(`A "${kind}" category named "${name}" already exists.`);
+  throw err;
+}
+
 export async function createCategory(
   householdId: string,
   userId: string,
@@ -57,15 +67,17 @@ export async function createCategory(
 ): Promise<CategoryAdminDTO> {
   const name = input.name.trim();
   await assertNameFree(householdId, name, input.kind);
-  const category = await prisma.category.create({
-    data: {
-      householdId,
-      name,
-      kind: input.kind,
-      color: input.color ?? null,
-      icon: input.icon ?? null,
-    },
-  });
+  const category = await prisma.category
+    .create({
+      data: {
+        householdId,
+        name,
+        kind: input.kind,
+        color: input.color ?? null,
+        icon: input.icon ?? null,
+      },
+    })
+    .catch((err: unknown) => nameTaken(err, name, input.kind));
   await logActivity({
     householdId,
     actorId: userId,
@@ -93,15 +105,17 @@ export async function updateCategory(
     await assertNameFree(householdId, name, kind, existing.id);
   }
 
-  const category = await prisma.category.update({
-    where: { id: existing.id },
-    data: {
-      name,
-      kind,
-      color: input.color === undefined ? undefined : input.color,
-      icon: input.icon === undefined ? undefined : input.icon,
-    },
-  });
+  const category = await prisma.category
+    .update({
+      where: { id: existing.id },
+      data: {
+        name,
+        kind,
+        color: input.color === undefined ? undefined : input.color,
+        icon: input.icon === undefined ? undefined : input.icon,
+      },
+    })
+    .catch((err: unknown) => nameTaken(err, name, kind));
   await logActivity({
     householdId,
     actorId: userId,

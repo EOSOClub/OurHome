@@ -475,6 +475,20 @@ describe('two answers to one request at once', () => {
     expect(prisma.request.update).toHaveBeenCalledTimes(1);
   });
 
+  it('a reassign or an edit landing after it was marked done is refused, so it stays done', async () => {
+    // Both read it as accepted; the assignee's "done" got there first.
+    prisma.request.findFirst.mockResolvedValue({ ...ROW, status: 'accepted' });
+    prisma.user.findFirst.mockResolvedValue({ id: 'alex', name: 'Alex' });
+    modules.getRequestModules.mockResolvedValue(DEFAULT_REQUEST_MODULES);
+    status = 'completed';
+    await expect(reassignRequest(H, HEAD, { id: ID, assigneeId: 'alex' })).rejects.toThrow('just changed');
+    await expect(
+      updateRequest(H, 'sam', { id: ID, category: 'maintenance', title: 'Fix the tap', assigneeId: 'alex' } as never),
+    ).rejects.toThrow('just changed');
+    expect(status).toBe('completed');
+    expect(prisma.request.update).not.toHaveBeenCalled();
+  });
+
   it('two answers at exactly the same moment get the same message, not a server error', async () => {
     const { Prisma } = await import('@prisma/client');
     const { ConflictError } = await import('@/server/services/errors');
@@ -496,6 +510,8 @@ describe('the requester edits a finished maintenance request', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     prisma.request.findFirst.mockResolvedValue({ ...DONE });
+    // An edit is written only while the status still holds; here it does.
+    prisma.request.updateMany.mockResolvedValue({ count: 1 });
     prisma.request.update.mockImplementation(async (args: { data: Record<string, unknown> }) => ({ ...DONE, ...args.data }));
     prisma.user.findFirst.mockImplementation(async (args?: unknown) => {
       const id = (args as { where: { id: string } }).where.id;
